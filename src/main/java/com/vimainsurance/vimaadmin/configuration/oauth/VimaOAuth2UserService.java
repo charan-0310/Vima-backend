@@ -1,17 +1,21 @@
 package com.vimainsurance.vimaadmin.configuration.oauth;
 
 import java.util.Collections;
+import java.util.Map;
 import java.util.Optional;
 
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.http.HttpStatus;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.oauth2.client.userinfo.DefaultOAuth2UserService;
 import org.springframework.security.oauth2.client.userinfo.OAuth2UserRequest;
 import org.springframework.security.oauth2.client.userinfo.OAuth2UserService;
 import org.springframework.security.oauth2.core.OAuth2AuthenticationException;
+import org.springframework.security.oauth2.core.OAuth2Error;
 import org.springframework.security.oauth2.core.user.DefaultOAuth2User;
 import org.springframework.security.oauth2.core.user.OAuth2User;
 import org.springframework.stereotype.Service;
+import org.springframework.web.server.ResponseStatusException;
 
 import com.vimainsurance.vimaadmin.entity.AdminUser;
 import com.vimainsurance.vimaadmin.repository.IAdminUserRepository;
@@ -35,15 +39,6 @@ public class VimaOAuth2UserService implements OAuth2UserService<OAuth2UserReques
         AdminUser user = null;
         if (userOptional.isPresent()) {
             user = userOptional.get();
-        } else {
-            /*
-             * TODO SAVE NEW USERS
-             */
-            user = new AdminUser();
-            user.setEmail(email);
-            user.setUsername(name);
-            user.setRole("AGENT");
-            userRepository.save(user);
         }
 
         return new DefaultOAuth2User(

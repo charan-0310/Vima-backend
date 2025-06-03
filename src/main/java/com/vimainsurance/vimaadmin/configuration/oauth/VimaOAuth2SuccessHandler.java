@@ -1,6 +1,7 @@
 package com.vimainsurance.vimaadmin.configuration.oauth;
 
 import java.io.IOException;
+import java.util.Optional;
 
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.security.core.Authentication;
@@ -33,17 +34,27 @@ public class VimaOAuth2SuccessHandler implements AuthenticationSuccessHandler {
             Authentication authentication) throws IOException, ServletException {
         OAuth2User oauthUser = (OAuth2User) authentication.getPrincipal();
         String email = oauthUser.getAttribute("email");
-        AdminUser user = userRepository.findByEmail(email).orElseThrow();
+
+        Optional<AdminUser> userOptional = userRepository.findByEmail(email);
+        if(!userOptional.isPresent()){
+          String redirectUrl = UriComponentsBuilder
+          .fromUriString("http://localhost:8080/*")
+          .build()
+          .toUriString();
+      
+         response.sendRedirect(redirectUrl);
+         return;
+        }
+        AdminUser user = userOptional.get();
         System.out.println((String)oauthUser.getAttribute("sub"));
         String accessToken = jwtUtil.generateToken(user.getUsername(), user.getRole());
         String refreshToken = jwtUtil.generateRefreshToken(user.getUsername(), user.getRole());
-
        String redirectUrl = UriComponentsBuilder
         .fromUriString("http://localhost:8080/oauth2")
         .fragment("accessToken=" + accessToken + "&refreshToken=" + refreshToken)
         .build()
         .toUriString();
-
+      
        response.sendRedirect(redirectUrl);
        
      }
