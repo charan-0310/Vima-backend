@@ -28,7 +28,7 @@ public class VimaOAuth2UserService implements OAuth2UserService<OAuth2UserReques
         OAuth2User oauthUser = new DefaultOAuth2UserService().loadUser(userRequest);
 
         String email = oauthUser.getAttribute("email");
-        // String name = oauthUser.getAttribute("name");
+        String name = oauthUser.getAttribute("name");
 
         // Check if the user already exists in DB
         Optional<AdminUser> userOptional = userRepository.findByEmail(email);
@@ -39,15 +39,13 @@ public class VimaOAuth2UserService implements OAuth2UserService<OAuth2UserReques
             /*
              * TODO SAVE NEW USERS
              */
-            // // Create a new user (Google users may not have passwords)
-            // user = new User();
-            // user.setEmail(email);
-            // user.setName(name);
-            // user.setRoles(Set.of("ROLE_USER")); // Default role
-            // userRepository.save(user);
+            user = new AdminUser();
+            user.setEmail(email);
+            user.setUsername(name);
+            user.setRole("AGENT");
+            userRepository.save(user);
         }
 
-        // You can return a custom OAuth2User implementation if needed
         return new DefaultOAuth2User(
             Collections.singleton(new SimpleGrantedAuthority("ROLE_" + user.getRole())),
             oauthUser.getAttributes(),

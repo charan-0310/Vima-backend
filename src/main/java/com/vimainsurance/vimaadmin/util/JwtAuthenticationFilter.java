@@ -3,6 +3,7 @@ package com.vimainsurance.vimaadmin.util;
 import java.io.IOException;
 
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.http.HttpStatus;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.core.userdetails.UserDetails;
@@ -41,9 +42,14 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
         if (authHeader != null && authHeader.startsWith("Bearer ")) {
             jwt = authHeader.substring(7);
             try {
+                if (jwtUtil.isTokenExpired(jwt)) {
+                    response.sendError(HttpStatus.UNAUTHORIZED.value(), "JWT token expired");
+                    return;
+                }
                 username = jwtUtil.extractUsername(jwt);
             } catch (Exception e) {
-                // log or handle token parse errors
+                response.sendError(HttpStatus.UNAUTHORIZED.value(), "Invalid JWT token or expired");
+                return;
             }
         }
 

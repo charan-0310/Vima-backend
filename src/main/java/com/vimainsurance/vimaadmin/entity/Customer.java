@@ -1,0 +1,80 @@
+package com.vimainsurance.vimaadmin.entity;
+
+import java.math.BigDecimal;
+import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.util.UUID;
+
+import com.fasterxml.jackson.annotation.JsonIgnore;
+
+import jakarta.persistence.Column;
+import jakarta.persistence.Entity;
+import jakarta.persistence.FetchType;
+import jakarta.persistence.GeneratedValue;
+import jakarta.persistence.Id;
+import jakarta.persistence.JoinColumn;
+import jakarta.persistence.ManyToOne;
+import jakarta.persistence.Table;
+import lombok.Getter;
+import lombok.Setter;
+
+@Getter
+@Setter
+@Entity
+@Table(name = "customers", schema = "admin")
+public class Customer {
+    @Id
+    @GeneratedValue
+    @Column(columnDefinition = "UUID", updatable = false, nullable = false)
+    private UUID id;
+
+    @Column(name = "cust_id", updatable = false, nullable = false)
+    private String custId;
+
+    @Column(name = "full_name", nullable = false)
+    private String fullName;
+
+    @Column(name = "date_of_birth", nullable = false)
+    private LocalDate dateOfBirth;
+
+    @Column(nullable = false)
+    private String gender;
+
+    @Column(name = "phone_number", nullable = false, unique = true)
+    private String phoneNumber;
+
+    @Column(name = "email")
+    private String email;
+
+    @Column(name = "city")
+    private String city;
+
+    @Column(name = "state")
+    private String state;
+
+    @Column(name = "occupation")
+    private String occupation;
+
+    @Column(name = "annual_income")
+    private BigDecimal annualIncome;
+
+    @Column(name = "dependent_count")
+    private Integer dependentCount = 0;
+
+    @Column(name = "zoho_crm_id")
+    private String zohoCrmId;
+
+    @Column(name = "status")
+    private String status;
+
+    @Column(name = "created_at", updatable = false)
+    private LocalDateTime createdAt = LocalDateTime.now();
+
+    @Column(name = "updated_at")
+    private LocalDateTime updatedAt = LocalDateTime.now();
+
+    @JsonIgnore
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "created_by", nullable = false)
+    private AdminUser createdBy;
+}

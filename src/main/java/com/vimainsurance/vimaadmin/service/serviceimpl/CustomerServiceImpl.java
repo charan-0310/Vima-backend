@@ -1,0 +1,138 @@
+package com.vimainsurance.vimaadmin.service.serviceimpl;
+
+import java.time.LocalDateTime;
+import java.util.List;
+import java.util.Optional;
+
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.http.ResponseEntity;
+import org.springframework.stereotype.Service;
+
+import com.vimainsurance.vimaadmin.dto.BaseResponse;
+import com.vimainsurance.vimaadmin.dto.CustomerRequestDto;
+import com.vimainsurance.vimaadmin.dto.ResponseDto;
+import com.vimainsurance.vimaadmin.entity.AdminUser;
+import com.vimainsurance.vimaadmin.entity.Customer;
+import com.vimainsurance.vimaadmin.repository.IAdminUserRepository;
+import com.vimainsurance.vimaadmin.repository.ICustomerRepository;
+import com.vimainsurance.vimaadmin.service.ICustomerService;
+import com.vimainsurance.vimaadmin.util.Constants;
+
+@Service
+public class CustomerServiceImpl implements ICustomerService{
+
+    @Autowired
+    private ICustomerRepository customerRepository;
+
+    @Autowired
+    private IAdminUserRepository adminUserRepository;
+   
+
+
+    @Override
+    public ResponseEntity<ResponseDto<String>> create(CustomerRequestDto requestDto) {
+         BaseResponse<String> responseObj = new BaseResponse<>();
+        try {
+            Optional<Customer> existByPhonenumber = customerRepository.findByPhoneNumber(requestDto.getPhoneNumber());
+            if(existByPhonenumber.isPresent()){
+                return responseObj.render(responseObj.formSuccessResponse(Constants.SUCCESS, "Already Existed"));
+            }
+            Customer customer = new Customer();
+            Optional<AdminUser> adminUser = adminUserRepository.findByUsername("charan-0310");
+            customer.setCustId(generateCustomerId());
+            customer.setFullName(requestDto.getFullName());
+            customer.setDateOfBirth(requestDto.getDateOfBirth());
+            customer.setGender(requestDto.getGender());
+            customer.setPhoneNumber(requestDto.getPhoneNumber());
+            customer.setEmail(requestDto.getEmail());
+            customer.setCity(requestDto.getCity());
+            customer.setState(requestDto.getState());
+            customer.setOccupation(requestDto.getOccupation());
+            customer.setAnnualIncome(requestDto.getAnnualIncome());
+            customer.setDependentCount(requestDto.getDependentCount());
+            customer.setZohoCrmId(requestDto.getZohoCrmId());
+            customer.setStatus(requestDto.getStatus());
+            customer.setCreatedAt(requestDto.getCreatedAt());
+            customer.setUpdatedAt(requestDto.getUpdatedAt());
+            customer.setCreatedBy(adminUser.get());
+            customerRepository.save(customer);
+            return responseObj.render(responseObj.formSuccessResponse(Constants.SUCCESS, Constants.SAVE_SUCCESS));
+        } catch (Exception e) {
+            return responseObj.render(responseObj.formErrorResponse(e.getMessage()));
+        }
+    }
+
+    @Override
+    public ResponseEntity<ResponseDto<String>> update(CustomerRequestDto requestDto) {
+      BaseResponse<String> responseObj = new BaseResponse<>();
+      try {
+        Optional<Customer> existCustomer = customerRepository.findByCustId(requestDto.getCustId());
+        if(existCustomer.isPresent()){
+            Customer customer = existCustomer.get();
+            customer.setFullName(requestDto.getFullName());
+            customer.setDateOfBirth(requestDto.getDateOfBirth());
+            customer.setGender(requestDto.getGender());
+            customer.setPhoneNumber(requestDto.getPhoneNumber());
+            customer.setEmail(requestDto.getEmail());
+            customer.setCity(requestDto.getCity());
+            customer.setState(requestDto.getState());
+            customer.setOccupation(requestDto.getOccupation());
+            customer.setAnnualIncome(requestDto.getAnnualIncome());
+            customer.setDependentCount(requestDto.getDependentCount());
+            customer.setUpdatedAt(LocalDateTime.now());
+            customer.setStatus(requestDto.getStatus());
+            customerRepository.save(customer);
+        } else {
+            return responseObj.render(responseObj.formErrorResponse(Constants.UPDATE_FAILED));
+        }
+        return responseObj.render(responseObj.formSuccessResponse(Constants.SUCCESS, Constants.UPDATE_SUCCESS));
+      } catch (Exception e) {
+        return responseObj.render(responseObj.formErrorResponse(e.getMessage()));
+      }
+    }
+    
+    @Override
+    public ResponseEntity<ResponseDto<String>> delete(CustomerRequestDto requestDto) {
+        BaseResponse<String> responseObj = new BaseResponse<>();
+        try {
+            Optional<Customer> existCustomer = customerRepository.findByCustId(requestDto.getCustId());
+            if(existCustomer.isPresent()){
+                Customer customer = existCustomer.get();
+                customer.setStatus("INACTIVE");
+                customerRepository.save(customer);
+            }
+            else{
+                return responseObj.render(responseObj.formErrorResponse(Constants.DELETE_FAILED));
+            }
+            return responseObj.render(responseObj.formSuccessResponse(Constants.SUCCESS, Constants.DELETE_MESSAGE));
+        } catch (Exception e) {
+            return responseObj.render(responseObj.formErrorResponse(e.getMessage()));
+        }
+    }
+
+
+    public String generateCustomerId() {
+        String maxId = customerRepository.findMaxCustomerId(); 
+        if (maxId == null) {
+            return "C001";
+        }
+        int num = Integer.parseInt(maxId.substring(1));
+        num++;
+        return String.format("C%03d", num);
+    }
+
+    @Override
+    public ResponseEntity<ResponseDto<List<Customer>>> findByAgent(String username) {
+        BaseResponse<List<Customer>> responseObj = new BaseResponse<>();
+        try {
+            Optional<AdminUser> adminUser = adminUserRepository.findByUsername(username);
+            List<Customer> customerList = customerRepository.findByCreatedBy(adminUser.get());
+            if(!customerList.isEmpty()){
+                return responseObj.render(responseObj.formSuccessResponse(Constants.SUCCESS, customerList));
+            }
+            return responseObj.render(responseObj.formSuccessResponse(Constants.SUCCESS, List.of()));
+        } catch (Exception e) {
+            return responseObj.render(responseObj.formErrorResponse(e.getMessage()));
+        }
+    }
+}

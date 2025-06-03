@@ -12,6 +12,8 @@ import org.springframework.web.bind.annotation.RestController;
 
 import com.vimainsurance.vimaadmin.dto.LoginRequestDto;
 import com.vimainsurance.vimaadmin.dto.LoginResponseDto;
+import com.vimainsurance.vimaadmin.dto.RefreshTokenRequestDto;
+import com.vimainsurance.vimaadmin.dto.RefreshTokenResponseDto;
 import com.vimainsurance.vimaadmin.dto.ResponseDto;
 import com.vimainsurance.vimaadmin.service.IAuthService;
 
@@ -34,5 +36,9 @@ public class AuthController {
     @PostMapping("/login")
     public ResponseEntity<ResponseDto<LoginResponseDto>>  login(@RequestBody LoginRequestDto reqDto){
     return authService.login(reqDto);
+    }
+    @PostMapping("/refresh-token")
+    public ResponseEntity<ResponseDto<RefreshTokenResponseDto>>  refreshToken(@RequestBody RefreshTokenRequestDto reqDto){
+    return authService.getRefreshToken(reqDto);
     }
 }
