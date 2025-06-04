@@ -35,8 +35,8 @@ public class Quotes {
     @Column(length = 20)
     private String status;
 
-    @Column
-    private LocalDate date;
+    @Column(name = "created_date")
+    private LocalDate xreatedDate;
 
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "customer_id", nullable = false)

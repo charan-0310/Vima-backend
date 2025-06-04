@@ -9,6 +9,10 @@ public class BaseResponse<T> {
 		return new ResponseDto<>(message, result);
 	}
 
+	public ResponseDto<T> formSuccessResponse(String message, T result, Integer totalRecords) {
+		return new ResponseDto<>(message, result, totalRecords);
+	}
+
 	public ResponseDto<T> formSuccessResponse(String message) {
 		return new ResponseDto<>(message, null);
 	}

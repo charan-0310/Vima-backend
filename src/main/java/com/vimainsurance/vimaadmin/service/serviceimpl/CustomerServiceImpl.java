@@ -1,10 +1,14 @@
 package com.vimainsurance.vimaadmin.service.serviceimpl;
 
 import java.time.LocalDateTime;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
 import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Service;
 
@@ -128,9 +132,26 @@ public class CustomerServiceImpl implements ICustomerService{
             Optional<AdminUser> adminUser = adminUserRepository.findByUsername(username);
             List<Customer> customerList = customerRepository.findByCreatedBy(adminUser.get());
             if(!customerList.isEmpty()){
-                return responseObj.render(responseObj.formSuccessResponse(Constants.SUCCESS, customerList));
+                return responseObj.render(responseObj.formSuccessResponse(Constants.SUCCESS, customerList, customerList.size()));
             }
             return responseObj.render(responseObj.formSuccessResponse(Constants.SUCCESS, List.of()));
+        } catch (Exception e) {
+            return responseObj.render(responseObj.formErrorResponse(e.getMessage()));
+        }
+    }
+
+    @Override
+    public ResponseEntity<ResponseDto<List<Customer>>> getAllCustomers(int page, int rec) {
+        BaseResponse<List<Customer>> responseObj = new BaseResponse<>();
+        try {
+            if (page == -1 && rec == -1) {
+                List<Customer> customerList = customerRepository.findAll();
+                return responseObj.render(responseObj.formSuccessResponse(Constants.SUCCESS, customerList, customerList.size()));
+            } else {
+                 Pageable pageable = PageRequest.of(page, rec);
+                 Page<Customer> customerPage = customerRepository.findAll(pageable);
+                 return responseObj.render(responseObj.formSuccessResponse(Constants.SUCCESS, customerPage.getContent(), customerPage.getTotalPages()));
+            }
         } catch (Exception e) {
             return responseObj.render(responseObj.formErrorResponse(e.getMessage()));
         }

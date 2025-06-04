@@ -13,9 +13,17 @@ public class ResponseDto<T> {
 
 	private T payload;
 
+	private Integer totalRecords;
+
 	public ResponseDto(String message, T payload) {
 		this.message = message;
 		this.payload = payload;
+	}
+
+	public ResponseDto(String message, T payload, Integer totalRecords) {
+		this.message = message;
+		this.payload = payload;
+		this.totalRecords = totalRecords;
 	}
 
 	public ResponseDto(Integer errorCode, String message) {

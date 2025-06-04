@@ -13,5 +13,6 @@ public interface ICustomerService {
     ResponseEntity<ResponseDto<String>> update(CustomerRequestDto requestDto);
     ResponseEntity<ResponseDto<String>> delete(CustomerRequestDto requestDto);
     ResponseEntity<ResponseDto<List<Customer>>> findByAgent(String username);
+    ResponseEntity<ResponseDto<List<Customer>>> getAllCustomers(int page, int rec);
 
 }
