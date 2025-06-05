@@ -28,6 +28,7 @@ import lombok.Setter;
 @Entity
 @Table(name = "customers", schema = "admin")
 public class Customer {
+    @JsonIgnore
     @Id
     @GeneratedValue
     @Column(columnDefinition = "UUID", updatable = false, nullable = false)

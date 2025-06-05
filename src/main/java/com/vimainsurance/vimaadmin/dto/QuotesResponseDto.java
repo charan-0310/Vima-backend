@@ -1,15 +1,13 @@
 package com.vimainsurance.vimaadmin.dto;
 
 import java.time.LocalDate;
-import java.util.Date;
 
 import lombok.Getter;
 import lombok.Setter;
 
 @Getter
 @Setter
-public class QuotesRequestDto {
-  private String quoteId;
+public class QuotesResponseDto {
   private String coverageAmount;
   private String bestPremium;
   private String status;

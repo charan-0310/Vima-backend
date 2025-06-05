@@ -14,6 +14,7 @@ import org.springframework.stereotype.Service;
 
 import com.vimainsurance.vimaadmin.dto.BaseResponse;
 import com.vimainsurance.vimaadmin.dto.CustomerRequestDto;
+import com.vimainsurance.vimaadmin.dto.CustomerResponseDto;
 import com.vimainsurance.vimaadmin.dto.ResponseDto;
 import com.vimainsurance.vimaadmin.entity.AdminUser;
 import com.vimainsurance.vimaadmin.entity.Customer;
@@ -35,7 +36,7 @@ public class CustomerServiceImpl implements ICustomerService{
 
     @Override
     public ResponseEntity<ResponseDto<String>> create(CustomerRequestDto requestDto) {
-         BaseResponse<String> responseObj = new BaseResponse<>();
+        BaseResponse<String> responseObj = new BaseResponse<>();
         try {
             Optional<Customer> existByPhonenumber = customerRepository.findByPhoneNumber(requestDto.getPhoneNumber());
             if(existByPhonenumber.isPresent()){
@@ -152,6 +153,36 @@ public class CustomerServiceImpl implements ICustomerService{
                  Page<Customer> customerPage = customerRepository.findAll(pageable);
                  return responseObj.render(responseObj.formSuccessResponse(Constants.SUCCESS, customerPage.getContent(), customerPage.getTotalPages()));
             }
+        } catch (Exception e) {
+            return responseObj.render(responseObj.formErrorResponse(e.getMessage()));
+        }
+    }
+
+    @Override
+    public ResponseEntity<ResponseDto<CustomerResponseDto>> getByCustId(String custId) {
+        BaseResponse<CustomerResponseDto> responseObj = new BaseResponse<>();
+        try {
+            Optional<Customer> optionalCustomer = customerRepository.findByCustId(custId);
+            if(optionalCustomer.isEmpty()){
+                return responseObj.render(responseObj.formErrorResponse(Constants.RECORD_NOT_FOUND_MESSAGE));
+            }
+            CustomerResponseDto responseDto = new CustomerResponseDto();
+            Customer customer = optionalCustomer.get();
+            responseDto.setCustId(customer.getCustId());
+            responseDto.setFullName(customer.getFullName());
+            responseDto.setDateOfBirth(customer.getDateOfBirth());
+            responseDto.setGender(customer.getGender());
+            responseDto.setPhoneNumber(customer.getPhoneNumber());
+            responseDto.setEmail(customer.getEmail());
+            responseDto.setCity(customer.getCity());
+            responseDto.setState(customer.getState());
+            responseDto.setOccupation(customer.getOccupation());
+            responseDto.setAnnualIncome(customer.getAnnualIncome());
+            responseDto.setDependentCount(customer.getDependentCount());
+            responseDto.setUpdatedAt(LocalDateTime.now());
+            responseDto.setStatus(customer.getStatus());
+            responseDto.setQuotes(customer.getQuotes());
+            return responseObj.render(responseObj.formSuccessResponse(Constants.SUCCESS, responseDto,1));
         } catch (Exception e) {
             return responseObj.render(responseObj.formErrorResponse(e.getMessage()));
         }

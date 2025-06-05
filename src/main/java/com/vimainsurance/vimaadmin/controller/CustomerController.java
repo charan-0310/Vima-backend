@@ -16,6 +16,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 import com.vimainsurance.vimaadmin.dto.CustomerRequestDto;
+import com.vimainsurance.vimaadmin.dto.CustomerResponseDto;
 import com.vimainsurance.vimaadmin.dto.ResponseDto;
 import com.vimainsurance.vimaadmin.entity.Customer;
 import com.vimainsurance.vimaadmin.service.ICustomerService;
@@ -50,6 +51,12 @@ public class CustomerController {
     @PreAuthorize("hasRole('SALES_AGENT')")
     public ResponseEntity<ResponseDto<List<Customer>>> getCustomerByAgent(@PathVariable String username){
         return iCustomerService.findByAgent(username);
+    }
+
+    @GetMapping("/customers/{custId}")
+    @PreAuthorize("hasRole('SALES_AGENT')")
+    public ResponseEntity<ResponseDto<CustomerResponseDto>> getCustomerById(@PathVariable String custId){
+        return iCustomerService.getByCustId(custId);
     }
 
 }
