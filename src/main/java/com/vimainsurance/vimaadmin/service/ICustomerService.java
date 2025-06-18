@@ -13,7 +13,7 @@ public interface ICustomerService {
     ResponseEntity<ResponseDto<String>> create(CustomerRequestDto requestDto);
     ResponseEntity<ResponseDto<String>> update(CustomerRequestDto requestDto);
     ResponseEntity<ResponseDto<String>> delete(CustomerRequestDto requestDto);
-    ResponseEntity<ResponseDto<List<Customer>>> findByAgent(String username);
+    ResponseEntity<ResponseDto<List<CustomerResponseDto>>> findByAgent(String username);
     ResponseEntity<ResponseDto<List<Customer>>> getAllCustomers(int page, int rec);
     ResponseEntity<ResponseDto<CustomerResponseDto>> getByCustId(String cutId);
 

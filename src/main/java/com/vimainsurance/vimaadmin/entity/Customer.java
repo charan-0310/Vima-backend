@@ -40,10 +40,10 @@ public class Customer {
     @Column(name = "full_name", nullable = false)
     private String fullName;
 
-    @Column(name = "date_of_birth", nullable = false)
+    @Column(name = "date_of_birth" )
     private LocalDate dateOfBirth;
 
-    @Column(nullable = false)
+    @Column()
     private String gender;
 
     @Column(name = "phone_number", nullable = false, unique = true)
@@ -83,6 +83,11 @@ public class Customer {
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "created_by", nullable = false)
     private AdminUser createdBy;
+
+    @JsonIgnore
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "owner", nullable = false)
+    private AdminUser owner;
 
     @JsonManagedReference
     @OneToMany(mappedBy = "customer", cascade = CascadeType.ALL, orphanRemoval = true)

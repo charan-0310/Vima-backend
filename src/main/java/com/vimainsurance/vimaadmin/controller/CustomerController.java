@@ -49,14 +49,14 @@ public class CustomerController {
 
     @GetMapping("/agent/{username}/customers")
     @PreAuthorize("hasRole('SALES_AGENT')")
-    public ResponseEntity<ResponseDto<List<Customer>>> getCustomerByAgent(@PathVariable String username){
+    public ResponseEntity<ResponseDto<List<CustomerResponseDto>>> getCustomerByAgent(@PathVariable String username){
         return iCustomerService.findByAgent(username);
     }
 
-    @GetMapping("/customers/{custId}")
+    @GetMapping("/customers/{custid}")
     @PreAuthorize("hasRole('SALES_AGENT')")
-    public ResponseEntity<ResponseDto<CustomerResponseDto>> getCustomerById(@PathVariable String custId){
-        return iCustomerService.getByCustId(custId);
+    public ResponseEntity<ResponseDto<CustomerResponseDto>> getCustomerById(@PathVariable String custid){
+        return iCustomerService.getByCustId(custid);
     }
 
 }

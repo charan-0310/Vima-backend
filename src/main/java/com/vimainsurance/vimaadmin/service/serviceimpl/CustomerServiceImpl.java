@@ -2,6 +2,7 @@ package com.vimainsurance.vimaadmin.service.serviceimpl;
 
 import java.time.LocalDateTime;
 import java.util.ArrayList;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Optional;
 
@@ -21,6 +22,7 @@ import com.vimainsurance.vimaadmin.entity.Customer;
 import com.vimainsurance.vimaadmin.repository.IAdminUserRepository;
 import com.vimainsurance.vimaadmin.repository.ICustomerRepository;
 import com.vimainsurance.vimaadmin.service.ICustomerService;
+import com.vimainsurance.vimaadmin.service.IZohoCRMService;
 import com.vimainsurance.vimaadmin.util.Constants;
 
 @Service
@@ -31,6 +33,9 @@ public class CustomerServiceImpl implements ICustomerService{
 
     @Autowired
     private IAdminUserRepository adminUserRepository;
+
+    @Autowired
+    private IZohoCRMService zohoCRMService;
    
 
 
@@ -60,6 +65,7 @@ public class CustomerServiceImpl implements ICustomerService{
             customer.setCreatedAt(requestDto.getCreatedAt());
             customer.setUpdatedAt(requestDto.getUpdatedAt());
             customer.setCreatedBy(adminUser.get());
+            customer.setOwner(adminUser.get());
             customerRepository.save(customer);
             return responseObj.render(responseObj.formSuccessResponse(Constants.SUCCESS, Constants.SAVE_SUCCESS));
         } catch (Exception e) {
@@ -127,15 +133,43 @@ public class CustomerServiceImpl implements ICustomerService{
     }
 
     @Override
-    public ResponseEntity<ResponseDto<List<Customer>>> findByAgent(String username) {
-        BaseResponse<List<Customer>> responseObj = new BaseResponse<>();
+    public ResponseEntity<ResponseDto<List<CustomerResponseDto>>> findByAgent(String username) {
+        BaseResponse<List<CustomerResponseDto>> responseObj = new BaseResponse<>();
         try {
             Optional<AdminUser> adminUser = adminUserRepository.findByUsername(username);
             List<Customer> customerList = customerRepository.findByCreatedBy(adminUser.get());
-            if(!customerList.isEmpty()){
-                return responseObj.render(responseObj.formSuccessResponse(Constants.SUCCESS, customerList, customerList.size()));
+            LinkedHashSet<CustomerResponseDto> customerResponseSet = new LinkedHashSet<>();
+            if(customerList.isEmpty()){
+                return responseObj.render(responseObj.formSuccessResponse(Constants.SUCCESS, new ArrayList<>(), 0));
             }
-            return responseObj.render(responseObj.formSuccessResponse(Constants.SUCCESS, List.of()));
+            
+            for(Customer customer : customerList){
+                CustomerResponseDto responseDto = new CustomerResponseDto();
+                responseDto.setCustId(customer.getCustId());
+                responseDto.setFullName(customer.getFullName());
+                responseDto.setDateOfBirth(customer.getDateOfBirth());
+                responseDto.setGender(customer.getGender());
+                responseDto.setPhoneNumber(customer.getPhoneNumber());
+                responseDto.setEmail(customer.getEmail());
+                responseDto.setCity(customer.getCity());
+                responseDto.setState(customer.getState());
+                responseDto.setOccupation(customer.getOccupation());
+                responseDto.setAnnualIncome(customer.getAnnualIncome());
+                responseDto.setDependentCount(customer.getDependentCount());
+                responseDto.setUpdatedAt(LocalDateTime.now());
+                responseDto.setStatus(customer.getStatus());
+                responseDto.setQuotes(customer.getQuotes());
+                responseDto.setOwner(adminUser.get().getUsername());
+                customerResponseSet.add(responseDto);
+            }
+            
+            // List<CustomerResponseDto> customerResponseDtos = (List<CustomerResponseDto>) zohoCRMService.getAllLeadsByAgents(1, 20, "884155000000351000").getBody().getPayload();
+            // if (customerResponseDtos != null) {
+            //     customerResponseSet.addAll(customerResponseDtos);
+            // }
+            
+            List<CustomerResponseDto> uniqueList = new ArrayList<>(customerResponseSet);
+            return responseObj.render(responseObj.formSuccessResponse(Constants.SUCCESS, uniqueList, uniqueList.size()));
         } catch (Exception e) {
             return responseObj.render(responseObj.formErrorResponse(e.getMessage()));
         }
@@ -182,6 +216,7 @@ public class CustomerServiceImpl implements ICustomerService{
             responseDto.setUpdatedAt(LocalDateTime.now());
             responseDto.setStatus(customer.getStatus());
             responseDto.setQuotes(customer.getQuotes());
+            responseDto.setOwner(customer.getOwner().getUsername());
             return responseObj.render(responseObj.formSuccessResponse(Constants.SUCCESS, responseDto,1));
         } catch (Exception e) {
             return responseObj.render(responseObj.formErrorResponse(e.getMessage()));

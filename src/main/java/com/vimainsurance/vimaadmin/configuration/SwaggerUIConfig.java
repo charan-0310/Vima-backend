@@ -19,6 +19,8 @@ public class SwaggerUIConfig implements WebMvcConfigurer {
 
 	@Value("${auth.type}")
 	private String BEARER_AUTHENTICATION;
+	final String GOOGLE_AUTH = "GoogleOAuth";
+
 
 	@Bean
 	public OpenAPI openAPI() {

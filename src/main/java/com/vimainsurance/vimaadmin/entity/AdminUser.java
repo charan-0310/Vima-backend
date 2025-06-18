@@ -1,15 +1,16 @@
 package com.vimainsurance.vimaadmin.entity;
 
-import lombok.Data;
-
 import java.time.LocalDateTime;
 import java.util.UUID;
+
+import com.fasterxml.jackson.annotation.JsonIgnore;
 
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
+import lombok.Data;
 
 @Entity
 @Data
@@ -47,6 +48,10 @@ public class AdminUser {
 
     @Column(name = "oauth_provider_id", length = 100)
     private String oauthProviderId;
+
+    @JsonIgnore
+    @Column(name = "zoho_crm_id", length = 100)
+    private String zohoCrmId;
 
     @Column(name = "created_at", nullable = false, updatable = false)
     private LocalDateTime createdAt = LocalDateTime.now();
