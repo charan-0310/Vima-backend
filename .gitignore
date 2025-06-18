@@ -32,6 +32,7 @@ sdk_tokens.txt
 SDKLogs.log
 SDKLogs.log.lck
 tokens.txt
-
+tokens/
+zoho_sdk_logger/
 ### VS Code ###
 .vscode/
