@@ -1,8 +1,7 @@
 package com.vimainsurance.vimaadmin.util;
 
-import java.time.LocalDate;
-import java.time.OffsetDateTime;
 import java.time.LocalDateTime;
+import java.time.OffsetDateTime;
 import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.List;
@@ -280,7 +279,7 @@ public class ZohoSyncUtil {
         com.zoho.crm.api.record.Field<String> firstNameField = new com.zoho.crm.api.record.Field<>("First_Name");
         com.zoho.crm.api.record.Field<String> lastNameField = new com.zoho.crm.api.record.Field<>("Last_Name");
         com.zoho.crm.api.record.Field<String> emailField = new com.zoho.crm.api.record.Field<>("Email");
-        com.zoho.crm.api.record.Field<String> phoneField = new com.zoho.crm.api.record.Field<>("Mobile");
+        com.zoho.crm.api.record.Field<String> phoneField = new com.zoho.crm.api.record.Field<>("Phone");
         com.zoho.crm.api.record.Field<String> cityField = new com.zoho.crm.api.record.Field<>("City");
         com.zoho.crm.api.record.Field<String> stateField = new com.zoho.crm.api.record.Field<>("State");
         com.zoho.crm.api.record.Field<String> occupationField = new com.zoho.crm.api.record.Field<>("Occupation");

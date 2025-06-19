@@ -35,12 +35,13 @@ public class JwtUtil {
     //     this.secretKey = Keys.hmacShaKeyFor(keyBytes);
     // }
 
-    public String generateToken(String username, String role) {
+    public String generateToken(String username, String role, String email) {
         return Jwts.builder()
                 .setSubject(username)
                 .setIssuer("VimaInsurance-AdminAPI")
                 .setId(UUID.randomUUID().toString())
                 .claim("role", role)
+                .claim("email", email)
                 .setIssuedAt(new Date())
                 .setExpiration(new Date(System.currentTimeMillis() + expiration))
                 .signWith( getSigningKey(), SignatureAlgorithm.HS256)

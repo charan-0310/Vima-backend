@@ -1,7 +1,6 @@
 package com.vimainsurance.vimaadmin.util;
 
 import java.math.BigDecimal;
-import java.time.LocalDate;
 import java.time.LocalDateTime;
 
 import org.springframework.stereotype.Component;
@@ -23,7 +22,7 @@ public class ZohoCRMUtil {
             dto.setZohoCrmId(record.getId().toString());
             dto.setFullName(getRecordValue(record, "Full_Name"));
             dto.setEmail(getRecordValue(record, "Email"));
-            dto.setPhoneNumber(getRecordValue(record, "Mobile"));
+            dto.setPhoneNumber(getRecordValue(record, "Phone"));
             dto.setCity(getRecordValue(record, "City"));
             dto.setState(getRecordValue(record, "State"));
             dto.setOccupation(getRecordValue(record, "Occupation"));

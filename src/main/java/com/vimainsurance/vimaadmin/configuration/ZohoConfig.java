@@ -78,13 +78,6 @@ public class ZohoConfig {
     
         Optional<ZohoToken> zohotoken = tokenRepository.findById(1L);
         Token token = new OAuthToken.Builder().clientID(clientId).clientSecret(clientSecret).refreshToken(zohotoken.get().getRefreshToken()).redirectURL(redirectUrl).build();
-    
-        TokenStore store = new FileStore("tokens/zoho_tokens.txt");
-    
-        SDKConfig config = new SDKConfig.Builder()
-        .pickListValidation(false)
-        .autoRefreshFields(true)
-        .build();
         
         new Initializer.Builder().environment(environment).token(token).initialize();
         // initializer.initialize(user, environment, token, store, config, "zoho_sdk_logger/");

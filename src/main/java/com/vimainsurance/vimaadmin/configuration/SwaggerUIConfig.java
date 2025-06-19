@@ -11,23 +11,48 @@ import io.swagger.v3.oas.models.Components;
 import io.swagger.v3.oas.models.OpenAPI;
 import io.swagger.v3.oas.models.info.Contact;
 import io.swagger.v3.oas.models.info.Info;
+import io.swagger.v3.oas.models.info.License;
 import io.swagger.v3.oas.models.security.SecurityRequirement;
 import io.swagger.v3.oas.models.security.SecurityScheme;
+import io.swagger.v3.oas.models.servers.Server;
+
+import java.util.List;
+
 @Configuration
 public class SwaggerUIConfig implements WebMvcConfigurer {
-
 
 	@Value("${auth.type}")
 	private String BEARER_AUTHENTICATION;
 	final String GOOGLE_AUTH = "GoogleOAuth";
 
-
 	@Bean
 	public OpenAPI openAPI() {
-		return new OpenAPI().addSecurityItem(new SecurityRequirement().addList(BEARER_AUTHENTICATION))
-				.components(new Components().addSecuritySchemes(BEARER_AUTHENTICATION, createAPIKeyScheme()))
-				.info(new Info().title("Vima API").description("Vima Backend API.").version("1.0")
-						.contact(new Contact().name("Vima Insurance")));
+		return new OpenAPI()
+				.info(new Info()
+						.title("Vima Insurance API")
+						.description("API documentation for Vima Insurance Backend")
+						.version("1.0")
+						.contact(new Contact()
+								.name("Vima Insurance")
+								.email("support@vimainsurance.com")
+								.url("https://vimainsurance.com"))
+						.license(new License()
+								.name("Apache 2.0")
+								.url("https://www.apache.org/licenses/LICENSE-2.0")))
+				.servers(List.of(
+					new Server()
+								.url("http://localhost:7219")
+								.description("Local Server"),
+						new Server()
+								.url("https://api.vimainsurance.com")
+								.description("Production Server"),
+						new Server()
+								.url("https://dev-api.vimainsurance.com")
+								.description("Development Server")
+				))
+				.addSecurityItem(new SecurityRequirement().addList("Bearer Authentication"))
+				.components(new Components()
+						.addSecuritySchemes("Bearer Authentication", createAPIKeyScheme()));
 	}
 
 	@Override
@@ -37,8 +62,12 @@ public class SwaggerUIConfig implements WebMvcConfigurer {
 		registry.addResourceHandler("/webjars/**").addResourceLocations("classpath:/META-INF/resources/webjars/");
 	}
 
-    private SecurityScheme createAPIKeyScheme() {
-		return new SecurityScheme().type(SecurityScheme.Type.HTTP).bearerFormat("JWT").scheme("bearer");
+	private SecurityScheme createAPIKeyScheme() {
+		return new SecurityScheme()
+				.type(SecurityScheme.Type.HTTP)
+				.bearerFormat("JWT")
+				.scheme("bearer")
+				.description("Enter the JWT token in the format: Bearer <token>");
 	}
 
 	/**
@@ -56,7 +85,4 @@ public class SwaggerUIConfig implements WebMvcConfigurer {
 	public GroupedOpenApi allControllersGroup() {
 		return GroupedOpenApi.builder().group("Main - All Controllers").pathsToMatch("/api/**").build();
 	}
-
-
-
 }
