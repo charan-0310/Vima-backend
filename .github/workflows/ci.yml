@@ -32,7 +32,7 @@ jobs:
       run: |
         mvn install:install-file \
           -Dfile=lib/zohocrmsdk-5-0-6.0.0.jar \
-          -DgroupId=com.zoho \
+          -DgroupId=com.zoho.crm \
           -DartifactId=zohocrmsdk-5-0 \
           -Dversion=6.0.0 \
           -Dpackaging=jar
