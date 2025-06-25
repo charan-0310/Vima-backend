@@ -28,6 +28,14 @@ jobs:
         restore-keys: |
           ${{ runner.os }}-maven-
 
+    - name: Install Zoho SDK JAR locally
+      run: |
+        mvn install:install-file \
+          -Dfile=lib/zohocrmsdk-5-0-6.0.0.jar \
+          -DgroupId=com.zoho \
+          -DartifactId=zohocrmsdk-5-0 \
+          -Dversion=6.0.0 \
+          -Dpackaging=jar
+
     - name: Build and run tests with Maven
       run: mvn clean install
-      working-directory: .
