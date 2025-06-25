@@ -30,4 +30,4 @@ jobs:
 
     - name: Build and run tests with Maven
       run: mvn clean install
-      working-directory: .
+      working-directory: Vima-backend
