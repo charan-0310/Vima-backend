@@ -7,6 +7,9 @@ import java.net.URL;
 import java.util.ArrayList;
 import java.util.List;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.slf4j.MDC;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Service;
@@ -39,6 +42,8 @@ import com.zoho.crm.api.util.Choice;
 @Service
 public class ZohoCRMServiceImpl implements IZohoCRMService {
 
+    private static final Logger logger = LoggerFactory.getLogger(ZohoCRMServiceImpl.class);
+
     private static final String REQUIRED_FIELDS = 
         "Full_Name,Email,Phone,City,State,Occupation,Annual_Income," +
         "Created_Time,Modified_Time,Lead_Status,Owner.email";
@@ -69,6 +74,7 @@ public class ZohoCRMServiceImpl implements IZohoCRMService {
     @Override
     @Transactional
     public ResponseEntity<ResponseDto<ZohoSyncResponseDto>> syncZohoData() {
+        logger.info("[correlationId:{}] syncZohoData called", MDC.get("correlationId"));
         BaseResponse<ZohoSyncResponseDto> responseObj = new BaseResponse<>();
         
         try {
@@ -115,15 +121,18 @@ public class ZohoCRMServiceImpl implements IZohoCRMService {
                 ));
                 
             } catch (Exception e) {
+                logger.error("Error syncing data: ", e);
                 return responseObj.render(responseObj.formErrorResponse(500, "Error syncing data: " + e.getMessage()));
             }
         } catch (Exception e) {
+            logger.error("Error syncing data: ", e);
             return responseObj.render(responseObj.formErrorResponse(500, "Error syncing data: " + e.getMessage()));
         }
     }
 
     @Override
     public ResponseEntity<ResponseDto<Object>> getLeadById(String leadId) {
+        logger.info("[correlationId:{}] getLeadById called", MDC.get("correlationId"));
         BaseResponse<Object> responseObj = new BaseResponse<>();
         try {
             RecordOperations recordOperations = new RecordOperations();
@@ -144,12 +153,14 @@ public class ZohoCRMServiceImpl implements IZohoCRMService {
             
             return responseObj.render(responseObj.formErrorResponse("No data found"));
         } catch (Exception e) {
+            logger.error("Error fetching lead: ", e);
             return responseObj.render(responseObj.formErrorResponse("Error fetching lead: " + e.getMessage()));
         }
     }
 
     @Override
     public ResponseEntity<ResponseDto<Object>> getAllLeads(int page, int size) {
+        logger.info("[correlationId:{}] getAllLeads called", MDC.get("correlationId"));
         BaseResponse<Object> responseObj = new BaseResponse<>();
         try {
         URL url = new URL("https://www.zohoapis.in/crm/v2/Leads");
@@ -177,12 +188,14 @@ public class ZohoCRMServiceImpl implements IZohoCRMService {
         }
             return responseObj.render(responseObj.formErrorResponse("No data found"));
         } catch (Exception e) {
+            logger.error("Error fetching leads: ", e);
             return responseObj.render(responseObj.formErrorResponse("Error fetching leads: " + e.getMessage()));
         }
     }
 
     @Override
     public ResponseEntity<ResponseDto<Object>> getAllLeadsByAgents(int page, int size, String email) {
+        logger.info("[correlationId:{}] getAllLeadsByAgents called", MDC.get("correlationId"));
         BaseResponse<Object> responseObj = new BaseResponse<>();
         try {
             zohoSyncUtil.initializeZohoCRM();
@@ -203,6 +216,7 @@ public class ZohoCRMServiceImpl implements IZohoCRMService {
             ));
             
         } catch (Exception e) {
+            logger.error("Error fetching leads: ", e);
             return responseObj.render(responseObj.formErrorResponse(500, "Error fetching leads: " + e.getMessage()));
         }
     }

@@ -1,5 +1,8 @@
 package com.vimainsurance.vimaadmin.service.serviceimpl;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.slf4j.MDC;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.authentication.AuthenticationManager;
@@ -24,6 +27,8 @@ import com.vimainsurance.vimaadmin.util.ZohoUtil;
 @Service
 public class AuthServiceImpl implements IAuthService {
 
+    private static final Logger logger = LoggerFactory.getLogger(AuthServiceImpl.class);
+
     @Autowired
     private JwtUtil jwtUtil;
 
@@ -41,6 +46,7 @@ public class AuthServiceImpl implements IAuthService {
 
     @Override
     public ResponseEntity<ResponseDto<LoginResponseDto>> login(LoginRequestDto requestDto) {
+        logger.info("[correlationId:{}] login called", MDC.get("correlationId"));
         BaseResponse<LoginResponseDto> responseObj = new BaseResponse<>();
         try {
             Authentication authentication = authenticationManager.authenticate(
@@ -59,7 +65,7 @@ public class AuthServiceImpl implements IAuthService {
                 // zohoUtil.refreshZohoAccessToken();
             } catch (Exception e) {
                 // Log the error but don't fail the login
-                System.err.println("Failed to initialize Zoho CRM: " + e.getMessage());
+                logger.error("Failed to initialize Zoho CRM", e);
             }
 
             return responseObj.render(responseObj.formSuccessResponse(Constants.SUCCESS, new LoginResponseDto(token, "Bearer")));
@@ -70,6 +76,7 @@ public class AuthServiceImpl implements IAuthService {
 
     @Override
     public ResponseEntity<ResponseDto<RefreshTokenResponseDto>> getRefreshToken(RefreshTokenRequestDto requestDto) {
+        logger.info("[correlationId:{}] getRefreshToken called", MDC.get("correlationId"));
         BaseResponse<RefreshTokenResponseDto> responseObj = new BaseResponse<>();
         try {
             String refreshToken = requestDto.getRefreshtoken();
@@ -87,7 +94,7 @@ public class AuthServiceImpl implements IAuthService {
                 // zohoUtil.refreshZohoAccessToken();
             } catch (Exception e) {
                 // Log the error but don't fail the token refresh
-                System.err.println("Failed to refresh Zoho token: " + e.getMessage());
+                logger.error("Failed to refresh Zoho token", e);
             }
 
             String newAccessToken = jwtUtil.generateToken(username, adminUser.getRole(), adminUser.getEmail());

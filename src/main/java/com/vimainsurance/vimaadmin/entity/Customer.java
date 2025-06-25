@@ -22,6 +22,8 @@ import jakarta.persistence.OneToMany;
 import jakarta.persistence.Table;
 import lombok.Getter;
 import lombok.Setter;
+import jakarta.persistence.Convert;
+import com.vimainsurance.vimaadmin.util.EncryptedStringAttributeConverter;
 
 @Getter
 @Setter
@@ -38,6 +40,7 @@ public class Customer {
     private String custId;
 
     @Column(name = "full_name", nullable = false)
+    @Convert(converter = EncryptedStringAttributeConverter.class)
     private String fullName;
 
     @Column(name = "date_of_birth" )
@@ -47,6 +50,7 @@ public class Customer {
     private String gender;
 
     @Column(name = "phone_number", nullable = false, unique = true)
+    @Convert(converter = EncryptedStringAttributeConverter.class)
     private String phoneNumber;
 
     @Column(name = "email")

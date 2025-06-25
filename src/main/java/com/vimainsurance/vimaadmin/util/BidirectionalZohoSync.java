@@ -6,6 +6,8 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Propagation;
@@ -21,6 +23,8 @@ import com.zoho.crm.api.record.Record;
 
 @Component
 public class BidirectionalZohoSync {
+
+    private static final Logger logger = LoggerFactory.getLogger(BidirectionalZohoSync.class);
 
     @Autowired
     private ZohoSyncUtil zohoSyncUtil;
@@ -85,7 +89,7 @@ public class BidirectionalZohoSync {
                 } catch (Exception e) {
                     String errorMsg = String.format("Failed to process Zoho record: %s - Error: %s", 
                         record.getKeyValue("Email"), e.getMessage());
-                    System.err.println(errorMsg);
+                    logger.error(errorMsg);
                     stats.failureCount++;
                     stats.errors.add(errorMsg);
                     // Continue with next record
@@ -163,7 +167,6 @@ public class BidirectionalZohoSync {
                     newCustomer.setOwner(admin);
                     newCustomer.setCreatedBy(admin);
                 });
-                
                 savedCustomer = customerRepository.save(newCustomer);
                 stats.successCount++;
                 System.out.println("Created new customer: " + dto.getEmail());
@@ -281,8 +284,8 @@ public class BidirectionalZohoSync {
                 stats.failureCount++;
                 String errorMsg = String.format("Failed to sync customer %s to Zoho: %s", 
                     customer.getEmail(), e.getMessage());
+                logger.error(errorMsg);
                 stats.errors.add(errorMsg);
-                System.err.println(errorMsg);
                 // Continue with next record
             }
         }

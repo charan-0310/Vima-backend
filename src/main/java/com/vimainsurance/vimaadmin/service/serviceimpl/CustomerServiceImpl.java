@@ -6,6 +6,9 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Optional;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.slf4j.MDC;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
@@ -28,6 +31,8 @@ import com.vimainsurance.vimaadmin.util.Constants;
 @Service
 public class CustomerServiceImpl implements ICustomerService{
 
+    private static final Logger logger = LoggerFactory.getLogger(CustomerServiceImpl.class);
+
     @Autowired
     private ICustomerRepository customerRepository;
 
@@ -41,6 +46,7 @@ public class CustomerServiceImpl implements ICustomerService{
 
     @Override
     public ResponseEntity<ResponseDto<String>> create(CustomerRequestDto requestDto) {
+        logger.info("[correlationId:{}] create called", MDC.get("correlationId"));
         BaseResponse<String> responseObj = new BaseResponse<>();
         try {
             Optional<Customer> existByPhonenumber = customerRepository.findByPhoneNumber(requestDto.getPhoneNumber());
@@ -69,41 +75,45 @@ public class CustomerServiceImpl implements ICustomerService{
             customerRepository.save(customer);
             return responseObj.render(responseObj.formSuccessResponse(Constants.SUCCESS, Constants.SAVE_SUCCESS));
         } catch (Exception e) {
+            logger.error("Exception in create", e);
             return responseObj.render(responseObj.formErrorResponse(e.getMessage()));
         }
     }
 
     @Override
     public ResponseEntity<ResponseDto<String>> update(CustomerRequestDto requestDto) {
-      BaseResponse<String> responseObj = new BaseResponse<>();
-      try {
-        Optional<Customer> existCustomer = customerRepository.findByCustId(requestDto.getCustId());
-        if(existCustomer.isPresent()){
-            Customer customer = existCustomer.get();
-            customer.setFullName(requestDto.getFullName());
-            customer.setDateOfBirth(requestDto.getDateOfBirth());
-            customer.setGender(requestDto.getGender());
-            customer.setPhoneNumber(requestDto.getPhoneNumber());
-            customer.setEmail(requestDto.getEmail());
-            customer.setCity(requestDto.getCity());
-            customer.setState(requestDto.getState());
-            customer.setOccupation(requestDto.getOccupation());
-            customer.setAnnualIncome(requestDto.getAnnualIncome());
-            customer.setDependentCount(requestDto.getDependentCount());
-            customer.setUpdatedAt(LocalDateTime.now());
-            customer.setStatus(requestDto.getStatus());
-            customerRepository.save(customer);
-        } else {
-            return responseObj.render(responseObj.formErrorResponse(Constants.UPDATE_FAILED));
+        logger.info("[correlationId:{}] update called", MDC.get("correlationId"));
+        BaseResponse<String> responseObj = new BaseResponse<>();
+        try {
+            Optional<Customer> existCustomer = customerRepository.findByCustId(requestDto.getCustId());
+            if(existCustomer.isPresent()){
+                Customer customer = existCustomer.get();
+                customer.setFullName(requestDto.getFullName());
+                customer.setDateOfBirth(requestDto.getDateOfBirth());
+                customer.setGender(requestDto.getGender());
+                customer.setPhoneNumber(requestDto.getPhoneNumber());
+                customer.setEmail(requestDto.getEmail());
+                customer.setCity(requestDto.getCity());
+                customer.setState(requestDto.getState());
+                customer.setOccupation(requestDto.getOccupation());
+                customer.setAnnualIncome(requestDto.getAnnualIncome());
+                customer.setDependentCount(requestDto.getDependentCount());
+                customer.setUpdatedAt(LocalDateTime.now());
+                customer.setStatus(requestDto.getStatus());
+                customerRepository.save(customer);
+            } else {
+                return responseObj.render(responseObj.formErrorResponse(Constants.UPDATE_FAILED));
+            }
+            return responseObj.render(responseObj.formSuccessResponse(Constants.SUCCESS, Constants.UPDATE_SUCCESS));
+        } catch (Exception e) {
+            logger.error("Exception in update", e);
+            return responseObj.render(responseObj.formErrorResponse(e.getMessage()));
         }
-        return responseObj.render(responseObj.formSuccessResponse(Constants.SUCCESS, Constants.UPDATE_SUCCESS));
-      } catch (Exception e) {
-        return responseObj.render(responseObj.formErrorResponse(e.getMessage()));
-      }
     }
     
     @Override
     public ResponseEntity<ResponseDto<String>> delete(CustomerRequestDto requestDto) {
+        logger.info("[correlationId:{}] delete called", MDC.get("correlationId"));
         BaseResponse<String> responseObj = new BaseResponse<>();
         try {
             Optional<Customer> existCustomer = customerRepository.findByCustId(requestDto.getCustId());
@@ -117,6 +127,7 @@ public class CustomerServiceImpl implements ICustomerService{
             }
             return responseObj.render(responseObj.formSuccessResponse(Constants.SUCCESS, Constants.DELETE_MESSAGE));
         } catch (Exception e) {
+            logger.error("Exception in delete", e);
             return responseObj.render(responseObj.formErrorResponse(e.getMessage()));
         }
     }
@@ -134,6 +145,7 @@ public class CustomerServiceImpl implements ICustomerService{
 
     @Override
     public ResponseEntity<ResponseDto<List<CustomerResponseDto>>> findByAgent(String username) {
+        logger.info("[correlationId:{}] findByAgent called", MDC.get("correlationId"));
         BaseResponse<List<CustomerResponseDto>> responseObj = new BaseResponse<>();
         try {
             Optional<AdminUser> adminUser = adminUserRepository.findByUsername(username);
@@ -171,12 +183,14 @@ public class CustomerServiceImpl implements ICustomerService{
             List<CustomerResponseDto> uniqueList = new ArrayList<>(customerResponseSet);
             return responseObj.render(responseObj.formSuccessResponse(Constants.SUCCESS, uniqueList, uniqueList.size()));
         } catch (Exception e) {
+            logger.error("Exception in findByAgent", e);
             return responseObj.render(responseObj.formErrorResponse(e.getMessage()));
         }
     }
 
     @Override
     public ResponseEntity<ResponseDto<List<Customer>>> getAllCustomers(int page, int rec) {
+        logger.info("[correlationId:{}] getAllCustomers called", MDC.get("correlationId"));
         BaseResponse<List<Customer>> responseObj = new BaseResponse<>();
         try {
             if (page == -1 && rec == -1) {
@@ -188,12 +202,14 @@ public class CustomerServiceImpl implements ICustomerService{
                  return responseObj.render(responseObj.formSuccessResponse(Constants.SUCCESS, customerPage.getContent(), customerPage.getTotalPages()));
             }
         } catch (Exception e) {
+            logger.error("Exception in getAllCustomers", e);
             return responseObj.render(responseObj.formErrorResponse(e.getMessage()));
         }
     }
 
     @Override
     public ResponseEntity<ResponseDto<CustomerResponseDto>> getByCustId(String custId) {
+        logger.info("[correlationId:{}] getByCustId called", MDC.get("correlationId"));
         BaseResponse<CustomerResponseDto> responseObj = new BaseResponse<>();
         try {
             Optional<Customer> optionalCustomer = customerRepository.findByCustId(custId);
@@ -219,6 +235,7 @@ public class CustomerServiceImpl implements ICustomerService{
             responseDto.setOwner(customer.getOwner().getUsername());
             return responseObj.render(responseObj.formSuccessResponse(Constants.SUCCESS, responseDto,1));
         } catch (Exception e) {
+            logger.error("Exception in getByCustId", e);
             return responseObj.render(responseObj.formErrorResponse(e.getMessage()));
         }
     }

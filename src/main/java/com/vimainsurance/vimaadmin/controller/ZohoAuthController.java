@@ -2,6 +2,9 @@ package com.vimainsurance.vimaadmin.controller;
 
 import java.time.LocalDateTime;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.slf4j.MDC;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpEntity;
@@ -25,6 +28,8 @@ import com.vimainsurance.vimaadmin.repository.ITokenRepository;
 @RequestMapping("/api/v1/zoho/auth")
 public class ZohoAuthController {
 
+    private static final Logger logger = LoggerFactory.getLogger(ZohoAuthController.class);
+
     @Autowired
     private ZohoConfig zohoConfig;
     @Autowired
@@ -42,6 +47,7 @@ public class ZohoAuthController {
 
     @GetMapping("/init")
     public ResponseEntity<String> initializeAuth() {
+        logger.info("[correlationId:{}] /init endpoint called", MDC.get("correlationId"));
         String authUrl = AUTH_URL + 
             "?scope=ZohoCRM.modules.ALL,ZohoCRM.settings.ALL" +
             "&client_id=" + clientId +
@@ -54,6 +60,7 @@ public class ZohoAuthController {
 
     @GetMapping("/callback")
     public ResponseEntity<ZohoTokenResponseDto> handleCallback(@RequestParam String code) {
+        logger.info("[correlationId:{}] /callback endpoint called", MDC.get("correlationId"));
         RestTemplate restTemplate = new RestTemplate();
         
         HttpHeaders headers = new HttpHeaders();
