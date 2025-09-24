@@ -25,4 +25,6 @@ jobs:
           key: ${{ secrets.EC2_KEY }}
           script: |
             echo "✅ Connected to EC2"
+            hostname
+            whoami
           debug: true  
