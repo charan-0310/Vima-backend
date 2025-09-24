@@ -13,5 +13,3 @@ jobs:
           hostname
           whoami
           uptime
-          EOF
-     
