@@ -24,7 +24,7 @@ jobs:
           username: ${{ secrets.EC2_USER }}
           key: ${{ secrets.EC2_KEY }}
           script: |
-            echo "✅ Connected to EC2"
-            hostname
-            whoami
-            uptime
+            echo "✅ Connected to EC2" > /tmp/ec2-test.log
+            hostname >> /tmp/ec2-test.log
+            whoami >> /tmp/ec2-test.log
+            uptime >> /tmp/ec2-test.log
