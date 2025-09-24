@@ -28,3 +28,4 @@ jobs:
             hostname >> /tmp/ec2-test.log
             whoami >> /tmp/ec2-test.log
             uptime >> /tmp/ec2-test.log
+          debug: true  
