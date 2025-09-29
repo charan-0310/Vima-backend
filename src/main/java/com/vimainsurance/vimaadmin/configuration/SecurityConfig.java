@@ -24,11 +24,13 @@ import org.springframework.security.web.authentication.UsernamePasswordAuthentic
 import org.springframework.web.cors.CorsConfiguration;
 import org.springframework.web.cors.CorsConfigurationSource;
 import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
+import org.springframework.boot.web.servlet.FilterRegistrationBean;
 
 import com.vimainsurance.vimaadmin.configuration.oauth.VimaOAuth2SuccessHandler;
 import com.vimainsurance.vimaadmin.configuration.oauth.VimaOAuth2UserService;
 import com.vimainsurance.vimaadmin.util.AdminUserDetailsService;
 import com.vimainsurance.vimaadmin.util.JwtAuthenticationFilter;
+import com.vimainsurance.vimaadmin.util.CorrelationIdFilter;
 
 @Configuration
 @EnableWebSecurity
@@ -59,7 +61,7 @@ public class SecurityConfig {
             .and()
             .csrf(csrf -> csrf.disable())
             .authorizeHttpRequests(auth -> auth
-                .requestMatchers("/api/v1/login", "/oauth2/**", "/api/v1/zoho/auth/**").permitAll() 
+                .requestMatchers("/api/v1/login", "/oauth2/**", "/api/v1/zoho/auth/**", "/api/v1/nonce", "/api/v1/auth/challenge", "/api/v1/auth/login").permitAll() 
                 .requestMatchers("/api/v1/test").hasAnyAuthority("SALES_AGENT")
                 .requestMatchers(
                     "/v3/api-docs/**",
@@ -120,6 +122,12 @@ public class SecurityConfig {
         return source;
     }
 
-    
-    
+    @Bean
+    public FilterRegistrationBean<CorrelationIdFilter> correlationIdFilterRegistration() {
+        FilterRegistrationBean<CorrelationIdFilter> registration = new FilterRegistrationBean<>();
+        registration.setFilter(new CorrelationIdFilter());
+        registration.addUrlPatterns("/*");
+        registration.setOrder(1);
+        return registration;
+    }
 }

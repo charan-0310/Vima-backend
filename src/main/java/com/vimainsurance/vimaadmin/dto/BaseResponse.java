@@ -9,7 +9,7 @@ public class BaseResponse<T> {
 		return new ResponseDto<>(message, result);
 	}
 
-	public ResponseDto<T> formSuccessResponse(String message, T result, Integer totalRecords) {
+	public ResponseDto<T> formSuccessResponse(String message, T result, long totalRecords) {
 		return new ResponseDto<>(message, result, totalRecords);
 	}
 
@@ -27,10 +27,10 @@ public class BaseResponse<T> {
 
 	public ResponseEntity<ResponseDto<T>> render(ResponseDto<T> response) {
 		if (response.getErrorCode() != null) {
-			ResponseDto<T> errorResponse = new ResponseDto<T>(response.getErrorCode(), response.getMessage());
+			ResponseDto<T> errorResponse = new ResponseDto<>(response.getErrorCode(), response.getMessage());
 			return renderError(errorResponse);
 		}
-		ResponseDto<T> successResponse = new ResponseDto<T>(response.getMessage(), response.getPayload());
+		ResponseDto<T> successResponse = new ResponseDto<>(response.getMessage(), response.getPayload(), response.getTotalRecords());
 		return renderSuccess(successResponse);
 	}
 

@@ -3,13 +3,18 @@ package com.vimainsurance.vimaadmin.util;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 
 import com.vimainsurance.vimaadmin.dto.CustomerResponseDto;
 import com.zoho.crm.api.record.Record;
+import com.zoho.crm.api.util.Choice;
 
 @Component
 public class ZohoCRMUtil {
+
+    private static final Logger logger = LoggerFactory.getLogger(ZohoCRMUtil.class);
 
     /**
      * Maps a Zoho CRM record to CustomerResponseDto
@@ -45,7 +50,7 @@ public class ZohoCRMUtil {
             dto.setStatus(mapZohoStatusToCustomerStatus(leadStatus));
             
         } catch (Exception e) {
-            System.err.println("Error mapping Zoho record to CustomerDto: " + e.getMessage());
+            logger.error("Error mapping Zoho record to CustomerDto", e);
         }
         return dto;
     }
@@ -73,7 +78,7 @@ public class ZohoCRMUtil {
             }
             return LocalDateTime.parse(dateTimeStr);
         } catch (Exception e) {
-            System.err.println("Error parsing " + fieldName + ": " + dateTimeStr + " - " + e.getMessage());
+            logger.error("Error parsing {}", fieldName, e);
             return LocalDateTime.now();
         }
     }
@@ -87,9 +92,12 @@ public class ZohoCRMUtil {
     public String getRecordValue(Record record, String fieldName) {
         try {
             Object value = record.getKeyValue(fieldName);
+            if (value instanceof Choice<?>) {
+                return ((Choice<?>) value).getValue().toString();
+            }
             return value != null ? value.toString() : "";
         } catch (Exception e) {
-            System.err.println("Error getting field " + fieldName + ": " + e.getMessage());
+            logger.error("Error getting field {}", fieldName, e);
             return "";
         }
     }
@@ -101,12 +109,12 @@ public class ZohoCRMUtil {
      */
     public String mapZohoStatusToCustomerStatus(String zohoStatus) {
         if (zohoStatus == null || zohoStatus.isEmpty()) {
-            return "PENDING";
+            return "NEW LEAD";
         }
         return switch (zohoStatus.toUpperCase()) {
             case "QUALIFIED" -> "ACTIVE";
             case "NOT QUALIFIED" -> "INACTIVE";
-            default -> "PENDING";
+            default -> "NEW LEAD";
         };
     }
 } 

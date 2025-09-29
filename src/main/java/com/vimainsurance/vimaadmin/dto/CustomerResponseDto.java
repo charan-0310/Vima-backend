@@ -5,6 +5,7 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.vimainsurance.vimaadmin.entity.Quotes;
 
 import lombok.Getter;
@@ -13,6 +14,9 @@ import lombok.Setter;
 @Getter
 @Setter
 public class CustomerResponseDto {
+
+    private String id;
+
     private String custId;
 
     private String fullName;
@@ -34,10 +38,13 @@ public class CustomerResponseDto {
     private BigDecimal annualIncome;
 
     private Integer dependentCount;
-
+    
+    @JsonIgnore
     private String zohoCrmId;
 
     private String status;
+
+    private String notes;
 
     private LocalDateTime createdAt;
 

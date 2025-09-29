@@ -10,10 +10,7 @@ import com.vimainsurance.vimaadmin.entity.ZohoToken;
 import com.vimainsurance.vimaadmin.repository.ITokenRepository;
 import com.zoho.api.authenticator.OAuthToken;
 import com.zoho.api.authenticator.Token;
-import com.zoho.api.authenticator.store.FileStore;
-import com.zoho.api.authenticator.store.TokenStore;
 import com.zoho.crm.api.Initializer;
-import com.zoho.crm.api.SDKConfig;
 import com.zoho.crm.api.UserSignature;
 import com.zoho.crm.api.dc.DataCenter.Environment;
 import com.zoho.crm.api.dc.INDataCenter;
@@ -83,6 +80,6 @@ public class ZohoConfig {
         // initializer.initialize(user, environment, token, store, config, "zoho_sdk_logger/");
         // initializer.initialize(user, environment, token, store, config, "zoho_sdk_logger/");
         
-        System.out.println("✅ Zoho SDK successfully initialized.");
+        // System.out.println("✅ Zoho SDK successfully initialized.");
     }
 } 

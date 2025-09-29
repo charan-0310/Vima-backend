@@ -3,6 +3,8 @@ package com.vimainsurance.vimaadmin.util;
 import java.io.IOException;
 import java.time.LocalDateTime;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpEntity;
@@ -21,6 +23,8 @@ import com.vimainsurance.vimaadmin.repository.ITokenRepository;
 
 @Service
 public class ZohoUtil {
+
+    private static final Logger logger = LoggerFactory.getLogger(ZohoUtil.class);
 
     @Autowired
     private ITokenRepository tokenRepository;
@@ -55,7 +59,7 @@ public class ZohoUtil {
             zohoToken.setId(1L);
             tokenRepository.save(zohoToken);
         } catch (Exception e) {
-            e.printStackTrace();
+            logger.error("Exception in ZohoUtil", e);
         }
     }
 }

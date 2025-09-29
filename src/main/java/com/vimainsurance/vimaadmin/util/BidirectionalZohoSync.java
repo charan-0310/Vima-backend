@@ -6,6 +6,8 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Propagation;
@@ -22,6 +24,8 @@ import com.zoho.crm.api.record.Record;
 @Component
 public class BidirectionalZohoSync {
 
+    private static final Logger logger = LoggerFactory.getLogger(BidirectionalZohoSync.class);
+
     @Autowired
     private ZohoSyncUtil zohoSyncUtil;
 
@@ -33,6 +37,9 @@ public class BidirectionalZohoSync {
 
     @Autowired
     private IAdminUserRepository adminUserRepository;
+
+    @Autowired
+    private IdGenerator customerIdGenerator;
 
     /**
      * Synchronize data between Zoho CRM and local database
@@ -76,7 +83,7 @@ public class BidirectionalZohoSync {
                 continue;
             }
 
-            System.out.println("Processing batch of " + records.size() + " records from Zoho CRM");
+            //System.out.println("Processing batch of " + records.size() + " records from Zoho CRM");
             
             for (Record record : records) {
                 try {
@@ -85,7 +92,7 @@ public class BidirectionalZohoSync {
                 } catch (Exception e) {
                     String errorMsg = String.format("Failed to process Zoho record: %s - Error: %s", 
                         record.getKeyValue("Email"), e.getMessage());
-                    System.err.println(errorMsg);
+                    logger.error(errorMsg);
                     stats.failureCount++;
                     stats.errors.add(errorMsg);
                     // Continue with next record
@@ -96,12 +103,12 @@ public class BidirectionalZohoSync {
         }
 
         // Print summary
-        System.out.println("\nSync Summary:");
-        System.out.println("Successfully processed: " + stats.successCount + " records");
-        System.out.println("Failed to process: " + stats.failureCount + " records");
+        //System.out.println("\nSync Summary:");
+        //System.out.println("Successfully processed: " + stats.successCount + " records");
+        //System.out.println("Failed to process: " + stats.failureCount + " records");
         if (!stats.errors.isEmpty()) {
-            System.out.println("\nDetailed Error Report:");
-            stats.errors.forEach(error -> System.out.println("- " + error));
+            //System.out.println("\nDetailed Error Report:");
+            // stats.errors.forEach(error -> //System.out.println("- " + error));
         }
 
         return stats;
@@ -133,7 +140,7 @@ public class BidirectionalZohoSync {
                 updateCustomerFromDto(customer, dto);
                 savedCustomer = customerRepository.save(customer);
                 stats.successCount++;
-                System.out.println("Updated existing customer by Zoho ID: " + dto.getEmail());
+                //System.out.println("Updated existing customer by Zoho ID: " + dto.getEmail());
             } 
             else if (existingByPhone.isPresent()) {
                 Customer existingCustomer =existingByPhone.get();
@@ -143,7 +150,7 @@ public class BidirectionalZohoSync {
                     existingCustomer.setZohoCrmId(dto.getZohoCrmId());
                     savedCustomer = customerRepository.save(existingCustomer);
                     stats.successCount++;
-                    System.out.println("Linked existing customer with Zoho ID: " + dto.getEmail());
+                    //System.out.println("Linked existing customer with Zoho ID: " + dto.getEmail());
                 } else {
                     throw new RuntimeException(String.format(
                         "Duplicate %s found. Existing customer: %s, Zoho ID: %s",
@@ -155,6 +162,7 @@ public class BidirectionalZohoSync {
             else {
                 // Create new customer
                 Customer newCustomer = new Customer();
+                newCustomer.setCustId(customerIdGenerator.generateCustomerId());
                 updateCustomerFromDto(newCustomer, dto);
                 newCustomer.setZohoCrmId(dto.getZohoCrmId());
                 
@@ -163,10 +171,9 @@ public class BidirectionalZohoSync {
                     newCustomer.setOwner(admin);
                     newCustomer.setCreatedBy(admin);
                 });
-                
                 savedCustomer = customerRepository.save(newCustomer);
                 stats.successCount++;
-                System.out.println("Created new customer: " + dto.getEmail());
+                //System.out.println("Created new customer: " + dto.getEmail());
             }
         } catch (Exception e) {
             stats.failureCount++;
@@ -217,7 +224,7 @@ public class BidirectionalZohoSync {
         customer.setAnnualIncome(dto.getAnnualIncome());
         customer.setStatus(dto.getStatus());
         customer.setUpdatedAt(LocalDateTime.now());
-        customer.setCustId(generateCustomerId());
+        customer.setCustId(customerIdGenerator.generateCustomerId());
         customer.setDateOfBirth(dto.getDateOfBirth());
         customer.setGender(dto.getGender());
 
@@ -254,7 +261,7 @@ public class BidirectionalZohoSync {
         
         // Generate customer ID if not present
         if (customer.getCustId() == null) {
-            customer.setCustId(generateCustomerId());
+            customer.setCustId(customerIdGenerator.generateCustomerId());
         }
         
         return customer;
@@ -268,26 +275,26 @@ public class BidirectionalZohoSync {
         SyncStats stats = new SyncStats();
         List<Customer> customers = customerRepository.findAllByZohoCrmIdIsNull();
         
-        System.out.println("Found " + customers.size() + " customers to sync to Zoho CRM");
+        //System.out.println("Found " + customers.size() + " customers to sync to Zoho CRM");
 
         for (Customer customer : customers) {
             try {
-                System.out.println("Attempting to sync customer: " + customer.getEmail());
+                //System.out.println("Attempting to sync customer: " + customer.getEmail());
                 if (handleDbToZohoSync(customer)) {
                     stats.successCount++;
-                    System.out.println("Successfully synced customer: " + customer.getEmail());
+                    //System.out.println("Successfully synced customer: " + customer.getEmail());
                 }
             } catch (Exception e) {
                 stats.failureCount++;
                 String errorMsg = String.format("Failed to sync customer %s to Zoho: %s", 
                     customer.getEmail(), e.getMessage());
+                logger.error(errorMsg);
                 stats.errors.add(errorMsg);
-                System.err.println(errorMsg);
                 // Continue with next record
             }
         }
 
-        System.out.println("Sync completed. Success: " + stats.successCount + ", Failures: " + stats.failureCount);
+        //System.out.println("Sync completed. Success: " + stats.successCount + ", Failures: " + stats.failureCount);
         return stats;
     }
 
@@ -351,18 +358,7 @@ public class BidirectionalZohoSync {
         }
     }
 
-    /**
-     * Generate a new customer ID
-     */
-    private String generateCustomerId() {
-        String maxId = customerRepository.findMaxCustomerId();
-        if (maxId == null) {
-            return "C001";
-        }
-        int num = Integer.parseInt(maxId.substring(1));
-        num++;
-        return String.format("C%03d", num);
-    }
+
 
     public static class SyncResult {
         public SyncStats zohoToDbResult = new SyncStats();

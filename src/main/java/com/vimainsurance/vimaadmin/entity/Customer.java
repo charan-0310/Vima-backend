@@ -38,6 +38,7 @@ public class Customer {
     private String custId;
 
     @Column(name = "full_name", nullable = false)
+    // @Convert(converter = EncryptedStringAttributeConverter.class)
     private String fullName;
 
     @Column(name = "date_of_birth" )
@@ -47,6 +48,7 @@ public class Customer {
     private String gender;
 
     @Column(name = "phone_number", nullable = false, unique = true)
+    // @Convert(converter = EncryptedStringAttributeConverter.class)
     private String phoneNumber;
 
     @Column(name = "email")
@@ -78,6 +80,9 @@ public class Customer {
 
     @Column(name = "updated_at")
     private LocalDateTime updatedAt = LocalDateTime.now();
+
+    @Column(name = "notes")
+    private String notes;
 
     @JsonIgnore
     @ManyToOne(fetch = FetchType.LAZY)

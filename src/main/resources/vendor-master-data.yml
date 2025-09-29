@@ -1,0 +1,311 @@
+master-data:
+  # Common master data shared across all vendors
+  common:
+    gender:
+      - "Male"
+      - "Female"
+      - "Other"
+    
+    smokerStatus:
+      - "Yes"
+      - "No"
+    
+    alcoholStatus:
+      - "Yes"
+      - "No"
+    
+    occupation:
+      - "Software Engineer"
+      - "Doctor"
+      - "Teacher"  
+      - "Business Owner"
+      - "Government Employee"
+      - "Private Employee"
+      - "Retired"
+      - "Student"
+      - "Homemaker"
+      - "Other"
+      - "Self Employed"
+      - "House Wife"
+      - "Salaried"
+    
+    incomeRange:
+      - "0-2.5 Lakhs"
+      - "2.5-5 Lakhs"
+      - "5-10 Lakhs"
+      - "10-25 Lakhs"
+      - "25-50 Lakhs"
+      - "50 Lakhs+"
+    
+    states:
+      - "Foreign country"
+      - "Jammu and Kashmir"
+      - "Himachal Pradesh"
+      - "Punjab"
+      - "Chandigarh"
+      - "Uttarakhand"
+      - "Haryana"
+      - "Delhi"
+      - "Rajasthan"
+      - "Uttar Pradesh"
+      - "Bihar"
+      - "Sikkim"
+      - "Arunachal Pradesh"
+      - "Nagaland"
+      - "Manipur"
+      - "Mizoram"
+      - "Tripura"
+      - "Meghalaya"
+      - "Assam"
+      - "West Bengal"
+      - "Jharkhand"
+      - "Odisha"
+      - "Chhattisgarh"
+      - "Madhya Pradesh"
+      - "Gujarat"
+      - "Daman and Diu"
+      - "Dadra and Nagar Haveli"
+      - "Maharashtra"
+      - "NA"
+      - "Karnataka"
+      - "Goa"
+      - "Lakshadweep"
+      - "Kerala"
+      - "Tamil Nadu"
+      - "Pondicherry"
+      - "Andaman and Nicobar Islands"
+      - "Telangana"
+      - "Andhra Pradesh"
+      - "Ladakh"
+      - "Unknown"
+
+  # Vendor-specific master data and overrides
+  vendors:
+    DIGIT:
+      premiumPaymentFrequency:
+        - "Yearly"
+        - "Monthly"
+        - "Quarterly"  
+        - "Half Yearly"
+      
+      paymentFrequencyMapping:
+        annual: "Yearly"
+        monthly: "Monthly"
+        quarterly: "Quarterly"
+        half-yearly: "Half Yearly"
+      
+      genderMapping:
+        male: "Male"
+        female: "Female"
+        m: "Male"
+        f: "Female"
+      
+      booleanMapping:
+        true: true
+        false: false
+      
+      smokerStatus:
+        - "NON_SMOKER"
+        - "SMOKER"
+      
+      smokerStatusMapping:
+        "Yes": "SMOKER"
+        "No": "NON_SMOKER"
+        true: "SMOKER"
+        false: "NON_SMOKER"
+
+      alcoholStatus:
+        - "NON_ALCOHOLIC"
+        - "ALCOHOLIC"
+      
+      alcoholStatusMapping:
+        "Yes": "ALCOHOLIC"
+        "No": "NON_ALCOHOLIC"
+        true: "ALCOHOLIC"
+        false: "NON_ALCOHOLIC"
+      
+      occupationMapping:
+        "Self Employed": "SEM"
+        "House Wife": "HSW"
+        "Salaried": "SAL"
+      
+      stateMappingConfig:
+        "Foreign country": "0"
+        "Jammu and Kashmir": "1"
+        "Himachal Pradesh": "2"
+        "Punjab": "3"
+        "Chandigarh": "4"
+        "Uttarakhand": "5"
+        "Haryana": "6"
+        "Delhi": "7"
+        "Rajasthan": "8"
+        "Uttar Pradesh": "9"
+        "Bihar": "10"
+        "Sikkim": "11"
+        "Arunachal Pradesh": "12"
+        "Nagaland": "13"
+        "Manipur": "14"
+        "Mizoram": "15"
+        "Tripura": "16"
+        "Meghalaya": "17"
+        "Assam": "18"
+        "West Bengal": "19"
+        "Jharkhand": "20"
+        "Odisha": "21"
+        "Chhattisgarh": "22"
+        "Madhya Pradesh": "23"
+        "Gujarat": "24"
+        "Daman and Diu": "26"
+        "Dadra and Nagar Haveli": "26"
+        "Maharashtra": "27"
+        "NA": "28"
+        "Karnataka": "29"
+        "Goa": "30"
+        "Lakshadweep": "31"
+        "Kerala": "32"
+        "Tamil Nadu": "33"
+        "Pondicherry": "34"
+        "Andaman and Nicobar Islands": "35"
+        "Telangana": "36"
+        "Andhra Pradesh": "37"
+        "Ladakh": "38"
+        "Unknown": "XX"
+      
+      policyType:
+        - "singlelife"
+        - "jointlife"
+      
+      productCodes:
+        - "10406"  # Term Life
+
+      
+      # coverageTypes:
+      #   - "DGTPD"
+      #   - "RIDER"
+      
+      # coverageNames:
+      #   - "TERM_LIFE"
+      #   - "ACCIDENTAL_DEATH"
+      #   - "CRITICAL_ILLNESS"
+      
+      typeOfProposer:
+        - "Employer - Employee"
+        - "HUF"
+        - "Individual"
+        - "Small Enterprise"
+        - "Private Customer Base"
+        - "Trust"
+      
+      defaults:
+        imdCode: "2000273"
+        productCategory: "TR"
+        relationshipWithProposer: "Self"
+        typeofProposer: "A"
+        highestEducation: "Graduate & Above"
+        personRole: "PROPOSER"
+        residentType: "C"
+        premiumType: "RP"
+
+    HDFC:
+      premiumPaymentFrequency:
+        - "Annual"
+        - "Monthly"
+        - "Quarterly"
+        - "Half-Yearly"
+        - "Single"
+      
+      paymentFrequencyMapping:
+        annual: "Annual"
+        monthly: "Monthly"
+        quarterly: "Quarterly"
+        half-yearly: "Half-Yearly"
+        one-time: "Single"
+      
+      genderMapping:
+        male: "M"
+        female: "F"
+        m: "M"
+        f: "F"
+      
+      booleanMapping:
+        true: "Y"
+        false: "N"
+      
+      policyType:
+        - "Individual"
+        - "Joint"
+        - "Family_Floater"
+      
+      productCodes:
+        - "HDFC_TERM_001"
+        - "HDFC_WHOLE_002"
+        - "HDFC_ENDOW_003"
+      
+      coverageTypes:
+        - "Base_Cover"
+        - "Additional_Cover"
+      
+      coverageNames:
+        - "Term_Life_Insurance"
+        - "Accidental_Death_Benefit"
+        - "Waiver_of_Premium"
+      
+      defaults:
+        agentCode: "HDFC001"
+        productCategory: "Life_Insurance"
+        relationshipWithProposer: "Self"
+        highestEducation: "Graduate"
+        personRole: "Life_Assured"
+        residentType: "Indian_Resident"
+        premiumType: "Regular_Premium"
+
+    ICICI:
+      premiumPaymentFrequency:
+        - "1"  # Annual
+        - "12" # Monthly  
+        - "4"  # Quarterly
+        - "2"  # Half-Yearly
+      
+      paymentFrequencyMapping:
+        annual: "1"
+        monthly: "12"
+        quarterly: "4"
+        half-yearly: "2"
+      
+      genderMapping:
+        male: "1"
+        female: "2"
+        m: "1"
+        f: "2"
+      
+      booleanMapping:
+        true: "1"
+        false: "0"
+      
+      policyType:
+        - "IND"
+        - "JNT"
+        - "FAM"
+      
+      productCodes:
+        - "ICT001"
+        - "ICW002"
+        - "ICE003"
+      
+      coverageTypes:
+        - "B"  # Base
+        - "R"  # Rider
+      
+      coverageNames:
+        - "TL"  # Term Life
+        - "AD"  # Accidental Death
+        - "CI"  # Critical Illness
+      
+      defaults:
+        branchCode: "ICICI_MUM"
+        productCategory: "L"
+        relationshipWithProposer: "01"
+        highestEducation: "GR"
+        personRole: "PR"
+        residentType: "RES"
+        premiumType: "REG" 
