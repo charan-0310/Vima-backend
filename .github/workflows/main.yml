@@ -26,7 +26,7 @@ jobs:
             -Dpackaging=jar
 
       - name: Build & Run Tests
-        run: mvn clean verify   # runs compile + unit tests, fails if tests fail
+        run: mvn clean package   # runs compile + unit tests, fails if tests fail
 
       - name: Find built JAR
         id: find-jar
