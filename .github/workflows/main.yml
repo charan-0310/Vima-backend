@@ -1,20 +1,21 @@
 name: Build & Deploy to EC2
 
 on:
-  workflow_dispatch:   # manual trigger only
+  workflow_dispatch:
 
 jobs:
   build-and-deploy:
-    runs-on: self-hosted   # EC2 runner
+    runs-on: self-hosted
     steps:
       - name: Checkout source
         uses: actions/checkout@v4
 
-      - name: Set up Java
+      - name: Set up Java with Maven
         uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: 21
+          cache: maven
 
       - name: Build jar with Maven
         run: mvn clean package -DskipTests
@@ -23,7 +24,6 @@ jobs:
         run: |
           JAR_FILE=$(ls target/*.jar | head -n 1)
           echo "Jar built: $JAR_FILE"
-
           mkdir -p ~/app
           cp "$JAR_FILE" ~/app/app.jar
           echo "✅ JAR moved to ~/app/app.jar"
