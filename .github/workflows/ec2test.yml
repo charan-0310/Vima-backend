@@ -5,11 +5,26 @@ on:
 
 jobs:
   test-ec2-ssh:
-      runs-on: self-hosted   # uses your EC2 runner
-      steps:
-        - name: Print system info
-          run: |
-            echo "✅ Running inside EC2"
-            hostname
-            whoami
-            uptime
+    runs-on: ubuntu-latest
+    steps:
+      - name: Debug secret values (safe)
+        run: |
+          echo "EC2_HOST length: ${#EC2_HOST}"
+          echo "EC2_USER: ${#EC2_USER}"
+          echo "EC2_SSH_KEY first 50 chars: ${#EC2_KEY}..."
+        env:
+          EC2_HOST: ${{ secrets.EC2_HOST }}
+          EC2_USER: ${{ secrets.EC2_USER }}
+          EC2_SSH_KEY: ${{ secrets.EC2_KEY }}
+
+      - name: Test SSH Connection
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ${{ secrets.EC2_USER }}
+          key: ${{ secrets.EC2_KEY }}
+          script: |
+            echo "✅ Connected to EC2" > /tmp/ec2-test.log
+            hostname >> /tmp/ec2-test.log
+            whoami >> /tmp/ec2-test.log
+            uptime >> /tmp/ec2-test.log
