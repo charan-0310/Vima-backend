@@ -17,6 +17,15 @@ jobs:
           java-version: 21
           cache: maven
 
+      - name: Install Zoho SDK JAR locally
+        run: |
+            mvn install:install-file \
+            -Dfile=lib/zohocrmsdk-5-0-6.0.0.jar \
+            -DgroupId=com.zoho.crm \
+            -DartifactId=zohocrmsdk-5-0 \
+            -Dversion=6.0.0 \
+            -Dpackaging=jar
+            
       - name: Build jar with Maven
         run: mvn clean package -DskipTests
 
