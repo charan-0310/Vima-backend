@@ -27,7 +27,7 @@ jobs:
             -Dpackaging=jar
             
       - name: Build jar with Maven
-        run: mvn clean package -DskipTests
+        run: mvn clean package
 
       - name: Move jar to deploy directory
         run: |
