@@ -27,9 +27,3 @@ jobs:
           mkdir -p ~/app
           cp "$JAR_FILE" ~/app/app.jar
           echo "✅ JAR moved to ~/app/app.jar"
-
-      - name: Restart app
-        run: |
-          pkill -f "java -jar ~/app/app.jar" || true
-          nohup java -jar ~/app/app.jar > ~/app/app.log 2>&1 &
-          echo "✅ App restarted"
