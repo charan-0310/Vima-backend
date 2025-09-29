@@ -1,38 +1,42 @@
 name: Build & Deploy to EC2
 
 on:
-  workflow_dispatch:
+  workflow_dispatch:   # manual trigger
 
 jobs:
   build-and-deploy:
-    runs-on: self-hosted
+    runs-on: self-hosted   # EC2 runner
+
     steps:
       - name: Checkout source
         uses: actions/checkout@v4
 
-      - name: Set up Java with Maven
-        uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: 21
-          cache: maven
+      - name: Verify Java & Maven
+        run: |
+          java -version
+          mvn -version
 
       - name: Install Zoho SDK JAR locally
         run: |
-            mvn install:install-file \
+          mvn install:install-file \
             -Dfile=lib/zohocrmsdk-5-0-6.0.0.jar \
             -DgroupId=com.zoho.crm \
             -DartifactId=zohocrmsdk-5-0 \
             -Dversion=6.0.0 \
             -Dpackaging=jar
-            
-      - name: Build jar with Maven
-        run: mvn clean package -DskipTests
 
-      - name: Move jar to deploy directory
+      - name: Build & Run Tests
+        run: mvn clean verify   # runs compile + unit tests, fails if tests fail
+
+      - name: Find built JAR
+        id: find-jar
         run: |
           JAR_FILE=$(ls target/*.jar | head -n 1)
+          echo "JAR_FILE=$JAR_FILE" >> $GITHUB_ENV
           echo "Jar built: $JAR_FILE"
-          mkdir -p ~/app
-          cp "$JAR_FILE" ~/app/app.jar
-          echo "✅ JAR moved to ~/app/app.jar"
+
+      - name: Copy JAR to deploy directory
+        run: |
+          mkdir -p ~/vima-app-deployment/api-dev/artifact
+          cp "$JAR_FILE" ~/vima-app-deployment/api-dev/artifact/vimaadmin-0.0.1-SNAPSHOT.jar
+          echo "✅ JAR moved to ~/vima-app-deployment/api-dev/artifact/vimaadmin-0.0.1-SNAPSHOT.jar"
