@@ -35,9 +35,9 @@ public class CustomerRequestDto {
 
     private Integer dependentCount;
 
-    private String zohoCrmId;
-
     private String status;
+
+    private String notes;
 
     private LocalDateTime createdAt;
 

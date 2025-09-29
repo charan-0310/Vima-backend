@@ -109,12 +109,12 @@ public class ZohoCRMUtil {
      */
     public String mapZohoStatusToCustomerStatus(String zohoStatus) {
         if (zohoStatus == null || zohoStatus.isEmpty()) {
-            return "PENDING";
+            return "NEW LEAD";
         }
         return switch (zohoStatus.toUpperCase()) {
             case "QUALIFIED" -> "ACTIVE";
             case "NOT QUALIFIED" -> "INACTIVE";
-            default -> "PENDING";
+            default -> "NEW LEAD";
         };
     }
 } 

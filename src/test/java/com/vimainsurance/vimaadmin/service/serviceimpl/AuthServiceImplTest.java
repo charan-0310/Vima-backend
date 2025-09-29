@@ -1,17 +1,18 @@
 package com.vimainsurance.vimaadmin.service.serviceimpl;
 
-import org.junit.jupiter.api.extension.ExtendWith;
-import static org.mockito.ArgumentMatchers.any;
+import java.util.Optional;
+
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
-import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.when;
 import org.mockito.junit.jupiter.MockitoExtension;
-import static org.mockito.Mockito.when;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.authentication.AuthenticationManager;
@@ -29,9 +30,6 @@ import com.vimainsurance.vimaadmin.repository.IAdminUserRepository;
 import com.vimainsurance.vimaadmin.util.Constants;
 import com.vimainsurance.vimaadmin.util.JwtUtil;
 import com.vimainsurance.vimaadmin.util.ZohoUtil;
-import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.BeforeEach;
-import java.util.Optional;
 
 @ExtendWith(MockitoExtension.class)
 class AuthServiceImplTest {
@@ -65,7 +63,7 @@ class AuthServiceImplTest {
 
         // Setup refresh token request
         refreshTokenRequestDto = new RefreshTokenRequestDto();
-        refreshTokenRequestDto.setRefreshtoken("test-refresh-token");
+        refreshTokenRequestDto.setRefreshToken("test-refresh-token");
 
         // Setup admin user
         adminUser = new AdminUser();
@@ -89,7 +87,7 @@ class AuthServiceImplTest {
             when(adminUserRepository.findByUsername(anyString())).thenReturn(Optional.of(adminUser));
 
         // Mock JWT token generation
-        when(jwtUtil.generateToken(anyString(), anyString(), anyString()))
+        when(jwtUtil.generateToken(anyString(), anyString(), anyString(), anyString()))
             .thenReturn("test-jwt-token");
         
         // Perform login
@@ -122,7 +120,7 @@ class AuthServiceImplTest {
         when(jwtUtil.validateToken(anyString())).thenReturn(true);
         when(jwtUtil.extractUsername(anyString())).thenReturn("testuser");
         when(adminUserRepository.findByUsername(anyString())).thenReturn(Optional.of(adminUser));
-        when(jwtUtil.generateToken(anyString(), anyString(), anyString())).thenReturn("new-access-token");
+        when(jwtUtil.generateToken(anyString(), anyString(), anyString(), anyString())).thenReturn("new-access-token");
 
         // Perform refresh token
         ResponseEntity<ResponseDto<RefreshTokenResponseDto>> response = authService.getRefreshToken(refreshTokenRequestDto);

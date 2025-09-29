@@ -1,10 +1,5 @@
 package com.vimainsurance.vimaadmin.service.serviceimpl;
 
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertNotNull;
-import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.Mockito.when;
-
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
@@ -12,15 +7,18 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import static org.mockito.ArgumentMatchers.any;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
+import static org.mockito.Mockito.when;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageImpl;
-import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -104,7 +102,7 @@ class CustomerServiceImplTest {
         when(adminUserRepository.findByUsername(any())).thenReturn(Optional.of(adminUser));
         when(customerRepository.save(any())).thenReturn(customer);
 
-        ResponseEntity<ResponseDto<String>> response = customerService.create(customerRequestDto);
+        ResponseEntity<ResponseDto<String>> response = customerService.create(customerRequestDto, "test-agent");
 
         assertEquals(HttpStatus.OK, response.getStatusCode());
         assertNotNull(response.getBody());
@@ -116,7 +114,7 @@ class CustomerServiceImplTest {
     void testCreate_PhoneNumberExists() {
         when(customerRepository.findByPhoneNumber(any())).thenReturn(Optional.of(customer));
 
-        ResponseEntity<ResponseDto<String>> response = customerService.create(customerRequestDto);
+        ResponseEntity<ResponseDto<String>> response = customerService.create(customerRequestDto, "test-agent");
 
         assertEquals(HttpStatus.OK, response.getStatusCode());
         assertNotNull(response.getBody());
@@ -177,9 +175,9 @@ class CustomerServiceImplTest {
         List<Customer> customers = new ArrayList<>();
         customers.add(customer);
         when(adminUserRepository.findByUsername(any())).thenReturn(Optional.of(adminUser));
-        when(customerRepository.findByCreatedBy(any())).thenReturn(customers);
-
-        ResponseEntity<ResponseDto<List<CustomerResponseDto>>> response = customerService.findByAgent("test-agent");
+        when(customerRepository.findActiveByCreatedBy(any(), any())).thenReturn(new PageImpl<>(customers));
+        
+        ResponseEntity<ResponseDto<List<CustomerResponseDto>>> response = customerService.findByAgent("test-agent", "test-search", 0, 10, "test-sortBy", "test-sortDirection");
 
         assertEquals(HttpStatus.OK, response.getStatusCode());
         assertNotNull(response.getBody());
@@ -194,12 +192,13 @@ class CustomerServiceImplTest {
         Page<Customer> customerPage = new PageImpl<>(customers);
         when(customerRepository.findAll(any(Pageable.class))).thenReturn(customerPage);
 
-        ResponseEntity<ResponseDto<List<Customer>>> response = customerService.getAllCustomers(0, 10);
+        ResponseEntity<ResponseDto<List<CustomerResponseDto>>> response = customerService.getAllCustomers(0, 10);
 
         assertEquals(HttpStatus.OK, response.getStatusCode());
         assertNotNull(response.getBody());
         assertEquals(Constants.SUCCESS, response.getBody().getMessage());
         assertEquals(1, response.getBody().getPayload().size());
+        assertEquals("C001", response.getBody().getPayload().get(0).getCustId());
     }
 
     @Test
@@ -208,12 +207,13 @@ class CustomerServiceImplTest {
         customers.add(customer);
         when(customerRepository.findAll()).thenReturn(customers);
 
-        ResponseEntity<ResponseDto<List<Customer>>> response = customerService.getAllCustomers(-1, -1);
+        ResponseEntity<ResponseDto<List<CustomerResponseDto>>> response = customerService.getAllCustomers(-1, -1);
 
         assertEquals(HttpStatus.OK, response.getStatusCode());
         assertNotNull(response.getBody());
         assertEquals(Constants.SUCCESS, response.getBody().getMessage());
         assertEquals(1, response.getBody().getPayload().size());
+        assertEquals("C001", response.getBody().getPayload().get(0).getCustId());
     }
 
     @Test

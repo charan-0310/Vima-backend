@@ -16,12 +16,14 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import com.vimainsurance.vimaadmin.dto.CustomerRequestDto;
 import com.vimainsurance.vimaadmin.dto.CustomerResponseDto;
+import com.vimainsurance.vimaadmin.dto.CustomerPipelineRequestDto;
+import com.vimainsurance.vimaadmin.dto.CustomerBulkDeleteRequestDto;
 import com.vimainsurance.vimaadmin.dto.ResponseDto;
-import com.vimainsurance.vimaadmin.entity.Customer;
 import com.vimainsurance.vimaadmin.service.ICustomerService;
 
 @RestController
@@ -38,7 +40,7 @@ public class CustomerController {
     @PreAuthorize("hasRole('SALES_AGENT')")
     public ResponseEntity<ResponseDto<String>> create(@RequestBody CustomerRequestDto requestDto, @PathVariable String username){
         logger.info("[correlationId:{}] /agent/{}/customer endpoint called", MDC.get("correlationId"), username);
-        return iCustomerService.create(requestDto);
+        return iCustomerService.create(requestDto, username);
     }
 
     @PutMapping("/customer")
@@ -48,18 +50,40 @@ public class CustomerController {
         return iCustomerService.update(requestDto);
     }
 
-    @DeleteMapping("/customer")
+    @DeleteMapping("/customers")
     @PreAuthorize("hasRole('SALES_AGENT')")
-    public ResponseEntity<ResponseDto<String>> delete(@RequestBody CustomerRequestDto requestDto){
-        logger.info("[correlationId:{}] /customer (DELETE) endpoint called", MDC.get("correlationId"));
-        return iCustomerService.delete(requestDto);
+    public ResponseEntity<ResponseDto<String>> bulkDelete(@RequestBody CustomerBulkDeleteRequestDto requestDto) {
+        logger.info("[correlationId:{}] /customers (DELETE) endpoint called for bulk deletion", MDC.get("correlationId"));
+        return iCustomerService.bulkDelete(requestDto);
     }
 
+    /**
+     * Get customers for a specific agent with advanced filtering and sorting
+     * 
+     * Query Optimization:
+     * - Uses dedicated searchCustomersByCreatedBy when search is provided
+     * - Uses basic findActiveByCreatedBy when no search is applied
+     * - Special handling for premium sorting with in-memory processing
+     * 
+     * Supported sortBy values:
+     * - pipelineStage/status: Sort by customer pipeline stage
+     * - premium: Sort by highest premium from quotes
+     * - lastActivity/updatedAt: Sort by last activity (default)
+     * - fullName: Sort by customer name
+     * - createdAt: Sort by creation date
+     * - city, state, email, phoneNumber: Sort by respective fields
+     */
     @GetMapping("/agent/{username}/customers")
     @PreAuthorize("hasRole('SALES_AGENT')")
-    public ResponseEntity<ResponseDto<List<CustomerResponseDto>>> getCustomerByAgent(@PathVariable String username){
+    public ResponseEntity<ResponseDto<List<CustomerResponseDto>>> getCustomerByAgent(
+            @PathVariable String username,
+            @RequestParam(defaultValue = "0", required = false) int page,
+            @RequestParam(defaultValue = "10", required = false) int rec,
+            @RequestParam(defaultValue = "", required = false) String search,
+            @RequestParam(required = false) String sortBy,
+            @RequestParam(defaultValue = "asc", required = false) String sortDirection) {
         logger.info("[correlationId:{}] /agent/{}/customers endpoint called", MDC.get("correlationId"), username);
-        return iCustomerService.findByAgent(username);
+        return iCustomerService.findByAgent(username, search, page, rec, sortBy, sortDirection);
     }
 
     @GetMapping("/customers/{custid}")
@@ -69,4 +93,20 @@ public class CustomerController {
         return iCustomerService.getByCustId(custid);
     }
 
+    @GetMapping("/admin/customers")
+    @PreAuthorize("hasRole('SALES_AGENT')")
+    public ResponseEntity<ResponseDto<List<CustomerResponseDto>>> getAll(@RequestParam int page, @RequestParam int rec){
+        logger.info("/admin/customers", MDC.get("correlationId"));
+        return iCustomerService.getAllCustomers(page, rec);
+    }
+
+    @PutMapping("/agent/{username}/customer/{customerId}/pipeline")
+    @PreAuthorize("hasRole('SALES_AGENT')")
+    public ResponseEntity<ResponseDto<String>> updatePipelineStatus(
+            @PathVariable String username,
+            @PathVariable String customerId,
+            @RequestBody CustomerPipelineRequestDto requestDto) {
+        logger.info("[correlationId:{}] /agent/{}/customer/{}/pipeline endpoint called", MDC.get("correlationId"), username, customerId);
+        return iCustomerService.updatePipelineStatus(username, customerId, requestDto);
+    }
 }

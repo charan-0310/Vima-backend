@@ -16,6 +16,7 @@ import org.springframework.web.bind.annotation.RestController;
 import com.vimainsurance.vimaadmin.dto.ResponseDto;
 import com.vimainsurance.vimaadmin.dto.ZohoSyncResponseDto;
 import com.vimainsurance.vimaadmin.service.IZohoCRMService;
+import com.vimainsurance.vimaadmin.dto.DealStageResponseDto;
 
 @RestController
 @CrossOrigin(allowedHeaders = "*")
@@ -46,5 +47,11 @@ public class ZohoCRMController {
             @RequestParam(defaultValue = "10") int size) {
         logger.info("[correlationId:{}] /leads endpoint called", MDC.get("correlationId"));
         return zohoCRMService.getAllLeadsByAgents(page, size, "884155000000351000");
+    }
+
+    @GetMapping("/deals/searchByPhone")
+    public ResponseEntity<ResponseDto<DealStageResponseDto>> getDealStageByPhone(@RequestParam String phoneNumber) {
+        logger.info("[correlationId:{}] /deals/searchByPhone endpoint called", MDC.get("correlationId"));
+        return zohoCRMService.getDealStageByPhone(phoneNumber);
     }
 } 

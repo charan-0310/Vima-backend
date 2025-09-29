@@ -155,8 +155,17 @@
 		<dependency>
 			<groupId>jakarta.annotation</groupId>
 			<artifactId>jakarta.annotation-api</artifactId>
-			<version>2.1.1</version>
 			<scope>provided</scope>
+		</dependency>
+		
+		<!-- Email Dependencies -->
+		<dependency>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-starter-mail</artifactId>
+		</dependency>
+		<dependency>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-starter-thymeleaf</artifactId>
 		</dependency>
 	</dependencies>
 
@@ -173,7 +182,7 @@
 					<parameters>true</parameters>
 				</configuration>
 			</plugin>
-			 <plugin>
+	 <!-- <plugin>
       <groupId>org.springframework.boot</groupId>
       <artifactId>spring-boot-maven-plugin</artifactId>
       <executions>
@@ -183,7 +192,7 @@
           </goals>
         </execution>
       </executions>
-    </plugin>
+    </plugin> -->
 		</plugins>
 	</build>
 

@@ -51,6 +51,9 @@ public class ZohoSyncUtil {
     @Autowired
     private IAdminUserRepository adminUserRepository;
 
+    @Autowired
+    private IdGenerator idGenerator;
+
 
     /**
      * Initialize Zoho CRM if not already initialized
@@ -196,7 +199,7 @@ public class ZohoSyncUtil {
         customer.setCreatedBy(adminUserRepository.findByUsername("mithun").isPresent() ? adminUserRepository.findByUsername("mithun").get() : null);
 
         if (customer.getCustId() == null) {
-            customer.setCustId(generateCustomerId());
+            customer.setCustId(idGenerator.generateCustomerId());
         }
         
         return customer;
@@ -218,18 +221,7 @@ public class ZohoSyncUtil {
         existing.setDateOfBirth(dto.getDateOfBirth());
     }
 
-    /**
-     * Generate a new customer ID
-     */
-    private String generateCustomerId() {
-        String maxId = customerRepository.findMaxCustomerId();
-        if (maxId == null) {
-            return "C001";
-        }
-        int num = Integer.parseInt(maxId.substring(1));
-        num++;
-        return String.format("C%03d", num);
-    }
+
 
     /**
      * Fetch records from Zoho CRM with pagination
@@ -341,7 +333,7 @@ public class ZohoSyncUtil {
         return switch (customerStatus.toUpperCase()) {
             case "ACTIVE" -> "Qualified Lead";
             case "INACTIVE" -> "Not Interested";
-            case "PENDING" -> "New Lead";
+            case "NEW_LEAD" -> "New Lead";
             case "CONTACTED" -> "Contacted/Qualification";
             case "INSURED" -> "Already Insured";
             case "FOLLOW_UP" -> "Pre Advisory follow up";

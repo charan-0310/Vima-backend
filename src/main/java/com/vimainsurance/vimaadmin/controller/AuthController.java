@@ -11,10 +11,16 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
+import com.vimainsurance.vimaadmin.dto.ChallengeLoginRequestDto;
+import com.vimainsurance.vimaadmin.dto.ChallengeRequestDto;
+import com.vimainsurance.vimaadmin.dto.ChallengeResponseDto;
+import com.vimainsurance.vimaadmin.dto.EncryptedLoginRequestDto;
 import com.vimainsurance.vimaadmin.dto.LoginRequestDto;
 import com.vimainsurance.vimaadmin.dto.LoginResponseDto;
+import com.vimainsurance.vimaadmin.dto.PublicKeyResponseDto;
 import com.vimainsurance.vimaadmin.dto.RefreshTokenRequestDto;
 import com.vimainsurance.vimaadmin.dto.RefreshTokenResponseDto;
 import com.vimainsurance.vimaadmin.dto.ResponseDto;
@@ -46,5 +52,31 @@ public class AuthController {
     public ResponseEntity<ResponseDto<RefreshTokenResponseDto>>  refreshToken(@RequestBody RefreshTokenRequestDto reqDto){
         logger.info("[correlationId:{}] /refresh-token endpoint called", MDC.get("correlationId"));
         return authService.getRefreshToken(reqDto);
+    }
+
+    /**
+     * Challenge-response authentication endpoints
+     */
+    @GetMapping("/auth/challenge")
+    public ResponseEntity<ResponseDto<ChallengeResponseDto>> getChallenge(@RequestParam String username) {
+        logger.info("[correlationId:{}] /auth/challenge endpoint called for username", MDC.get("correlationId"));
+        ChallengeRequestDto requestDto = new ChallengeRequestDto(username);
+        return authService.getChallenge(requestDto);
+    }
+    
+    @PostMapping("/auth/login")
+    public ResponseEntity<ResponseDto<LoginResponseDto>> challengeLogin(@RequestBody ChallengeLoginRequestDto requestDto) {
+        logger.info("[correlationId:{}] /auth/login endpoint called", MDC.get("correlationId"));
+        return authService.challengeLogin(requestDto);
+    }
+    
+    /**
+     * Simple endpoint to get CSP headers with nonce
+     * Returns no content - headers are added automatically by CorrelationIdFilter
+     */
+    @GetMapping("/nonce")
+    public ResponseEntity<Void> getNonce() {
+        logger.debug("[correlationId:{}] /nonce endpoint called", MDC.get("correlationId"));
+        return ResponseEntity.noContent().build();
     }
 }
