@@ -9,4 +9,5 @@ public class ManagerDashboardResponseDto {
 
     List<String> agentNames;
     Integer totalPolicyIssued;
+    Long totalQuoteSent;
 }
