@@ -188,6 +188,7 @@ public class ManagerServiceImpl implements IManagerService {
                 return responseObj.render(responseObj.formErrorResponse("Agent not found"));
             }
             ManagerDashboardResponseDto responseDto = new ManagerDashboardResponseDto();
+            responseDto.setTotalQuoteSent(adminUserRepository.countByQuoteSent(adminUser.get().getId()));
             responseDto.setAgentNames(adminUserRepository.findByReportingTo(adminUser.get().getId()));
             return responseObj.render(responseObj.formSuccessResponse(Constants.SUCCESS, responseDto));
         } catch (Exception e) {
