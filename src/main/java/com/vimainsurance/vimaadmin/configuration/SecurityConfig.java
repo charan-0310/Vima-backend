@@ -1,10 +1,10 @@
 package com.vimainsurance.vimaadmin.configuration;
 
 import java.util.Arrays;
-import java.util.List;
 
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.boot.web.servlet.FilterRegistrationBean;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.security.authentication.AuthenticationManager;
@@ -24,13 +24,12 @@ import org.springframework.security.web.authentication.UsernamePasswordAuthentic
 import org.springframework.web.cors.CorsConfiguration;
 import org.springframework.web.cors.CorsConfigurationSource;
 import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
-import org.springframework.boot.web.servlet.FilterRegistrationBean;
 
 import com.vimainsurance.vimaadmin.configuration.oauth.VimaOAuth2SuccessHandler;
 import com.vimainsurance.vimaadmin.configuration.oauth.VimaOAuth2UserService;
 import com.vimainsurance.vimaadmin.util.AdminUserDetailsService;
-import com.vimainsurance.vimaadmin.util.JwtAuthenticationFilter;
 import com.vimainsurance.vimaadmin.util.CorrelationIdFilter;
+import com.vimainsurance.vimaadmin.util.JwtAuthenticationFilter;
 
 @Configuration
 @EnableWebSecurity
@@ -57,8 +56,7 @@ public class SecurityConfig {
     @Bean
     public SecurityFilterChain filterChain(HttpSecurity http) throws Exception {
         http
-            .cors()
-            .and()
+            .cors(cors -> cors.configurationSource(corsConfigurationSource()))
             .csrf(csrf -> csrf.disable())
             .authorizeHttpRequests(auth -> auth
                 .requestMatchers("/api/v1/login", "/oauth2/**", "/api/v1/zoho/auth/**", "/api/v1/nonce", "/api/v1/auth/challenge", "/api/v1/auth/login").permitAll() 

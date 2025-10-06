@@ -31,10 +31,13 @@ import com.zoho.crm.api.record.ResponseHandler;
 import com.zoho.crm.api.record.ResponseWrapper;
 import com.zoho.crm.api.record.SuccessResponse;
 import com.zoho.crm.api.users.MinifiedUser;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.security.core.context.SecurityContextHolder;
 
 @Component
 public class ZohoSyncUtil {
-
+    Logger logger = LoggerFactory.getLogger(ZohoSyncUtil.class);
     private static final String REQUIRED_FIELDS = 
         "Full_Name,Email,Phone,City,State,Occupation,Annual_Income," +
         "Created_Time,Modified_Time,Lead_Status,Owner.email,Date_of_Birth,Gender,Mobile";
@@ -65,8 +68,10 @@ public class ZohoSyncUtil {
                 zohoConfig.initializeZohoManually(null);
             }
         } catch (SDKException e) {
+            logger.error("Failed to initialize Zoho CRM", e);
             throw new ZohoSyncException("Failed to initialize Zoho CRM", e);
         } catch (Exception e) {
+            logger.error("Failed to initialize Zoho CRM", e);
             throw new ZohoSyncException("Failed to initialize Zoho CRM", e);
        }
     }
@@ -181,6 +186,7 @@ public class ZohoSyncUtil {
      * Map CustomerResponseDto to Customer entity
      */
     private Customer mapDtoToCustomer(CustomerResponseDto dto) {
+        String username = (String) SecurityContextHolder.getContext().getAuthentication().getPrincipal();
         Customer customer = new Customer();
         customer.setZohoCrmId(dto.getZohoCrmId());
         customer.setFullName(dto.getFullName());
@@ -195,8 +201,8 @@ public class ZohoSyncUtil {
         customer.setStatus(dto.getStatus());
         customer.setCreatedAt(dto.getCreatedAt());
         customer.setUpdatedAt(dto.getUpdatedAt());
-        customer.setOwner(adminUserRepository.findByUsername("mithun").isPresent() ? adminUserRepository.findByUsername("mithun").get() : null);
-        customer.setCreatedBy(adminUserRepository.findByUsername("mithun").isPresent() ? adminUserRepository.findByUsername("mithun").get() : null);
+        customer.setOwner(adminUserRepository.findByUsername(username).isPresent() ? adminUserRepository.findByUsername(username).get() : null);
+        customer.setCreatedBy(adminUserRepository.findByUsername(username).isPresent() ? adminUserRepository.findByUsername(username).get() : null);
 
         if (customer.getCustId() == null) {
             customer.setCustId(idGenerator.generateCustomerId());

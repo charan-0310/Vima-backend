@@ -1,7 +1,10 @@
 package com.vimainsurance.vimaadmin.util;
 
 import java.math.BigDecimal;
+import java.time.Instant;
 import java.time.LocalDateTime;
+import java.time.OffsetDateTime;
+import java.time.ZoneId;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -69,13 +72,30 @@ public class ZohoCRMUtil {
         }
 
         try {
-            // Remove timezone offset if present (e.g., +05:30)
-            dateTimeStr = dateTimeStr.replaceAll("[+-]\\d{2}:?\\d{2}$", "");
-            // Ensure the format is correct for parsing
-            dateTimeStr = dateTimeStr.replace(" ", "T");
+            dateTimeStr = dateTimeStr.trim().replace(" ", "T");
+
+            // Add missing seconds if format ends with 'Z' but has only hours and minutes
+            if (dateTimeStr.matches("\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}Z")) {
+                dateTimeStr = dateTimeStr.replace("Z", ":00Z");
+            }
+    
+            // Handle UTC time (ending with Z)
+            if (dateTimeStr.endsWith("Z")) {
+                Instant instant = Instant.parse(dateTimeStr);
+                return LocalDateTime.ofInstant(instant, ZoneId.systemDefault());
+            }
+    
+            // Handle time with timezone offset like +05:30 or -0400
+            if (dateTimeStr.matches(".*[+-]\\d{2}:?\\d{2}$")) {
+                OffsetDateTime odt = OffsetDateTime.parse(dateTimeStr);
+                return odt.toLocalDateTime();
+            }
+    
+            // Fallback to simple local datetime
             if (dateTimeStr.length() > 19) {
                 dateTimeStr = dateTimeStr.substring(0, 19);
             }
+    
             return LocalDateTime.parse(dateTimeStr);
         } catch (Exception e) {
             logger.error("Error parsing {}", fieldName, e);

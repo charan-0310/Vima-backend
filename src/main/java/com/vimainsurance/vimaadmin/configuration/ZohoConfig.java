@@ -14,10 +14,14 @@ import com.zoho.crm.api.Initializer;
 import com.zoho.crm.api.UserSignature;
 import com.zoho.crm.api.dc.DataCenter.Environment;
 import com.zoho.crm.api.dc.INDataCenter;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 
 @Service
 public class ZohoConfig {
+
+    private static final Logger logger = LoggerFactory.getLogger(ZohoConfig.class);
 
     @Value("${zoho.crm.client-id}")
     private String clientId;
@@ -74,6 +78,7 @@ public class ZohoConfig {
         Environment environment = INDataCenter.PRODUCTION;
     
         Optional<ZohoToken> zohotoken = tokenRepository.findById(1L);
+        logger.info("refresh token: " + zohotoken.isPresent());
         Token token = new OAuthToken.Builder().clientID(clientId).clientSecret(clientSecret).refreshToken(zohotoken.get().getRefreshToken()).redirectURL(redirectUrl).build();
         
         new Initializer.Builder().environment(environment).token(token).initialize();
