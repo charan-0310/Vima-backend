@@ -60,4 +60,6 @@ public class AdminUserController {
     public ResponseEntity<ResponseDto<String>> adminChangeUserPassword(@PathVariable String username) {
         return adminUserService.adminChangeUserPassword(username);
     }
+
+    
 } 

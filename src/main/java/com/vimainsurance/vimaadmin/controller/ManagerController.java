@@ -53,7 +53,9 @@ public class ManagerController {
     }
 
     @GetMapping("/{username}")
-    public ResponseEntity<ResponseDto<ManagerDashboardResponseDto>> getManagerDashboard(@PathVariable String username) {
-        return managerService.getManagerDashboard(username);
+    public ResponseEntity<ResponseDto<ManagerDashboardResponseDto>> getManagerDashboard(
+            @PathVariable String username,
+            @RequestParam(defaultValue = "this_month", required = false) String period) {
+        return managerService.getManagerDashboard(username, period);
     }
 }

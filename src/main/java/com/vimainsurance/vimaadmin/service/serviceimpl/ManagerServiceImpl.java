@@ -4,7 +4,6 @@ package com.vimainsurance.vimaadmin.service.serviceimpl;
 import com.vimainsurance.vimaadmin.service.IManagerService;
 
 import org.springframework.stereotype.Service;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
 import org.springframework.http.ResponseEntity;
@@ -42,8 +41,11 @@ public class ManagerServiceImpl implements IManagerService {
     private static final String PREMIUM_SORT_FIELD = "premium";
 
 
-    @Autowired
-    private IAdminUserRepository adminUserRepository;
+    private final IAdminUserRepository adminUserRepository;
+    
+    public ManagerServiceImpl(IAdminUserRepository adminUserRepository) {
+        this.adminUserRepository = adminUserRepository;
+    }
     
 
     @Override
@@ -179,21 +181,154 @@ public class ManagerServiceImpl implements IManagerService {
     }
 
     @Override
-    public ResponseEntity<ResponseDto<ManagerDashboardResponseDto>> getManagerDashboard(String username) {
-        logger.info("[correlationId:{}] getManagerDashboard called", MDC.get("correlationId"));
+    public ResponseEntity<ResponseDto<ManagerDashboardResponseDto>> getManagerDashboard(String username, String period) {
+        logger.info("[correlationId:{}] getManagerDashboard called for user: {} with period: {}", 
+                   MDC.get("correlationId"), username, period);
         BaseResponse<ManagerDashboardResponseDto> responseObj = new BaseResponse<>();
         try {
-            Optional<AdminUser> adminUser = adminUserRepository.findByUsername(username);
-            if(adminUser.isEmpty()){
-                return responseObj.render(responseObj.formErrorResponse("Agent not found"));
+            // Validate manager exists
+            Optional<AdminUser> manager = adminUserRepository.findByUsername(username);
+            if(manager.isEmpty()){
+                return responseObj.render(responseObj.formErrorResponse("Manager not found"));
             }
+            
+            // Validate period
+            try {
+                com.vimainsurance.vimaadmin.util.PeriodFilterUtil.Period.fromString(period);
+            } catch (IllegalArgumentException e) {
+                return responseObj.render(responseObj.formErrorResponse("Invalid period: " + period));
+            }
+            
+            // Get period range
+            com.vimainsurance.vimaadmin.util.PeriodFilterUtil.PeriodRange periodRange = 
+                com.vimainsurance.vimaadmin.util.PeriodFilterUtil.getPeriodRange(period);
+            
+            // Get current period metrics
+            Long totalLeads = adminUserRepository.countTotalLeadsForManager(
+                manager.get().getId(), periodRange.getStartDate(), periodRange.getEndDate());
+            Long totalQuotes = adminUserRepository.countTotalQuotesForManager(
+                manager.get().getId(), periodRange.getStartDate().toLocalDate(), periodRange.getEndDate().toLocalDate());
+            Long totalPolicies = adminUserRepository.countTotalPoliciesForManager(
+                manager.get().getId(), periodRange.getStartDate().toLocalDate(), periodRange.getEndDate().toLocalDate());
+            // Calculate total business amount from policy premiums (optimized)
+            List<String> policyPremiums = adminUserRepository.getPolicyPremiumsForManager(
+                manager.get().getId(), periodRange.getStartDate().toLocalDate(), periodRange.getEndDate().toLocalDate());
+            double totalBusinessAmountDouble = policyPremiums.parallelStream()
+                .mapToDouble(premium -> {
+                    try {
+                        return new java.math.BigDecimal(premium).doubleValue();
+                    } catch (NumberFormatException e) {
+                        return 0.0;
+                    }
+                })
+                .sum();
+            java.math.BigDecimal totalBusinessAmount = java.math.BigDecimal.valueOf(totalBusinessAmountDouble);
+            Long activeAgents = adminUserRepository.countActiveAgentsForManager(manager.get().getId());
+            
+            // Get previous period metrics for growth calculation
+            Long previousLeads = adminUserRepository.countTotalLeadsForManager(
+                manager.get().getId(), periodRange.getPreviousStartDate(), periodRange.getPreviousEndDate());
+            Long previousQuotes = adminUserRepository.countTotalQuotesForManager(
+                manager.get().getId(), periodRange.getPreviousStartDate().toLocalDate(), periodRange.getPreviousEndDate().toLocalDate());
+            Long previousPolicies = adminUserRepository.countTotalPoliciesForManager(
+                manager.get().getId(), periodRange.getPreviousStartDate().toLocalDate(), periodRange.getPreviousEndDate().toLocalDate());
+            // Calculate previous period business amount (optimized)
+            List<String> previousPolicyPremiums = adminUserRepository.getPolicyPremiumsForManager(
+                manager.get().getId(), periodRange.getPreviousStartDate().toLocalDate(), periodRange.getPreviousEndDate().toLocalDate());
+            double previousBusinessAmountDouble = previousPolicyPremiums.parallelStream()
+                .mapToDouble(premium -> {
+                    try {
+                        return new java.math.BigDecimal(premium).doubleValue();
+                    } catch (NumberFormatException e) {
+                        return 0.0;
+                    }
+                })
+                .sum();
+            java.math.BigDecimal previousBusinessAmount = java.math.BigDecimal.valueOf(previousBusinessAmountDouble);
+            
+            // Calculate growth rates
+            double leadsGrowth = com.vimainsurance.vimaadmin.util.PeriodFilterUtil.calculateGrowth(
+                totalLeads.doubleValue(), previousLeads.doubleValue());
+            double quotesGrowth = com.vimainsurance.vimaadmin.util.PeriodFilterUtil.calculateGrowth(
+                totalQuotes.doubleValue(), previousQuotes.doubleValue());
+            double policiesGrowth = com.vimainsurance.vimaadmin.util.PeriodFilterUtil.calculateGrowth(
+                totalPolicies.doubleValue(), previousPolicies.doubleValue());
+            double businessGrowth = com.vimainsurance.vimaadmin.util.PeriodFilterUtil.calculateGrowth(
+                totalBusinessAmount.doubleValue(), previousBusinessAmount.doubleValue());
+            
+            // Calculate conversion rates
+            double conversionRate = com.vimainsurance.vimaadmin.util.PeriodFilterUtil.calculateConversionRate(
+                totalQuotes.intValue(), totalLeads.intValue());
+            double closingRate = com.vimainsurance.vimaadmin.util.PeriodFilterUtil.calculateClosingRate(
+                totalPolicies.intValue(), totalQuotes.intValue());
+            
+            // Calculate average policy value
+            java.math.BigDecimal avgPolicyValue = totalPolicies > 0 ? 
+                totalBusinessAmount.divide(java.math.BigDecimal.valueOf(totalPolicies), 2, java.math.RoundingMode.HALF_UP) : 
+                java.math.BigDecimal.ZERO;
+            
+            // Build team metrics
+            ManagerDashboardResponseDto.TeamMetrics teamMetrics = new ManagerDashboardResponseDto.TeamMetrics();
+            teamMetrics.setTotalLeads(totalLeads.intValue());
+            teamMetrics.setTotalQuotes(totalQuotes.intValue());
+            teamMetrics.setTotalPolicies(totalPolicies.intValue());
+            teamMetrics.setTotalBusinessAmount(totalBusinessAmount);
+            teamMetrics.setLeadsGrowth(leadsGrowth);
+            teamMetrics.setQuotesGrowth(quotesGrowth);
+            teamMetrics.setPoliciesGrowth(policiesGrowth);
+            teamMetrics.setBusinessGrowth(businessGrowth);
+            teamMetrics.setConversionRate(conversionRate);
+            teamMetrics.setClosingRate(closingRate);
+            teamMetrics.setAvgPolicyValue(avgPolicyValue);
+            teamMetrics.setActiveAgents(activeAgents.intValue());
+            
+            // Get agent metrics
+            List<Object[]> agentMetricsData = adminUserRepository.getAgentMetricsForManager(
+                manager.get().getId(), periodRange.getStartDate(), periodRange.getEndDate());
+            
+            // Get policy counts for agents
+            List<Object[]> agentPolicyCounts = adminUserRepository.getAgentPolicyCounts(
+                manager.get().getId(), periodRange.getStartDate().toLocalDate(), periodRange.getEndDate().toLocalDate());
+            
+            // Create map for policy counts lookup
+            java.util.Map<String, Integer> policyCountMap = agentPolicyCounts.stream()
+                .collect(java.util.stream.Collectors.toMap(
+                    data -> (String) data[0], // username
+                    data -> ((Number) data[1]).intValue() // policy count
+                ));
+            
+            List<ManagerDashboardResponseDto.AgentMetrics> agentMetrics = agentMetricsData.stream()
+                .map(data -> {
+                    ManagerDashboardResponseDto.AgentMetrics agentMetric = new ManagerDashboardResponseDto.AgentMetrics();
+                    agentMetric.setAgentName((String) data[1]); // fullName
+                    agentMetric.setLeads(((Number) data[2]).intValue()); // leads
+                    agentMetric.setQuotes(((Number) data[3]).intValue()); // quotes from main query
+                    agentMetric.setPolicies(policyCountMap.getOrDefault(data[0], 0)); // policies from separate query
+                    agentMetric.setBusinessAmount(java.math.BigDecimal.ZERO); // Will be calculated separately
+                    
+                    // Calculate agent conversion rates
+                    double agentConversionRate = com.vimainsurance.vimaadmin.util.PeriodFilterUtil.calculateConversionRate(
+                        agentMetric.getQuotes(), agentMetric.getLeads());
+                    double agentClosingRate = com.vimainsurance.vimaadmin.util.PeriodFilterUtil.calculateClosingRate(
+                        agentMetric.getPolicies(), agentMetric.getQuotes());
+                    
+                    agentMetric.setConversionRate(agentConversionRate);
+                    agentMetric.setClosingRate(agentClosingRate);
+                    
+                    return agentMetric;
+                })
+                .toList();
+            
+            // Build response
             ManagerDashboardResponseDto responseDto = new ManagerDashboardResponseDto();
-            responseDto.setTotalQuoteSent(adminUserRepository.countByQuoteSent(adminUser.get().getId()));
-            responseDto.setAgentNames(adminUserRepository.findByReportingTo(adminUser.get().getId()));
+            responseDto.setTeamMetrics(teamMetrics);
+            responseDto.setAgentMetrics(agentMetrics);
+            
             return responseObj.render(responseObj.formSuccessResponse(Constants.SUCCESS, responseDto));
+            
         } catch (Exception e) {
-            logger.error("Error fetching manager dashboard", e);
-            return responseObj.render(responseObj.formErrorResponse(e.getMessage()));
+            logger.error("Error fetching manager dashboard for user: {}", username, e);
+            return responseObj.render(responseObj.formErrorResponse("Error fetching manager dashboard: " + e.getMessage()));
         }
     }
 
@@ -216,6 +351,41 @@ public class ManagerServiceImpl implements IManagerService {
             responseDto.setNotes(customer.getNotes());
             responseDto.setQuotes(customer.getQuotes());
             responseDto.setOwner(customer.getOwner().getUsername());
+            
+            // Set additional fields for manager dashboard
+            responseDto.setQuotesCount(customer.getQuotes() != null ? customer.getQuotes().size() : 0);
+            
+            // Calculate total premium and coverage from quotes
+            if (customer.getQuotes() != null && !customer.getQuotes().isEmpty()) {
+                BigDecimal totalPremium = customer.getQuotes().stream()
+                    .map(quote -> {
+                        try {
+                            return new BigDecimal(quote.getBestPremium() != null ? quote.getBestPremium() : "0");
+                        } catch (NumberFormatException e) {
+                            return BigDecimal.ZERO;
+                        }
+                    })
+                    .reduce(BigDecimal.ZERO, BigDecimal::add);
+                
+                BigDecimal totalCoverage = customer.getQuotes().stream()
+                    .map(quote -> {
+                        try {
+                            return new BigDecimal(quote.getCoverageAmount() != null ? quote.getCoverageAmount() : "0");
+                        } catch (NumberFormatException e) {
+                            return BigDecimal.ZERO;
+                        }
+                    })
+                    .reduce(BigDecimal.ZERO, BigDecimal::add);
+                
+                responseDto.setTotalPremium(totalPremium);
+                responseDto.setTotalCoverage(totalCoverage);
+                responseDto.setPremiumAmount(totalPremium); // Same as total premium for now
+            } else {
+                responseDto.setTotalPremium(BigDecimal.ZERO);
+                responseDto.setTotalCoverage(BigDecimal.ZERO);
+                responseDto.setPremiumAmount(BigDecimal.ZERO);
+            }
+            
             return responseDto;
     }
 

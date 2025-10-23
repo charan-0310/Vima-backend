@@ -1,11 +1,13 @@
 package com.vimainsurance.vimaadmin.service.serviceimpl;
 
 import java.time.LocalDateTime;
+import java.time.LocalDate;
 import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Optional;
+import java.util.UUID;
 import java.util.stream.Collectors;
 
 import org.slf4j.Logger;
@@ -22,22 +24,50 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
+import org.springframework.core.io.Resource;
+
+import java.io.InputStream;
+
+import org.springframework.core.io.InputStreamResource;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.MediaType;
 
 import com.vimainsurance.vimaadmin.dto.BaseResponse;
+import com.vimainsurance.vimaadmin.dto.ConvertToDealRequestDto;
 import com.vimainsurance.vimaadmin.dto.CustomerRequestDto;
 import com.vimainsurance.vimaadmin.dto.CustomerResponseDto;
+import com.vimainsurance.vimaadmin.dto.DocumentRequestDto;
 import com.vimainsurance.vimaadmin.dto.CustomerPipelineRequestDto;
 import com.vimainsurance.vimaadmin.dto.CustomerBulkDeleteRequestDto;
+import com.vimainsurance.vimaadmin.dto.DocumentResponseDto;
+import com.vimainsurance.vimaadmin.dto.PolicyRequestDto;
 import com.vimainsurance.vimaadmin.dto.ResponseDto;
 import com.vimainsurance.vimaadmin.entity.AdminUser;
 import com.vimainsurance.vimaadmin.entity.Customer;
+import com.vimainsurance.vimaadmin.entity.Deals;
+import com.vimainsurance.vimaadmin.entity.Document;
+import com.vimainsurance.vimaadmin.enums.AccountStatus;
+import com.vimainsurance.vimaadmin.enums.AccountType;
+import com.vimainsurance.vimaadmin.enums.CoverageType;
+import com.vimainsurance.vimaadmin.enums.DocumentCategory;
+import com.vimainsurance.vimaadmin.enums.DocumentEntityType;
+import com.vimainsurance.vimaadmin.enums.DocumentType;
+import com.vimainsurance.vimaadmin.enums.PolicyStatus;
+import com.vimainsurance.vimaadmin.enums.ProductType;
+import com.vimainsurance.vimaadmin.enums.UserRole;
 import com.vimainsurance.vimaadmin.repository.IAdminUserRepository;
 import com.vimainsurance.vimaadmin.repository.ICustomerRepository;
+import com.vimainsurance.vimaadmin.repository.IDocumentRepository;
 import com.vimainsurance.vimaadmin.service.ICustomerService;
 import com.vimainsurance.vimaadmin.service.IZohoCRMService;
+import com.vimainsurance.vimaadmin.service.IDocumentService;
+import com.vimainsurance.vimaadmin.service.IS3Service;
+import com.vimainsurance.vimaadmin.service.IPolicyService;
 import com.vimainsurance.vimaadmin.util.Constants;
 import com.vimainsurance.vimaadmin.util.ConverterUtils;
 import com.vimainsurance.vimaadmin.util.IdGenerator;
+import com.vimainsurance.vimaadmin.repository.IDealsRepository;
+
 
 @Service
 public class CustomerServiceImpl implements ICustomerService{
@@ -57,6 +87,23 @@ public class CustomerServiceImpl implements ICustomerService{
 
     @Autowired
     private IZohoCRMService zohoCRMService;
+
+
+    @Autowired
+    private IDocumentRepository documentRepository;
+
+
+    @Autowired
+    private IDocumentService documentService;
+
+    @Autowired
+    private IS3Service s3Service;
+
+    @Autowired
+    private IDealsRepository dealsRepository;
+
+    @Autowired
+    private IPolicyService policyService;
    
 
     @Override
@@ -436,6 +483,13 @@ public class CustomerServiceImpl implements ICustomerService{
             responseDto.setNotes(customer.getNotes());
             responseDto.setQuotes(customer.getQuotes());
             responseDto.setOwner(customer.getOwner().getUsername() + " (" + customer.getOwner().getAgentId() + ")");
+            responseDto.setDocuments(documentRepository.findByEntityAndCategory(DocumentEntityType.CUSTOMER, customer.getCustId(), DocumentCategory.KYC_DOCUMENTS).stream().map(document -> {
+                DocumentResponseDto documentResponseDto = new DocumentResponseDto();
+                documentResponseDto.setDocumentType(document.getDocumentType());
+                documentResponseDto.setUploadedAt(document.getUploadedAt());
+                documentResponseDto.setDocumentMimeType(document.getMimeType());
+                return documentResponseDto;
+            }).collect(Collectors.toList()));
             return responseObj.render(responseObj.formSuccessResponse(Constants.SUCCESS, responseDto,1));
         } catch (Exception e) {
             logger.error("Exception in getByCustId", e);
@@ -498,4 +552,184 @@ public class CustomerServiceImpl implements ICustomerService{
             return responseObj.render(responseObj.formErrorResponse(e.getMessage()));
         }
     }
+
+
+    @Override
+    public ResponseEntity<ResponseDto<String>> uploadDocument(DocumentRequestDto requestDto, String customerId) {
+        logger.info("[correlationId:{}] uploadDocument called", MDC.get("correlationId"));
+        BaseResponse<String> responseObj = new BaseResponse<>();
+        try {
+            String uploadedBy = SecurityContextHolder.getContext().getAuthentication().getName();
+            Optional<AdminUser> adminUser = adminUserRepository.findByUsername(uploadedBy);
+            if(adminUser.isEmpty()){
+                return responseObj.render(responseObj.formErrorResponse("Agent not found"));
+            }
+            AdminUser agent = adminUser.get();
+            requestDto.setUploadedBy(agent.getId());
+            requestDto.setUploadedByRole(com.vimainsurance.vimaadmin.enums.UserRole.fromValue(agent.getRole()));
+            ResponseEntity<ResponseDto<List<Document>>> response = documentService.uploadKYCDocuments(requestDto.getFiles(), customerId, DocumentEntityType.CUSTOMER, DocumentType.fromValue(requestDto.getDocumentType()), requestDto.getUploadedBy(), requestDto.getUploadedByRole(), requestDto.getNotes());
+            if(response.getBody().getErrorCode() != null){
+                return responseObj.render(responseObj.formErrorResponse(response.getBody().getMessage()));
+            }
+            return responseObj.render(responseObj.formSuccessResponse(Constants.SUCCESS, "Document uploaded successfully"));
+        } catch (Exception e) {
+            logger.error("[correlationId:{}] Exception in uploadDocument: {}", MDC.get("correlationId"), e.getMessage(), e);
+            return responseObj.render(responseObj.formErrorResponse(e.getMessage()));
+        }
+    }
+    
+    @Override
+    public ResponseEntity<ResponseDto<List<DocumentResponseDto>>> getDocuments(String customerId) {
+        logger.info("[correlationId:{}] uploadDocument called", MDC.get("correlationId"));
+        BaseResponse<List<DocumentResponseDto>> responseObj = new BaseResponse<>();
+        try {
+            List<DocumentResponseDto> responseDto = documentRepository.findByEntityAndCategory(DocumentEntityType.CUSTOMER, customerId, DocumentCategory.KYC_DOCUMENTS).stream().map(document -> {
+                DocumentResponseDto documentResponseDto = new DocumentResponseDto();
+                documentResponseDto.setDocumentType(document.getDocumentType());
+                documentResponseDto.setUploadedAt(document.getUploadedAt());
+                documentResponseDto.setDocumentMimeType(document.getMimeType());
+                documentResponseDto.setNotes(document.getNotes());
+                documentResponseDto.setDocumentId(document.getDocumentId().toString());
+                return documentResponseDto;
+            }).collect(Collectors.toList());
+            return responseObj.render(responseObj.formSuccessResponse(Constants.SUCCESS, responseDto,responseDto.size()));
+        } catch (Exception e) {
+            logger.error("[correlationId:{}] Exception in getDocuments: {}", MDC.get("correlationId"), e.getMessage(), e);
+            return responseObj.render(responseObj.formErrorResponse(e.getMessage()));
+        }
+    }
+
+    @Override
+    public ResponseEntity<Resource> downloadDocument(String documentId) {
+        logger.info("[correlationId:{}] getDocumentDownloadUrl called", MDC.get("correlationId"));
+        BaseResponse<String> responseObj = new BaseResponse<>();
+        try {
+            Optional<Document> documentOpt = documentRepository.findByDocumentId(UUID.fromString(documentId));
+            if(documentOpt.isEmpty()){
+                return ResponseEntity.status(HttpStatus.NOT_FOUND).build();
+            }
+            Document document = documentOpt.get();
+            InputStream downloadUrl = s3Service.downloadFile(document.getS3Key());
+            return ResponseEntity.ok().header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=\"" + document.getOriginalFilename() + "\"").header("Access-Control-Expose-Headers", "content-disposition")
+            .contentType(MediaType.parseMediaType(document.getMimeType())).body(new InputStreamResource(downloadUrl));
+        } catch (Exception e) {
+            logger.error("[correlationId:{}] Exception in getDocumentDownloadUrl: {}", MDC.get("correlationId"), e.getMessage(), e);
+            return ResponseEntity.status(HttpStatus.NOT_FOUND).build();
+        }
+    }
+
+    @Override
+    public ResponseEntity<ResponseDto<String>> deleteDocument(String documentId) {
+        logger.info("[correlationId:{}] deleteDocument called", MDC.get("correlationId"));
+        BaseResponse<String> responseObj = new BaseResponse<>();
+        try {
+            Optional<Document> documentOpt = documentRepository.findByDocumentId(UUID.fromString(documentId));
+            if(documentOpt.isEmpty()){
+                return responseObj.render(responseObj.formErrorResponse(Constants.RECORD_NOT_FOUND_MESSAGE));
+            }
+            s3Service.deleteFile(documentOpt.get().getS3Key());
+            if(documentOpt.get().getDocumentType().equals(DocumentType.PAN_CARD) || documentOpt.get().getDocumentType().equals(DocumentType.AADHAAR_CARD)){
+                s3Service.deleteFile(documentOpt.get().getS3Key().replace("masked", "original"));
+            }
+            documentRepository.delete(documentOpt.get());
+            logger.info("[correlationId:{}] Document deleted successfully", MDC.get("correlationId"));
+            return responseObj.render(responseObj.formSuccessResponse(Constants.SUCCESS, "Document deleted successfully"));
+        }
+        catch (Exception e) {
+            logger.error("[correlationId:{}] Exception in deleteDocument: {}", MDC.get("correlationId"), e.getMessage(), e);
+            return responseObj.render(responseObj.formErrorResponse(e.getMessage()));
+        }
+    }
+
+    @Override
+    public ResponseEntity<ResponseDto<String>> customerToDeals(ConvertToDealRequestDto requestDto, String custId) {
+        logger.info("[correlationId:{}] customerToDeals called", MDC.get("correlationId"));
+        BaseResponse<String> responseObj = new BaseResponse<>();
+        try {
+            Optional<Customer> customerOpt = customerRepository.findByCustId(custId);
+            if(customerOpt.isEmpty()){
+                return responseObj.render(responseObj.formErrorResponse(Constants.RECORD_NOT_FOUND_MESSAGE));
+            }
+            Customer customer = customerOpt.get();
+            Deals deals = new Deals();
+            deals.setFirstName("");
+            deals.setLastName(customer.getFullName());
+            deals.setEmail(customer.getEmail());
+            deals.setPhone(customer.getPhoneNumber());
+            deals.setDateOfBirth(customer.getDateOfBirth());
+            deals.setGender(customer.getGender());
+            deals.setPanNumber(null);
+            deals.setAadhaarNumber(null);
+            deals.setAddress(null);
+            deals.setCity(customer.getCity());
+            deals.setState(customer.getState());
+            deals.setPincode(null);
+            deals.setAccountType(AccountType.RETAIL_PRIMARY);
+            deals.setStatus(AccountStatus.ACTIVE);
+            deals.setEmployeeNumber(null);
+            deals.setRelationship(null);
+            deals.setIsPrimaryMember(true);
+            deals.setUsername(null);
+            deals.setPasswordHash(null);
+            deals.setPreferredLanguage(null);
+            deals.setLeadId(customer.getId());
+            deals.setCustId(customer.getCustId());
+            deals.setCreatedAt(LocalDateTime.now());
+            deals.setUpdatedAt(LocalDateTime.now());
+            Deals savedDeals = dealsRepository.save(deals);
+            
+            // Create policy for the converted deal
+            PolicyRequestDto policyRequest = new PolicyRequestDto();
+            policyRequest.setPolicyNumber(requestDto.getPolicyNumber() != null ? requestDto.getPolicyNumber() : generatePolicyNumber());
+            policyRequest.setPrimaryIndividualId(savedDeals.getIndividualId());
+            policyRequest.setInsuranceProviderId(UUID.randomUUID()); // Default provider ID - should be configurable
+            policyRequest.setProductType("HEALTH");
+            policyRequest.setCoverageType("INDIVIDUAL");
+            policyRequest.setStatus(requestDto.getPolicyStatus() != null ? requestDto.getPolicyStatus() : "ACTIVE");
+            policyRequest.setSumInsured(requestDto.getSumInsured() != null ? requestDto.getSumInsured() : new BigDecimal("500000"));
+            policyRequest.setPremiumAmount(requestDto.getPremiumAmount() != null ? 
+                requestDto.getPremiumAmount() : new BigDecimal("5000"));
+            policyRequest.setStartDate(requestDto.getPolicyStartDate() != null ? requestDto.getPolicyStartDate() : LocalDate.now());
+            policyRequest.setEndDate(requestDto.getPolicyEndDate() != null ? requestDto.getPolicyEndDate() : LocalDate.now().plusYears(1));
+            policyRequest.setLeadId(customer.getId());
+            
+            // Create the policy
+            ResponseEntity<ResponseDto<String>> policyResponse = policyService.createPolicy(policyRequest);
+            if(policyResponse.getBody() != null && policyResponse.getBody().getErrorCode() != null){
+                logger.warn("[correlationId:{}] Policy creation failed: {}", MDC.get("correlationId"), policyResponse.getBody().getMessage());
+                // Continue with conversion even if policy creation fails
+            } else {
+                logger.info("[correlationId:{}] Policy created successfully for deal: {}", MDC.get("correlationId"), savedDeals.getIndividualId());
+            }
+            
+            customerRepository.deleteById(customer.getId());
+            Document document = documentRepository.findByEntityAndCategory(DocumentEntityType.CUSTOMER, customer.getCustId(), DocumentCategory.KYC_DOCUMENTS).stream().findFirst().orElse(null);
+            if(document != null){
+                document.setEntityType(DocumentEntityType.INDIVIDUAL);
+                document.setEntityId(deals.getIndividualId().toString());
+                documentRepository.save(document);
+            }
+            AdminUser adminUser = adminUserRepository.findByUsername(SecurityContextHolder.getContext().getAuthentication().getName()).orElseThrow(() -> new RuntimeException("Agent not found"));
+            ResponseEntity<ResponseDto<List<Document>>> response = documentService.uploadKYCDocuments(requestDto.getDocument(), deals.getIndividualId().toString(), DocumentEntityType.POLICY, DocumentType.POLICY_CERTIFICATE, adminUser.getId(), UserRole.fromValue(adminUser.getRole()), "");
+            if(response.getBody().getErrorCode() != null){
+                return responseObj.render(responseObj.formErrorResponse(response.getBody().getMessage()));
+            }
+            logger.info("[correlationId:{}] Customer converted to Deals successfully", MDC.get("correlationId"));
+            return responseObj.render(responseObj.formSuccessResponse(Constants.SUCCESS, "Customer converted to Deals successfully"));
+        }
+        catch (Exception e) {
+            logger.error("[correlationId:{}] Exception in customerToDeals: {}", MDC.get("correlationId"), e.getMessage(), e);
+            return responseObj.render(responseObj.formErrorResponse(e.getMessage()));
+        }
+    }
+
+    /**
+     * Generate a unique policy number
+     */
+    private String generatePolicyNumber() {
+        String timestamp = String.valueOf(System.currentTimeMillis());
+        String randomSuffix = String.valueOf((int) (Math.random() * 1000));
+        return "POL-" + timestamp.substring(timestamp.length() - 8) + "-" + randomSuffix;
+    }
 }
+

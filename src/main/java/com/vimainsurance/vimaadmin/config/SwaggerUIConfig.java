@@ -1,4 +1,4 @@
-package com.vimainsurance.vimaadmin.configuration;
+package com.vimainsurance.vimaadmin.config;
 
 import java.util.List;
 

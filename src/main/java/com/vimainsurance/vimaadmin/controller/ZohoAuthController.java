@@ -19,7 +19,7 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.client.RestTemplate;
 
-import com.vimainsurance.vimaadmin.configuration.ZohoConfig;
+import com.vimainsurance.vimaadmin.config.ZohoConfig;
 import com.vimainsurance.vimaadmin.dto.ZohoTokenResponseDto;
 import com.vimainsurance.vimaadmin.entity.ZohoToken;
 import com.vimainsurance.vimaadmin.repository.ITokenRepository;

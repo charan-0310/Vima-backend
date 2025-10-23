@@ -7,7 +7,7 @@ import java.util.List;
 
 import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.vimainsurance.vimaadmin.entity.Quotes;
-
+import com.vimainsurance.vimaadmin.dto.DocumentResponseDto;
 import lombok.Getter;
 import lombok.Setter;
 
@@ -52,8 +52,15 @@ public class CustomerResponseDto {
 
     private List<Quotes> quotes;
 
-    private String owner;
+    private List<DocumentResponseDto> documents;
 
+    private String owner;
+    
+    // Additional fields for manager dashboard
+    private Integer quotesCount;
+    private BigDecimal totalPremium;
+    private BigDecimal totalCoverage;
+    private BigDecimal premiumAmount;
 
     @Override
     public boolean equals(Object o) {

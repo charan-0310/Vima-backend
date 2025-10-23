@@ -9,7 +9,7 @@ import java.util.List;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
-import com.vimainsurance.vimaadmin.configuration.ZohoConfig;
+import com.vimainsurance.vimaadmin.config.ZohoConfig;
 import com.vimainsurance.vimaadmin.dto.CustomerResponseDto;
 import com.vimainsurance.vimaadmin.entity.Customer;
 import com.vimainsurance.vimaadmin.exception.ZohoSyncException;

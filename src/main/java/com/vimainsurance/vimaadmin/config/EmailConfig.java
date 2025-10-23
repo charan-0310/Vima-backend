@@ -1,4 +1,4 @@
-package com.vimainsurance.vimaadmin.configuration;
+package com.vimainsurance.vimaadmin.config;
 
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;

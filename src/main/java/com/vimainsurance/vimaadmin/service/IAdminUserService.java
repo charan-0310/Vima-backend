@@ -8,6 +8,7 @@ import com.vimainsurance.vimaadmin.dto.AdminUserRequestDto;
 import com.vimainsurance.vimaadmin.dto.AdminUserResponseDto;
 import com.vimainsurance.vimaadmin.dto.PasswordChangeRequestDto;
 import com.vimainsurance.vimaadmin.dto.ResponseDto;
+import org.springframework.web.multipart.MultipartFile;
 
 public interface IAdminUserService {
     ResponseEntity<ResponseDto<AdminUserResponseDto>> createAdminUser(AdminUserRequestDto requestDto);
@@ -17,4 +18,5 @@ public interface IAdminUserService {
     ResponseEntity<ResponseDto<List<AdminUserResponseDto>>> getAllAdminUsers();
     ResponseEntity<ResponseDto<String>> changePassword(String username, PasswordChangeRequestDto requestDto);
     ResponseEntity<ResponseDto<String>> adminChangeUserPassword(String username);
+    // ResponseEntity<ResponseDto<String>> uploadDocument(String username, MultipartFile file);
 } 
