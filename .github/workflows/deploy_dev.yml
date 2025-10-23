@@ -30,7 +30,7 @@ jobs:
 
       - name: Move jar to deploy directory
         run: |
-          ls  ~/vima-app-deployment/
+          ls -lh ~/vima-app-deployment/api/artifact/vimaadmin-0.0.1-SNAPSHOT.jar
           JAR_FILE=$(ls target/*.jar | head -n 1)
           echo "Jar built: $JAR_FILE"
          
