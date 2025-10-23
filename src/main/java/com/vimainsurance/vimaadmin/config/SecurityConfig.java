@@ -1,4 +1,4 @@
-package com.vimainsurance.vimaadmin.configuration;
+package com.vimainsurance.vimaadmin.config;
 
 import java.util.Arrays;
 
@@ -25,8 +25,8 @@ import org.springframework.web.cors.CorsConfiguration;
 import org.springframework.web.cors.CorsConfigurationSource;
 import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 
-import com.vimainsurance.vimaadmin.configuration.oauth.VimaOAuth2SuccessHandler;
-import com.vimainsurance.vimaadmin.configuration.oauth.VimaOAuth2UserService;
+import com.vimainsurance.vimaadmin.config.oauth.VimaOAuth2SuccessHandler;
+import com.vimainsurance.vimaadmin.config.oauth.VimaOAuth2UserService;
 import com.vimainsurance.vimaadmin.util.AdminUserDetailsService;
 import com.vimainsurance.vimaadmin.util.CorrelationIdFilter;
 import com.vimainsurance.vimaadmin.util.JwtAuthenticationFilter;

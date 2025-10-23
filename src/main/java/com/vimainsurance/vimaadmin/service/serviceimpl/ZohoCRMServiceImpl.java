@@ -15,7 +15,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import com.vimainsurance.vimaadmin.configuration.ZohoConfig;
+import com.vimainsurance.vimaadmin.config.ZohoConfig;
 import com.vimainsurance.vimaadmin.dto.BaseResponse;
 import com.vimainsurance.vimaadmin.dto.CustomerResponseDto;
 import com.vimainsurance.vimaadmin.dto.ResponseDto;

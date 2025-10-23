@@ -28,6 +28,7 @@
 	</scm>
 	<properties>
 		<java.version>21</java.version>
+		<aws.sdk.version>2.22.1</aws.sdk.version>
 	</properties>
 
 	<repositories>
@@ -76,13 +77,13 @@
 		<dependency>
  			<groupId>software.amazon.awssdk</groupId>
 			<artifactId>cloudwatchlogs</artifactId>
-			<version>2.20.120</version> <!-- Or latest -->
+			<version>${aws.sdk.version}</version>
 		</dependency>
 
 		<dependency>
 			<groupId>software.amazon.awssdk</groupId>
 			<artifactId>auth</artifactId>
-			<version>2.20.120</version>
+			<version>${aws.sdk.version}</version>
 		</dependency>
 	
 		<!-- JWT -->
@@ -167,6 +168,21 @@
 			<groupId>org.springframework.boot</groupId>
 			<artifactId>spring-boot-starter-thymeleaf</artifactId>
 		</dependency>
+        <dependency>
+			<groupId>software.amazon.awssdk</groupId>
+			<artifactId>s3</artifactId>
+			<version>${aws.sdk.version}</version>
+		</dependency>
+		<dependency>
+			<groupId>net.sourceforge.tess4j</groupId>
+			<artifactId>tess4j</artifactId>
+			<version>5.10.0</version>
+		</dependency>
+		<dependency>
+        	<groupId>org.apache.pdfbox</groupId>
+        	<artifactId>pdfbox</artifactId>
+        	<version>2.0.31</version>
+    </dependency>
 	</dependencies>
 
 	<build>

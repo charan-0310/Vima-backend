@@ -1,4 +1,4 @@
-package com.vimainsurance.vimaadmin.configuration.oauth;
+package com.vimainsurance.vimaadmin.config.oauth;
 
 import java.util.Collections;
 import java.util.Map;
