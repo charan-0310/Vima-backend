@@ -28,6 +28,8 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContext;
 import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.security.core.userdetails.User;
+import org.springframework.security.core.userdetails.UserDetails;
 
 import com.vimainsurance.vimaadmin.dto.CustomerBulkDeleteRequestDto;
 import com.vimainsurance.vimaadmin.dto.CustomerPipelineRequestDto;
@@ -39,7 +41,12 @@ import com.vimainsurance.vimaadmin.entity.Customer;
 import com.vimainsurance.vimaadmin.entity.Quotes;
 import com.vimainsurance.vimaadmin.repository.IAdminUserRepository;
 import com.vimainsurance.vimaadmin.repository.ICustomerRepository;
+import com.vimainsurance.vimaadmin.repository.IDocumentRepository;
+import com.vimainsurance.vimaadmin.repository.IDealsRepository;
 import com.vimainsurance.vimaadmin.service.IZohoCRMService;
+import com.vimainsurance.vimaadmin.service.IDocumentService;
+import com.vimainsurance.vimaadmin.service.IS3Service;
+import com.vimainsurance.vimaadmin.service.IPolicyService;
 import com.vimainsurance.vimaadmin.util.Constants;
 import com.vimainsurance.vimaadmin.util.IdGenerator;
 
@@ -53,7 +60,22 @@ class CustomerServiceImplTest {
     private IAdminUserRepository adminUserRepository;
 
     @Mock
+    private IDocumentRepository documentRepository;
+
+    @Mock
+    private IDealsRepository dealsRepository;
+
+    @Mock
     private IZohoCRMService zohoCRMService;
+
+    @Mock
+    private IDocumentService documentService;
+
+    @Mock
+    private IS3Service s3Service;
+
+    @Mock
+    private IPolicyService policyService;
 
     @Mock
     private IdGenerator customerIdGenerator;
@@ -73,8 +95,21 @@ class CustomerServiceImplTest {
 
     @BeforeEach
     void setUp() {
-        // Setup admin user
+        // Setup mock authentication
+        UserDetails userDetails = User.builder()
+                .username("test-agent")
+                .password("password")
+                .authorities("SALES_AGENT")
+                .build();
         
+        Authentication authentication = new org.springframework.security.authentication.UsernamePasswordAuthenticationToken(
+                userDetails, null, userDetails.getAuthorities());
+        
+        SecurityContext context = SecurityContextHolder.createEmptyContext();
+        context.setAuthentication(authentication);
+        SecurityContextHolder.setContext(context);
+        
+        // Setup admin user
         adminUser = new AdminUser();
         adminUser.setId(UUID.randomUUID());
         adminUser.setUsername("test-agent");
