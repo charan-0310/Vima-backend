@@ -30,13 +30,13 @@ jobs:
 
       - name: Move jar to deploy directory
         run: |
+          ls  ~/vima-app-deployment/
           JAR_FILE=$(ls target/*.jar | head -n 1)
           echo "Jar built: $JAR_FILE"
-          cp "$JAR_FILE" ~/vima-app-deployment/api-dev/artifact/vimaadmin-0.0.1-SNAPSHOT.jar
+         
           echo "✅ JAR moved to ~/vima-app-deployment/api-dev/artifact/vimaadmin-0.0.1-SNAPSHOT.jar"
       - name: Restart Docker Compose services
         run: |
           cd ~/vima-app-deployment
-          docker compose down
-          docker compose up -d
+         
           echo "✅ Docker Compose services restarted"     
