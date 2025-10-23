@@ -1,4 +1,4 @@
-name: Build & Deploy to EC2
+name: Build & Deploy to EC2 UAT
 
 on:
   workflow_dispatch:
