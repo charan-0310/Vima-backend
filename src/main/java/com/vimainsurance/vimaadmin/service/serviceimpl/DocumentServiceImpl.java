@@ -87,7 +87,7 @@ public class DocumentServiceImpl implements IDocumentService {
             DocumentEntityType entityType,
             DocumentType documentType,
             UUID uploadedBy,
-            com.vimainsurance.vimaadmin.enums.UserRole uploadedByRole, String notes) {
+            com.vimainsurance.vimaadmin.enums.UserRole uploadedByRole, String notes, DocumentCategory documentCategory) {
         
         logger.info("[correlationId:{}] uploadKYCDocuments called for entity: {} with {} files by user: {}", 
                    MDC.get("correlationId"), entityId, files.length, uploadedBy);
@@ -102,7 +102,7 @@ public class DocumentServiceImpl implements IDocumentService {
                 if (validationResult.getBody() != null && validationResult.getBody().getErrorCode() != null) {
                     return responseObj.render(responseObj.formErrorResponse("Error uploading KYC documents: " ));
                 }
-                if(!documentType.equals(DocumentType.OTHER) && documentRepository.findByEntityAndType(entityType, entityId, documentType).size() > 0){
+                if(!documentType.equals(DocumentType.OTHER) && !documentType.equals(DocumentType.POLICY_CERTIFICATE) && documentRepository.findByEntityAndType(entityType, entityId, documentType).size() > 0){
                     return responseObj.render(responseObj.formErrorResponse(documentType.getValue()+" already uploaded"));
                 }
                 if(documentType.equals(DocumentType.OTHER) && documentRepository.findByEntityAndType(entityType, entityId, documentType).size() > 4){
@@ -131,7 +131,7 @@ public class DocumentServiceImpl implements IDocumentService {
                 
                 // Create document entity
                 Document document = createDocument(
-                    entityType, entityId, documentType, DocumentCategory.KYC_DOCUMENTS,
+                    entityType, entityId, documentType, documentCategory,
                     maskedS3Key, file, uploadedBy, uploadedByRole, notes
                 );
                 Document savedDocument = documentRepository.save(document);
@@ -141,7 +141,7 @@ public class DocumentServiceImpl implements IDocumentService {
                     String s3Key = generateS3Key(entityType, entityId, documentType, file.getOriginalFilename(), false);
                     String s3Url = s3Service.uploadFile(file, s3Key);
                     Document document = createDocument(
-                        entityType, entityId, documentType, DocumentCategory.KYC_DOCUMENTS,
+                        entityType, entityId, documentType, documentCategory,
                         s3Key, file, uploadedBy, uploadedByRole, notes
                     );
                     Document savedDocument = documentRepository.save(document);
@@ -161,7 +161,7 @@ public class DocumentServiceImpl implements IDocumentService {
             return responseObj.render(responseObj.formErrorResponse("Error uploading KYC documents: " + e.getMessage()));
         }
     }
-
+  
     @Override
     @Transactional(readOnly = true)
     public ResponseEntity<ResponseDto<Page<Document>>> getKYCDocuments(String entityId, Pageable pageable) {

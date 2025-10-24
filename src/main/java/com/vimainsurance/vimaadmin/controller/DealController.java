@@ -13,6 +13,11 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.multipart.MultipartFile;
 import org.springframework.core.io.Resource;
+import org.springframework.http.MediaType;
+import org.springframework.web.bind.annotation.ModelAttribute;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.slf4j.MDC;
 
 import com.vimainsurance.vimaadmin.service.IDealsService;
 
@@ -23,6 +28,8 @@ import com.vimainsurance.vimaadmin.dto.DealsResponseDto;
 import com.vimainsurance.vimaadmin.dto.DealsRequestDto;
 import com.vimainsurance.vimaadmin.dto.DocumentRequestDto;
 import com.vimainsurance.vimaadmin.dto.DocumentResponseDto;
+import com.vimainsurance.vimaadmin.dto.ConvertToDealRequestDto;
+import com.vimainsurance.vimaadmin.dto.PolicyUploadRequestDto;
 import com.vimainsurance.vimaadmin.dto.ResponseDto;
 
 
@@ -31,6 +38,8 @@ import com.vimainsurance.vimaadmin.dto.ResponseDto;
 @RequestMapping("/api/v1/deals")
 @PreAuthorize("hasRole('SALES_AGENT')")
 public class DealController {
+    private static final Logger logger = LoggerFactory.getLogger(DealController.class);
+    
     @Autowired
     private IDealsService dealsService;
 
@@ -84,6 +93,15 @@ public class DealController {
     @DeleteMapping("/documents/{documentId}")
     public ResponseEntity<ResponseDto<String>> deleteDocument(@PathVariable String documentId) {
         return dealsService.deleteDocument(documentId);
+    }
+
+    @PostMapping(value = "/policy/upload", consumes = MediaType.MULTIPART_FORM_DATA_VALUE,
+        produces = MediaType.APPLICATION_JSON_VALUE)
+    public ResponseEntity<ResponseDto<String>> uploadPolicyDocument(
+            @ModelAttribute PolicyUploadRequestDto requestDto) {
+        logger.info("[correlationId:{}] /policy/upload endpoint called", MDC.get("correlationId"));
+        
+        return dealsService.uploadPolicyWithDetails(requestDto);
     }
 
 }

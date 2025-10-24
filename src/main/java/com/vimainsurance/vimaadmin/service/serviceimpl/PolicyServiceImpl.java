@@ -4,6 +4,7 @@ import com.vimainsurance.vimaadmin.dto.BaseResponse;
 import com.vimainsurance.vimaadmin.dto.PolicyRequestDto;
 import com.vimainsurance.vimaadmin.dto.PolicyResponseDto;
 import com.vimainsurance.vimaadmin.dto.ResponseDto;
+import com.vimainsurance.vimaadmin.entity.Deals;
 import com.vimainsurance.vimaadmin.entity.Policy;
 import com.vimainsurance.vimaadmin.enums.CoverageType;
 import com.vimainsurance.vimaadmin.enums.PolicyStatus;
@@ -11,6 +12,7 @@ import com.vimainsurance.vimaadmin.enums.ProductType;
 import com.vimainsurance.vimaadmin.repository.IPolicyRepository;
 import com.vimainsurance.vimaadmin.service.IPolicyService;
 import com.vimainsurance.vimaadmin.util.Constants;
+
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.slf4j.MDC;
@@ -28,6 +30,8 @@ import java.util.Optional;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
+import com.vimainsurance.vimaadmin.dto.DealsResponseDto;
+import com.vimainsurance.vimaadmin.repository.IDealsRepository;
 /**
  * Service implementation for Policy operations
  */
@@ -38,6 +42,9 @@ public class PolicyServiceImpl implements IPolicyService {
 
     @Autowired
     private IPolicyRepository policyRepository;
+
+    @Autowired
+    private IDealsRepository dealsRepository;
 
     @Override
     public ResponseEntity<ResponseDto<String>> createPolicy(PolicyRequestDto requestDto) {
@@ -402,6 +409,24 @@ public class PolicyServiceImpl implements IPolicyService {
         responseDto.setLeadId(policy.getLeadId());
         responseDto.setCreatedAt(policy.getCreatedAt());
         responseDto.setUpdatedAt(policy.getUpdatedAt());
+        List<Deals> dependents = dealsRepository.findByIndividualIdIn(policy.getCoveredIndividuals());
+        responseDto.setDependents(dependents.stream()
+            .map(this::mapToSimplifiedDependent)
+            .collect(Collectors.toList()));
+        return responseDto;
+    }
+    
+    /**
+     * Maps Deals entity to simplified dependent response with only name, date of birth, and relationship
+     */
+    private DealsResponseDto mapToSimplifiedDependent(com.vimainsurance.vimaadmin.entity.Deals deals) {
+        DealsResponseDto responseDto = new DealsResponseDto();
+        responseDto.setIndividualId(deals.getIndividualId());
+        responseDto.setFirstName(deals.getFirstName());
+        responseDto.setLastName(deals.getLastName());
+        responseDto.setDateOfBirth(deals.getDateOfBirth());
+        responseDto.setRelationship(deals.getRelationship());
+        
         return responseDto;
     }
 }

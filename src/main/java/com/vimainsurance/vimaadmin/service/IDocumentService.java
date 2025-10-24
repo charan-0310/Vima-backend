@@ -5,6 +5,7 @@ import com.vimainsurance.vimaadmin.entity.Document;
 import com.vimainsurance.vimaadmin.enums.DocumentCategory;
 import com.vimainsurance.vimaadmin.enums.DocumentEntityType;
 import com.vimainsurance.vimaadmin.enums.DocumentType;
+import com.vimainsurance.vimaadmin.enums.DocumentCategory;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.http.ResponseEntity;
@@ -41,8 +42,11 @@ public interface IDocumentService {
             DocumentType documentType,
             UUID uploadedBy,
             com.vimainsurance.vimaadmin.enums.UserRole uploadedByRole,
-            String notes
+            String notes,
+            com.vimainsurance.vimaadmin.enums.DocumentCategory documentCategory
     );
+
+ 
 
     /**
      * Get KYC documents for a customer/lead

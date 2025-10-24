@@ -15,4 +15,6 @@ DocumentType documentType;
 LocalDateTime uploadedAt;
 String documentMimeType;
 String notes;
+String documentName;
+String category;
 }
