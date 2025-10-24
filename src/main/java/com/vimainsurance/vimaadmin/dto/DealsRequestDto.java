@@ -36,6 +36,7 @@ private String accountStatus;
 private String employeeNumber;
 private String relationship;
 private Boolean isPrimaryMember;
+private UUID primaryIndividualId;
 private String username;
 private String passwordHash;
 private String preferredLanguage;

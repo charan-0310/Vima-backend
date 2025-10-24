@@ -9,6 +9,7 @@ import lombok.Data;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.util.List;
 import java.util.UUID;
 
 /**
@@ -26,7 +27,7 @@ public class PolicyResponseDto {
     private String productType;
     private String coverageType;
     private String status;
-    private String coveredIndividuals;
+    private List<UUID> coveredIndividuals;
     private BigDecimal sumInsured;
     private BigDecimal premiumAmount;
 
@@ -46,4 +47,6 @@ public class PolicyResponseDto {
 
     @JsonFormat(pattern = "yyyy-MM-dd HH:mm:ss")
     private LocalDateTime updatedAt;
+
+    private List<DealsResponseDto> dependents;
 }

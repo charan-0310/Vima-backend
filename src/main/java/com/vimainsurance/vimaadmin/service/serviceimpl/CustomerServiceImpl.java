@@ -567,7 +567,7 @@ public class CustomerServiceImpl implements ICustomerService{
             AdminUser agent = adminUser.get();
             requestDto.setUploadedBy(agent.getId());
             requestDto.setUploadedByRole(com.vimainsurance.vimaadmin.enums.UserRole.fromValue(agent.getRole()));
-            ResponseEntity<ResponseDto<List<Document>>> response = documentService.uploadKYCDocuments(requestDto.getFiles(), customerId, DocumentEntityType.CUSTOMER, DocumentType.fromValue(requestDto.getDocumentType()), requestDto.getUploadedBy(), requestDto.getUploadedByRole(), requestDto.getNotes());
+            ResponseEntity<ResponseDto<List<Document>>> response = documentService.uploadKYCDocuments(requestDto.getFiles(), customerId, DocumentEntityType.CUSTOMER, DocumentType.fromValue(requestDto.getDocumentType()), requestDto.getUploadedBy(), requestDto.getUploadedByRole(), requestDto.getNotes(), DocumentCategory.KYC_DOCUMENTS);
             if(response.getBody().getErrorCode() != null){
                 return responseObj.render(responseObj.formErrorResponse(response.getBody().getMessage()));
             }
@@ -590,6 +590,8 @@ public class CustomerServiceImpl implements ICustomerService{
                 documentResponseDto.setDocumentMimeType(document.getMimeType());
                 documentResponseDto.setNotes(document.getNotes());
                 documentResponseDto.setDocumentId(document.getDocumentId().toString());
+                documentResponseDto.setDocumentName(document.getOriginalFilename());
+                documentResponseDto.setCategory(document.getDocumentCategory().getValue());
                 return documentResponseDto;
             }).collect(Collectors.toList());
             return responseObj.render(responseObj.formSuccessResponse(Constants.SUCCESS, responseDto,responseDto.size()));
@@ -710,7 +712,7 @@ public class CustomerServiceImpl implements ICustomerService{
                 documentRepository.save(document);
             }
             AdminUser adminUser = adminUserRepository.findByUsername(SecurityContextHolder.getContext().getAuthentication().getName()).orElseThrow(() -> new RuntimeException("Agent not found"));
-            ResponseEntity<ResponseDto<List<Document>>> response = documentService.uploadKYCDocuments(requestDto.getDocument(), deals.getIndividualId().toString(), DocumentEntityType.POLICY, DocumentType.POLICY_CERTIFICATE, adminUser.getId(), UserRole.fromValue(adminUser.getRole()), "");
+            ResponseEntity<ResponseDto<List<Document>>> response = documentService.uploadKYCDocuments(requestDto.getDocument(), deals.getIndividualId().toString(), DocumentEntityType.POLICY, DocumentType.POLICY_CERTIFICATE, adminUser.getId(), UserRole.fromValue(adminUser.getRole()), "", DocumentCategory.POLICY_DOCUMENTS);
             if(response.getBody().getErrorCode() != null){
                 return responseObj.render(responseObj.formErrorResponse(response.getBody().getMessage()));
             }

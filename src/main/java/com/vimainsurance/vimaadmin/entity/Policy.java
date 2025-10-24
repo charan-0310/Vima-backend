@@ -16,6 +16,7 @@ import org.hibernate.type.SqlTypes;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.util.List;
 import java.util.UUID;
 
 /**
@@ -67,8 +68,8 @@ public class Policy {
     private PolicyStatus status = PolicyStatus.ACTIVE;
 
     // Coverage
-    // @Column(name = "covered_individuals", columnDefinition = "jsonb")
-    // private String coveredIndividuals;
+    @Column(name = "covered_individuals", columnDefinition = "uuid[]")
+    private List<UUID> coveredIndividuals;
 
     @Column(name = "sum_insured", nullable = false, precision = 15, scale = 2)
     private BigDecimal sumInsured;
