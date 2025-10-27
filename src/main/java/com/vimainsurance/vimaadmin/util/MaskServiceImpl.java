@@ -126,7 +126,7 @@ public class MaskServiceImpl implements IMaskService {
     public File maskPANImage(MultipartFile file) {
         // TODO Auto-generated method stub
         ITesseract tesseract = new Tesseract();
-        tesseract.setDatapath("C:\\Program Files\\Tesseract-OCR\\tessdata");
+        tesseract.setDatapath("/usr/share/tesseract-ocr/4.00/tessdata");
         tesseract.setLanguage("eng");
         tesseract.setPageSegMode(ITessAPI.TessPageSegMode.PSM_SPARSE_TEXT);
         try {
@@ -178,7 +178,7 @@ public class MaskServiceImpl implements IMaskService {
     @Override
     public File maskAADHARPdf(MultipartFile file) {
         ITesseract tesseract = new Tesseract();
-        tesseract.setDatapath("C:\\Program Files\\Tesseract-OCR\\tessdata");
+        tesseract.setDatapath("/usr/share/tesseract-ocr/4.00/tessdata");
         tesseract.setLanguage("eng");
         tesseract.setPageSegMode(ITessAPI.TessPageSegMode.PSM_SPARSE_TEXT);
 
@@ -302,7 +302,7 @@ public class MaskServiceImpl implements IMaskService {
     @Override
     public File maskPANPdf(MultipartFile file) {
         ITesseract tesseract = new Tesseract();
-        tesseract.setDatapath("C:\\Program Files\\Tesseract-OCR\\tessdata");
+        tesseract.setDatapath("/usr/share/tesseract-ocr/4.00/tessdata");
         tesseract.setLanguage("eng");
         tesseract.setPageSegMode(ITessAPI.TessPageSegMode.PSM_SPARSE_TEXT);
         PDDocument originalDoc = null;
