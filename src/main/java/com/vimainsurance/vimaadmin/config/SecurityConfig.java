@@ -24,6 +24,7 @@ import org.springframework.security.web.authentication.UsernamePasswordAuthentic
 import org.springframework.web.cors.CorsConfiguration;
 import org.springframework.web.cors.CorsConfigurationSource;
 import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
+import org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity;
 
 import com.vimainsurance.vimaadmin.config.oauth.VimaOAuth2SuccessHandler;
 import com.vimainsurance.vimaadmin.config.oauth.VimaOAuth2UserService;
@@ -33,6 +34,7 @@ import com.vimainsurance.vimaadmin.util.JwtAuthenticationFilter;
 
 @Configuration
 @EnableWebSecurity
+@EnableMethodSecurity(prePostEnabled = true)
 public class SecurityConfig {
     
     @Autowired
@@ -61,6 +63,9 @@ public class SecurityConfig {
             .authorizeHttpRequests(auth -> auth
                 .requestMatchers("/api/v1/login", "/oauth2/**", "/api/v1/zoho/auth/**", "/api/v1/nonce", "/api/v1/auth/challenge", "/api/v1/auth/login").permitAll() 
                 .requestMatchers("/api/v1/test").hasAnyAuthority("SALES_AGENT")
+                // .requestMatchers("/api/v1/deals/**").hasAnyAuthority("SALES_MANAGER", "SUPER_ADMIN", "ADMIN")
+                // .requestMatchers("/api/v1/customers/**").hasAnyAuthority("SALES_AGENT")
+                // .requestMatchers("/api/v1/customers/**").hasAnyAuthority("SALES_AGENT")
                 .requestMatchers(
                     "/v3/api-docs/**",
                     "/swagger-ui/**",

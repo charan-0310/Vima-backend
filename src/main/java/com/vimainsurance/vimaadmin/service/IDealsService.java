@@ -4,6 +4,7 @@ import com.vimainsurance.vimaadmin.dto.DealsRequestDto;
 import com.vimainsurance.vimaadmin.dto.DealsResponseDto;
 import com.vimainsurance.vimaadmin.dto.DocumentRequestDto;
 import com.vimainsurance.vimaadmin.dto.DocumentResponseDto;
+import com.vimainsurance.vimaadmin.dto.DealsDashboardResponseDto;
 import com.vimainsurance.vimaadmin.dto.PolicyUploadRequestDto;
 import com.vimainsurance.vimaadmin.dto.ResponseDto;
 import org.springframework.core.io.Resource;
@@ -22,4 +23,5 @@ ResponseEntity<ResponseDto<String>> uploadDocument(DocumentRequestDto requestDto
 ResponseEntity<ResponseDto<String>> uploadPolicyWithDetails(PolicyUploadRequestDto requestDto);
 ResponseEntity<Resource> downloadDocument(String documentId);
 ResponseEntity<ResponseDto<String>> deleteDocument(String documentId);
+ResponseEntity<ResponseDto<DealsDashboardResponseDto>> getDashboardMetrics();
 }

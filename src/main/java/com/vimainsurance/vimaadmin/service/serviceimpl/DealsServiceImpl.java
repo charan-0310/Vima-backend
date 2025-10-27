@@ -1,5 +1,6 @@
 package com.vimainsurance.vimaadmin.service.serviceimpl;
 
+import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -11,6 +12,7 @@ import com.vimainsurance.vimaadmin.dto.DealsRequestDto;
 import com.vimainsurance.vimaadmin.dto.DealsResponseDto;
 import com.vimainsurance.vimaadmin.dto.DocumentRequestDto;
 import com.vimainsurance.vimaadmin.dto.DocumentResponseDto;
+import com.vimainsurance.vimaadmin.dto.DealsDashboardResponseDto;
 import com.vimainsurance.vimaadmin.dto.PolicyResponseDto;
 import com.vimainsurance.vimaadmin.dto.PolicyUploadRequestDto;
 import com.vimainsurance.vimaadmin.dto.ResponseDto;
@@ -510,6 +512,35 @@ public class DealsServiceImpl implements IDealsService{
             return responseObj.render(responseObj.formSuccessResponse(Constants.SUCCESS, "Policy created and documents uploaded successfully"));
         } catch (Exception e) {
             logger.error("Exception in uploadPolicyWithDetails", e);
+            return responseObj.render(responseObj.formErrorResponse(e.getMessage()));
+        }
+    }
+
+    @Override
+    public ResponseEntity<ResponseDto<DealsDashboardResponseDto>> getDashboardMetrics() {
+        logger.info("[correlationId:{}] getDashboardMetrics called", MDC.get("correlationId"));
+        BaseResponse<DealsDashboardResponseDto> responseObj = new BaseResponse<>();
+        try {
+            // Get total customers (primary members only)
+            Long totalCustomers = dealsRepository.countByIsPrimaryMemberTrue();
+            
+            // Get total active policies
+            Long totalActivePolicies = policyRepository.countByStatus(PolicyStatus.ACTIVE);
+            
+            // Get total coverage and premium from active policies
+            List<Policy> activePolicies = policyRepository.findByStatus(PolicyStatus.ACTIVE);
+            
+            BigDecimal totalCoverage = activePolicies.stream()
+                .map(Policy::getSumInsured)
+                .reduce(BigDecimal.ZERO, BigDecimal::add);  
+            
+            BigDecimal totalPremium = activePolicies.stream()
+                .map(Policy::getPremiumAmount)
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+            
+            return responseObj.render(responseObj.formSuccessResponse(Constants.SUCCESS, new DealsDashboardResponseDto(totalCustomers, totalCoverage, totalActivePolicies, totalPremium), 1));
+        } catch (Exception e) {
+            logger.error("[correlationId:{}] Exception in getDashboardMetrics: {}", MDC.get("correlationId"), e.getMessage(), e);
             return responseObj.render(responseObj.formErrorResponse(e.getMessage()));
         }
     }

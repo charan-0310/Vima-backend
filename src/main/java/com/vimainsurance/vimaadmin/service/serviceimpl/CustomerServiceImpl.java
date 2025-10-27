@@ -703,8 +703,9 @@ public class CustomerServiceImpl implements ICustomerService{
             } else {
                 logger.info("[correlationId:{}] Policy created successfully for deal: {}", MDC.get("correlationId"), savedDeals.getIndividualId());
             }
-            
-            customerRepository.deleteById(customer.getId());
+            customer.setStatus("POLICY_ISSUED");
+            customer.setUpdatedAt(LocalDateTime.now());
+            customerRepository.save(customer);
             Document document = documentRepository.findByEntityAndCategory(DocumentEntityType.CUSTOMER, customer.getCustId(), DocumentCategory.KYC_DOCUMENTS).stream().findFirst().orElse(null);
             if(document != null){
                 document.setEntityType(DocumentEntityType.INDIVIDUAL);
