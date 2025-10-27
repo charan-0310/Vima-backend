@@ -30,7 +30,13 @@ jobs:
             
       - name: Build jar with Maven
         run: mvn clean verify
-
+      - name: Debug paths
+        run: |
+          echo "Current directory: $(pwd)"
+          echo "Listing target directory:"
+          ls -lh target || echo "❌ No target folder found"
+          echo "Listing home directory:"
+          ls -lh ~
       - name: Move jar to deploy directory
         run: |
           JAR_FILE=$(ls target/*.jar | head -n 1)
