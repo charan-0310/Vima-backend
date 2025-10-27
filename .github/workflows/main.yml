@@ -36,6 +36,8 @@ jobs:
           echo "Listing target directory:"
           ls -lh target || echo "❌ No target folder found"
           echo "Listing home directory:"
+          sudo chown -R ubuntu:ubuntu /home/ubuntu/vima-app-deployment
+          sudo chmod -R 755 /home/ubuntu/vima-app-deployment
           ls -lh ~
       - name: Move jar to deploy directory
         run: |
