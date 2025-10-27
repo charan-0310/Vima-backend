@@ -54,7 +54,7 @@ public class MaskServiceImpl implements IMaskService {
     public File maskAADHARImage(MultipartFile file) {
         // TODO Auto-generated method stub
         ITesseract tesseract = new Tesseract();
-        tesseract.setDatapath("C:\\Program Files\\Tesseract-OCR\\tessdata");
+        tesseract.setDatapath("/usr/share/tesseract-ocr/4.00/tessdata");
         tesseract.setLanguage("eng");
         tesseract.setPageSegMode(ITessAPI.TessPageSegMode.PSM_SPARSE_TEXT);
         tesseract.setTessVariable("tessedit_char_whitelist", "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ");
