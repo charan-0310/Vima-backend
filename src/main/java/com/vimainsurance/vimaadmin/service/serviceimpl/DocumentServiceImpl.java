@@ -109,30 +109,30 @@ public class DocumentServiceImpl implements IDocumentService {
                     return responseObj.render(responseObj.formErrorResponse("Only 4 other documents can be uploaded"));
                 }
                 if(documentType.equals(DocumentType.AADHAAR_CARD) && (file.getContentType().equals("image/jpeg") || file.getContentType().equals("image/png") || file.getContentType().equals("image/jpg"))){
-                    maskedFile = maskService.maskAADHARImage(file);
+                    // maskedFile = maskService.maskAADHARImage(file);
                 } else if(documentType.equals(DocumentType.PAN_CARD) && (file.getContentType().equals("image/jpeg") || file.getContentType().equals("image/png") || file.getContentType().equals("image/jpg"))){
-                    maskedFile = maskService.maskPANImage(file);
+                    // maskedFile = maskService.maskPANImage(file);
                 } else if(documentType.equals(DocumentType.PAN_CARD) && (file.getContentType().equals("application/pdf"))){
-                    maskedFile = maskService.maskPANPdf(file);
+                    // maskedFile = maskService.maskPANPdf(file);
                 } else if(documentType.equals(DocumentType.AADHAAR_CARD) && (file.getContentType().equals("application/pdf"))){
-                    maskedFile = maskService.maskAADHARPdf(file);
+                    // maskedFile = maskService.maskAADHARPdf(file);
                 }
-                if(maskedFile == null && documentType.equals(DocumentType.PAN_CARD) && documentType.equals(DocumentType.AADHAAR_CARD)){
-                    return responseObj.render(responseObj.formErrorResponse("Error Uploading document"));
-                }
+                // if(maskedFile == null && documentType.equals(DocumentType.PAN_CARD) && documentType.equals(DocumentType.AADHAAR_CARD)){
+                //     return responseObj.render(responseObj.formErrorResponse("Error Uploading document"));
+                // }
                 // Generate S3 key
                 if(documentType.equals(DocumentType.PAN_CARD) || documentType.equals(DocumentType.AADHAAR_CARD)){
                 String unmaskedS3Key = generateS3Key(entityType, entityId, documentType, file.getOriginalFilename(), false);
-                String maskedS3Key = generateS3Key(entityType, entityId, documentType, file.getOriginalFilename(), true);
+                // String maskedS3Key = generateS3Key(entityType, entityId, documentType, file.getOriginalFilename(), true);
                 
                 // Upload to S3
-                String s3Url = s3Service.uploadFile(maskedFile, maskedS3Key, file.getContentType());
-                String unmaskedS3Url = s3Service.uploadFile(file, unmaskedS3Key);
+                String s3Url = s3Service.uploadFile(file, unmaskedS3Key);
+                // String unmaskedS3Url = s3Service.uploadFile(file, unmaskedS3Key);
                 
                 // Create document entity
                 Document document = createDocument(
                     entityType, entityId, documentType, documentCategory,
-                    maskedS3Key, file, uploadedBy, uploadedByRole, notes
+                    unmaskedS3Key, file, uploadedBy, uploadedByRole, notes
                 );
                 Document savedDocument = documentRepository.save(document);
                 uploadedDocuments.add(savedDocument);
