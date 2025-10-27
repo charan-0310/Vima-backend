@@ -40,7 +40,7 @@ jobs:
 
       - name: Restart Docker Compose services
         run: |
-          cd ~/home/ubuntu/vima-app-deployment
+          cd ~/vima-app-deployment
           docker compose down
           docker compose up -d
           echo "✅ Docker Compose services restarted"     
