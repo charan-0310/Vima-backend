@@ -20,7 +20,7 @@ import java.util.UUID;
  */
 @RestController
 @RequestMapping("/api/v1/policies")
-@PreAuthorize("hasRole('SALES_AGENT')")
+@PreAuthorize("hasAnyAuthority( 'SALES_MANAGER', 'SUPER_ADMIN', 'ADMIN')")
 public class PolicyController {
 
     @Autowired

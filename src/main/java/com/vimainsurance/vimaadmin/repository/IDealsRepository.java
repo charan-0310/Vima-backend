@@ -13,5 +13,10 @@ public interface IDealsRepository extends JpaRepository<Deals, UUID> {
      * Find deals by multiple individual IDs (batch query for optimization)
      */
     List<Deals> findByIndividualIdIn(List<UUID> individualIds);
+    
+    /**
+     * Count total customers (primary members only)
+     */
+    Long countByIsPrimaryMemberTrue();
 
 }
