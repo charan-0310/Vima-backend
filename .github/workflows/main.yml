@@ -41,7 +41,7 @@ jobs:
         run: |
           JAR_FILE=$(ls target/*.jar | head -n 1)
           echo "Jar built: $JAR_FILE"
-          cp "$JAR_FILE" ~/vima-app-deployment/api/artifact/vimaadmin-0.0.1-SNAPSHOT.jar
+          cp "$JAR_FILE" ~/vima-app-deployment/api/artifact/
           echo "✅ JAR moved to ~/vima-app-deployment/api/artifact/vimaadmin-0.0.1-SNAPSHOT.jar"
 
       - name: Restart Docker Compose services
