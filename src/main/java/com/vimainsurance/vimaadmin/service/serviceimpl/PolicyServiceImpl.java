@@ -12,6 +12,7 @@ import com.vimainsurance.vimaadmin.enums.ProductType;
 import com.vimainsurance.vimaadmin.repository.IPolicyRepository;
 import com.vimainsurance.vimaadmin.service.IPolicyService;
 import com.vimainsurance.vimaadmin.util.Constants;
+import com.vimainsurance.vimaadmin.repository.IInsuranceProviderRepository;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -45,6 +46,9 @@ public class PolicyServiceImpl implements IPolicyService {
 
     @Autowired
     private IDealsRepository dealsRepository;
+
+    @Autowired
+    private IInsuranceProviderRepository insuranceProviderRepository;
 
     @Override
     public ResponseEntity<ResponseDto<String>> createPolicy(PolicyRequestDto requestDto) {
@@ -395,7 +399,7 @@ public class PolicyServiceImpl implements IPolicyService {
         responseDto.setPolicyId(policy.getPolicyId());
         responseDto.setPolicyNumber(policy.getPolicyNumber());
         responseDto.setPrimaryIndividualId(policy.getPrimaryIndividualId());
-        responseDto.setInsuranceProviderId(policy.getInsuranceProviderId());
+        responseDto.setInsuranceProvider(insuranceProviderRepository.findById(policy.getInsuranceProviderId()).orElseThrow(() -> new RuntimeException("Insurance provider not found")).getProviderName());
         responseDto.setInsuranceProductId(policy.getInsuranceProductId());
         responseDto.setOrganizationId(policy.getOrganizationId());
         responseDto.setProductType(policy.getProductType().getValue());

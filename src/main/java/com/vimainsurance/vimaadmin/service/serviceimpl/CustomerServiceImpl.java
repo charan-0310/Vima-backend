@@ -46,6 +46,7 @@ import com.vimainsurance.vimaadmin.entity.AdminUser;
 import com.vimainsurance.vimaadmin.entity.Customer;
 import com.vimainsurance.vimaadmin.entity.Deals;
 import com.vimainsurance.vimaadmin.entity.Document;
+import com.vimainsurance.vimaadmin.entity.InsuranceProvider;
 import com.vimainsurance.vimaadmin.enums.AccountStatus;
 import com.vimainsurance.vimaadmin.enums.AccountType;
 import com.vimainsurance.vimaadmin.enums.CoverageType;
@@ -58,6 +59,7 @@ import com.vimainsurance.vimaadmin.enums.UserRole;
 import com.vimainsurance.vimaadmin.repository.IAdminUserRepository;
 import com.vimainsurance.vimaadmin.repository.ICustomerRepository;
 import com.vimainsurance.vimaadmin.repository.IDocumentRepository;
+import com.vimainsurance.vimaadmin.repository.IInsuranceProviderRepository;
 import com.vimainsurance.vimaadmin.service.ICustomerService;
 import com.vimainsurance.vimaadmin.service.IZohoCRMService;
 import com.vimainsurance.vimaadmin.service.IDocumentService;
@@ -92,6 +94,8 @@ public class CustomerServiceImpl implements ICustomerService{
     @Autowired
     private IDocumentRepository documentRepository;
 
+    @Autowired
+    private IInsuranceProviderRepository insuranceProviderRepository;
 
     @Autowired
     private IDocumentService documentService;
@@ -684,17 +688,18 @@ public class CustomerServiceImpl implements ICustomerService{
             PolicyRequestDto policyRequest = new PolicyRequestDto();
             policyRequest.setPolicyNumber(requestDto.getPolicyNumber() != null ? requestDto.getPolicyNumber() : generatePolicyNumber());
             policyRequest.setPrimaryIndividualId(savedDeals.getIndividualId());
-            policyRequest.setInsuranceProviderId(UUID.randomUUID()); // Default provider ID - should be configurable
-            policyRequest.setProductType("HEALTH");
+            
+            // Get default insurance provider for the product type
+            policyRequest.setInsuranceProviderId(insuranceProviderRepository.findByProviderCode(requestDto.getProviderCode()).orElseThrow(() -> new RuntimeException("Insurance provider not found")).getProviderId());
+            policyRequest.setProductType(requestDto.getProductType());
             policyRequest.setCoverageType("INDIVIDUAL");
             policyRequest.setStatus(requestDto.getPolicyStatus() != null ? requestDto.getPolicyStatus() : "ACTIVE");
-            policyRequest.setSumInsured(requestDto.getSumInsured() != null ? requestDto.getSumInsured() : new BigDecimal("500000"));
-            policyRequest.setPremiumAmount(requestDto.getPremiumAmount() != null ? 
-                requestDto.getPremiumAmount() : new BigDecimal("5000"));
+            policyRequest.setSumInsured(requestDto.getSumInsured());
+            policyRequest.setPremiumAmount(requestDto.getPremiumAmount());
             policyRequest.setStartDate(requestDto.getPolicyStartDate() != null ? requestDto.getPolicyStartDate() : LocalDate.now());
             policyRequest.setEndDate(requestDto.getPolicyEndDate() != null ? requestDto.getPolicyEndDate() : LocalDate.now().plusYears(1));
             policyRequest.setLeadId(customer.getId());
-            
+            policyRequest.setRenewalDate(requestDto.getRenewalDate() != null ? requestDto.getRenewalDate() : LocalDate.now().plusYears(1));
             // Create the policy
             ResponseEntity<ResponseDto<String>> policyResponse = policyService.createPolicy(policyRequest);
             if(policyResponse.getBody() != null && policyResponse.getBody().getErrorCode() != null){
@@ -733,6 +738,40 @@ public class CustomerServiceImpl implements ICustomerService{
         String timestamp = String.valueOf(System.currentTimeMillis());
         String randomSuffix = String.valueOf((int) (Math.random() * 1000));
         return "POL-" + timestamp.substring(timestamp.length() - 8) + "-" + randomSuffix;
+    }
+
+    /**
+     * Get default insurance provider ID for the given product type
+     * If no provider is found, creates a default one
+     */
+    private UUID getDefaultInsuranceProviderId(String productType) {
+        try {
+            ProductType productTypeEnum = ProductType.fromValue(productType);
+            
+            // Try to find an active provider for the product type
+            List<InsuranceProvider> providers = insuranceProviderRepository.findByIsActiveTrueAndProductType(productTypeEnum);
+            
+            if (!providers.isEmpty()) {
+                return providers.get(0).getProviderId();
+            }
+            
+            // If no provider found, create a default one
+            InsuranceProvider defaultProvider = new InsuranceProvider();
+            defaultProvider.setProviderName("Default " + productType + " Provider");
+            defaultProvider.setProviderCode("DEFAULT_" + productType.toUpperCase());
+            defaultProvider.setProductType(productTypeEnum);
+            defaultProvider.setIsActive(true);
+            
+            InsuranceProvider savedProvider = insuranceProviderRepository.save(defaultProvider);
+            logger.info("[correlationId:{}] Created default insurance provider: {}", MDC.get("correlationId"), savedProvider.getProviderId());
+            
+            return savedProvider.getProviderId();
+            
+        } catch (Exception e) {
+            logger.error("[correlationId:{}] Error getting default insurance provider: {}", MDC.get("correlationId"), e.getMessage(), e);
+            // Fallback to a random UUID if everything fails
+            return UUID.randomUUID();
+        }
     }
 }
 

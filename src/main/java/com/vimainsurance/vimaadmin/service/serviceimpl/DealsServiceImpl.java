@@ -60,6 +60,7 @@ import com.vimainsurance.vimaadmin.dto.BaseResponse;
 import com.vimainsurance.vimaadmin.enums.DocumentEntityType;
 import com.vimainsurance.vimaadmin.enums.DocumentCategory;
 import com.vimainsurance.vimaadmin.util.Constants;
+import com.vimainsurance.vimaadmin.repository.IInsuranceProviderRepository;
     
 @Service
 public class DealsServiceImpl implements IDealsService{
@@ -81,6 +82,9 @@ public class DealsServiceImpl implements IDealsService{
     
     @Autowired
     private IPolicyRepository policyRepository;
+
+    @Autowired
+    private IInsuranceProviderRepository insuranceProviderRepository;
 
     @Override
     public ResponseEntity<ResponseDto<String>> createDeals(DealsRequestDto dealsRequestDto) {
@@ -396,7 +400,7 @@ public class DealsServiceImpl implements IDealsService{
         policyResponseDto.setPolicyId(policy.getPolicyId());
         policyResponseDto.setPolicyNumber(policy.getPolicyNumber());
         policyResponseDto.setPrimaryIndividualId(policy.getPrimaryIndividualId());
-        policyResponseDto.setInsuranceProviderId(policy.getInsuranceProviderId());
+        policyResponseDto.setInsuranceProvider(insuranceProviderRepository.findById(policy.getInsuranceProviderId()).orElseThrow(() -> new RuntimeException("Insurance provider not found")).getProviderName());
         policyResponseDto.setInsuranceProductId(policy.getInsuranceProductId());
         policyResponseDto.setOrganizationId(policy.getOrganizationId());
         policyResponseDto.setProductType(policy.getProductType().name());
@@ -465,8 +469,7 @@ public class DealsServiceImpl implements IDealsService{
             Policy policy = new Policy();
             policy.setPolicyNumber(requestDto.getPolicyNumber());
             policy.setPrimaryIndividualId(requestDto.getIndividualId());
-            policy.setInsuranceProviderId(UUID.randomUUID()); // Default provider ID
-            policy.setInsuranceProductId(UUID.randomUUID()); // Default product ID
+            policy.setInsuranceProviderId(insuranceProviderRepository.findByProviderCode(requestDto.getProviderCode()).orElseThrow(() -> new RuntimeException("Insurance provider not found")).getProviderId());
             policy.setOrganizationId(UUID.randomUUID()); // Default organization ID
             policy.setProductType(ProductType.valueOf(requestDto.getProductType()));
             policy.setCoverageType(CoverageType.valueOf(requestDto.getCoverageType()));
