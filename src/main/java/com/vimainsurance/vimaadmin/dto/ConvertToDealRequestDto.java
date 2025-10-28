@@ -16,6 +16,9 @@ public class ConvertToDealRequestDto {
     private BigDecimal premiumAmount;
     private LocalDate policyStartDate;
     private LocalDate policyEndDate;
+    private LocalDate renewalDate;
     private String policyStatus;
     private String notes;
+    private String productType;
+    private String providerCode;
 }

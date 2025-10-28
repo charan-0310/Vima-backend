@@ -20,6 +20,7 @@ public class PolicyUploadRequestDto {
     private String policyNumber;
     private String insuranceCompany;
     private String productType;
+    private String providerCode;
     private String coverageType;
     private String status;
     private BigDecimal sumInsured;

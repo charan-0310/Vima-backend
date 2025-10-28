@@ -7,7 +7,9 @@ import com.fasterxml.jackson.annotation.JsonValue;
  * Enum for product types in insurance policies
  */
 public enum ProductType {
-    HEALTH("HEALTH");
+    HEALTH("HEALTH"),
+    MOTOR("MOTOR"),
+    GENERAL("GENERAL");
 
     private final String value;
 

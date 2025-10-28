@@ -63,4 +63,6 @@ public class PolicyRequestDto {
     private LocalDate renewalDate;
 
     private UUID leadId;
+
+    private String providerCode;
 }
