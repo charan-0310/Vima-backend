@@ -221,12 +221,15 @@ public class CustomerServiceImpl implements ICustomerService{
         Customer customer = customerOpt.get();
         AdminUser agent = agentOpt.get();
 
-        // Verify the customer belongs to the agent
-        if (
+        // Check if agent has admin privileges (ADMIN or SALES_ADMIN roles)
+        boolean hasAdminAccess = "ADMIN".equals(agent.getRole()) || "SALES_ADMIN".equals(agent.getRole());
+
+        // Verify the customer belongs to the agent (unless agent has admin access)
+        if (!hasAdminAccess && (
                 !customer.getOwner().getId().equals(agent.getId()) && 
                 (customer.getOwner().getReportingTo() == null || 
                 !customer.getOwner().getReportingTo().getId().equals(agent.getId()))
-            ){
+            )){
         return ResponseEntity.status(HttpStatus.FORBIDDEN)
                     .body(new ResponseDto<String>("You don't have permission to update this customer", null));
         }
@@ -517,12 +520,17 @@ public class CustomerServiceImpl implements ICustomerService{
             if(optionalCustomer.isEmpty()){
                 return responseObj.render(responseObj.formErrorResponse(Constants.RECORD_NOT_FOUND_MESSAGE));
             }
+            AdminUser adminUser = adminUserRepository.findByUsername(currentUsername).orElseThrow(() -> new RuntimeException("Admin user not found"));
             Customer customer = optionalCustomer.get();
-            if (customer.getOwner() == null 
+            
+            // Check if user has admin privileges (ADMIN or SALES_ADMIN roles)
+            boolean hasAdminAccess = "ADMIN".equals(adminUser.getRole()) || "SALES_ADMIN".equals(adminUser.getRole());
+            
+            if (!hasAdminAccess && (customer.getOwner() == null 
                 || ( !currentUsername.equals(customer.getOwner().getUsername()) 
                     && (customer.getOwner().getReportingTo() == null 
                         || !currentUsername.equals(customer.getOwner().getReportingTo().getUsername()))
-                )) {
+                ))) {
                 logger.warn("[correlationId:{}] Access denied: User {} tried to access customer {} owned by {}", 
                     MDC.get("correlationId"), currentUsername, custId, 
                     customer.getOwner() != null ? customer.getOwner().getUsername() : "null");
@@ -585,15 +593,20 @@ public class CustomerServiceImpl implements ICustomerService{
                         .body(new ResponseDto<String>("One or more customers not found", null));
             }
 
-            // Verify all customers belong to the agent
-            boolean hasUnauthorizedAccess = customersToDelete.stream()
-                    .anyMatch(customer -> !customer.getOwner().getId().equals(agent.getId()));
-            
-            if (hasUnauthorizedAccess) {
-                logger.warn("[correlationId:{}] Unauthorized access attempt by agent: {} for customers: {}", 
-                    MDC.get("correlationId"), agent.getUsername(), String.join(",", requestDto.getCustomerIds()));
-                return ResponseEntity.status(HttpStatus.FORBIDDEN)
-                        .body(new ResponseDto<String>("You don't have permission to delete one or more customers", null));
+            // Check if agent has admin privileges (ADMIN or SALES_ADMIN roles)
+            boolean hasAdminAccess = "ADMIN".equals(agent.getRole()) || "SALES_ADMIN".equals(agent.getRole());
+
+            // Verify all customers belong to the agent (unless agent has admin access)
+            if (!hasAdminAccess) {
+                boolean hasUnauthorizedAccess = customersToDelete.stream()
+                        .anyMatch(customer -> !customer.getOwner().getId().equals(agent.getId()));
+                
+                if (hasUnauthorizedAccess) {
+                    logger.warn("[correlationId:{}] Unauthorized access attempt by agent: {} for customers: {}", 
+                        MDC.get("correlationId"), agent.getUsername(), String.join(",", requestDto.getCustomerIds()));
+                    return ResponseEntity.status(HttpStatus.FORBIDDEN)
+                            .body(new ResponseDto<String>("You don't have permission to delete one or more customers", null));
+                }
             }
 
             // Soft Delete all customers
