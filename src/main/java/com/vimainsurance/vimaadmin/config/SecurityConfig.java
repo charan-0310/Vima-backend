@@ -62,10 +62,10 @@ public class SecurityConfig {
             .csrf(csrf -> csrf.disable())
             .authorizeHttpRequests(auth -> auth
                 .requestMatchers("/api/v1/login", "/oauth2/**", "/api/v1/zoho/auth/**", "/api/v1/nonce", "/api/v1/auth/challenge", "/api/v1/auth/login").permitAll() 
-                .requestMatchers("/api/v1/test").hasAnyAuthority("SALES_AGENT")
-                // .requestMatchers("/api/v1/deals/**").hasAnyAuthority("SALES_MANAGER", "SUPER_ADMIN", "ADMIN")
-                // .requestMatchers("/api/v1/customers/**").hasAnyAuthority("SALES_AGENT")
-                // .requestMatchers("/api/v1/customers/**").hasAnyAuthority("SALES_AGENT")
+                .requestMatchers("/api/v1/test").hasAnyAuthority("SALES_ADMIN", "SALES_AGENT")
+                // .requestMatchers("/api/v1/deals/**").hasAnyAuthority('SALES_ADMIN', "SALES_MANAGER", "SUPER_ADMIN", "ADMIN")
+                // .requestMatchers("/api/v1/customers/**").hasAnyAuthority('SALES_ADMIN', "SALES_AGENT")
+                // .requestMatchers("/api/v1/customers/**").hasAnyAuthority('SALES_ADMIN', "SALES_AGENT")
                 .requestMatchers(
                     "/v3/api-docs/**",
                     "/swagger-ui/**",

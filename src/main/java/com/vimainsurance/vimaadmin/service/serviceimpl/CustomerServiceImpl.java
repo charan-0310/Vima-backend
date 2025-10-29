@@ -36,6 +36,7 @@ import com.vimainsurance.vimaadmin.dto.BaseResponse;
 import com.vimainsurance.vimaadmin.dto.ConvertToDealRequestDto;
 import com.vimainsurance.vimaadmin.dto.CustomerRequestDto;
 import com.vimainsurance.vimaadmin.dto.CustomerResponseDto;
+import com.vimainsurance.vimaadmin.dto.DealsRequestDto;
 import com.vimainsurance.vimaadmin.dto.DocumentRequestDto;
 import com.vimainsurance.vimaadmin.dto.CustomerPipelineRequestDto;
 import com.vimainsurance.vimaadmin.dto.CustomerBulkDeleteRequestDto;
@@ -399,27 +400,84 @@ public class CustomerServiceImpl implements ICustomerService{
             .max(BigDecimal::compareTo)
             .orElse(BigDecimal.ZERO);
     }
+    
+    private Page<Customer> getAllCustomersWithPremiumSorting(String search, int page, int rec, String sortDirection) {
+        // Get all customers without pagination first for premium sorting
+        Page<Customer> allCustomers;
+        if (search != null && !search.trim().isEmpty()) {
+            // Use dedicated search method when search is provided
+            allCustomers = customerRepository.searchAllCustomers(
+                search, PageRequest.of(0, Integer.MAX_VALUE));
+        } else {
+            // Use basic method when no search is applied
+            allCustomers = customerRepository.findAll(
+                PageRequest.of(0, Integer.MAX_VALUE));
+        }
+        
+        // Sort by premium (best premium from quotes)
+        List<Customer> sortedCustomers = allCustomers.getContent().stream()
+            .sorted((c1, c2) -> {
+                BigDecimal premium1 = getHighestPremium(c1);
+                BigDecimal premium2 = getHighestPremium(c2);
+                
+                int comparison = premium1.compareTo(premium2);
+                return "desc".equalsIgnoreCase(sortDirection) ? -comparison : comparison;
+            })
+            .collect(Collectors.toList());
+        
+        // Apply pagination manually
+        int start = page * rec;
+        int end = Math.min(start + rec, sortedCustomers.size());
+        List<Customer> paginatedCustomers = sortedCustomers.subList(start, end);
+        
+        return new PageImpl<>(paginatedCustomers, PageRequest.of(page, rec), sortedCustomers.size());
+    }
 
     @Override
-    public ResponseEntity<ResponseDto<List<CustomerResponseDto>>> getAllCustomers(int page, int rec) {
-        logger.info("[correlationId:{}] getAllCustomers called", MDC.get("correlationId"));
+    public ResponseEntity<ResponseDto<List<CustomerResponseDto>>> getAllCustomers(String search, int page, int rec, String sortBy, String sortDirection) {
+        logger.info("[correlationId:{}] getAllCustomers called with filters - sortBy: {}, sortDirection: {}", 
+                   MDC.get("correlationId"), sortBy, sortDirection);
         BaseResponse<List<CustomerResponseDto>> responseObj = new BaseResponse<>();
         try {
             List<CustomerResponseDto> responseList = new ArrayList<>();
+            
+            // Handle special case for getting all customers without pagination
             if (page == -1 && rec == -1) {
                 List<Customer> customerList = customerRepository.findAll();
                 for (Customer customer : customerList) {
                     responseList.add(mapToResponseDto(customer));
                 }
                 return responseObj.render(responseObj.formSuccessResponse(Constants.SUCCESS, responseList, responseList.size()));
-            } else {
-                Pageable pageable = PageRequest.of(page, rec);
-                Page<Customer> customerPage = customerRepository.findAll(pageable);
-                for (Customer customer : customerPage.getContent()) {
-                    responseList.add(mapToResponseDto(customer));
-                }
-                return responseObj.render(responseObj.formSuccessResponse(Constants.SUCCESS, responseList, customerPage.getTotalPages()));
             }
+            
+            // Determine which query method to use based on sorting
+            Page<Customer> customerList;
+            if (PREMIUM_SORT_FIELD.equalsIgnoreCase(sortBy)) {
+                // For premium sorting, we need to handle it separately
+                customerList = getAllCustomersWithPremiumSorting(search, page, rec, sortDirection);
+            } else if (search != null && !search.trim().isEmpty()) {
+                // Use dedicated search method when search is provided
+                Sort sort = createSort(sortBy, sortDirection);
+                PageRequest pageRequest = PageRequest.of(page, rec, sort);
+                customerList = customerRepository.searchAllCustomers(search, pageRequest);
+            } else {
+                // Use basic method when no search is applied
+                Sort sort = createSort(sortBy, sortDirection);
+                PageRequest pageRequest = PageRequest.of(page, rec, sort);
+                customerList = customerRepository.findAll(pageRequest);
+            }
+
+            LinkedHashSet<CustomerResponseDto> customerResponseSet = new LinkedHashSet<>();
+            if(customerList.isEmpty()){
+                return responseObj.render(responseObj.formSuccessResponse(Constants.SUCCESS, new ArrayList<>(), 0));
+            }
+            
+            for(Customer customer : customerList){
+                customerResponseSet.add(mapToResponseDto(customer));
+            }
+            
+            List<CustomerResponseDto> uniqueList = new ArrayList<>(customerResponseSet);
+            return responseObj.render(responseObj.formSuccessResponse(Constants.SUCCESS, uniqueList, customerList.getTotalElements()));
         } catch (Exception e) {
             logger.error("Exception in getAllCustomers", e);
             return responseObj.render(responseObj.formErrorResponse(e.getMessage()));
@@ -684,6 +742,44 @@ public class CustomerServiceImpl implements ICustomerService{
             deals.setUpdatedAt(LocalDateTime.now());
             Deals savedDeals = dealsRepository.save(deals);
             
+            // Create and save dependents if provided
+            List<UUID> coveredIndividualIds = new ArrayList<>();
+            coveredIndividualIds.add(savedDeals.getIndividualId()); // Add primary individual
+            
+            if (requestDto.getDependents() != null && !requestDto.getDependents().isEmpty()) {
+                for (DealsRequestDto dependentDto : requestDto.getDependents()) {
+                    // Create dependent as a new Deals entity
+                    Deals dependent = new Deals();
+                    dependent.setFirstName(dependentDto.getFirstName());
+                    dependent.setLastName(dependentDto.getLastName());
+                    dependent.setEmail(customer.getEmail()); // Use customer's email
+                    dependent.setPhone(customer.getPhoneNumber()); // Use customer's phone
+                    dependent.setDateOfBirth(dependentDto.getDateOfBirth());
+                    dependent.setGender(dependentDto.getGender());
+                    dependent.setPanNumber(dependentDto.getPanNumber());
+                    dependent.setAadhaarNumber(dependentDto.getAadhaarNumber());
+                    dependent.setAddress(customer.getCity() + ", " + customer.getState()); // Use customer's address info
+                    dependent.setCity(customer.getCity());
+                    dependent.setState(customer.getState());
+                    dependent.setPincode(null); // Not available from customer
+                    dependent.setAccountType(AccountType.RETAIL_DEPENDENT);
+                    dependent.setStatus(AccountStatus.ACTIVE);
+                    dependent.setEmployeeNumber(dependentDto.getEmployeeNumber());
+                    dependent.setRelationship(dependentDto.getRelationship());
+                    dependent.setIsPrimaryMember(false);
+                    dependent.setPrimaryIndividual(savedDeals);
+                    dependent.setCreatedAt(LocalDateTime.now());
+                    dependent.setUpdatedAt(LocalDateTime.now());
+                    dependent.setLeadId(customer.getId());
+                    dependent.setCustId(customer.getCustId());
+                    
+                    // Save dependent
+                    Deals savedDependent = dealsRepository.save(dependent);
+                    coveredIndividualIds.add(savedDependent.getIndividualId());
+                    logger.info("[correlationId:{}] Dependent saved with ID: {}", MDC.get("correlationId"), savedDependent.getIndividualId());
+                }
+            }
+            
             // Create policy for the converted deal
             PolicyRequestDto policyRequest = new PolicyRequestDto();
             policyRequest.setPolicyNumber(requestDto.getPolicyNumber() != null ? requestDto.getPolicyNumber() : generatePolicyNumber());
@@ -692,7 +788,9 @@ public class CustomerServiceImpl implements ICustomerService{
             // Get default insurance provider for the product type
             policyRequest.setInsuranceProviderId(insuranceProviderRepository.findByProviderCode(requestDto.getProviderCode()).orElseThrow(() -> new RuntimeException("Insurance provider not found")).getProviderId());
             policyRequest.setProductType(requestDto.getProductType());
-            policyRequest.setCoverageType("INDIVIDUAL");
+            // Set coverage type based on whether dependents exist
+            String coverageType = (requestDto.getDependents() != null && !requestDto.getDependents().isEmpty()) ? "FAMILY_FLOATER" : "INDIVIDUAL";
+            policyRequest.setCoverageType(coverageType);
             policyRequest.setStatus(requestDto.getPolicyStatus() != null ? requestDto.getPolicyStatus() : "ACTIVE");
             policyRequest.setSumInsured(requestDto.getSumInsured());
             policyRequest.setPremiumAmount(requestDto.getPremiumAmount());
@@ -700,6 +798,13 @@ public class CustomerServiceImpl implements ICustomerService{
             policyRequest.setEndDate(requestDto.getPolicyEndDate() != null ? requestDto.getPolicyEndDate() : LocalDate.now().plusYears(1));
             policyRequest.setLeadId(customer.getId());
             policyRequest.setRenewalDate(requestDto.getRenewalDate() != null ? requestDto.getRenewalDate() : LocalDate.now().plusYears(1));
+            
+            // Set covered individuals (primary + dependents)
+            // policyRequest.setCoveredIndividuals(coveredIndividualIds.stream()
+            //     .map(UUID::toString)
+            //     .collect(Collectors.joining(",")));
+            
+            policyRequest.setDependents(requestDto.getDependents());
             // Create the policy
             ResponseEntity<ResponseDto<String>> policyResponse = policyService.createPolicy(policyRequest);
             if(policyResponse.getBody() != null && policyResponse.getBody().getErrorCode() != null){

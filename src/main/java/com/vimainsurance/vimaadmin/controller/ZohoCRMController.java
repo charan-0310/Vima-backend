@@ -21,7 +21,7 @@ import com.vimainsurance.vimaadmin.dto.DealStageResponseDto;
 @RestController
 @CrossOrigin(allowedHeaders = "*")
 @RequestMapping("/api/v1/zoho")
-@PreAuthorize("hasAnyAuthority( 'SALES_MANAGER', 'SUPER_ADMIN', 'ADMIN')")
+@PreAuthorize("hasAnyAuthority('SALES_ADMIN',  'SALES_MANAGER', 'SUPER_ADMIN', 'ADMIN')")
 public class ZohoCRMController {
 
     private static final Logger logger = LoggerFactory.getLogger(ZohoCRMController.class);

@@ -6,6 +6,7 @@ import com.vimainsurance.vimaadmin.dto.PolicyResponseDto;
 import com.vimainsurance.vimaadmin.dto.ResponseDto;
 import com.vimainsurance.vimaadmin.entity.Deals;
 import com.vimainsurance.vimaadmin.entity.Policy;
+import com.vimainsurance.vimaadmin.enums.AccountType;
 import com.vimainsurance.vimaadmin.enums.CoverageType;
 import com.vimainsurance.vimaadmin.enums.PolicyStatus;
 import com.vimainsurance.vimaadmin.enums.ProductType;
@@ -13,6 +14,8 @@ import com.vimainsurance.vimaadmin.repository.IPolicyRepository;
 import com.vimainsurance.vimaadmin.service.IPolicyService;
 import com.vimainsurance.vimaadmin.util.Constants;
 import com.vimainsurance.vimaadmin.repository.IInsuranceProviderRepository;
+import com.vimainsurance.vimaadmin.repository.IAdminUserRepository;
+import com.vimainsurance.vimaadmin.entity.AdminUser;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -22,6 +25,7 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Service;
+import org.springframework.security.core.context.SecurityContextHolder;
 
 import java.time.LocalDate;
 import java.util.HashMap;
@@ -33,6 +37,19 @@ import java.util.stream.Collectors;
 
 import com.vimainsurance.vimaadmin.dto.DealsResponseDto;
 import com.vimainsurance.vimaadmin.repository.IDealsRepository;
+import com.vimainsurance.vimaadmin.dto.DealsRequestDto;
+
+import java.util.ArrayList;
+import java.time.LocalDateTime;
+import java.time.LocalDate;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Optional;
+import java.util.UUID;
+import java.util.stream.Collectors;
+
+import com.vimainsurance.vimaadmin.enums.AccountStatus;
 /**
  * Service implementation for Policy operations
  */
@@ -50,6 +67,9 @@ public class PolicyServiceImpl implements IPolicyService {
     @Autowired
     private IInsuranceProviderRepository insuranceProviderRepository;
 
+    @Autowired
+    private IAdminUserRepository adminUserRepository;
+
     @Override
     public ResponseEntity<ResponseDto<String>> createPolicy(PolicyRequestDto requestDto) {
         logger.info("[correlationId:{}] createPolicy called", MDC.get("correlationId"));
@@ -60,7 +80,46 @@ public class PolicyServiceImpl implements IPolicyService {
             if (policyRepository.existsByPolicyNumber(requestDto.getPolicyNumber())) {
                 return responseObj.render(responseObj.formErrorResponse("Policy number already exists"));
             }
-
+            String uploadedBy = SecurityContextHolder.getContext().getAuthentication().getName();
+            Optional<AdminUser> adminUser = adminUserRepository.findByUsername(uploadedBy);
+            if(adminUser.isEmpty()){
+                return responseObj.render(responseObj.formErrorResponse("Agent not found"));
+            }
+            AdminUser agent = adminUser.get();
+            Deals primaryIndividual = dealsRepository.findById(requestDto.getPrimaryIndividualId()).orElseThrow(() -> new RuntimeException("Primary individual not found"));
+            // Create and save dependents first
+            List<UUID> coveredIndividualIds = new ArrayList<>();
+            if (requestDto.getDependents() != null && !requestDto.getDependents().isEmpty()) {
+                for (DealsRequestDto dependentDto : requestDto.getDependents()) {
+                    // Create dependent as a new Deals entity
+                    Deals dependent = new Deals();
+                    dependent.setFirstName(dependentDto.getFirstName());
+                    dependent.setLastName(dependentDto.getLastName());
+                    dependent.setEmail(primaryIndividual.getEmail());
+                    dependent.setPhone(primaryIndividual.getPhone());
+                    dependent.setDateOfBirth(dependentDto.getDateOfBirth());
+                    dependent.setGender(dependentDto.getGender());
+                    dependent.setPanNumber(dependentDto.getPanNumber());
+                    dependent.setAadhaarNumber(dependentDto.getAadhaarNumber());
+                    dependent.setAddress(primaryIndividual.getAddress());
+                    dependent.setCity(primaryIndividual.getCity());
+                    dependent.setState(primaryIndividual.getState());
+                    dependent.setPincode(primaryIndividual.getPincode());
+                    dependent.setAccountType(AccountType.RETAIL_DEPENDENT);
+                    dependent.setStatus(AccountStatus.ACTIVE);
+                    dependent.setEmployeeNumber(dependentDto.getEmployeeNumber());
+                    dependent.setRelationship(dependentDto.getRelationship());
+                    dependent.setIsPrimaryMember(false);
+                    dependent.setPrimaryIndividual(primaryIndividual);
+                    dependent.setCreatedAt(LocalDateTime.now());
+                    dependent.setUpdatedAt(LocalDateTime.now());
+                    
+                    // Save dependent
+                    Deals savedDependent = dealsRepository.save(dependent);
+                    coveredIndividualIds.add(savedDependent.getIndividualId());
+                    logger.info("[correlationId:{}] Dependent saved with ID: {}", MDC.get("correlationId"), savedDependent.getIndividualId());
+                }
+            }
             // Create policy entity
             Policy policy = new Policy();
             policy.setPolicyNumber(requestDto.getPolicyNumber());
@@ -78,6 +137,7 @@ public class PolicyServiceImpl implements IPolicyService {
             policy.setEndDate(requestDto.getEndDate());
             policy.setRenewalDate(requestDto.getRenewalDate());
             policy.setLeadId(requestDto.getLeadId());
+            policy.setCoveredIndividuals(coveredIndividualIds);
 
             Policy savedPolicy = policyRepository.save(policy);
             logger.info("[correlationId:{}] Policy created successfully with ID: {}", 

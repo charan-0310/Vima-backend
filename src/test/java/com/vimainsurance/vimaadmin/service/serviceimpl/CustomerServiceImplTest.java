@@ -41,12 +41,9 @@ import com.vimainsurance.vimaadmin.entity.Customer;
 import com.vimainsurance.vimaadmin.entity.Quotes;
 import com.vimainsurance.vimaadmin.repository.IAdminUserRepository;
 import com.vimainsurance.vimaadmin.repository.ICustomerRepository;
-import com.vimainsurance.vimaadmin.repository.IDocumentRepository;
 import com.vimainsurance.vimaadmin.repository.IDealsRepository;
+import com.vimainsurance.vimaadmin.repository.IDocumentRepository;
 import com.vimainsurance.vimaadmin.service.IZohoCRMService;
-import com.vimainsurance.vimaadmin.service.IDocumentService;
-import com.vimainsurance.vimaadmin.service.IS3Service;
-import com.vimainsurance.vimaadmin.service.IPolicyService;
 import com.vimainsurance.vimaadmin.util.Constants;
 import com.vimainsurance.vimaadmin.util.IdGenerator;
 
@@ -67,15 +64,6 @@ class CustomerServiceImplTest {
 
     @Mock
     private IZohoCRMService zohoCRMService;
-
-    @Mock
-    private IDocumentService documentService;
-
-    @Mock
-    private IS3Service s3Service;
-
-    @Mock
-    private IPolicyService policyService;
 
     @Mock
     private IdGenerator customerIdGenerator;
@@ -249,7 +237,7 @@ class CustomerServiceImplTest {
         Page<Customer> customerPage = new PageImpl<>(customers);
         when(customerRepository.findAll(any(Pageable.class))).thenReturn(customerPage);
 
-        ResponseEntity<ResponseDto<List<CustomerResponseDto>>> response = customerService.getAllCustomers(0, 10);
+        ResponseEntity<ResponseDto<List<CustomerResponseDto>>> response = customerService.getAllCustomers("", 0, 10, null, "asc");
 
         assertEquals(HttpStatus.OK, response.getStatusCode());
         assertNotNull(response.getBody());
@@ -264,7 +252,39 @@ class CustomerServiceImplTest {
         customers.add(customer);
         when(customerRepository.findAll()).thenReturn(customers);
 
-        ResponseEntity<ResponseDto<List<CustomerResponseDto>>> response = customerService.getAllCustomers(-1, -1);
+        ResponseEntity<ResponseDto<List<CustomerResponseDto>>> response = customerService.getAllCustomers("", -1, -1, null, "asc");
+
+        assertEquals(HttpStatus.OK, response.getStatusCode());
+        assertNotNull(response.getBody());
+        assertEquals(Constants.SUCCESS, response.getBody().getMessage());
+        assertEquals(1, response.getBody().getPayload().size());
+        assertEquals("C001", response.getBody().getPayload().get(0).getCustId());
+    }
+
+    @Test
+    void testGetAllCustomers_WithSearch() {
+        List<Customer> customers = new ArrayList<>();
+        customers.add(customer);
+        Page<Customer> customerPage = new PageImpl<>(customers);
+        when(customerRepository.searchAllCustomers(any(String.class), any(Pageable.class))).thenReturn(customerPage);
+
+        ResponseEntity<ResponseDto<List<CustomerResponseDto>>> response = customerService.getAllCustomers("John", 0, 10, null, "asc");
+
+        assertEquals(HttpStatus.OK, response.getStatusCode());
+        assertNotNull(response.getBody());
+        assertEquals(Constants.SUCCESS, response.getBody().getMessage());
+        assertEquals(1, response.getBody().getPayload().size());
+        assertEquals("C001", response.getBody().getPayload().get(0).getCustId());
+    }
+
+    @Test
+    void testGetAllCustomers_WithSorting() {
+        List<Customer> customers = new ArrayList<>();
+        customers.add(customer);
+        Page<Customer> customerPage = new PageImpl<>(customers);
+        when(customerRepository.findAll(any(Pageable.class))).thenReturn(customerPage);
+
+        ResponseEntity<ResponseDto<List<CustomerResponseDto>>> response = customerService.getAllCustomers("", 0, 10, "fullName", "desc");
 
         assertEquals(HttpStatus.OK, response.getStatusCode());
         assertNotNull(response.getBody());
@@ -422,7 +442,7 @@ class CustomerServiceImplTest {
     void testGetAllCustomers_Exception() {
         when(customerRepository.findAll()).thenThrow(new RuntimeException("Database error"));
 
-        ResponseEntity<ResponseDto<List<CustomerResponseDto>>> response = customerService.getAllCustomers(-1, -1);
+        ResponseEntity<ResponseDto<List<CustomerResponseDto>>> response = customerService.getAllCustomers("", -1, -1, null, "asc");
 
         assertEquals(HttpStatus.BAD_REQUEST, response.getStatusCode());
         assertNotNull(response.getBody());
@@ -750,4 +770,8 @@ class CustomerServiceImplTest {
         assertNotNull(response.getBody());
         assertEquals(Constants.SUCCESS, response.getBody().getMessage());
     }
+
+    // Test for customerToDeals with dependents - simplified version
+    // Note: This test requires proper mocking setup and may need to be implemented
+    // based on the actual service dependencies and their behavior
 } 

@@ -2,6 +2,7 @@ package com.vimainsurance.vimaadmin.dto;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
+import java.util.List;
 
 import org.springframework.web.multipart.MultipartFile;
 
@@ -21,4 +22,5 @@ public class ConvertToDealRequestDto {
     private String notes;
     private String productType;
     private String providerCode;
+    private List<DealsRequestDto> dependents;
 }
