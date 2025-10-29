@@ -22,11 +22,11 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.multipart.MultipartFile;
 
+import com.vimainsurance.vimaadmin.dto.DealsDashboardResponseDto;
 import com.vimainsurance.vimaadmin.dto.DealsRequestDto;
 import com.vimainsurance.vimaadmin.dto.DealsResponseDto;
 import com.vimainsurance.vimaadmin.dto.DocumentRequestDto;
 import com.vimainsurance.vimaadmin.dto.DocumentResponseDto;
-import com.vimainsurance.vimaadmin.dto.DealsDashboardResponseDto;
 import com.vimainsurance.vimaadmin.dto.PolicyUploadRequestDto;
 import com.vimainsurance.vimaadmin.dto.ResponseDto;
 import com.vimainsurance.vimaadmin.service.IDealsService;
@@ -44,42 +44,42 @@ public class DealController {
     
 
     @GetMapping
-    @PreAuthorize("hasAnyAuthority('SALES_MANAGER', 'SUPER_ADMIN', 'ADMIN')")
+    @PreAuthorize("hasAnyAuthority('SALES_ADMIN', 'SALES_MANAGER', 'SUPER_ADMIN', 'ADMIN')")
     public ResponseEntity<ResponseDto<List<DealsResponseDto>>> getAllDeals() {
         return dealsService.getAllDeals();
     }
     @GetMapping("/{individualId}")
-    @PreAuthorize("hasAnyAuthority('SALES_MANAGER', 'SUPER_ADMIN', 'ADMIN')")
+    @PreAuthorize("hasAnyAuthority('SALES_ADMIN', 'SALES_MANAGER', 'SUPER_ADMIN', 'ADMIN')")
     public ResponseEntity<ResponseDto<DealsResponseDto>> getDealsById(@PathVariable UUID individualId) {
         return dealsService.getDealsById(individualId);
     }
 
     @PostMapping
-    @PreAuthorize("hasAnyAuthority('SALES_MANAGER', 'SUPER_ADMIN', 'ADMIN')")
+    @PreAuthorize("hasAnyAuthority('SALES_ADMIN', 'SALES_MANAGER', 'SUPER_ADMIN', 'ADMIN')")
     public ResponseEntity<ResponseDto<String>> createDeals(@RequestBody DealsRequestDto dealsRequestDto) {
         return dealsService.createDeals(dealsRequestDto);
     }
 
     @PutMapping("/{individualId}")
-    @PreAuthorize("hasAnyAuthority('SALES_MANAGER', 'SUPER_ADMIN', 'ADMIN')")
+    @PreAuthorize("hasAnyAuthority('SALES_ADMIN', 'SALES_MANAGER', 'SUPER_ADMIN', 'ADMIN')")
     public ResponseEntity<ResponseDto<String>> updateDeals(@PathVariable UUID individualId, @RequestBody DealsRequestDto dealsRequestDto) {
         return dealsService.updateDeals(individualId, dealsRequestDto);
     }
 
     @DeleteMapping("/{individualId}")
-    @PreAuthorize("hasAnyAuthority('SALES_MANAGER', 'SUPER_ADMIN', 'ADMIN')")
+    @PreAuthorize("hasAnyAuthority('SALES_ADMIN', 'SALES_MANAGER', 'SUPER_ADMIN', 'ADMIN')")
     public ResponseEntity<ResponseDto<String>> deleteDeals(@PathVariable UUID individualId) {
         return dealsService.deleteDeals(individualId);
     }
 
     @GetMapping("/{individualId}/documents")
-    @PreAuthorize("hasAnyAuthority('SALES_MANAGER', 'SUPER_ADMIN', 'ADMIN')")
+    @PreAuthorize("hasAnyAuthority('SALES_ADMIN', 'SALES_MANAGER', 'SUPER_ADMIN', 'ADMIN')")
     public ResponseEntity<ResponseDto<List<DocumentResponseDto>>> getDocuments(@PathVariable UUID individualId) {
         return dealsService.getDocuments(individualId);
     }
 
     @PostMapping("/{individualId}/documents/upload")
-    @PreAuthorize("hasAnyAuthority('SALES_MANAGER', 'SUPER_ADMIN', 'ADMIN')")
+    @PreAuthorize("hasAnyAuthority('SALES_ADMIN', 'SALES_MANAGER', 'SUPER_ADMIN', 'ADMIN')")
     public ResponseEntity<ResponseDto<String>> uploadDocument(
             @PathVariable UUID individualId,
             @RequestParam("files") MultipartFile[] files,
@@ -93,20 +93,20 @@ public class DealController {
     }
 
     @GetMapping("/documents/{documentId}/download")
-    @PreAuthorize("hasAnyAuthority('SALES_MANAGER', 'SUPER_ADMIN', 'ADMIN')")
+    @PreAuthorize("hasAnyAuthority('SALES_ADMIN', 'SALES_MANAGER', 'SUPER_ADMIN', 'ADMIN')")
     public ResponseEntity<Resource> downloadDocument(@PathVariable String documentId) {
         return dealsService.downloadDocument(documentId);
     }
 
     @DeleteMapping("/documents/{documentId}")
-    @PreAuthorize("hasAnyAuthority('SALES_MANAGER', 'SUPER_ADMIN', 'ADMIN')")
+    @PreAuthorize("hasAnyAuthority('SALES_ADMIN', 'SALES_MANAGER', 'SUPER_ADMIN', 'ADMIN')")
     public ResponseEntity<ResponseDto<String>> deleteDocument(@PathVariable String documentId) {
         return dealsService.deleteDocument(documentId);
     }
 
     @PostMapping(value = "/policy/upload", consumes = MediaType.MULTIPART_FORM_DATA_VALUE,
         produces = MediaType.APPLICATION_JSON_VALUE)
-    @PreAuthorize("hasAnyAuthority('SALES_MANAGER', 'SUPER_ADMIN', 'ADMIN')")
+    @PreAuthorize("hasAnyAuthority('SALES_ADMIN', 'SALES_MANAGER', 'SUPER_ADMIN', 'ADMIN')")
     public ResponseEntity<ResponseDto<String>> uploadPolicyDocument(
             @ModelAttribute PolicyUploadRequestDto requestDto) {
         logger.info("[correlationId:{}] /policy/upload endpoint called", MDC.get("correlationId"));
@@ -115,7 +115,7 @@ public class DealController {
     }
 
     @GetMapping("/dashboard")
-    @PreAuthorize("hasAnyAuthority('SALES_MANAGER', 'SUPER_ADMIN', 'ADMIN')")
+    @PreAuthorize("hasAnyAuthority('SALES_ADMIN', 'SALES_MANAGER', 'SUPER_ADMIN', 'ADMIN')")
     public ResponseEntity<ResponseDto<DealsDashboardResponseDto>> getDashboardMetrics() {
         logger.info("[correlationId:{}] /dashboard endpoint called", MDC.get("correlationId"));
         return dealsService.getDashboardMetrics();

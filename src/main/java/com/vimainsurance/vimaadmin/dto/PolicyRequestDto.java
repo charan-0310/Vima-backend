@@ -4,7 +4,9 @@ import com.fasterxml.jackson.annotation.JsonFormat;
 import com.vimainsurance.vimaadmin.enums.CoverageType;
 import com.vimainsurance.vimaadmin.enums.PolicyStatus;
 import com.vimainsurance.vimaadmin.enums.ProductType;
+import com.vimainsurance.vimaadmin.dto.DealsRequestDto;
 import jakarta.validation.constraints.*;
+import java.util.List;
 import lombok.Data;
 
 import java.math.BigDecimal;
@@ -65,4 +67,7 @@ public class PolicyRequestDto {
     private UUID leadId;
 
     private String providerCode;
+
+
+    List<DealsRequestDto> dependents;
 }

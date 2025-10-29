@@ -50,4 +50,14 @@ public interface ICustomerRepository extends JpaRepository<Customer, UUID> {
         Page<Customer> searchCustomersByCreatedBy(@Param("owner") AdminUser owner,
                                                     @Param("search") String search,
                                                     Pageable pageable);
+
+    @Query("""
+        SELECT c FROM Customer c
+        WHERE c.status <> 'INACTIVE'
+          AND (
+              LOWER(c.fullName) LIKE LOWER(CONCAT('%', :search, '%'))
+              OR c.phoneNumber LIKE CONCAT('%', :search, '%')
+          )
+        """)
+        Page<Customer> searchAllCustomers(@Param("search") String search, Pageable pageable);
 }
