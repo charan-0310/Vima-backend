@@ -296,6 +296,17 @@ class CustomerServiceImplTest {
     @Test
     void testGetByCustId_Success() {
         when(customerRepository.findByCustId(any())).thenReturn(Optional.of(customer));
+        
+        // Mock admin user repository
+        AdminUser adminUser = new AdminUser();
+        adminUser.setUsername("test-agent");
+        adminUser.setRole("SALES_AGENT");
+        when(adminUserRepository.findByUsername("test-agent")).thenReturn(Optional.of(adminUser));
+        
+        // Mock security context
+        when(securityContext.getAuthentication()).thenReturn(authentication);
+        when(authentication.getName()).thenReturn("test-agent");
+        SecurityContextHolder.setContext(securityContext);
 
         ResponseEntity<ResponseDto<CustomerResponseDto>> response = customerService.getByCustId("C001");
 
@@ -308,6 +319,7 @@ class CustomerServiceImplTest {
     @Test
     void testGetByCustId_NotFound() {
         when(customerRepository.findByCustId(any())).thenReturn(Optional.empty());
+        
         when(securityContext.getAuthentication()).thenReturn(authentication);
         when(authentication.getName()).thenReturn("test-agent");
         SecurityContextHolder.setContext(securityContext);
@@ -462,6 +474,14 @@ class CustomerServiceImplTest {
         customerWithDifferentOwner.setOwner(differentOwner);
         
         when(customerRepository.findByCustId(any())).thenReturn(Optional.of(customerWithDifferentOwner));
+        
+        // Mock admin user repository - user is not admin and doesn't own the customer
+        AdminUser testAgent = new AdminUser();
+        testAgent.setUsername("test-agent");
+        testAgent.setRole("SALES_AGENT");
+        testAgent.setId(UUID.randomUUID());
+        when(adminUserRepository.findByUsername("test-agent")).thenReturn(Optional.of(testAgent));
+        
         when(securityContext.getAuthentication()).thenReturn(authentication);
         when(authentication.getName()).thenReturn("test-agent");
         SecurityContextHolder.setContext(securityContext);
@@ -473,12 +493,45 @@ class CustomerServiceImplTest {
         assertEquals("Access denied", response.getBody().getMessage());
     }
 
+    @Test
+    void testGetByCustId_AdminAccess() {
+        AdminUser differentOwner = new AdminUser();
+        differentOwner.setUsername("different-owner");
+        differentOwner.setId(UUID.randomUUID());
+        
+        Customer customerWithDifferentOwner = new Customer();
+        customerWithDifferentOwner.setId(UUID.randomUUID());
+        customerWithDifferentOwner.setCustId("C001");
+        customerWithDifferentOwner.setOwner(differentOwner);
+        
+        when(customerRepository.findByCustId(any())).thenReturn(Optional.of(customerWithDifferentOwner));
+        
+        // Mock admin user repository - user is ADMIN and should have access
+        AdminUser adminUser = new AdminUser();
+        adminUser.setUsername("admin-user");
+        adminUser.setRole("ADMIN");
+        adminUser.setId(UUID.randomUUID());
+        when(adminUserRepository.findByUsername("admin-user")).thenReturn(Optional.of(adminUser));
+        
+        when(securityContext.getAuthentication()).thenReturn(authentication);
+        when(authentication.getName()).thenReturn("admin-user");
+        SecurityContextHolder.setContext(securityContext);
+
+        ResponseEntity<ResponseDto<CustomerResponseDto>> response = customerService.getByCustId("C001");
+
+        assertEquals(HttpStatus.OK, response.getStatusCode());
+        assertNotNull(response.getBody());
+        assertEquals(Constants.SUCCESS, response.getBody().getMessage());
+        assertEquals("C001", response.getBody().getPayload().getCustId());
+    }
+
     // Test cases for getByCustId method - Exception handling
     @Test
     void testGetByCustId_Exception() {
         when(securityContext.getAuthentication()).thenReturn(authentication);
         when(authentication.getName()).thenReturn("test-agent");
         SecurityContextHolder.setContext(securityContext);
+        
         when(customerRepository.findByCustId(any())).thenThrow(new RuntimeException("Database error"));
 
         ResponseEntity<ResponseDto<CustomerResponseDto>> response = customerService.getByCustId("C001");
