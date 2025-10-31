@@ -15,7 +15,7 @@ import jakarta.persistence.Converter;
 public enum UserRole {
     SUPER_ADMIN("SUPER_ADMIN"),
     ADMIN("ADMIN"),
-    SALES_ADMIN("SALES_ADMIN"),
+    VIMA_ADMIN("VIMA_ADMIN"),
     SALES_AGENT("SALES_AGENT"),
     SALES_POSP("SALES_POSP"),
     CLAIMS_PROCESSOR("CLAIMS_PROCESSOR"),

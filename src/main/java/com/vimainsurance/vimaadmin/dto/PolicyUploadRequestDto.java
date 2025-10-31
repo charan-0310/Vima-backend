@@ -29,4 +29,5 @@ public class PolicyUploadRequestDto {
     private LocalDate endDate;
     private LocalDate renewalDate;
     private List<DealsRequestDto> dependents;
+    private String paymentFrequency;
 }

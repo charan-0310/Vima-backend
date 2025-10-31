@@ -23,4 +23,5 @@ public class ConvertToDealRequestDto {
     private String productType;
     private String providerCode;
     private List<DealsRequestDto> dependents;
+    private String paymentFrequency;
 }

@@ -49,4 +49,6 @@ public class PolicyResponseDto {
     private LocalDateTime updatedAt;
 
     private List<DealsResponseDto> dependents;
+
+    private String paymentFrequency;
 }

@@ -70,4 +70,6 @@ public class PolicyRequestDto {
 
 
     List<DealsRequestDto> dependents;
+
+    private String paymentFrequency;
 }

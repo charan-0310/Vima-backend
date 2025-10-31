@@ -29,6 +29,7 @@ import com.vimainsurance.vimaadmin.entity.AdminUser;
 import com.vimainsurance.vimaadmin.entity.Policy;
 import com.vimainsurance.vimaadmin.enums.CoverageType;
 import com.vimainsurance.vimaadmin.enums.ProductType;
+import com.vimainsurance.vimaadmin.enums.PaymentFrequency;
 import com.vimainsurance.vimaadmin.enums.PolicyStatus;
 
 
@@ -481,6 +482,11 @@ public class DealsServiceImpl implements IDealsService{
             policy.setEndDate(requestDto.getEndDate());
             policy.setRenewalDate(requestDto.getRenewalDate());
             policy.setLeadId(requestDto.getIndividualId()); // Use individualId as leadId
+            if (requestDto.getPaymentFrequency() != null && !requestDto.getPaymentFrequency().isEmpty()) {
+                policy.setPaymentFrequency(PaymentFrequency.fromValue(requestDto.getPaymentFrequency()));
+            } else {
+                policy.setPaymentFrequency(PaymentFrequency.YEARLY);
+            }
             policy.setCreatedAt(LocalDateTime.now());
             policy.setUpdatedAt(LocalDateTime.now());
             // Save policy to database

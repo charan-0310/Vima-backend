@@ -221,8 +221,8 @@ public class CustomerServiceImpl implements ICustomerService{
         Customer customer = customerOpt.get();
         AdminUser agent = agentOpt.get();
 
-        // Check if agent has admin privileges (ADMIN or SALES_ADMIN roles)
-        boolean hasAdminAccess = "ADMIN".equals(agent.getRole()) || "SALES_ADMIN".equals(agent.getRole());
+        // Check if agent has admin privileges (ADMIN or VIMA_ADMIN roles)
+        boolean hasAdminAccess = "ADMIN".equals(agent.getRole()) || "VIMA_ADMIN".equals(agent.getRole());
 
         // Verify the customer belongs to the agent (unless agent has admin access)
         if (!hasAdminAccess && (
@@ -523,8 +523,8 @@ public class CustomerServiceImpl implements ICustomerService{
             AdminUser adminUser = adminUserRepository.findByUsername(currentUsername).orElseThrow(() -> new RuntimeException("Admin user not found"));
             Customer customer = optionalCustomer.get();
             
-            // Check if user has admin privileges (ADMIN or SALES_ADMIN roles)
-            boolean hasAdminAccess = "ADMIN".equals(adminUser.getRole()) || "SALES_ADMIN".equals(adminUser.getRole());
+            // Check if user has admin privileges (ADMIN or VIMA_ADMIN roles)
+            boolean hasAdminAccess = "ADMIN".equals(adminUser.getRole()) || "VIMA_ADMIN".equals(adminUser.getRole());
             
             if (!hasAdminAccess && (customer.getOwner() == null 
                 || ( !currentUsername.equals(customer.getOwner().getUsername()) 
@@ -593,8 +593,8 @@ public class CustomerServiceImpl implements ICustomerService{
                         .body(new ResponseDto<String>("One or more customers not found", null));
             }
 
-            // Check if agent has admin privileges (ADMIN or SALES_ADMIN roles)
-            boolean hasAdminAccess = "ADMIN".equals(agent.getRole()) || "SALES_ADMIN".equals(agent.getRole());
+            // Check if agent has admin privileges (ADMIN or VIMA_ADMIN roles)
+            boolean hasAdminAccess = "ADMIN".equals(agent.getRole()) || "VIMA_ADMIN".equals(agent.getRole());
 
             // Verify all customers belong to the agent (unless agent has admin access)
             if (!hasAdminAccess) {
@@ -811,6 +811,8 @@ public class CustomerServiceImpl implements ICustomerService{
             policyRequest.setEndDate(requestDto.getPolicyEndDate() != null ? requestDto.getPolicyEndDate() : LocalDate.now().plusYears(1));
             policyRequest.setLeadId(customer.getId());
             policyRequest.setRenewalDate(requestDto.getRenewalDate() != null ? requestDto.getRenewalDate() : LocalDate.now().plusYears(1));
+            // Payment frequency
+            policyRequest.setPaymentFrequency(requestDto.getPaymentFrequency() != null ? requestDto.getPaymentFrequency() : "YEARLY");
             
             // Set covered individuals (primary + dependents)
             // policyRequest.setCoveredIndividuals(coveredIndividualIds.stream()

@@ -36,14 +36,14 @@ public class QuoteController {
     private IQuoteService iQuoteService;
 
     @PostMapping("/quote")
-    @PreAuthorize("hasAnyAuthority('SALES_ADMIN',  'SALES_AGENT', 'SALES_MANAGER', 'SUPER_ADMIN', 'ADMIN')")
+    @PreAuthorize("hasAnyAuthority('VIMA_ADMIN',  'SALES_AGENT', 'SALES_MANAGER', 'SUPER_ADMIN', 'ADMIN')")
     public ResponseEntity<ResponseDto<String>> create(@RequestBody QuotesRequestDto requestDto) {
         logger.info("[correlationId:{}] /quote (POST) endpoint called", MDC.get("correlationId"));
         return iQuoteService.create(requestDto);
     }
 
     @PostMapping("/quotes")
-    @PreAuthorize("hasAnyAuthority('SALES_ADMIN',  'SALES_AGENT', 'SALES_MANAGER', 'SUPER_ADMIN', 'ADMIN')")
+    @PreAuthorize("hasAnyAuthority('VIMA_ADMIN',  'SALES_AGENT', 'SALES_MANAGER', 'SUPER_ADMIN', 'ADMIN')")
     public ResponseEntity<ResponseDto<String>> createBulk(@RequestBody List<QuotesRequestDto> requestDtos) {
         logger.info("[correlationId:{}] /quotes/bulk (POST) endpoint called with {} quotes", 
                 MDC.get("correlationId"), requestDtos.size());
@@ -51,28 +51,28 @@ public class QuoteController {
     }
 
     @PutMapping("/quote")
-    @PreAuthorize("hasAnyAuthority('SALES_ADMIN',  'SALES_AGENT', 'SALES_MANAGER', 'SUPER_ADMIN', 'ADMIN')")
+    @PreAuthorize("hasAnyAuthority('VIMA_ADMIN',  'SALES_AGENT', 'SALES_MANAGER', 'SUPER_ADMIN', 'ADMIN')")
     public ResponseEntity<ResponseDto<String>> update(@RequestBody QuotesRequestDto requestDto) {
         logger.info("[correlationId:{}] /quote (PUT) endpoint called", MDC.get("correlationId"));
         return iQuoteService.update(requestDto);
     }
 
     @DeleteMapping("/quote")
-    @PreAuthorize("hasAnyAuthority('SALES_ADMIN',  'SALES_AGENT', 'SALES_MANAGER', 'SUPER_ADMIN', 'ADMIN')")
+    @PreAuthorize("hasAnyAuthority('VIMA_ADMIN',  'SALES_AGENT', 'SALES_MANAGER', 'SUPER_ADMIN', 'ADMIN')")
     public ResponseEntity<ResponseDto<String>> delete(@RequestBody QuotesRequestDto requestDto) {
         logger.info("[correlationId:{}] /quote (DELETE) endpoint called", MDC.get("correlationId"));
         return iQuoteService.delete(requestDto);
     }
 
     @GetMapping("/customer/{customer}/quotes")
-    @PreAuthorize("hasAnyAuthority('SALES_ADMIN',  'SALES_AGENT', 'SALES_MANAGER', 'SUPER_ADMIN', 'ADMIN')")
+    @PreAuthorize("hasAnyAuthority('VIMA_ADMIN',  'SALES_AGENT', 'SALES_MANAGER', 'SUPER_ADMIN', 'ADMIN')")
     public ResponseEntity<ResponseDto<List<Quotes>>> getQuotesByCustomer(@PathVariable String customer) {
         logger.info("[correlationId:{}] /customer/{}/quotes endpoint called", MDC.get("correlationId"), customer);
         return iQuoteService.findByCustomer(customer);
     }
 
     @GetMapping("/quotes")
-    @PreAuthorize("hasAnyAuthority('SALES_ADMIN',  'SALES_AGENT', 'SALES_MANAGER', 'SUPER_ADMIN', 'ADMIN')")
+    @PreAuthorize("hasAnyAuthority('VIMA_ADMIN',  'SALES_AGENT', 'SALES_MANAGER', 'SUPER_ADMIN', 'ADMIN')")
     public ResponseEntity<ResponseDto<List<Quotes>>> getAllQuotes(
             @RequestParam int page, 
             @RequestParam int rec) {
@@ -82,7 +82,7 @@ public class QuoteController {
     }
 
     @PutMapping("/quote/status")
-    @PreAuthorize("hasAnyAuthority('SALES_ADMIN',  'SALES_AGENT', 'SALES_MANAGER', 'SUPER_ADMIN', 'ADMIN')")
+    @PreAuthorize("hasAnyAuthority('VIMA_ADMIN',  'SALES_AGENT', 'SALES_MANAGER', 'SUPER_ADMIN', 'ADMIN')")
     public ResponseEntity<ResponseDto<String>> updateQuoteStatus(
             @RequestBody QuoteStatusUpdateDto statusUpdateDto) {
         logger.info("[correlationId:{}] /quote/{}/status (PUT) endpoint called", 
