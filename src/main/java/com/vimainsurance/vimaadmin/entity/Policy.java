@@ -3,6 +3,7 @@ package com.vimainsurance.vimaadmin.entity;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.vimainsurance.vimaadmin.enums.CoverageType;
 import com.vimainsurance.vimaadmin.enums.PolicyStatus;
+import com.vimainsurance.vimaadmin.enums.PaymentFrequency;
 import com.vimainsurance.vimaadmin.enums.ProductType;
 import jakarta.persistence.*;
 import lombok.Data;
@@ -86,6 +87,11 @@ public class Policy {
 
     @Column(name = "renewal_date")
     private LocalDate renewalDate;
+
+    @Enumerated(EnumType.STRING)
+    @JdbcTypeCode(SqlTypes.NAMED_ENUM)
+    @Column(name = "payment_frequency", nullable = false)
+    private PaymentFrequency paymentFrequency = PaymentFrequency.YEARLY;
 
     // Origin
     @Column(name = "lead_id")

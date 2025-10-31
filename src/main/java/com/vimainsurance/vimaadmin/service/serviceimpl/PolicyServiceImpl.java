@@ -10,6 +10,7 @@ import com.vimainsurance.vimaadmin.enums.AccountType;
 import com.vimainsurance.vimaadmin.enums.CoverageType;
 import com.vimainsurance.vimaadmin.enums.PolicyStatus;
 import com.vimainsurance.vimaadmin.enums.ProductType;
+import com.vimainsurance.vimaadmin.enums.PaymentFrequency;
 import com.vimainsurance.vimaadmin.repository.IPolicyRepository;
 import com.vimainsurance.vimaadmin.service.IPolicyService;
 import com.vimainsurance.vimaadmin.util.Constants;
@@ -137,6 +138,11 @@ public class PolicyServiceImpl implements IPolicyService {
             policy.setEndDate(requestDto.getEndDate());
             policy.setRenewalDate(requestDto.getRenewalDate());
             policy.setLeadId(requestDto.getLeadId());
+            if (requestDto.getPaymentFrequency() != null && !requestDto.getPaymentFrequency().isEmpty()) {
+                policy.setPaymentFrequency(PaymentFrequency.fromValue(requestDto.getPaymentFrequency()));
+            } else {
+                policy.setPaymentFrequency(PaymentFrequency.YEARLY);
+            }
             policy.setCoveredIndividuals(coveredIndividualIds);
 
             Policy savedPolicy = policyRepository.save(policy);
@@ -185,6 +191,9 @@ public class PolicyServiceImpl implements IPolicyService {
             policy.setEndDate(requestDto.getEndDate());
             policy.setRenewalDate(requestDto.getRenewalDate());
             policy.setLeadId(requestDto.getLeadId());
+            if (requestDto.getPaymentFrequency() != null && !requestDto.getPaymentFrequency().isEmpty()) {
+                policy.setPaymentFrequency(PaymentFrequency.fromValue(requestDto.getPaymentFrequency()));
+            }
 
             policyRepository.save(policy);
             logger.info("[correlationId:{}] Policy updated successfully", MDC.get("correlationId"));
@@ -471,6 +480,7 @@ public class PolicyServiceImpl implements IPolicyService {
         responseDto.setEndDate(policy.getEndDate());
         responseDto.setRenewalDate(policy.getRenewalDate());
         responseDto.setLeadId(policy.getLeadId());
+        responseDto.setPaymentFrequency(policy.getPaymentFrequency() != null ? policy.getPaymentFrequency().getValue() : null);
         responseDto.setCreatedAt(policy.getCreatedAt());
         responseDto.setUpdatedAt(policy.getUpdatedAt());
         List<Deals> dependents = dealsRepository.findByIndividualIdIn(policy.getCoveredIndividuals());
