@@ -33,6 +33,11 @@ public enum UserRole {
     }
 
     public static UserRole fromValue(String value) {
+        // Map deprecated/legacy roles to current roles
+        if ("SALES_ADMIN".equals(value)) {
+            return SALES_MANAGER;
+        }
+        
         for (UserRole role : UserRole.values()) {
             if (role.value.equals(value)) {
                 return role;
