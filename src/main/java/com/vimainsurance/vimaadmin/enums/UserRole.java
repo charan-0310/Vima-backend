@@ -20,6 +20,7 @@ public enum UserRole {
     SALES_POSP("SALES_POSP"),
     CLAIMS_PROCESSOR("CLAIMS_PROCESSOR"),
     SUPPORT_AGENT("SUPPORT_AGENT"),
+    SALES_ADMIN("SALES_ADMIN"),
     SALES_MANAGER("SALES_MANAGER");
 
     private final String value;
@@ -33,10 +34,7 @@ public enum UserRole {
     }
 
     public static UserRole fromValue(String value) {
-        // Map deprecated/legacy roles to current roles
-        if ("SALES_ADMIN".equals(value)) {
-            return SALES_MANAGER;
-        }
+      
         
         for (UserRole role : UserRole.values()) {
             if (role.value.equals(value)) {
