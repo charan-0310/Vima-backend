@@ -27,6 +27,8 @@ public interface IDocumentRepository extends JpaRepository<Document, UUID> {
     // Find documents by entity
     List<Document> findByEntityTypeAndEntityId(DocumentEntityType entityType, String entityId);
     
+    @Query("SELECT d FROM Document d WHERE d.entityId = :entityId")
+    List<Document> findByEntityId(@Param("entityId") String entityId);
     Page<Document> findByEntityTypeAndEntityId(DocumentEntityType entityType, String entityId, Pageable pageable);
 
     // Find documents by category
