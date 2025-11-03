@@ -258,11 +258,11 @@ public class DealsServiceImpl implements IDealsService{
 
     @Override
     public ResponseEntity<ResponseDto<List<DocumentResponseDto>>> getDocuments(UUID individualId) {
-        logger.info("[correlationId:{}] uploadDocument called", MDC.get("correlationId"));
+        logger.info("[correlationId:{}] getDocuments called", MDC.get("correlationId"));
         BaseResponse<List<DocumentResponseDto>> responseObj = new BaseResponse<>();
         try {
             // Optimized: Single query to get all documents for the individual
-            List<DocumentResponseDto> responseDto = documentRepository.findByEntityIdAndCategoryIn(individualId.toString(), List.of(DocumentCategory.KYC_DOCUMENTS, DocumentCategory.POLICY_DOCUMENTS, DocumentCategory.CLAIM_DOCUMENTS, DocumentCategory.OTHER)).stream().map(document -> {
+            List<DocumentResponseDto> responseDto = documentRepository.findByEntityId(individualId.toString()).stream().map(document -> {
                 DocumentResponseDto documentResponseDto = new DocumentResponseDto();
                 documentResponseDto.setDocumentType(document.getDocumentType());
                 documentResponseDto.setUploadedAt(document.getUploadedAt());

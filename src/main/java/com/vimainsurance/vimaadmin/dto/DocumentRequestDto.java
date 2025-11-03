@@ -16,6 +16,7 @@ public class DocumentRequestDto {
     private MultipartFile[] files;
     private String entityId;
     private String documentType;
+    private String documentCategory;
     private UUID uploadedBy;
     private UserRole uploadedByRole;
     private String notes;
