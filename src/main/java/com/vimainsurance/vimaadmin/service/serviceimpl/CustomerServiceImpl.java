@@ -69,6 +69,7 @@ import com.vimainsurance.vimaadmin.service.IPolicyService;
 import com.vimainsurance.vimaadmin.util.Constants;
 import com.vimainsurance.vimaadmin.util.ConverterUtils;
 import com.vimainsurance.vimaadmin.util.IdGenerator;
+import com.vimainsurance.vimaadmin.util.SlackNotificationUtil;
 import com.vimainsurance.vimaadmin.repository.IDealsRepository;
 
 
@@ -109,6 +110,9 @@ public class CustomerServiceImpl implements ICustomerService{
 
     @Autowired
     private IPolicyService policyService;
+    
+    @Autowired
+    private SlackNotificationUtil slackNotificationUtil;
    
 
     @Override
@@ -842,6 +846,16 @@ public class CustomerServiceImpl implements ICustomerService{
             if(response.getBody().getErrorCode() != null){
                 return responseObj.render(responseObj.formErrorResponse(response.getBody().getMessage()));
             }
+            
+            // Send Slack notification
+            try {
+                String slackMessage = buildCustomerToDealSlackMessage(customer, savedDeals, policyRequest, adminUser);
+                slackNotificationUtil.sendSlackMessage("New Policy Issued!", slackMessage);
+            } catch (Exception slackException) {
+                logger.warn("[correlationId:{}] Failed to send Slack notification: {}", MDC.get("correlationId"), slackException.getMessage());
+                // Don't fail the request if Slack notification fails
+            }
+            
             logger.info("[correlationId:{}] Customer converted to Deals successfully", MDC.get("correlationId"));
             return responseObj.render(responseObj.formSuccessResponse(Constants.SUCCESS, "Customer converted to Deals successfully"));
         }
@@ -849,6 +863,63 @@ public class CustomerServiceImpl implements ICustomerService{
             logger.error("[correlationId:{}] Exception in customerToDeals: {}", MDC.get("correlationId"), e.getMessage(), e);
             return responseObj.render(responseObj.formErrorResponse(e.getMessage()));
         }
+    }
+    
+    private String buildCustomerToDealSlackMessage(Customer customer, Deals deals, PolicyRequestDto policyRequest, AdminUser agent) {
+        StringBuilder message = new StringBuilder();
+        
+        // Get insurance provider name
+        String insurerName = "Unknown";
+        try {
+            if (policyRequest.getInsuranceProviderId() != null) {
+                insurerName = insuranceProviderRepository.findById(policyRequest.getInsuranceProviderId())
+                        .map(InsuranceProvider::getProviderName)
+                        .orElse("Unknown");
+            }
+        } catch (Exception e) {
+            logger.warn("Failed to fetch insurance provider name: {}", e.getMessage());
+        }
+        
+        // Format product type to readable text
+        String productTypeDisplay = formatProductType(policyRequest.getProductType());
+        
+        // Client name
+        String clientName = customer.getFullName();
+        
+        // Build message with emojis
+        message.append(":adult::skin-tone-4: Client: ").append(clientName).append("\n");
+        message.append(":package: Policy Type: ").append(productTypeDisplay).append("\n");
+        message.append(":office: Insurer: ").append(insurerName);
+        
+        return message.toString();
+    }
+    
+    private String formatProductType(String productType) {
+        // Convert enum names to readable format
+        // e.g., TERM_LIFE -> Term Life Insurance, HEALTH -> Health Insurance
+        if (productType == null || productType.isEmpty()) {
+            return "Insurance";
+        }
+        
+        String formatted = productType.replace("_", " ");
+        String[] words = formatted.toLowerCase().split(" ");
+        StringBuilder result = new StringBuilder();
+        
+        for (String word : words) {
+            if (!result.isEmpty()) {
+                result.append(" ");
+            }
+            if (!word.isEmpty()) {
+                result.append(word.substring(0, 1).toUpperCase()).append(word.substring(1));
+            }
+        }
+        
+        // Add "Insurance" suffix if not already present
+        if (!result.toString().toLowerCase().contains("insurance")) {
+            result.append(" Insurance");
+        }
+        
+        return result.toString();
     }
 
     /**
