@@ -9,6 +9,7 @@ import org.springframework.web.multipart.MultipartFile;
 
 import com.vimainsurance.vimaadmin.dto.DocumentRequestDto;
 import com.vimainsurance.vimaadmin.dto.DocumentResponseDto;
+import com.vimainsurance.vimaadmin.dto.OrganizationEmployeeDto;
 import com.vimainsurance.vimaadmin.dto.OrganizationRequestDto;
 import com.vimainsurance.vimaadmin.dto.OrganizationResponseDto;
 import com.vimainsurance.vimaadmin.dto.ResponseDto;
@@ -26,6 +27,8 @@ public interface IOrganizationService {
     ResponseEntity<Resource> downloadDocument(String documentId);
     ResponseEntity<ResponseDto<String>> deleteDocument(String documentId);
     ResponseEntity<ResponseDto<List<DocumentResponseDto>>> getDocuments(UUID organizationId);
+    ResponseEntity<ResponseDto<List<OrganizationEmployeeDto>>> getEmployees(UUID organizationId);
+    ResponseEntity<ResponseDto<com.vimainsurance.vimaadmin.dto.CsvUploadResponseDto>> uploadDealsFromCsv(MultipartFile file, UUID organizationId);
 }
 
 

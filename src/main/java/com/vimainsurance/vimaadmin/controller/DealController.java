@@ -121,4 +121,18 @@ public class DealController {
         return dealsService.getDashboardMetrics();
     }
 
+    @GetMapping("/filtered")
+    @PreAuthorize("hasAnyAuthority('SUPER_ADMIN', 'ADMIN', 'VIMA_ADMIN', 'SALES_MANAGER')")
+    public ResponseEntity<ResponseDto<List<DealsResponseDto>>> getAllWithFilters(
+            @RequestParam(defaultValue = "0", required = false) int page,
+            @RequestParam(defaultValue = "10", required = false) int rec,
+            @RequestParam(defaultValue = "", required = false) String search,
+            @RequestParam(required = false) String status,
+            @RequestParam(required = false) String productType,
+            @RequestParam(required = false) String sortBy,
+            @RequestParam(defaultValue = "desc", required = false) String sortDirection) {
+        logger.info("[correlationId:{}] /deals/filtered (GET) endpoint called", MDC.get("correlationId"));
+        return dealsService.getAllWithFilters(search, status, productType, page, rec, sortBy, sortDirection);
+    }
+
 }

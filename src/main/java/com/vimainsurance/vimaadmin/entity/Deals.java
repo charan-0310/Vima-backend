@@ -109,6 +109,12 @@ public class Deals {
     @Column(name = "is_primary_member")
     private Boolean isPrimaryMember = true;
 
+    @Column(name = "designation", length = 50)
+    private String designation;
+
+    @Column(name = "date_of_joining")
+    private LocalDate dateOfJoining;
+
     // Portal Access (only for primary members)
     @Column(name = "username", length = 100, unique = true)
     private String username;

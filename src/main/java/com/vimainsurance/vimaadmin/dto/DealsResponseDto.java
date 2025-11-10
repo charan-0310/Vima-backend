@@ -1,16 +1,13 @@
 package com.vimainsurance.vimaadmin.dto;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.UUID;
-
-
-import com.vimainsurance.vimaadmin.dto.PolicyResponseDto;
 import lombok.Data;
 import lombok.Getter;
 import lombok.Setter;
 import lombok.NoArgsConstructor;
 import lombok.AllArgsConstructor;
-import java.time.LocalDate;
 
 @Data
 @Getter
@@ -35,6 +32,8 @@ public class DealsResponseDto {
     private String accountStatus;
     private String employeeNumber;
     private String relationship;
+    private String designation;
+    private LocalDate dateOfJoining;
     private Boolean isPrimaryMember;
     private String username;
     private String passwordHash;

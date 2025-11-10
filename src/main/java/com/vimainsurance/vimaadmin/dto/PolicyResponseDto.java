@@ -1,16 +1,13 @@
 package com.vimainsurance.vimaadmin.dto;
 
 import com.fasterxml.jackson.annotation.JsonFormat;
-import com.vimainsurance.vimaadmin.enums.CoverageType;
-import com.vimainsurance.vimaadmin.enums.PolicyStatus;
-import com.vimainsurance.vimaadmin.enums.ProductType;
-import lombok.Data;
-
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.UUID;
+
+import lombok.Data;
 
 /**
  * DTO for Policy response
@@ -49,6 +46,10 @@ public class PolicyResponseDto {
     private LocalDateTime updatedAt;
 
     private List<DealsResponseDto> dependents;
+
+    private List<NomineeResponseDto> nominees;
+
+    private MotorPolicyDetailsResponseDto motorPolicyDetails;
 
     private String paymentFrequency;
 }

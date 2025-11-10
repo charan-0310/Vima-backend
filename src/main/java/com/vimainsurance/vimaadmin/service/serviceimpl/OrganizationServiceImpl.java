@@ -17,7 +17,6 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Service;
 
 import java.io.InputStream;
-import java.util.List;
 import java.util.stream.Collectors;
 
 import org.springframework.web.multipart.MultipartFile;
@@ -32,10 +31,12 @@ import org.springframework.security.core.context.SecurityContextHolder;
 import com.vimainsurance.vimaadmin.dto.BaseResponse;
 import com.vimainsurance.vimaadmin.dto.DocumentRequestDto;
 import com.vimainsurance.vimaadmin.dto.DocumentResponseDto;
+import com.vimainsurance.vimaadmin.dto.OrganizationEmployeeDto;
 import com.vimainsurance.vimaadmin.dto.OrganizationRequestDto;
 import com.vimainsurance.vimaadmin.dto.OrganizationResponseDto;
 import com.vimainsurance.vimaadmin.dto.ResponseDto;
 import com.vimainsurance.vimaadmin.entity.AdminUser;
+import com.vimainsurance.vimaadmin.entity.Deals;
 import com.vimainsurance.vimaadmin.entity.Document;
 import com.vimainsurance.vimaadmin.entity.Organization;
 import com.vimainsurance.vimaadmin.enums.DocumentCategory;
@@ -46,10 +47,14 @@ import com.vimainsurance.vimaadmin.enums.UserRole;
 import com.vimainsurance.vimaadmin.repository.IAdminUserRepository;
 import com.vimainsurance.vimaadmin.repository.IDocumentRepository;
 import com.vimainsurance.vimaadmin.repository.IOrganizationRepository;
+import com.vimainsurance.vimaadmin.repository.IDealsRepository;
 import com.vimainsurance.vimaadmin.service.IDocumentService;
 import com.vimainsurance.vimaadmin.service.IOrganizationService;
 import com.vimainsurance.vimaadmin.service.IS3Service;
 import com.vimainsurance.vimaadmin.util.Constants;
+import com.vimainsurance.vimaadmin.util.CsvDealsReaderUtil;
+import com.vimainsurance.vimaadmin.dto.CsvUploadResponseDto;
+import java.time.LocalDateTime;
 
 @Service
 public class OrganizationServiceImpl implements IOrganizationService {
@@ -67,6 +72,9 @@ public class OrganizationServiceImpl implements IOrganizationService {
 
     @Autowired
     private IDocumentService documentService;
+
+    @Autowired
+    private IDealsRepository dealsRepository;
 
     @Autowired
     private IS3Service s3Service;
@@ -384,6 +392,42 @@ public class OrganizationServiceImpl implements IOrganizationService {
         }
     }
 
+    @Override
+    public ResponseEntity<ResponseDto<List<OrganizationEmployeeDto>>> getEmployees(UUID organizationId) {
+        logger.info("[correlationId:{}] getEmployees called for organization {}", MDC.get("correlationId"), organizationId);
+        BaseResponse<List<OrganizationEmployeeDto>> responseObj = new BaseResponse<>();
+        try {
+            List<Deals> dealsList = dealsRepository.findByOrganizationId(organizationId);
+            List<OrganizationEmployeeDto> responseDto = dealsList.stream()
+                .map(this::mapToOrganizationEmployeeDto)
+                .collect(Collectors.toList());
+            return responseObj.render(responseObj.formSuccessResponse(Constants.SUCCESS, responseDto, responseDto.size()));
+        } catch (Exception e) {
+            logger.error("[correlationId:{}] Exception in getEmployees: {}", MDC.get("correlationId"), e.getMessage(), e);
+            return responseObj.render(responseObj.formErrorResponse(e.getMessage()));
+        }
+    }
+    
+    /**
+     * Maps Deals entity to OrganizationEmployeeDto with only necessary fields
+     */
+    private OrganizationEmployeeDto mapToOrganizationEmployeeDto(Deals deal) {
+        OrganizationEmployeeDto dto = new OrganizationEmployeeDto();
+        dto.setIndividualId(deal.getIndividualId());
+        dto.setFirstName(deal.getFirstName());
+        dto.setLastName(deal.getLastName());
+        dto.setEmail(deal.getEmail());
+        dto.setPhone(deal.getPhone());
+        dto.setEmployeeNumber(deal.getEmployeeNumber());
+        dto.setDesignation(deal.getDesignation());
+        dto.setDateOfJoining(deal.getDateOfJoining());
+        dto.setStatus(deal.getStatus() != null ? deal.getStatus().name() : null);
+        dto.setDateOfBirth(deal.getDateOfBirth());
+        dto.setGender(deal.getGender());
+        dto.setIsPrimaryMember(deal.getIsPrimaryMember());
+        return dto;
+    }
+
     private Sort createSort(String sortBy, String sortDirection) {
         if (sortBy == null || sortBy.trim().isEmpty()) {
             return Sort.by(Sort.Direction.DESC, "updatedAt"); // Default sort
@@ -427,7 +471,141 @@ public class OrganizationServiceImpl implements IOrganizationService {
         dto.setUpdatedAt(org.getUpdatedAt());
         dto.setRegisteredAddress(org.getRegisteredAddress());
         dto.setIndustry(org.getIndustry() != null ? org.getIndustry().getValue() : null);
+        dto.setEmployeesCount(dealsRepository.countByOrganizationId(org.getOrganizationId()));
         return dto;
+    }
+
+    @Override
+    public ResponseEntity<ResponseDto<CsvUploadResponseDto>> uploadDealsFromCsv(MultipartFile file, UUID organizationId) {
+        logger.info("[correlationId:{}] uploadDealsFromCsv called with organizationId: {}", MDC.get("correlationId"), organizationId);
+        BaseResponse<CsvUploadResponseDto> responseObj = new BaseResponse<>();
+        
+        try {
+            // Validate file
+            if (file == null || file.isEmpty()) {
+                CsvUploadResponseDto errorResponse = new CsvUploadResponseDto(0, 0, 1, 
+                    List.of("File is empty or not provided"), "File upload failed");
+                ResponseDto<CsvUploadResponseDto> response = new ResponseDto<>(0, "File is empty or not provided", errorResponse);
+                return responseObj.render(response);
+            }
+            
+            // Validate file type
+            String filename = file.getOriginalFilename();
+            if (filename == null || (!filename.endsWith(".csv") && !filename.endsWith(".CSV"))) {
+                CsvUploadResponseDto errorResponse = new CsvUploadResponseDto(0, 0, 1, 
+                    List.of("Invalid file type. Only CSV files are allowed"), "File upload failed");
+                ResponseDto<CsvUploadResponseDto> response = new ResponseDto<>(0, "Invalid file type. Only CSV files are allowed", errorResponse);
+                return responseObj.render(response);
+            }
+            
+            // Validate and fetch organization if provided
+            Organization organization = null;
+            if (organizationId != null) {
+                Optional<Organization> orgOpt = organizationRepository.findByOrganizationId(organizationId);
+                if (orgOpt.isEmpty()) {
+                    CsvUploadResponseDto errorResponse = new CsvUploadResponseDto(0, 0, 1, 
+                        List.of("Organization not found with ID: " + organizationId), "File upload failed");
+                    ResponseDto<CsvUploadResponseDto> response = new ResponseDto<>(0, "Organization not found", errorResponse);
+                    return responseObj.render(response);
+                }
+                organization = orgOpt.get();
+                logger.info("[correlationId:{}] Organization found: {}", MDC.get("correlationId"), organization.getOrganizationName());
+            }
+            
+            // Parse CSV file
+            CsvDealsReaderUtil.CsvParseResult parseResult = CsvDealsReaderUtil.parseCsvToDeals(file);
+            
+            if (parseResult.getDeals().isEmpty() && !parseResult.getErrors().isEmpty()) {
+                // All rows failed to parse
+                CsvUploadResponseDto errorResponse = new CsvUploadResponseDto(
+                    parseResult.getTotalRows(), 
+                    0, 
+                    parseResult.getErrorCount(),
+                    parseResult.getErrors(),
+                    "Failed to parse any valid records from CSV"
+                );
+                ResponseDto<CsvUploadResponseDto> response = new ResponseDto<>(0, "Failed to parse CSV file", errorResponse);
+                return responseObj.render(response);
+            }
+            
+            // Save deals to database
+            int savedCount = 0;
+            List<String> saveErrors = new ArrayList<>(parseResult.getErrors());
+            
+            for (Deals deal : parseResult.getDeals()) {
+                try {
+                    // Set timestamps
+                    LocalDateTime now = LocalDateTime.now();
+                    deal.setCreatedAt(now);
+                    deal.setUpdatedAt(now);
+                    
+                    // Set organization if provided
+                    if (organization != null) {
+                        deal.setOrganization(organization);
+                    }
+                    
+                    // Check if employee number already exists
+                    Optional<Deals> existingDeal = dealsRepository.findByEmployeeNumber(deal.getEmployeeNumber());
+                    if (existingDeal.isPresent()) {
+                        saveErrors.add(String.format("Employee ID %s already exists", deal.getEmployeeNumber()));
+                        continue;
+                    }
+                    
+                    // Check if email already exists (if provided)
+                    if (deal.getEmail() != null && !deal.getEmail().trim().isEmpty()) {
+                        Optional<Deals> existingByEmail = dealsRepository.findByEmail(deal.getEmail());
+                        if (existingByEmail.isPresent()) {
+                            saveErrors.add(String.format("Email %s already exists for Employee ID %s", 
+                                deal.getEmail(), deal.getEmployeeNumber()));
+                            continue;
+                        }
+                    }
+                    
+                    dealsRepository.save(deal);
+                    savedCount++;
+                    
+                } catch (Exception e) {
+                    String errorMsg = String.format("Failed to save Employee ID %s: %s", 
+                        deal.getEmployeeNumber(), e.getMessage());
+                    saveErrors.add(errorMsg);
+                    logger.error("Error saving deal for Employee ID {}: {}", deal.getEmployeeNumber(), e.getMessage(), e);
+                }
+            }
+            
+            // Prepare response
+            String message;
+            if (savedCount == parseResult.getDeals().size()) {
+                message = String.format("Successfully uploaded %d records from CSV", savedCount);
+            } else {
+                message = String.format("Uploaded %d out of %d valid records. %d errors occurred.", 
+                    savedCount, parseResult.getDeals().size(), saveErrors.size());
+            }
+            
+            CsvUploadResponseDto csvResponse = new CsvUploadResponseDto(
+                parseResult.getTotalRows(),
+                savedCount,
+                saveErrors.size(),
+                saveErrors,
+                message
+            );
+            
+            if (savedCount > 0) {
+                logger.info("[correlationId:{}] CSV upload completed: {} records saved, {} errors", 
+                    MDC.get("correlationId"), savedCount, saveErrors.size());
+                return responseObj.render(responseObj.formSuccessResponse(Constants.SUCCESS, csvResponse));
+            } else {
+                logger.warn("[correlationId:{}] CSV upload completed with no records saved", MDC.get("correlationId"));
+                ResponseDto<CsvUploadResponseDto> response = new ResponseDto<>(0, "No records were saved", csvResponse);
+                return responseObj.render(response);
+            }
+            
+        } catch (Exception e) {
+            logger.error("[correlationId:{}] Exception in uploadDealsFromCsv: {}", MDC.get("correlationId"), e.getMessage(), e);
+            CsvUploadResponseDto errorResponse = new CsvUploadResponseDto(0, 0, 1, 
+                List.of("Unexpected error: " + e.getMessage()), "File upload failed");
+            ResponseDto<CsvUploadResponseDto> response = new ResponseDto<>(0, e.getMessage(), errorResponse);
+            return responseObj.render(response);
+        }
     }
 }
 

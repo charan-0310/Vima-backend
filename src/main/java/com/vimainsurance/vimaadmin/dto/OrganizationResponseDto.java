@@ -19,6 +19,7 @@ public class OrganizationResponseDto {
     private LocalDateTime updatedAt;
     private String registeredAddress;
     private String industry;
+    private long employeesCount;
 }
 
 

@@ -1,0 +1,31 @@
+package com.vimainsurance.vimaadmin.dto;
+
+import java.time.LocalDate;
+import java.util.UUID;
+
+import lombok.AllArgsConstructor;
+import lombok.Data;
+import lombok.NoArgsConstructor;
+
+/**
+ * DTO for organization employee with only necessary fields
+ */
+@Data
+@NoArgsConstructor
+@AllArgsConstructor
+public class OrganizationEmployeeDto {
+    
+    private UUID individualId;
+    private String firstName;
+    private String lastName;
+    private String email;
+    private String phone;
+    private String employeeNumber;
+    private String designation;
+    private LocalDate dateOfJoining;
+    private String status; // AccountStatus as string
+    private LocalDate dateOfBirth;
+    private String gender;
+    private Boolean isPrimaryMember;
+}
+

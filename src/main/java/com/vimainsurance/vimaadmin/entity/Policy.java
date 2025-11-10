@@ -5,6 +5,8 @@ import com.vimainsurance.vimaadmin.enums.CoverageType;
 import com.vimainsurance.vimaadmin.enums.PolicyStatus;
 import com.vimainsurance.vimaadmin.enums.PaymentFrequency;
 import com.vimainsurance.vimaadmin.enums.ProductType;
+import com.vimainsurance.vimaadmin.entity.Nominee;
+import com.vimainsurance.vimaadmin.entity.MotorPolicyDetails;
 import jakarta.persistence.*;
 import lombok.Data;
 import lombok.EqualsAndHashCode;
@@ -17,8 +19,9 @@ import org.hibernate.type.SqlTypes;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
-import java.util.List;
 import java.util.UUID;
+import java.util.List;
+import java.util.ArrayList;
 
 /**
  * Policy entity representing insurance policies
@@ -60,7 +63,7 @@ public class Policy {
 
     @Enumerated(EnumType.STRING)
     @JdbcTypeCode(SqlTypes.NAMED_ENUM)
-    @Column(name = "coverage_type", nullable = false)
+    @Column(name = "coverage_type")
     private CoverageType coverageType = CoverageType.INDIVIDUAL;
 
     @Enumerated(EnumType.STRING)
@@ -72,17 +75,23 @@ public class Policy {
     @Column(name = "covered_individuals", columnDefinition = "uuid[]")
     private List<UUID> coveredIndividuals;
 
-    @Column(name = "sum_insured", nullable = false, precision = 15, scale = 2)
+    @OneToMany(mappedBy = "policy", cascade = CascadeType.ALL, orphanRemoval = true, fetch = FetchType.LAZY)
+    private List<Nominee> nominees = new ArrayList<>();
+
+    @OneToOne(mappedBy = "policy", cascade = CascadeType.ALL, orphanRemoval = true, fetch = FetchType.LAZY)
+    private MotorPolicyDetails motorPolicyDetails;
+
+    @Column(name = "sum_insured", precision = 15, scale = 2)
     private BigDecimal sumInsured;
 
     @Column(name = "premium_amount", nullable = false, precision = 15, scale = 2)
     private BigDecimal premiumAmount;
 
     // Dates
-    @Column(name = "start_date", nullable = false)
+    @Column(name = "start_date")
     private LocalDate startDate;
 
-    @Column(name = "end_date", nullable = false)
+    @Column(name = "end_date")
     private LocalDate endDate;
 
     @Column(name = "renewal_date")
@@ -90,7 +99,7 @@ public class Policy {
 
     @Enumerated(EnumType.STRING)
     @JdbcTypeCode(SqlTypes.NAMED_ENUM)
-    @Column(name = "payment_frequency", nullable = false)
+    @Column(name = "payment_frequency")
     private PaymentFrequency paymentFrequency = PaymentFrequency.YEARLY;
 
     // Origin

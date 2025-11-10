@@ -9,7 +9,9 @@ import com.fasterxml.jackson.annotation.JsonValue;
 public enum ProductType {
     HEALTH("HEALTH"),
     MOTOR("MOTOR"),
-    GENERAL("GENERAL");
+    GENERAL("GENERAL"),
+    TERM("TERM"),
+    LIFE("LIFE");
 
     private final String value;
 

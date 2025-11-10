@@ -24,10 +24,13 @@ import org.springframework.web.multipart.MultipartFile;
 
 import com.vimainsurance.vimaadmin.dto.DocumentRequestDto;
 import com.vimainsurance.vimaadmin.dto.DocumentResponseDto;
+import com.vimainsurance.vimaadmin.dto.CsvUploadResponseDto;
+import com.vimainsurance.vimaadmin.dto.OrganizationEmployeeDto;
 import com.vimainsurance.vimaadmin.dto.OrganizationRequestDto;
 import com.vimainsurance.vimaadmin.dto.OrganizationResponseDto;
 import com.vimainsurance.vimaadmin.dto.ResponseDto;
 import com.vimainsurance.vimaadmin.service.IOrganizationService;
+import org.springframework.http.MediaType;
 
 @RestController
 @CrossOrigin(allowedHeaders = "*")
@@ -143,6 +146,23 @@ public class OrganizationController {
     public ResponseEntity<ResponseDto<String>> deleteDocument(@PathVariable UUID organizationId, @PathVariable String documentId) {
         logger.info("[correlationId:{}] /organization/{}/documents/{} (DELETE) endpoint called", MDC.get("correlationId"), organizationId, documentId);
         return organizationService.deleteDocument(documentId);
+    }
+
+    @GetMapping("/organization/{organizationId}/employees")
+    @PreAuthorize("hasAnyAuthority('SUPER_ADMIN', 'ADMIN', 'VIMA_ADMIN', 'SALES_MANAGER')")
+    public ResponseEntity<ResponseDto<List<OrganizationEmployeeDto>>> getEmployees(@PathVariable UUID organizationId) {
+        logger.info("[correlationId:{}] /organization/{}/employees (GET) endpoint called", MDC.get("correlationId"), organizationId);
+        return organizationService.getEmployees(organizationId);
+    }
+
+    @PostMapping(value = "/organization/{organizationId}/upload/csv", consumes = MediaType.MULTIPART_FORM_DATA_VALUE,
+        produces = MediaType.APPLICATION_JSON_VALUE)
+    @PreAuthorize("hasAnyAuthority('VIMA_ADMIN', 'SALES_MANAGER', 'SUPER_ADMIN', 'ADMIN')")
+    public ResponseEntity<ResponseDto<CsvUploadResponseDto>> uploadDealsFromCsv(
+            @PathVariable UUID organizationId,
+            @RequestParam("file") MultipartFile file) {
+        logger.info("[correlationId:{}] /organization/{}/upload/csv endpoint called", MDC.get("correlationId"), organizationId);
+        return organizationService.uploadDealsFromCsv(file, organizationId);
     }
 }
 
