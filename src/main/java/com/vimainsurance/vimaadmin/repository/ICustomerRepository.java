@@ -60,4 +60,12 @@ public interface ICustomerRepository extends JpaRepository<Customer, UUID> {
           )
         """)
         Page<Customer> searchAllCustomers(@Param("search") String search, Pageable pageable);
+
+    @Query(value = """
+        SELECT *
+        FROM admin.customers c
+        WHERE regexp_replace(c.phone_number, '[^0-9]', '', 'g') = :normalizedNumber
+        LIMIT 1
+        """, nativeQuery = true)
+    Optional<Customer> findByNormalizedPhoneNumber(@Param("normalizedNumber") String normalizedNumber);
 }

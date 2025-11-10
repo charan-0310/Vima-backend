@@ -3,67 +3,76 @@ package com.vimainsurance.vimaadmin.service.serviceimpl;
 import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.stream.Collectors;
+import java.util.Objects;
 
+import com.vimainsurance.vimaadmin.dto.BaseResponse;
+import com.vimainsurance.vimaadmin.dto.DealsDashboardResponseDto;
 import com.vimainsurance.vimaadmin.dto.DealsRequestDto;
 import com.vimainsurance.vimaadmin.dto.DealsResponseDto;
 import com.vimainsurance.vimaadmin.dto.DocumentRequestDto;
 import com.vimainsurance.vimaadmin.dto.DocumentResponseDto;
-import com.vimainsurance.vimaadmin.dto.DealsDashboardResponseDto;
+import com.vimainsurance.vimaadmin.dto.NomineeRequestDto;
 import com.vimainsurance.vimaadmin.dto.PolicyResponseDto;
 import com.vimainsurance.vimaadmin.dto.PolicyUploadRequestDto;
+import com.vimainsurance.vimaadmin.dto.MotorPolicyDetailsRequestDto;
 import com.vimainsurance.vimaadmin.dto.ResponseDto;
+import com.vimainsurance.vimaadmin.entity.AdminUser;
+import com.vimainsurance.vimaadmin.entity.Deals;
+import com.vimainsurance.vimaadmin.entity.Document;
+import com.vimainsurance.vimaadmin.entity.InsuranceProvider;
+import com.vimainsurance.vimaadmin.entity.Nominee;
+import com.vimainsurance.vimaadmin.entity.MotorPolicyDetails;
+import com.vimainsurance.vimaadmin.entity.Policy;
+import com.vimainsurance.vimaadmin.enums.AccountStatus;
+import com.vimainsurance.vimaadmin.enums.AccountType;
+import com.vimainsurance.vimaadmin.enums.CoverageType;
+import com.vimainsurance.vimaadmin.enums.DocumentCategory;
+import com.vimainsurance.vimaadmin.enums.DocumentEntityType;
+import com.vimainsurance.vimaadmin.enums.DocumentType;
+import com.vimainsurance.vimaadmin.enums.Gender;
+import com.vimainsurance.vimaadmin.enums.NomineeRelationship;
+import com.vimainsurance.vimaadmin.enums.PaymentFrequency;
+import com.vimainsurance.vimaadmin.enums.PolicyStatus;
+import com.vimainsurance.vimaadmin.enums.ProductType;
+import com.vimainsurance.vimaadmin.enums.UserRole;
+import com.vimainsurance.vimaadmin.repository.IAdminUserRepository;
 import com.vimainsurance.vimaadmin.repository.IDealsRepository;
 import com.vimainsurance.vimaadmin.repository.IDocumentRepository;
-import com.vimainsurance.vimaadmin.repository.IAdminUserRepository;
+import com.vimainsurance.vimaadmin.repository.IInsuranceProviderRepository;
+import com.vimainsurance.vimaadmin.repository.INomineeRepository;
+import com.vimainsurance.vimaadmin.repository.IMotorPolicyDetailsRepository;
 import com.vimainsurance.vimaadmin.repository.IPolicyRepository;
 import com.vimainsurance.vimaadmin.service.IDealsService;
 import com.vimainsurance.vimaadmin.service.IDocumentService;
 import com.vimainsurance.vimaadmin.service.IS3Service;
-import com.vimainsurance.vimaadmin.entity.Deals;
-import com.vimainsurance.vimaadmin.entity.Document;
-import com.vimainsurance.vimaadmin.entity.AdminUser;
-import com.vimainsurance.vimaadmin.entity.Policy;
-import com.vimainsurance.vimaadmin.entity.InsuranceProvider;
-import com.vimainsurance.vimaadmin.enums.CoverageType;
-import com.vimainsurance.vimaadmin.enums.ProductType;
-import com.vimainsurance.vimaadmin.enums.PaymentFrequency;
-import com.vimainsurance.vimaadmin.enums.PolicyStatus;
-
-
-import java.util.UUID;
-
-import org.springframework.http.ResponseEntity;
-import org.springframework.http.HttpStatus;
-import org.springframework.http.HttpHeaders;
-import org.springframework.http.MediaType;
-import org.springframework.core.io.Resource;
-import org.springframework.core.io.InputStreamResource;
-import org.springframework.security.core.context.SecurityContextHolder;
-
+import com.vimainsurance.vimaadmin.util.Constants;
+import com.vimainsurance.vimaadmin.util.EnvironmentUtil;
+import com.vimainsurance.vimaadmin.util.SlackNotificationUtil;
 import java.io.InputStream;
 import java.time.LocalDateTime;
+import java.util.UUID;
 
-import com.vimainsurance.vimaadmin.enums.AccountStatus;
-import com.vimainsurance.vimaadmin.enums.AccountType;
-import com.vimainsurance.vimaadmin.enums.DocumentType;
-import com.vimainsurance.vimaadmin.enums.UserRole;
-
-import org.springframework.stereotype.Service;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.slf4j.MDC;
-
-import com.vimainsurance.vimaadmin.dto.BaseResponse;
-import com.vimainsurance.vimaadmin.enums.DocumentEntityType;
-import com.vimainsurance.vimaadmin.enums.DocumentCategory;
-import com.vimainsurance.vimaadmin.util.Constants;
-import com.vimainsurance.vimaadmin.util.SlackNotificationUtil;
-import com.vimainsurance.vimaadmin.repository.IInsuranceProviderRepository;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.core.env.Environment;
+import org.springframework.core.io.InputStreamResource;
+import org.springframework.core.io.Resource;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.stereotype.Service;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Sort;
     
 @Service
 public class DealsServiceImpl implements IDealsService{
@@ -85,12 +94,21 @@ public class DealsServiceImpl implements IDealsService{
     
     @Autowired
     private IPolicyRepository policyRepository;
-
+    
     @Autowired
     private IInsuranceProviderRepository insuranceProviderRepository;
     
     @Autowired
+    private INomineeRepository nomineeRepository;
+    
+    @Autowired
+    private IMotorPolicyDetailsRepository motorPolicyDetailsRepository;
+    
+    @Autowired
     private SlackNotificationUtil slackNotificationUtil;
+    
+    @Autowired
+    private Environment environment;
 
     @Override
     public ResponseEntity<ResponseDto<String>> createDeals(DealsRequestDto dealsRequestDto) {
@@ -114,6 +132,8 @@ public class DealsServiceImpl implements IDealsService{
             deals.setStatus(AccountStatus.fromValue(dealsRequestDto.getAccountStatus()));
             deals.setEmployeeNumber(dealsRequestDto.getEmployeeNumber());
             deals.setRelationship(dealsRequestDto.getRelationship());
+            deals.setDesignation(dealsRequestDto.getDesignation());
+            deals.setDateOfJoining(dealsRequestDto.getDateOfJoining());
             deals.setIsPrimaryMember(dealsRequestDto.getIsPrimaryMember());
             deals.setUsername(dealsRequestDto.getUsername());
             deals.setPasswordHash(dealsRequestDto.getPasswordHash());
@@ -154,6 +174,8 @@ public class DealsServiceImpl implements IDealsService{
             deals.setStatus(AccountStatus.fromValue(dealsRequestDto.getAccountStatus()));
             deals.setEmployeeNumber(dealsRequestDto.getEmployeeNumber());
             deals.setRelationship(dealsRequestDto.getRelationship());
+            deals.setDesignation(dealsRequestDto.getDesignation());
+            deals.setDateOfJoining(dealsRequestDto.getDateOfJoining());
             deals.setIsPrimaryMember(dealsRequestDto.getIsPrimaryMember());
             deals.setUsername(dealsRequestDto.getUsername());
             deals.setPasswordHash(dealsRequestDto.getPasswordHash());
@@ -194,6 +216,8 @@ public class DealsServiceImpl implements IDealsService{
             dealsResponseDto.setAccountStatus(deals.getStatus().getValue());
             dealsResponseDto.setEmployeeNumber(deals.getEmployeeNumber());
             dealsResponseDto.setRelationship(deals.getRelationship());
+            dealsResponseDto.setDesignation(deals.getDesignation());
+            dealsResponseDto.setDateOfJoining(deals.getDateOfJoining());
             dealsResponseDto.setIsPrimaryMember(deals.getIsPrimaryMember());
             dealsResponseDto.setUsername(deals.getUsername());
             dealsResponseDto.setPasswordHash(deals.getPasswordHash());
@@ -387,6 +411,8 @@ public class DealsServiceImpl implements IDealsService{
         dealsResponseDto.setAccountStatus(deal.getStatus().getValue());
         dealsResponseDto.setEmployeeNumber(deal.getEmployeeNumber());
         dealsResponseDto.setRelationship(deal.getRelationship());
+        dealsResponseDto.setDesignation(deal.getDesignation());
+        dealsResponseDto.setDateOfJoining(deal.getDateOfJoining());
         dealsResponseDto.setIsPrimaryMember(deal.getIsPrimaryMember());
         dealsResponseDto.setUsername(deal.getUsername());
         dealsResponseDto.setPasswordHash(deal.getPasswordHash());
@@ -459,6 +485,8 @@ public class DealsServiceImpl implements IDealsService{
                     dependent.setStatus(AccountStatus.ACTIVE);
                     dependent.setEmployeeNumber(dependentDto.getEmployeeNumber());
                     dependent.setRelationship(dependentDto.getRelationship());
+                    dependent.setDesignation(dependentDto.getDesignation());
+                    dependent.setDateOfJoining(dependentDto.getDateOfJoining());
                     dependent.setIsPrimaryMember(false);
                     dependent.setPrimaryIndividual(primaryIndividual);
                     dependent.setCreatedAt(LocalDateTime.now());
@@ -497,6 +525,38 @@ public class DealsServiceImpl implements IDealsService{
             // Save policy to database
             Policy savedPolicy = policyRepository.save(policy);
             logger.info("[correlationId:{}] Policy saved with ID: {}", MDC.get("correlationId"), savedPolicy.getPolicyId());
+
+            if (requestDto.getNominees() != null && !requestDto.getNominees().isEmpty()) {
+                List<Nominee> nomineeEntities = new ArrayList<>();
+                for (NomineeRequestDto nomineeDto : requestDto.getNominees()) {
+                    try {
+                        Nominee nominee = mapNomineeDtoToEntity(nomineeDto, savedPolicy);
+                        if (nominee != null) {
+                            nomineeEntities.add(nominee);
+                        }
+                    } catch (IllegalArgumentException ex) {
+                        logger.warn("[correlationId:{}] Skipping nominee due to invalid data: {}", MDC.get("correlationId"), ex.getMessage());
+                    }
+                }
+                if (!nomineeEntities.isEmpty()) {
+                    nomineeRepository.saveAll(nomineeEntities);
+                    savedPolicy.getNominees().addAll(nomineeEntities);
+                    logger.info("[correlationId:{}] Saved {} nominee(s) for policy {}", MDC.get("correlationId"), nomineeEntities.size(), savedPolicy.getPolicyNumber());
+                }
+            }
+
+            if (savedPolicy.getProductType() == ProductType.MOTOR) {
+                MotorPolicyDetailsRequestDto motorDetailsDto = requestDto.getMotorDetails();
+                if (motorDetailsDto != null) {
+                    try {
+                        MotorPolicyDetails motorDetails = mapMotorPolicyDetailsDto(motorDetailsDto, savedPolicy);
+                        motorPolicyDetailsRepository.save(motorDetails);
+                        savedPolicy.setMotorPolicyDetails(motorDetails);
+                    } catch (IllegalArgumentException ex) {
+                        logger.warn("[correlationId:{}] Skipping motor policy details due to invalid data: {}", MDC.get("correlationId"), ex.getMessage());
+                    }
+                }
+            }
             
             // Upload documents if provided
             if (requestDto.getFiles() != null && requestDto.getFiles().length > 0) {
@@ -523,14 +583,18 @@ public class DealsServiceImpl implements IDealsService{
                 }
             }
             
-            // Send Slack notification
-            try {
-                String slackMessage = buildSlackNotificationMessage(savedPolicy, primaryIndividual, agent);
-                slackNotificationUtil.sendSlackMessage("New Policy Issued!", slackMessage);
-            } catch (Exception slackException) {
-                logger.warn("[correlationId:{}] Failed to send Slack notification: {}", MDC.get("correlationId"), slackException.getMessage());
-                // Don't fail the request if Slack notification fails
-            }
+            // // Send Slack notification only in production
+            // if (EnvironmentUtil.isProductionEnvironment(environment)) {
+            //     try {
+            //         String slackMessage = buildSlackNotificationMessage(savedPolicy, primaryIndividual, agent);
+            //         slackNotificationUtil.sendSlackMessage("New Policy Issued!", slackMessage);
+            //     } catch (Exception slackException) {
+            //         logger.warn("[correlationId:{}] Failed to send Slack notification: {}", MDC.get("correlationId"), slackException.getMessage());
+            //         // Don't fail the request if Slack notification fails
+            //     }
+            // } else {
+            //     logger.debug("[correlationId:{}] Skipping Slack notification (not in production environment)", MDC.get("correlationId"));
+            // }
             
             return responseObj.render(responseObj.formSuccessResponse(Constants.SUCCESS, "Policy created and documents uploaded successfully"));
         } catch (Exception e) {
@@ -562,6 +626,7 @@ public class DealsServiceImpl implements IDealsService{
         message.append(":adult::skin-tone-4: Client: ").append(clientName).append("\n");
         message.append(":package: Policy Type: ").append(productTypeDisplay).append("\n");
         message.append(":office: Insurer: ").append(insurerName);
+        message.append(": Policy Number: ").append(policy.getPolicyNumber());
         
         return message.toString();
     }
@@ -594,33 +659,261 @@ public class DealsServiceImpl implements IDealsService{
         return result.toString();
     }
 
+    private Nominee mapNomineeDtoToEntity(NomineeRequestDto dto, Policy policy) {
+        if (dto == null) {
+            throw new IllegalArgumentException("Nominee details cannot be null");
+        }
+        if (dto.getFirstName() == null || dto.getFirstName().isBlank()) {
+            throw new IllegalArgumentException("Nominee first name is required");
+        }
+        if (dto.getDateOfBirth() == null) {
+            throw new IllegalArgumentException("Nominee date of birth is required");
+        }
+        if (dto.getGender() == null || dto.getGender().isBlank()) {
+            throw new IllegalArgumentException("Nominee gender is required");
+        }
+        if (dto.getRelationship() == null || dto.getRelationship().isBlank()) {
+            throw new IllegalArgumentException("Nominee relationship is required");
+        }
+
+        Nominee nominee = new Nominee();
+        nominee.setPolicy(policy);
+        nominee.setFirstName(dto.getFirstName());
+        nominee.setLastName(dto.getLastName());
+        nominee.setDateOfBirth(dto.getDateOfBirth());
+        nominee.setGender(dto.getGender());
+        nominee.setRelationship(dto.getRelationship());
+        nominee.setNomineePercentage(dto.getNomineePercentage() != null ? dto.getNomineePercentage() : BigDecimal.valueOf(100.00));
+        nominee.setIsActive(dto.getIsActive() != null ? dto.getIsActive() : Boolean.TRUE);
+        return nominee;
+    }
+
+    private MotorPolicyDetails mapMotorPolicyDetailsDto(MotorPolicyDetailsRequestDto dto, Policy policy) {
+        if (dto == null) {
+            throw new IllegalArgumentException("Motor policy details cannot be null");
+        }
+        if (dto.getVehicleRegistrationNumber() == null || dto.getVehicleRegistrationNumber().isBlank()) {
+            throw new IllegalArgumentException("Vehicle registration number is required");
+        }
+        MotorPolicyDetails details = new MotorPolicyDetails();
+        details.setPolicy(policy);
+        details.setVehicleRegistrationNumber(dto.getVehicleRegistrationNumber());
+        details.setVehicleMake(dto.getVehicleMake());
+        details.setVehicleModel(dto.getVehicleModel());
+        details.setVehicleType(dto.getVehicleType());
+        details.setManufacturingYear(dto.getManufacturingYear());
+        details.setRegistrationDate(dto.getRegistrationDate());
+        details.setIdvValue(dto.getIdvValue());
+        return details;
+    }
+
     @Override
     public ResponseEntity<ResponseDto<DealsDashboardResponseDto>> getDashboardMetrics() {
         logger.info("[correlationId:{}] getDashboardMetrics called", MDC.get("correlationId"));
         BaseResponse<DealsDashboardResponseDto> responseObj = new BaseResponse<>();
         try {
-            // Get total customers (primary members only)
-            Long totalCustomers = dealsRepository.countByIsPrimaryMemberTrue();
-            
-            // Get total active policies
+            Long totalCustomers = dealsRepository.countByIsPrimaryMemberTrueAndOrganizationIsNull();
+            if (totalCustomers == null) {
+                totalCustomers = 0L;
+            }
+
             Long totalActivePolicies = policyRepository.countByStatus(PolicyStatus.ACTIVE);
-            
-            // Get total coverage and premium from active policies
+            if (totalActivePolicies == null) {
+                totalActivePolicies = 0L;
+            }
+
             List<Policy> activePolicies = policyRepository.findByStatus(PolicyStatus.ACTIVE);
-            
+
             BigDecimal totalCoverage = activePolicies.stream()
                 .map(Policy::getSumInsured)
-                .reduce(BigDecimal.ZERO, BigDecimal::add);  
-            
+                .filter(Objects::nonNull)
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+
             BigDecimal totalPremium = activePolicies.stream()
                 .map(Policy::getPremiumAmount)
+                .filter(Objects::nonNull)
                 .reduce(BigDecimal.ZERO, BigDecimal::add);
-            
-            return responseObj.render(responseObj.formSuccessResponse(Constants.SUCCESS, new DealsDashboardResponseDto(totalCustomers, totalCoverage, totalActivePolicies, totalPremium), 1));
+
+            DealsDashboardResponseDto responseDto = new DealsDashboardResponseDto(
+                totalCustomers,
+                totalCoverage != null ? totalCoverage : BigDecimal.ZERO,
+                totalActivePolicies,
+                totalPremium != null ? totalPremium : BigDecimal.ZERO
+            );
+
+            return responseObj.render(responseObj.formSuccessResponse(Constants.SUCCESS, responseDto, 1));
         } catch (Exception e) {
             logger.error("[correlationId:{}] Exception in getDashboardMetrics: {}", MDC.get("correlationId"), e.getMessage(), e);
             return responseObj.render(responseObj.formErrorResponse(e.getMessage()));
         }
     }
 
+    @Override
+    public ResponseEntity<ResponseDto<List<DealsResponseDto>>> getAllWithFilters(String search, String status, String productType, int page, int rec, String sortBy, String sortDirection) {
+        logger.info("[correlationId:{}] Deals getAllWithFilters called with filters - search: {}, status: {}, productType: {}, sortBy: {}, sortDirection: {}", 
+                   MDC.get("correlationId"), search, status, productType, sortBy, sortDirection);
+        BaseResponse<List<DealsResponseDto>> responseObj = new BaseResponse<>();
+        try {
+            // Handle special case for getting all deals without pagination
+            if (page == -1 && rec == -1) {
+                List<Deals> dealsList = dealsRepository.findAll().stream()
+                    .filter(deal -> deal.getIsPrimaryMember() != null && deal.getIsPrimaryMember())
+                    .filter(deal -> deal.getOrganization() == null)
+                    .collect(Collectors.toList());
+                
+                // Optimized: Batch fetch all policies at once
+                List<UUID> individualIds = dealsList.stream()
+                    .map(Deals::getIndividualId)
+                    .toList();
+                
+                Map<UUID, List<PolicyResponseDto>> policiesMap;
+                if (!individualIds.isEmpty()) {
+                    List<Policy> allPolicies = policyRepository.findByPrimaryIndividualIdIn(individualIds);
+                    // Filter by productType if provided
+                    if (productType != null && !productType.trim().isEmpty()) {
+                        try {
+                            ProductType productTypeEnum = ProductType.fromValue(productType);
+                            allPolicies = allPolicies.stream()
+                                .filter(policy -> policy.getProductType() == productTypeEnum)
+                                .collect(Collectors.toList());
+                        } catch (IllegalArgumentException e) {
+                            logger.warn("[correlationId:{}] Invalid productType: {}", MDC.get("correlationId"), productType);
+                        }
+                    }
+                    final Map<UUID, List<PolicyResponseDto>> tempPoliciesMap = allPolicies.stream()
+                        .collect(Collectors.groupingBy(
+                            Policy::getPrimaryIndividualId,
+                            Collectors.mapping(policy -> mapPolicyToResponseDto(policy), Collectors.toList())
+                        ));
+                    policiesMap = tempPoliciesMap;
+                    
+                    // Filter deals by productType if provided - only include deals that have at least one policy with the productType
+                    if (productType != null && !productType.trim().isEmpty()) {
+                        dealsList = dealsList.stream()
+                            .filter(deal -> tempPoliciesMap.containsKey(deal.getIndividualId()) && !tempPoliciesMap.get(deal.getIndividualId()).isEmpty())
+                            .collect(Collectors.toList());
+                    }
+                } else {
+                    policiesMap = new HashMap<>();
+                }
+                
+                List<DealsResponseDto> dealsResponseDtoList = new ArrayList<>();
+                for(Deals deal : dealsList){
+                    DealsResponseDto dealsResponseDto = mapDealToResponseDto(deal);
+                    dealsResponseDto.setPolicies(policiesMap.getOrDefault(deal.getIndividualId(), new ArrayList<>()));
+                    dealsResponseDtoList.add(dealsResponseDto);
+                }
+                
+                return responseObj.render(responseObj.formSuccessResponse(Constants.SUCCESS, dealsResponseDtoList, dealsResponseDtoList.size()));
+            }
+            
+            // Create sort object
+            Sort sort = createSort(sortBy, sortDirection);
+            PageRequest pageRequest = PageRequest.of(page, rec, sort);
+            
+            // Validate productType string if provided
+            String productTypeValue = null;
+            if (productType != null && !productType.trim().isEmpty()) {
+                try {
+                    ProductType productTypeEnum = ProductType.fromValue(productType);
+                    productTypeValue = productTypeEnum.getValue(); // Use the enum's string value
+                } catch (IllegalArgumentException e) {
+                    logger.warn("[correlationId:{}] Invalid productType: {}, ignoring filter", MDC.get("correlationId"), productType);
+                    productTypeValue = null;
+                }
+            }
+            
+            Page<Deals> dealsPage;
+            
+            // Determine which query method to use based on search and status filters
+            if (search != null && !search.trim().isEmpty() && status != null && !status.trim().isEmpty()) {
+                // Both search and status filter
+                dealsPage = dealsRepository.searchDealsByStatus(status, search, productTypeValue, pageRequest);
+            } else if (search != null && !search.trim().isEmpty()) {
+                // Only search filter
+                dealsPage = dealsRepository.searchDeals(search, productTypeValue, pageRequest);
+            } else if (status != null && !status.trim().isEmpty()) {
+                // Only status filter
+                dealsPage = dealsRepository.findAllByStatusWithPagination(status, productTypeValue, pageRequest);
+            } else {
+                // No filters - get all primary members
+                dealsPage = dealsRepository.findAllPrimaryMembers(productTypeValue, pageRequest);
+            }
+
+            if (dealsPage.isEmpty()) {
+                return responseObj.render(responseObj.formSuccessResponse(Constants.SUCCESS, new ArrayList<>(), 0));
+            }
+            
+            // Optimized: Batch fetch all policies at once
+            List<UUID> individualIds = dealsPage.getContent().stream()
+                .map(Deals::getIndividualId)
+                .toList();
+            
+            Map<UUID, List<PolicyResponseDto>> policiesMap = new HashMap<>();
+            if (!individualIds.isEmpty()) {
+                List<Policy> allPolicies = policyRepository.findByPrimaryIndividualIdIn(individualIds);
+                policiesMap = allPolicies.stream()
+                    .collect(Collectors.groupingBy(
+                        Policy::getPrimaryIndividualId,
+                        Collectors.mapping(policy -> mapPolicyToResponseDto(policy), Collectors.toList())
+                    ));
+            }
+            
+            // Map deals to response DTOs with pre-fetched policies
+            LinkedHashSet<DealsResponseDto> dealsResponseSet = new LinkedHashSet<>();
+            for (Deals deal : dealsPage) {
+                DealsResponseDto dealsResponseDto = mapDealToResponseDto(deal);
+                dealsResponseDto.setPolicies(policiesMap.getOrDefault(deal.getIndividualId(), new ArrayList<>()));
+                dealsResponseSet.add(dealsResponseDto);
+            }
+            
+            List<DealsResponseDto> uniqueList = new ArrayList<>(dealsResponseSet);
+            return responseObj.render(responseObj.formSuccessResponse(Constants.SUCCESS, uniqueList, dealsPage.getTotalElements()));
+        } catch (Exception e) {
+            logger.error("[correlationId:{}] Exception in Deals getAllWithFilters: {}", MDC.get("correlationId"), e.getMessage(), e);
+            return responseObj.render(responseObj.formErrorResponse(e.getMessage()));
+        }
+    }
+
+    /**
+     * Create Sort object based on sortBy and sortDirection parameters
+     */
+    private Sort createSort(String sortBy, String sortDirection) {
+        if (sortBy == null || sortBy.trim().isEmpty()) {
+            return Sort.by(Sort.Direction.DESC, "updatedAt"); // Default sort
+        }
+        
+        // Map frontend field names to entity field names
+        String entityField = mapSortField(sortBy);
+        Sort.Direction direction = "desc".equalsIgnoreCase(sortDirection) ? 
+            Sort.Direction.DESC : Sort.Direction.ASC;
+        
+        return Sort.by(direction, entityField);
+    }
+    
+    /**
+     * Map frontend field names to entity field names for sorting
+     */
+    private String mapSortField(String frontendField) {
+        return switch (frontendField.toLowerCase()) {
+            case "firstname", "first_name", "name" -> "firstName";
+            case "lastname", "last_name" -> "lastName";
+            case "email" -> "email";
+            case "phone" -> "phone";
+            case "pannumber", "pan_number", "pan" -> "panNumber";
+            case "aadharnumber", "aadhaar_number", "aadhar" -> "aadhaarNumber";
+            case "employeenumber", "employee_number", "employeeid", "employee_id" -> "employeeNumber";
+            case "city" -> "city";
+            case "state" -> "state";
+            case "pincode", "pin_code", "pin" -> "pincode";
+            case "status", "accountstatus", "account_status" -> "status";
+            case "accounttype", "account_type" -> "accountType";
+            case "dateofbirth", "date_of_birth", "dob" -> "dateOfBirth";
+            case "dateofjoining", "date_of_joining", "doj" -> "dateOfJoining";
+            case "createdat", "created_at", "created" -> "createdAt";
+            case "updatedat", "updated_at", "updated", "lastactivity", "last_activity" -> "updatedAt";
+            default -> "updatedAt"; // Default fallback
+        };
+    }
+    
 }

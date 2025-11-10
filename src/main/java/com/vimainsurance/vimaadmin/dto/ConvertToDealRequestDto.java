@@ -24,4 +24,6 @@ public class ConvertToDealRequestDto {
     private String providerCode;
     private List<DealsRequestDto> dependents;
     private String paymentFrequency;
+    private List<NomineeRequestDto> nominees;
+    private MotorPolicyDetailsRequestDto motorDetails;
 }

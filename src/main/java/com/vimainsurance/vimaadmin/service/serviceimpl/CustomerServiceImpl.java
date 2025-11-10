@@ -25,6 +25,7 @@ import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
 import org.springframework.core.io.Resource;
+import org.springframework.core.env.Environment;
 
 import java.io.InputStream;
 
@@ -42,12 +43,16 @@ import com.vimainsurance.vimaadmin.dto.CustomerPipelineRequestDto;
 import com.vimainsurance.vimaadmin.dto.CustomerBulkDeleteRequestDto;
 import com.vimainsurance.vimaadmin.dto.DocumentResponseDto;
 import com.vimainsurance.vimaadmin.dto.PolicyRequestDto;
+import com.vimainsurance.vimaadmin.dto.MotorPolicyDetailsRequestDto;
 import com.vimainsurance.vimaadmin.dto.ResponseDto;
 import com.vimainsurance.vimaadmin.entity.AdminUser;
 import com.vimainsurance.vimaadmin.entity.Customer;
 import com.vimainsurance.vimaadmin.entity.Deals;
 import com.vimainsurance.vimaadmin.entity.Document;
+import com.vimainsurance.vimaadmin.entity.Policy;
+import com.vimainsurance.vimaadmin.entity.Nominee;
 import com.vimainsurance.vimaadmin.entity.InsuranceProvider;
+import com.vimainsurance.vimaadmin.entity.MotorPolicyDetails;
 import com.vimainsurance.vimaadmin.enums.AccountStatus;
 import com.vimainsurance.vimaadmin.enums.AccountType;
 import com.vimainsurance.vimaadmin.enums.CoverageType;
@@ -61,16 +66,23 @@ import com.vimainsurance.vimaadmin.repository.IAdminUserRepository;
 import com.vimainsurance.vimaadmin.repository.ICustomerRepository;
 import com.vimainsurance.vimaadmin.repository.IDocumentRepository;
 import com.vimainsurance.vimaadmin.repository.IInsuranceProviderRepository;
+import com.vimainsurance.vimaadmin.repository.IPolicyRepository;
+import com.vimainsurance.vimaadmin.repository.IMotorPolicyDetailsRepository;
+import com.vimainsurance.vimaadmin.repository.INomineeRepository;
 import com.vimainsurance.vimaadmin.service.ICustomerService;
-import com.vimainsurance.vimaadmin.service.IZohoCRMService;
 import com.vimainsurance.vimaadmin.service.IDocumentService;
-import com.vimainsurance.vimaadmin.service.IS3Service;
 import com.vimainsurance.vimaadmin.service.IPolicyService;
+import com.vimainsurance.vimaadmin.service.IS3Service;
+import com.vimainsurance.vimaadmin.service.IZohoCRMService;
 import com.vimainsurance.vimaadmin.util.Constants;
 import com.vimainsurance.vimaadmin.util.ConverterUtils;
+import com.vimainsurance.vimaadmin.util.EnvironmentUtil;
 import com.vimainsurance.vimaadmin.util.IdGenerator;
 import com.vimainsurance.vimaadmin.util.SlackNotificationUtil;
 import com.vimainsurance.vimaadmin.repository.IDealsRepository;
+import com.vimainsurance.vimaadmin.dto.NomineeRequestDto;
+import com.vimainsurance.vimaadmin.enums.Gender;
+import com.vimainsurance.vimaadmin.enums.NomineeRelationship;
 
 
 @Service
@@ -110,9 +122,21 @@ public class CustomerServiceImpl implements ICustomerService{
 
     @Autowired
     private IPolicyService policyService;
+
+    @Autowired
+    private IPolicyRepository policyRepository;
+
+    @Autowired
+    private INomineeRepository nomineeRepository;
+
+    @Autowired
+    private IMotorPolicyDetailsRepository motorPolicyDetailsRepository;
     
     @Autowired
     private SlackNotificationUtil slackNotificationUtil;
+    
+    @Autowired
+    private Environment environment;
    
 
     @Override
@@ -120,9 +144,20 @@ public class CustomerServiceImpl implements ICustomerService{
         logger.info("[correlationId:{}] create called", MDC.get("correlationId"));
         BaseResponse<String> responseObj = new BaseResponse<>();
         try {
-            Optional<Customer> existByPhonenumber = customerRepository.findByPhoneNumber(requestDto.getPhoneNumber());
-            if(existByPhonenumber.isPresent()){
-                return responseObj.render(responseObj.formErrorResponse( "Already Existed"));
+            String phoneNumber = requestDto.getPhoneNumber();
+            if (phoneNumber != null && !phoneNumber.isBlank()) {
+                Optional<Customer> existByPhonenumber = customerRepository.findByPhoneNumber(phoneNumber);
+                if(existByPhonenumber.isPresent()){
+                    return responseObj.render(responseObj.formErrorResponse( "Already Existed"));
+                }
+
+                String normalizedNumber = normalizePhoneNumber(phoneNumber);
+                if(normalizedNumber != null && !normalizedNumber.isBlank()){
+                    Optional<Customer> existByNormalized = customerRepository.findByNormalizedPhoneNumber(normalizedNumber);
+                    if(existByNormalized.isPresent()){
+                        return responseObj.render(responseObj.formErrorResponse("Already Existed"));
+                    }
+                }
             }
             Customer customer = new Customer();
             Optional<AdminUser> adminUser = adminUserRepository.findByUsername(username);
@@ -133,7 +168,7 @@ public class CustomerServiceImpl implements ICustomerService{
             customer.setFullName(requestDto.getFullName());
             customer.setDateOfBirth(requestDto.getDateOfBirth());
             customer.setGender(requestDto.getGender());
-            customer.setPhoneNumber(requestDto.getPhoneNumber());
+            customer.setPhoneNumber(phoneNumber);
             customer.setEmail(requestDto.getEmail());
             customer.setCity(requestDto.getCity());
             customer.setState(requestDto.getState());
@@ -731,7 +766,13 @@ public class CustomerServiceImpl implements ICustomerService{
             if(customerOpt.isEmpty()){
                 return responseObj.render(responseObj.formErrorResponse(Constants.RECORD_NOT_FOUND_MESSAGE));
             }
+
             Customer customer = customerOpt.get();
+            Optional<Deals> dealsOpt = dealsRepository.findByLeadId(customer.getId());
+
+            if(dealsOpt.isPresent()){
+                return responseObj.render(responseObj.formErrorResponse("Customer already converted!!!"));
+            }
             Deals deals = new Deals();
             deals.setFirstName("");
             deals.setLastName(customer.getFullName());
@@ -812,7 +853,7 @@ public class CustomerServiceImpl implements ICustomerService{
             policyRequest.setSumInsured(requestDto.getSumInsured());
             policyRequest.setPremiumAmount(requestDto.getPremiumAmount());
             policyRequest.setStartDate(requestDto.getPolicyStartDate() != null ? requestDto.getPolicyStartDate() : LocalDate.now());
-            policyRequest.setEndDate(requestDto.getPolicyEndDate() != null ? requestDto.getPolicyEndDate() : LocalDate.now().plusYears(1));
+            policyRequest.setEndDate(requestDto.getRenewalDate() != null ? requestDto.getRenewalDate() : LocalDate.now().plusYears(1));
             policyRequest.setLeadId(customer.getId());
             policyRequest.setRenewalDate(requestDto.getRenewalDate() != null ? requestDto.getRenewalDate() : LocalDate.now().plusYears(1));
             // Payment frequency
@@ -826,11 +867,48 @@ public class CustomerServiceImpl implements ICustomerService{
             policyRequest.setDependents(requestDto.getDependents());
             // Create the policy
             ResponseEntity<ResponseDto<String>> policyResponse = policyService.createPolicy(policyRequest);
+            Policy savedPolicy = null;
             if(policyResponse.getBody() != null && policyResponse.getBody().getErrorCode() != null){
                 logger.warn("[correlationId:{}] Policy creation failed: {}", MDC.get("correlationId"), policyResponse.getBody().getMessage());
                 // Continue with conversion even if policy creation fails
+                return responseObj.render(responseObj.formErrorResponse(policyResponse.getBody().getMessage()));
             } else {
                 logger.info("[correlationId:{}] Policy created successfully for deal: {}", MDC.get("correlationId"), savedDeals.getIndividualId());
+                savedPolicy = policyRepository.findByPolicyNumber(policyRequest.getPolicyNumber()).orElse(null);
+            }
+
+            if (savedPolicy != null && requestDto.getNominees() != null && !requestDto.getNominees().isEmpty()) {
+                List<Nominee> nomineeEntities = new ArrayList<>();
+                for (NomineeRequestDto nomineeDto : requestDto.getNominees()) {
+                    try {
+                        Nominee nominee = mapNomineeDtoToEntity(nomineeDto, savedPolicy);
+                        if (nominee != null) {
+                            nomineeEntities.add(nominee);
+                        }
+                    } catch (IllegalArgumentException ex) {
+                        logger.warn("[correlationId:{}] Skipping nominee due to invalid data: {}", MDC.get("correlationId"), ex.getMessage());
+                    }
+                }
+                if (!nomineeEntities.isEmpty()) {
+                    nomineeRepository.saveAll(nomineeEntities);
+                    savedPolicy.getNominees().addAll(nomineeEntities);
+                    logger.info("[correlationId:{}] Saved {} nominee(s) for policy {}", MDC.get("correlationId"), nomineeEntities.size(), savedPolicy.getPolicyNumber());
+                }
+            }
+
+            if (savedPolicy != null && savedPolicy.getProductType() == ProductType.MOTOR) {
+                MotorPolicyDetailsRequestDto motorDetailsDto = requestDto.getMotorDetails();
+                if (motorDetailsDto != null) {
+                    try {
+                        MotorPolicyDetails motorDetails = mapMotorPolicyDetailsDto(motorDetailsDto, savedPolicy);
+                        if (motorDetails != null) {
+                            motorPolicyDetailsRepository.save(motorDetails);
+                            savedPolicy.setMotorPolicyDetails(motorDetails);
+                        }
+                    } catch (IllegalArgumentException ex) {
+                        logger.warn("[correlationId:{}] Skipping motor policy details due to invalid data: {}", MDC.get("correlationId"), ex.getMessage());
+                    }
+                }
             }
             customer.setStatus("POLICY_ISSUED");
             customer.setUpdatedAt(LocalDateTime.now());
@@ -847,14 +925,18 @@ public class CustomerServiceImpl implements ICustomerService{
                 return responseObj.render(responseObj.formErrorResponse(response.getBody().getMessage()));
             }
             
-            // Send Slack notification
-            try {
-                String slackMessage = buildCustomerToDealSlackMessage(customer, savedDeals, policyRequest, adminUser);
-                slackNotificationUtil.sendSlackMessage("New Policy Issued!", slackMessage);
-            } catch (Exception slackException) {
-                logger.warn("[correlationId:{}] Failed to send Slack notification: {}", MDC.get("correlationId"), slackException.getMessage());
-                // Don't fail the request if Slack notification fails
-            }
+            // Send Slack notification only in production
+            // if (EnvironmentUtil.isProductionEnvironment(environment)) {
+            //     try {
+            //         String slackMessage = buildCustomerToDealSlackMessage(customer, savedDeals, policyRequest, adminUser);
+            //         slackNotificationUtil.sendSlackMessage("New Policy Issued!", slackMessage);
+            //     } catch (Exception slackException) {
+            //         logger.warn("[correlationId:{}] Failed to send Slack notification: {}", MDC.get("correlationId"), slackException.getMessage());
+            //         // Don't fail the request if Slack notification fails
+            //     }
+            // } else {
+            //     logger.debug("[correlationId:{}] Skipping Slack notification (not in production environment)", MDC.get("correlationId"));
+            // }
             
             logger.info("[correlationId:{}] Customer converted to Deals successfully", MDC.get("correlationId"));
             return responseObj.render(responseObj.formSuccessResponse(Constants.SUCCESS, "Customer converted to Deals successfully"));
@@ -863,6 +945,58 @@ public class CustomerServiceImpl implements ICustomerService{
             logger.error("[correlationId:{}] Exception in customerToDeals: {}", MDC.get("correlationId"), e.getMessage(), e);
             return responseObj.render(responseObj.formErrorResponse(e.getMessage()));
         }
+    }
+    
+    private Nominee mapNomineeDtoToEntity(NomineeRequestDto dto, Policy policy) {
+        if (dto == null) {
+            throw new IllegalArgumentException("Nominee details cannot be null");
+        }
+        if (dto.getFirstName() == null || dto.getFirstName().isBlank()) {
+            throw new IllegalArgumentException("Nominee first name is required");
+        }
+        if (dto.getDateOfBirth() == null) {
+            throw new IllegalArgumentException("Nominee date of birth is required");
+        }
+        if (dto.getGender() == null || dto.getGender().isBlank()) {
+            throw new IllegalArgumentException("Nominee gender is required");
+        }
+        if (dto.getRelationship() == null || dto.getRelationship().isBlank()) {
+            throw new IllegalArgumentException("Nominee relationship is required");
+        }
+
+        Nominee nominee = new Nominee();
+        nominee.setPolicy(policy);
+        nominee.setFirstName(dto.getFirstName());
+        nominee.setLastName(dto.getLastName());
+        nominee.setDateOfBirth(dto.getDateOfBirth());
+        nominee.setGender(dto.getGender());
+        nominee.setRelationship(dto.getRelationship());
+        nominee.setNomineePercentage(dto.getNomineePercentage() != null ? dto.getNomineePercentage() : BigDecimal.valueOf(100.00));
+        nominee.setIsActive(dto.getIsActive() != null ? dto.getIsActive() : Boolean.TRUE);
+        return nominee;
+    }
+
+    private MotorPolicyDetails mapMotorPolicyDetailsDto(MotorPolicyDetailsRequestDto dto, Policy policy) {
+        if (dto == null) {
+            throw new IllegalArgumentException("Motor policy details cannot be null");
+        }
+        if (dto.getVehicleRegistrationNumber() == null || dto.getVehicleRegistrationNumber().isBlank()) {
+            throw new IllegalArgumentException("Vehicle registration number is required");
+        }
+        MotorPolicyDetails details = new MotorPolicyDetails();
+        details.setPolicy(policy);
+        details.setVehicleRegistrationNumber(dto.getVehicleRegistrationNumber());
+        details.setVehicleMake(dto.getVehicleMake());
+        details.setVehicleModel(dto.getVehicleModel());
+        details.setVehicleType(dto.getVehicleType());
+        details.setManufacturingYear(dto.getManufacturingYear());
+        details.setRegistrationDate(dto.getRegistrationDate());
+        details.setIdvValue(dto.getIdvValue());
+        return details;
+    }
+
+    private String normalizePhoneNumber(String value) {
+        return value != null ? value.replaceAll("[^0-9]", "") : null;
     }
     
     private String buildCustomerToDealSlackMessage(Customer customer, Deals deals, PolicyRequestDto policyRequest, AdminUser agent) {
@@ -964,5 +1098,6 @@ public class CustomerServiceImpl implements ICustomerService{
             return UUID.randomUUID();
         }
     }
+    
 }
 

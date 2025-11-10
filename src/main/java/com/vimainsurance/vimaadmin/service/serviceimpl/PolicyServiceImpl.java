@@ -1,22 +1,14 @@
 package com.vimainsurance.vimaadmin.service.serviceimpl;
 
-import com.vimainsurance.vimaadmin.dto.BaseResponse;
-import com.vimainsurance.vimaadmin.dto.PolicyRequestDto;
-import com.vimainsurance.vimaadmin.dto.PolicyResponseDto;
-import com.vimainsurance.vimaadmin.dto.ResponseDto;
-import com.vimainsurance.vimaadmin.entity.Deals;
-import com.vimainsurance.vimaadmin.entity.Policy;
-import com.vimainsurance.vimaadmin.enums.AccountType;
-import com.vimainsurance.vimaadmin.enums.CoverageType;
-import com.vimainsurance.vimaadmin.enums.PolicyStatus;
-import com.vimainsurance.vimaadmin.enums.ProductType;
-import com.vimainsurance.vimaadmin.enums.PaymentFrequency;
-import com.vimainsurance.vimaadmin.repository.IPolicyRepository;
-import com.vimainsurance.vimaadmin.service.IPolicyService;
-import com.vimainsurance.vimaadmin.util.Constants;
-import com.vimainsurance.vimaadmin.repository.IInsuranceProviderRepository;
-import com.vimainsurance.vimaadmin.repository.IAdminUserRepository;
-import com.vimainsurance.vimaadmin.entity.AdminUser;
+import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Map;
+import java.util.Optional;
+import java.util.UUID;
+import java.util.HashMap;
+import java.util.stream.Collectors;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -25,32 +17,37 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.http.ResponseEntity;
-import org.springframework.stereotype.Service;
 import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.stereotype.Service;
 
-import java.time.LocalDate;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.Optional;
-import java.util.UUID;
-import java.util.stream.Collectors;
-
-import com.vimainsurance.vimaadmin.dto.DealsResponseDto;
-import com.vimainsurance.vimaadmin.repository.IDealsRepository;
+import com.vimainsurance.vimaadmin.dto.BaseResponse;
 import com.vimainsurance.vimaadmin.dto.DealsRequestDto;
-
-import java.util.ArrayList;
-import java.time.LocalDateTime;
-import java.time.LocalDate;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.Optional;
-import java.util.UUID;
-import java.util.stream.Collectors;
-
+import com.vimainsurance.vimaadmin.dto.DealsResponseDto;
+import com.vimainsurance.vimaadmin.dto.MotorPolicyDetailsResponseDto;
+import com.vimainsurance.vimaadmin.dto.NomineeResponseDto;
+import com.vimainsurance.vimaadmin.dto.PolicyRequestDto;
+import com.vimainsurance.vimaadmin.dto.PolicyResponseDto;
+import com.vimainsurance.vimaadmin.dto.ResponseDto;
+import com.vimainsurance.vimaadmin.entity.AdminUser;
+import com.vimainsurance.vimaadmin.entity.Deals;
+import com.vimainsurance.vimaadmin.entity.MotorPolicyDetails;
+import com.vimainsurance.vimaadmin.entity.Nominee;
+import com.vimainsurance.vimaadmin.entity.Policy;
 import com.vimainsurance.vimaadmin.enums.AccountStatus;
+import com.vimainsurance.vimaadmin.enums.AccountType;
+import com.vimainsurance.vimaadmin.enums.CoverageType;
+import com.vimainsurance.vimaadmin.enums.PaymentFrequency;
+import com.vimainsurance.vimaadmin.enums.PolicyStatus;
+import com.vimainsurance.vimaadmin.enums.ProductType;
+import com.vimainsurance.vimaadmin.repository.IAdminUserRepository;
+import com.vimainsurance.vimaadmin.repository.IDealsRepository;
+import com.vimainsurance.vimaadmin.repository.IInsuranceProviderRepository;
+import com.vimainsurance.vimaadmin.repository.IMotorPolicyDetailsRepository;
+import com.vimainsurance.vimaadmin.repository.INomineeRepository;
+import com.vimainsurance.vimaadmin.repository.IPolicyRepository;
+import com.vimainsurance.vimaadmin.service.IPolicyService;
+import com.vimainsurance.vimaadmin.util.Constants;
+
 /**
  * Service implementation for Policy operations
  */
@@ -70,6 +67,12 @@ public class PolicyServiceImpl implements IPolicyService {
 
     @Autowired
     private IAdminUserRepository adminUserRepository;
+
+    @Autowired
+    private INomineeRepository nomineeRepository;
+
+    @Autowired
+    private IMotorPolicyDetailsRepository motorPolicyDetailsRepository;
 
     @Override
     public ResponseEntity<ResponseDto<String>> createPolicy(PolicyRequestDto requestDto) {
@@ -487,6 +490,13 @@ public class PolicyServiceImpl implements IPolicyService {
         responseDto.setDependents(dependents.stream()
             .map(this::mapToSimplifiedDependent)
             .collect(Collectors.toList()));
+        List<Nominee> nominees = nomineeRepository.findByPolicyPolicyId(policy.getPolicyId());
+        responseDto.setNominees(nominees.stream()
+            .map(this::mapToSimplifiedNominee)
+            .collect(Collectors.toList()));
+
+        motorPolicyDetailsRepository.findByPolicyPolicyId(policy.getPolicyId())
+            .ifPresent(details -> responseDto.setMotorPolicyDetails(mapToMotorPolicyDetails(details)));
         return responseDto;
     }
     
@@ -501,6 +511,29 @@ public class PolicyServiceImpl implements IPolicyService {
         responseDto.setDateOfBirth(deals.getDateOfBirth());
         responseDto.setRelationship(deals.getRelationship());
         
+        return responseDto;
+    }
+
+    private NomineeResponseDto mapToSimplifiedNominee(Nominee nominee) {
+        NomineeResponseDto responseDto = new NomineeResponseDto();
+        responseDto.setNomineeId(nominee.getNomineeId());
+        responseDto.setFirstName(nominee.getFirstName());
+        responseDto.setLastName(nominee.getLastName());
+        responseDto.setDateOfBirth(nominee.getDateOfBirth());
+        responseDto.setRelationship(nominee.getRelationship());
+        return responseDto;
+    }
+
+    private MotorPolicyDetailsResponseDto mapToMotorPolicyDetails(MotorPolicyDetails details) {
+        MotorPolicyDetailsResponseDto responseDto = new MotorPolicyDetailsResponseDto();
+        responseDto.setMotorPolicyId(details.getMotorPolicyId());
+        responseDto.setVehicleRegistrationNumber(details.getVehicleRegistrationNumber());
+        responseDto.setVehicleMake(details.getVehicleMake());
+        responseDto.setVehicleModel(details.getVehicleModel());
+        responseDto.setVehicleType(details.getVehicleType());
+        responseDto.setManufacturingYear(details.getManufacturingYear());
+        responseDto.setRegistrationDate(details.getRegistrationDate());
+        responseDto.setIdvValue(details.getIdvValue());
         return responseDto;
     }
 }

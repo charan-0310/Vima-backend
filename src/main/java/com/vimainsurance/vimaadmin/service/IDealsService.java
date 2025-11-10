@@ -1,16 +1,18 @@
 package com.vimainsurance.vimaadmin.service;
 
+import java.util.List;
+import java.util.UUID;
+
+import org.springframework.core.io.Resource;
+import org.springframework.http.ResponseEntity;
+
+import com.vimainsurance.vimaadmin.dto.DealsDashboardResponseDto;
 import com.vimainsurance.vimaadmin.dto.DealsRequestDto;
 import com.vimainsurance.vimaadmin.dto.DealsResponseDto;
 import com.vimainsurance.vimaadmin.dto.DocumentRequestDto;
 import com.vimainsurance.vimaadmin.dto.DocumentResponseDto;
-import com.vimainsurance.vimaadmin.dto.DealsDashboardResponseDto;
 import com.vimainsurance.vimaadmin.dto.PolicyUploadRequestDto;
 import com.vimainsurance.vimaadmin.dto.ResponseDto;
-import org.springframework.core.io.Resource;
-import org.springframework.http.ResponseEntity;
-import java.util.UUID;
-import java.util.List;
 
 public interface IDealsService {
 ResponseEntity<ResponseDto<String>> createDeals(DealsRequestDto dealsRequestDto);
@@ -24,4 +26,5 @@ ResponseEntity<ResponseDto<String>> uploadPolicyWithDetails(PolicyUploadRequestD
 ResponseEntity<Resource> downloadDocument(String documentId);
 ResponseEntity<ResponseDto<String>> deleteDocument(String documentId);
 ResponseEntity<ResponseDto<DealsDashboardResponseDto>> getDashboardMetrics();
+ResponseEntity<ResponseDto<List<DealsResponseDto>>> getAllWithFilters(String search, String status, String productType, int page, int rec, String sortBy, String sortDirection);
 }

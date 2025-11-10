@@ -1,17 +1,13 @@
 package com.vimainsurance.vimaadmin.dto;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.UUID;
-
-import com.vimainsurance.vimaadmin.enums.AccountStatus;
-import com.vimainsurance.vimaadmin.enums.AccountType;
 
 import lombok.Data;
 import lombok.Getter;
 import lombok.Setter;
 import lombok.NoArgsConstructor;
 import lombok.AllArgsConstructor;
-import java.time.LocalDate;
-import java.time.LocalDateTime;
 
 @Data
 @Getter
@@ -35,6 +31,8 @@ private String accountType;
 private String accountStatus;
 private String employeeNumber;
 private String relationship;
+private String designation;
+private LocalDate dateOfJoining;
 private Boolean isPrimaryMember;
 private UUID primaryIndividualId;
 private String username;
