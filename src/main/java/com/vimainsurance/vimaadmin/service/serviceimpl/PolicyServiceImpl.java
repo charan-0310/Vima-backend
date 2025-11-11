@@ -30,6 +30,7 @@ import com.vimainsurance.vimaadmin.dto.PolicyResponseDto;
 import com.vimainsurance.vimaadmin.dto.ResponseDto;
 import com.vimainsurance.vimaadmin.entity.AdminUser;
 import com.vimainsurance.vimaadmin.entity.Deals;
+import com.vimainsurance.vimaadmin.entity.Document;
 import com.vimainsurance.vimaadmin.entity.MotorPolicyDetails;
 import com.vimainsurance.vimaadmin.entity.Nominee;
 import com.vimainsurance.vimaadmin.entity.Policy;
@@ -46,6 +47,7 @@ import com.vimainsurance.vimaadmin.repository.IMotorPolicyDetailsRepository;
 import com.vimainsurance.vimaadmin.repository.INomineeRepository;
 import com.vimainsurance.vimaadmin.repository.IPolicyRepository;
 import com.vimainsurance.vimaadmin.service.IPolicyService;
+import com.vimainsurance.vimaadmin.repository.IDocumentRepository;
 import com.vimainsurance.vimaadmin.util.Constants;
 
 /**
@@ -73,6 +75,9 @@ public class PolicyServiceImpl implements IPolicyService {
 
     @Autowired
     private IMotorPolicyDetailsRepository motorPolicyDetailsRepository;
+
+    @Autowired
+    private IDocumentRepository documentRepository;
 
     @Override
     public ResponseEntity<ResponseDto<String>> createPolicy(PolicyRequestDto requestDto) {
@@ -415,10 +420,13 @@ public class PolicyServiceImpl implements IPolicyService {
             if (policyOpt.isEmpty()) {
                 return responseObj.render(responseObj.formErrorResponse(Constants.RECORD_NOT_FOUND_MESSAGE));
             }
-
+            List<Document> documents = documentRepository.findByEntityId(policyId.toString());
+            for (Document document : documents) {
+                documentRepository.delete(document);
+            }
             Policy policy = policyOpt.get();
-            policy.setStatus(PolicyStatus.CANCELLED);
-            policyRepository.save(policy);
+            policyRepository.delete(policy);
+            
             
             logger.info("[correlationId:{}] Policy deleted successfully", MDC.get("correlationId"));
             return responseObj.render(responseObj.formSuccessResponse(Constants.SUCCESS, Constants.DELETE_MESSAGE));
