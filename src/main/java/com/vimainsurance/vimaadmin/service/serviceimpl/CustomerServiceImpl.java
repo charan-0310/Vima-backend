@@ -922,7 +922,7 @@ public class CustomerServiceImpl implements ICustomerService{
             AdminUser adminUser = adminUserRepository.findByUsername(SecurityContextHolder.getContext().getAuthentication().getName()).orElseThrow(() -> new RuntimeException("Agent not found"));
             ResponseEntity<ResponseDto<List<Document>>> response = documentService.uploadKYCDocuments(requestDto.getDocument(), deals.getIndividualId().toString(), DocumentEntityType.POLICY, DocumentType.POLICY_CERTIFICATE, adminUser.getId(), UserRole.fromValue(adminUser.getRole()), "", DocumentCategory.POLICY_DOCUMENTS);
             savedPolicy.setDocument(response.getBody().getPayload().get(0));
-            policyRepository.save(savedPolicy);x
+            policyRepository.save(savedPolicy);
             if(response.getBody().getErrorCode() != null){
                 return responseObj.render(responseObj.formErrorResponse(response.getBody().getMessage()));
             }
