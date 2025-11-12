@@ -26,12 +26,14 @@ public class PolicyRequestDto {
     @NotNull(message = "Primary individual ID is required")
     private UUID primaryIndividualId;
 
-    @NotNull(message = "Insurance provider ID is required")
-    private UUID insuranceProviderId;
+    @NotNull(message = "Insurance Company Code is required")
+    private String insuranceCompanyCode;
 
     private UUID insuranceProductId;
 
     private UUID organizationId;
+
+    private UUID documentId;
 
     @NotNull(message = "Product type is required")
     private String productType;

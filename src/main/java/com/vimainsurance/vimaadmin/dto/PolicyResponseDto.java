@@ -21,6 +21,7 @@ public class PolicyResponseDto {
     private String insuranceProvider;
     private UUID insuranceProductId;
     private UUID organizationId;
+    private UUID documentId;
     private String productType;
     private String coverageType;
     private String status;
