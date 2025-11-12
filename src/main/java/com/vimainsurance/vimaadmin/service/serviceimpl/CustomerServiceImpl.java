@@ -844,7 +844,7 @@ public class CustomerServiceImpl implements ICustomerService{
             policyRequest.setPrimaryIndividualId(savedDeals.getIndividualId());
             
             // Get default insurance provider for the product type
-            policyRequest.setInsuranceProviderId(insuranceProviderRepository.findByProviderCode(requestDto.getProviderCode()).orElseThrow(() -> new RuntimeException("Insurance provider not found")).getProviderId());
+            policyRequest.setInsuranceCompanyCode(custId);
             policyRequest.setProductType(requestDto.getProductType());
             // Set coverage type based on whether dependents exist
             String coverageType = (requestDto.getDependents() != null && !requestDto.getDependents().isEmpty()) ? "FAMILY_FLOATER" : "INDIVIDUAL";
@@ -921,6 +921,8 @@ public class CustomerServiceImpl implements ICustomerService{
             }
             AdminUser adminUser = adminUserRepository.findByUsername(SecurityContextHolder.getContext().getAuthentication().getName()).orElseThrow(() -> new RuntimeException("Agent not found"));
             ResponseEntity<ResponseDto<List<Document>>> response = documentService.uploadKYCDocuments(requestDto.getDocument(), deals.getIndividualId().toString(), DocumentEntityType.POLICY, DocumentType.POLICY_CERTIFICATE, adminUser.getId(), UserRole.fromValue(adminUser.getRole()), "", DocumentCategory.POLICY_DOCUMENTS);
+            savedPolicy.setDocument(response.getBody().getPayload().get(0));
+            policyRepository.save(savedPolicy);
             if(response.getBody().getErrorCode() != null){
                 return responseObj.render(responseObj.formErrorResponse(response.getBody().getMessage()));
             }
@@ -1005,10 +1007,12 @@ public class CustomerServiceImpl implements ICustomerService{
         // Get insurance provider name
         String insurerName = "Unknown";
         try {
-            if (policyRequest.getInsuranceProviderId() != null) {
-                insurerName = insuranceProviderRepository.findById(policyRequest.getInsuranceProviderId())
+            if (policyRequest.getInsuranceCompanyCode() != null) {
+                insurerName = insuranceProviderRepository.findByProviderCode(policyRequest.getInsuranceCompanyCode())
                         .map(InsuranceProvider::getProviderName)
                         .orElse("Unknown");
+            } else {
+                insurerName = "Unknown";
             }
         } catch (Exception e) {
             logger.warn("Failed to fetch insurance provider name: {}", e.getMessage());

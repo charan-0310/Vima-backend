@@ -133,9 +133,10 @@ public class PolicyServiceImpl implements IPolicyService {
             Policy policy = new Policy();
             policy.setPolicyNumber(requestDto.getPolicyNumber());
             policy.setPrimaryIndividualId(requestDto.getPrimaryIndividualId());
-            policy.setInsuranceProviderId(requestDto.getInsuranceProviderId());
+            policy.setInsuranceProviderId(insuranceProviderRepository.findByProviderCode(requestDto.getInsuranceCompanyCode()).orElseThrow(() -> new RuntimeException("Insurance provider not found")).getProviderId());
             policy.setInsuranceProductId(requestDto.getInsuranceProductId());
             policy.setOrganizationId(requestDto.getOrganizationId());
+            policy.setDocument(resolveDocument(requestDto.getDocumentId()));
             policy.setProductType(ProductType.fromValue(requestDto.getProductType()));
             policy.setCoverageType(CoverageType.fromValue(requestDto.getCoverageType()));
             policy.setStatus(requestDto.getStatus() != null ? 
@@ -186,9 +187,10 @@ public class PolicyServiceImpl implements IPolicyService {
             // Update policy fields
             policy.setPolicyNumber(requestDto.getPolicyNumber());
             policy.setPrimaryIndividualId(requestDto.getPrimaryIndividualId());
-            policy.setInsuranceProviderId(requestDto.getInsuranceProviderId());
+            policy.setInsuranceProviderId(insuranceProviderRepository.findByProviderCode(requestDto.getInsuranceCompanyCode()).orElseThrow(() -> new RuntimeException("Insurance provider not found")).getProviderId());
             policy.setInsuranceProductId(requestDto.getInsuranceProductId());
             policy.setOrganizationId(requestDto.getOrganizationId());
+            policy.setDocument(resolveDocument(requestDto.getDocumentId()));
             policy.setProductType(ProductType.fromValue(requestDto.getProductType()));
             policy.setCoverageType(CoverageType.fromValue(requestDto.getCoverageType()));
             if (requestDto.getStatus() != null) {
@@ -420,13 +422,10 @@ public class PolicyServiceImpl implements IPolicyService {
             if (policyOpt.isEmpty()) {
                 return responseObj.render(responseObj.formErrorResponse(Constants.RECORD_NOT_FOUND_MESSAGE));
             }
-            List<Document> documents = documentRepository.findByEntityId(policyId.toString());
-            for (Document document : documents) {
-                documentRepository.delete(document);
-            }
-            Policy policy = policyOpt.get();
-            policyRepository.delete(policy);
             
+            Policy policy = policyOpt.get();
+            // Document document = policyOpt.get().getDocument();
+            policyRepository.delete(policy);
             
             logger.info("[correlationId:{}] Policy deleted successfully", MDC.get("correlationId"));
             return responseObj.render(responseObj.formSuccessResponse(Constants.SUCCESS, Constants.DELETE_MESSAGE));
@@ -482,6 +481,7 @@ public class PolicyServiceImpl implements IPolicyService {
         responseDto.setInsuranceProvider(insuranceProviderRepository.findById(policy.getInsuranceProviderId()).orElseThrow(() -> new RuntimeException("Insurance provider not found")).getProviderName());
         responseDto.setInsuranceProductId(policy.getInsuranceProductId());
         responseDto.setOrganizationId(policy.getOrganizationId());
+        responseDto.setDocumentId(policy.getDocument() != null ? policy.getDocument().getDocumentId() : null);
         responseDto.setProductType(policy.getProductType().getValue());
         responseDto.setCoverageType(policy.getCoverageType().getValue());
         responseDto.setStatus(policy.getStatus().getValue());
@@ -508,6 +508,14 @@ public class PolicyServiceImpl implements IPolicyService {
         return responseDto;
     }
     
+    private Document resolveDocument(UUID documentId) {
+        if (documentId == null) {
+            return null;
+        }
+        return documentRepository.findById(documentId)
+                .orElseThrow(() -> new RuntimeException("Document not found"));
+    }
+
     /**
      * Maps Deals entity to simplified dependent response with only name, date of birth, and relationship
      */

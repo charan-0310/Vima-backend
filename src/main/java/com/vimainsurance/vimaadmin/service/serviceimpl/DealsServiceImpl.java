@@ -577,11 +577,14 @@ public class DealsServiceImpl implements IDealsService{
                     documentRequest.getNotes(),
                     com.vimainsurance.vimaadmin.enums.DocumentCategory.POLICY_DOCUMENTS
                 );
-                
+                savedPolicy.setDocument(documentResponse.getBody().getPayload().get(0));
+                policyRepository.save(savedPolicy);
                 if(documentResponse.getBody() != null && documentResponse.getBody().getErrorCode() != null){
                     return responseObj.render(responseObj.formErrorResponse(documentResponse.getBody().getMessage()));
                 }
             }
+            
+            
             
             // // Send Slack notification only in production
             // if (EnvironmentUtil.isProductionEnvironment(environment)) {

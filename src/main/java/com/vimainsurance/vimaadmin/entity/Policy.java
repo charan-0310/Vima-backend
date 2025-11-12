@@ -7,6 +7,7 @@ import com.vimainsurance.vimaadmin.enums.PaymentFrequency;
 import com.vimainsurance.vimaadmin.enums.ProductType;
 import com.vimainsurance.vimaadmin.entity.Nominee;
 import com.vimainsurance.vimaadmin.entity.MotorPolicyDetails;
+import com.vimainsurance.vimaadmin.entity.Document;
 import jakarta.persistence.*;
 import lombok.Data;
 import lombok.EqualsAndHashCode;
@@ -54,6 +55,10 @@ public class Policy {
 
     @Column(name = "organization_id")
     private UUID organizationId;
+
+    @OneToOne(cascade = CascadeType.REMOVE, orphanRemoval = true)
+    @JoinColumn(name = "document_id")
+    private Document document;
 
     // Policy Details
     @Enumerated(EnumType.STRING)
