@@ -9,7 +9,7 @@ import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.stream.Collectors;
-
+import org.springframework.transaction.annotation.Transactional;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.slf4j.MDC;
@@ -758,6 +758,7 @@ public class CustomerServiceImpl implements ICustomerService{
     }
 
     @Override
+    @Transactional(rollbackFor = Exception.class)
     public ResponseEntity<ResponseDto<String>> customerToDeals(ConvertToDealRequestDto requestDto, String custId) {
         logger.info("[correlationId:{}] customerToDeals called", MDC.get("correlationId"));
         BaseResponse<String> responseObj = new BaseResponse<>();
@@ -844,7 +845,7 @@ public class CustomerServiceImpl implements ICustomerService{
             policyRequest.setPrimaryIndividualId(savedDeals.getIndividualId());
             
             // Get default insurance provider for the product type
-            policyRequest.setInsuranceCompanyCode(custId);
+            policyRequest.setInsuranceCompanyCode(requestDto.getProviderCode());
             policyRequest.setProductType(requestDto.getProductType());
             // Set coverage type based on whether dependents exist
             String coverageType = (requestDto.getDependents() != null && !requestDto.getDependents().isEmpty()) ? "FAMILY_FLOATER" : "INDIVIDUAL";
@@ -868,10 +869,9 @@ public class CustomerServiceImpl implements ICustomerService{
             // Create the policy
             ResponseEntity<ResponseDto<String>> policyResponse = policyService.createPolicy(policyRequest);
             Policy savedPolicy = null;
-            if(policyResponse.getBody() != null && policyResponse.getBody().getErrorCode() != null){
+            if (policyResponse.getBody() != null && policyResponse.getBody().getErrorCode() != null) {
                 logger.warn("[correlationId:{}] Policy creation failed: {}", MDC.get("correlationId"), policyResponse.getBody().getMessage());
-                // Continue with conversion even if policy creation fails
-                return responseObj.render(responseObj.formErrorResponse(policyResponse.getBody().getMessage()));
+                throw new IllegalStateException(policyResponse.getBody().getMessage());
             } else {
                 logger.info("[correlationId:{}] Policy created successfully for deal: {}", MDC.get("correlationId"), savedDeals.getIndividualId());
                 savedPolicy = policyRepository.findByPolicyNumber(policyRequest.getPolicyNumber()).orElse(null);
@@ -921,11 +921,14 @@ public class CustomerServiceImpl implements ICustomerService{
             }
             AdminUser adminUser = adminUserRepository.findByUsername(SecurityContextHolder.getContext().getAuthentication().getName()).orElseThrow(() -> new RuntimeException("Agent not found"));
             ResponseEntity<ResponseDto<List<Document>>> response = documentService.uploadKYCDocuments(requestDto.getDocument(), deals.getIndividualId().toString(), DocumentEntityType.POLICY, DocumentType.POLICY_CERTIFICATE, adminUser.getId(), UserRole.fromValue(adminUser.getRole()), "", DocumentCategory.POLICY_DOCUMENTS);
+            if (response.getBody() == null || response.getBody().getErrorCode() != null) {
+                throw new IllegalStateException(response.getBody() != null ? response.getBody().getMessage() : "Policy document upload failed");
+            }
+            if (response.getBody().getPayload() == null || response.getBody().getPayload().isEmpty()) {
+                throw new IllegalStateException("Policy document upload failed: empty payload");
+            }
             savedPolicy.setDocument(response.getBody().getPayload().get(0));
             policyRepository.save(savedPolicy);
-            if(response.getBody().getErrorCode() != null){
-                return responseObj.render(responseObj.formErrorResponse(response.getBody().getMessage()));
-            }
             
             // Send Slack notification only in production
             // if (EnvironmentUtil.isProductionEnvironment(environment)) {
