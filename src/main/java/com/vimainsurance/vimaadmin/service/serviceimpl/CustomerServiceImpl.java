@@ -21,7 +21,6 @@ import org.springframework.data.domain.Sort;
 import org.springframework.data.domain.Pageable;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
-import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
 import org.springframework.core.io.Resource;
@@ -78,6 +77,7 @@ import com.vimainsurance.vimaadmin.util.Constants;
 import com.vimainsurance.vimaadmin.util.ConverterUtils;
 import com.vimainsurance.vimaadmin.util.EnvironmentUtil;
 import com.vimainsurance.vimaadmin.util.IdGenerator;
+import com.vimainsurance.vimaadmin.util.JwtUserExtractor;
 import com.vimainsurance.vimaadmin.util.SlackNotificationUtil;
 import com.vimainsurance.vimaadmin.repository.IDealsRepository;
 import com.vimainsurance.vimaadmin.dto.NomineeRequestDto;
@@ -138,6 +138,8 @@ public class CustomerServiceImpl implements ICustomerService{
     @Autowired
     private Environment environment;
    
+    @Autowired
+    private JwtUserExtractor jwtUserExtractor;
 
     @Override
     public ResponseEntity<ResponseDto<String>> create(CustomerRequestDto requestDto, String username) {
@@ -552,14 +554,22 @@ public class CustomerServiceImpl implements ICustomerService{
         logger.info("[correlationId:{}] getByCustId called", MDC.get("correlationId"));
         BaseResponse<CustomerResponseDto> responseObj = new BaseResponse<>();
         try {
-            Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
-            String currentUsername = authentication.getName();
+            // Extract username from JWT token with fallback logic
+            final String currentUsername = jwtUserExtractor.extractCurrentUsername();
+            
+            if (currentUsername == null || currentUsername.isEmpty()) {
+                logger.error("[correlationId:{}] Unable to determine current username from authentication", MDC.get("correlationId"));
+                return responseObj.render(responseObj.formErrorResponse("Unable to determine current user"));
+            }
             
             Optional<Customer> optionalCustomer = customerRepository.findByCustId(custId);
             if(optionalCustomer.isEmpty()){
                 return responseObj.render(responseObj.formErrorResponse(Constants.RECORD_NOT_FOUND_MESSAGE));
             }
-            AdminUser adminUser = adminUserRepository.findByUsername(currentUsername).orElseThrow(() -> new RuntimeException("Admin user not found"));
+            
+            // Find AdminUser by username (preferred_username from JWT)
+            AdminUser adminUser = adminUserRepository.findByUsername(currentUsername)
+                .orElseThrow(() -> new RuntimeException("Admin user not found for username: " + currentUsername));
             Customer customer = optionalCustomer.get();
             
             // Check if user has admin privileges (ADMIN or VIMA_ADMIN roles)
@@ -673,8 +683,8 @@ public class CustomerServiceImpl implements ICustomerService{
         logger.info("[correlationId:{}] uploadDocument called", MDC.get("correlationId"));
         BaseResponse<String> responseObj = new BaseResponse<>();
         try {
-            String uploadedBy = SecurityContextHolder.getContext().getAuthentication().getName();
-            Optional<AdminUser> adminUser = adminUserRepository.findByUsername(uploadedBy);
+            final String currentUsername = jwtUserExtractor.extractCurrentUsername();
+            Optional<AdminUser> adminUser = adminUserRepository.findByUsername(currentUsername);
             if(adminUser.isEmpty()){
                 return responseObj.render(responseObj.formErrorResponse("Agent not found"));
             }
@@ -844,7 +854,7 @@ public class CustomerServiceImpl implements ICustomerService{
             policyRequest.setPrimaryIndividualId(savedDeals.getIndividualId());
             
             // Get default insurance provider for the product type
-            policyRequest.setInsuranceCompanyCode(custId);
+            policyRequest.setInsuranceCompanyCode(requestDto.getProviderCode());
             policyRequest.setProductType(requestDto.getProductType());
             // Set coverage type based on whether dependents exist
             String coverageType = (requestDto.getDependents() != null && !requestDto.getDependents().isEmpty()) ? "FAMILY_FLOATER" : "INDIVIDUAL";
@@ -919,10 +929,11 @@ public class CustomerServiceImpl implements ICustomerService{
                 document.setEntityId(deals.getIndividualId().toString());
                 documentRepository.save(document);
             }
-            AdminUser adminUser = adminUserRepository.findByUsername(SecurityContextHolder.getContext().getAuthentication().getName()).orElseThrow(() -> new RuntimeException("Agent not found"));
+            final String currentUsername = jwtUserExtractor.extractCurrentUsername();
+            AdminUser adminUser = adminUserRepository.findByUsername(currentUsername).orElseThrow(() -> new RuntimeException("Agent not found"));
             ResponseEntity<ResponseDto<List<Document>>> response = documentService.uploadKYCDocuments(requestDto.getDocument(), deals.getIndividualId().toString(), DocumentEntityType.POLICY, DocumentType.POLICY_CERTIFICATE, adminUser.getId(), UserRole.fromValue(adminUser.getRole()), "", DocumentCategory.POLICY_DOCUMENTS);
             savedPolicy.setDocument(response.getBody().getPayload().get(0));
-            policyRepository.save(savedPolicy);x
+            policyRepository.save(savedPolicy);
             if(response.getBody().getErrorCode() != null){
                 return responseObj.render(responseObj.formErrorResponse(response.getBody().getMessage()));
             }

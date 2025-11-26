@@ -18,6 +18,7 @@ import com.vimainsurance.vimaadmin.entity.Customer;
 public interface IAdminUserRepository extends JpaRepository<AdminUser, UUID> {
     Optional<AdminUser> findByUsername(String username);
     Optional<AdminUser> findByEmail(String email);
+    Optional<AdminUser> findByOauthProviderId(String oauthProviderId);
     List<AdminUser> findByIsActiveTrue();
     List<AdminUser> findByRole(String role);
     @Query("SELECT MAX(CAST(SUBSTRING(c.agentId, 5) AS INTEGER))  FROM AdminUser c WHERE c.agentId LIKE 'VIMA%'")
