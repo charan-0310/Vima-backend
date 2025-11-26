@@ -49,7 +49,7 @@ import com.vimainsurance.vimaadmin.repository.IPolicyRepository;
 import com.vimainsurance.vimaadmin.service.IPolicyService;
 import com.vimainsurance.vimaadmin.repository.IDocumentRepository;
 import com.vimainsurance.vimaadmin.util.Constants;
-
+import com.vimainsurance.vimaadmin.util.JwtUserExtractor;
 /**
  * Service implementation for Policy operations
  */
@@ -79,6 +79,9 @@ public class PolicyServiceImpl implements IPolicyService {
     @Autowired
     private IDocumentRepository documentRepository;
 
+    @Autowired
+    private JwtUserExtractor jwtUserExtractor;
+
     @Override
     public ResponseEntity<ResponseDto<String>> createPolicy(PolicyRequestDto requestDto) {
         logger.info("[correlationId:{}] createPolicy called", MDC.get("correlationId"));
@@ -89,8 +92,8 @@ public class PolicyServiceImpl implements IPolicyService {
             if (policyRepository.existsByPolicyNumber(requestDto.getPolicyNumber())) {
                 return responseObj.render(responseObj.formErrorResponse("Policy number already exists"));
             }
-            String uploadedBy = SecurityContextHolder.getContext().getAuthentication().getName();
-            Optional<AdminUser> adminUser = adminUserRepository.findByUsername(uploadedBy);
+            final String currentUsername = jwtUserExtractor.extractCurrentUsername();
+            Optional<AdminUser> adminUser = adminUserRepository.findByUsername(currentUsername);
             if(adminUser.isEmpty()){
                 return responseObj.render(responseObj.formErrorResponse("Agent not found"));
             }
@@ -133,6 +136,7 @@ public class PolicyServiceImpl implements IPolicyService {
             Policy policy = new Policy();
             policy.setPolicyNumber(requestDto.getPolicyNumber());
             policy.setPrimaryIndividualId(requestDto.getPrimaryIndividualId());
+            logger.info("[correlationId:{}]  Insurance Company Code: {}", MDC.get("correlationId"), requestDto.getInsuranceCompanyCode());
             policy.setInsuranceProviderId(insuranceProviderRepository.findByProviderCode(requestDto.getInsuranceCompanyCode()).orElseThrow(() -> new RuntimeException("Insurance provider not found")).getProviderId());
             policy.setInsuranceProductId(requestDto.getInsuranceProductId());
             policy.setOrganizationId(requestDto.getOrganizationId());

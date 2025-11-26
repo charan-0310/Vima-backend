@@ -46,6 +46,7 @@ import com.vimainsurance.vimaadmin.repository.IDocumentRepository;
 import com.vimainsurance.vimaadmin.service.IZohoCRMService;
 import com.vimainsurance.vimaadmin.util.Constants;
 import com.vimainsurance.vimaadmin.util.IdGenerator;
+import com.vimainsurance.vimaadmin.util.JwtUserExtractor;
 
 @ExtendWith(MockitoExtension.class)
 class CustomerServiceImplTest {
@@ -67,6 +68,9 @@ class CustomerServiceImplTest {
 
     @Mock
     private IdGenerator customerIdGenerator;
+
+    @Mock
+    private JwtUserExtractor jwtUserExtractor;
 
     @Mock
     private SecurityContext securityContext;
@@ -303,10 +307,8 @@ class CustomerServiceImplTest {
         adminUser.setRole("SALES_AGENT");
         when(adminUserRepository.findByUsername("test-agent")).thenReturn(Optional.of(adminUser));
         
-        // Mock security context
-        when(securityContext.getAuthentication()).thenReturn(authentication);
-        when(authentication.getName()).thenReturn("test-agent");
-        SecurityContextHolder.setContext(securityContext);
+        // Mock JwtUserExtractor
+        when(jwtUserExtractor.extractCurrentUsername()).thenReturn("test-agent");
 
         ResponseEntity<ResponseDto<CustomerResponseDto>> response = customerService.getByCustId("C001");
 
@@ -320,9 +322,8 @@ class CustomerServiceImplTest {
     void testGetByCustId_NotFound() {
         when(customerRepository.findByCustId(any())).thenReturn(Optional.empty());
         
-        when(securityContext.getAuthentication()).thenReturn(authentication);
-        when(authentication.getName()).thenReturn("test-agent");
-        SecurityContextHolder.setContext(securityContext);
+        // Mock JwtUserExtractor
+        when(jwtUserExtractor.extractCurrentUsername()).thenReturn("test-agent");
 
         ResponseEntity<ResponseDto<CustomerResponseDto>> response = customerService.getByCustId("C001");
 
@@ -482,9 +483,8 @@ class CustomerServiceImplTest {
         testAgent.setId(UUID.randomUUID());
         when(adminUserRepository.findByUsername("test-agent")).thenReturn(Optional.of(testAgent));
         
-        when(securityContext.getAuthentication()).thenReturn(authentication);
-        when(authentication.getName()).thenReturn("test-agent");
-        SecurityContextHolder.setContext(securityContext);
+        // Mock JwtUserExtractor
+        when(jwtUserExtractor.extractCurrentUsername()).thenReturn("test-agent");
 
         ResponseEntity<ResponseDto<CustomerResponseDto>> response = customerService.getByCustId("C001");
 
@@ -513,9 +513,8 @@ class CustomerServiceImplTest {
         adminUser.setId(UUID.randomUUID());
         when(adminUserRepository.findByUsername("admin-user")).thenReturn(Optional.of(adminUser));
         
-        when(securityContext.getAuthentication()).thenReturn(authentication);
-        when(authentication.getName()).thenReturn("admin-user");
-        SecurityContextHolder.setContext(securityContext);
+        // Mock JwtUserExtractor
+        when(jwtUserExtractor.extractCurrentUsername()).thenReturn("admin-user");
 
         ResponseEntity<ResponseDto<CustomerResponseDto>> response = customerService.getByCustId("C001");
 
@@ -528,9 +527,8 @@ class CustomerServiceImplTest {
     // Test cases for getByCustId method - Exception handling
     @Test
     void testGetByCustId_Exception() {
-        when(securityContext.getAuthentication()).thenReturn(authentication);
-        when(authentication.getName()).thenReturn("test-agent");
-        SecurityContextHolder.setContext(securityContext);
+        // Mock JwtUserExtractor
+        when(jwtUserExtractor.extractCurrentUsername()).thenReturn("test-agent");
         
         when(customerRepository.findByCustId(any())).thenThrow(new RuntimeException("Database error"));
 

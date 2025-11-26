@@ -68,12 +68,12 @@ import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
-import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
-    
+import com.vimainsurance.vimaadmin.util.JwtUserExtractor;
+
 @Service
 public class DealsServiceImpl implements IDealsService{
     private static final Logger logger = LoggerFactory.getLogger(DealsServiceImpl.class);
@@ -109,6 +109,9 @@ public class DealsServiceImpl implements IDealsService{
     
     @Autowired
     private Environment environment;
+
+    @Autowired
+    private JwtUserExtractor jwtUserExtractor;
 
     @Override
     public ResponseEntity<ResponseDto<String>> createDeals(DealsRequestDto dealsRequestDto) {
@@ -314,8 +317,8 @@ public class DealsServiceImpl implements IDealsService{
         logger.info("[correlationId:{}] uploadDocument called", MDC.get("correlationId"));
         BaseResponse<String> responseObj = new BaseResponse<>();
         try {
-            String uploadedBy = SecurityContextHolder.getContext().getAuthentication().getName();
-            Optional<AdminUser> adminUser = adminUserRepository.findByUsername(uploadedBy);
+            final String currentUsername = jwtUserExtractor.extractCurrentUsername();
+            Optional<AdminUser> adminUser = adminUserRepository.findByUsername(currentUsername);
             if(adminUser.isEmpty()){
                 return responseObj.render(responseObj.formErrorResponse("Agent not found"));
             }
@@ -456,8 +459,8 @@ public class DealsServiceImpl implements IDealsService{
         BaseResponse<String> responseObj = new BaseResponse<>();
         try {
             // Get current user
-            String uploadedBy = SecurityContextHolder.getContext().getAuthentication().getName();
-            Optional<AdminUser> adminUser = adminUserRepository.findByUsername(uploadedBy);
+            final String currentUsername = jwtUserExtractor.extractCurrentUsername();
+            Optional<AdminUser> adminUser = adminUserRepository.findByUsername(currentUsername);
             if(adminUser.isEmpty()){
                 return responseObj.render(responseObj.formErrorResponse("Agent not found"));
             }

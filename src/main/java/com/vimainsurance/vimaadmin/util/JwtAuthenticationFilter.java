@@ -19,7 +19,18 @@ import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 
-@Component
+/**
+ * Legacy JWT Authentication Filter - DISABLED
+ * 
+ * This filter has been disabled in favor of Spring Security OAuth2 Resource Server.
+ * OAuth2 Resource Server automatically validates JWT tokens from Authentik using RS256 signatures.
+ * 
+ * The old filter attempted to validate tokens using symmetric keys (HS256), which doesn't work
+ * with Authentik's RS256 (RSA) signed tokens.
+ * 
+ * DO NOT USE THIS FILTER - it will cause conflicts with OAuth2 Resource Server.
+ */
+// @Component - DISABLED: Use OAuth2 Resource Server instead
 public class JwtAuthenticationFilter extends OncePerRequestFilter {
     private static final Logger logger = LoggerFactory.getLogger(JwtAuthenticationFilter.class);
 
