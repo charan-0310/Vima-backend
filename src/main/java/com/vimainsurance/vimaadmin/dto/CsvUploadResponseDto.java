@@ -18,5 +18,7 @@ public class CsvUploadResponseDto {
     private int errorCount;
     private List<String> errors;
     private String message;
+    private int totalEmployees;
+    private int totalDependents;
 }
 

@@ -33,5 +33,31 @@ public class EnvironmentUtil {
         }
         return false;
     }
+    
+    /**
+     * Checks if the current environment is development
+     * 
+     * @param environment Spring Environment instance
+     * @return true if dev profile is active, false otherwise
+     */
+    public static boolean isDevEnvironment(Environment environment) {
+        if (environment == null) {
+            return false;
+        }
+        String[] activeProfiles = environment.getActiveProfiles();
+        for (String profile : activeProfiles) {
+            if ("dev".equalsIgnoreCase(profile)) {
+                return true;
+            }
+        }
+        // Also check default profile if no active profiles are set
+        String[] defaultProfiles = environment.getDefaultProfiles();
+        for (String profile : defaultProfiles) {
+            if ("dev".equalsIgnoreCase(profile)) {
+                return true;
+            }
+        }
+        return false;
+    }
 }
 

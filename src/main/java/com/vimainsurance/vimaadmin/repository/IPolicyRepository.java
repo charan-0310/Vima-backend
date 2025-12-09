@@ -9,6 +9,7 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 
+import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.List;
 import java.util.Optional;
@@ -102,4 +103,16 @@ public interface IPolicyRepository extends JpaRepository<Policy, Long> {
      * Find policies by organization and status
      */
     List<Policy> findByOrganizationIdAndStatus(UUID organizationId, PolicyStatus status);
+    
+    /**
+     * Sum of sumInsured for active policies (aggregation query to avoid loading all policies)
+     */
+    @Query("SELECT COALESCE(SUM(p.sumInsured), 0) FROM Policy p WHERE p.status = :status")
+    BigDecimal sumSumInsuredByStatus(@Param("status") PolicyStatus status);
+    
+    /**
+     * Sum of premiumAmount for active policies (aggregation query to avoid loading all policies)
+     */
+    @Query("SELECT COALESCE(SUM(p.premiumAmount), 0) FROM Policy p WHERE p.status = :status")
+    BigDecimal sumPremiumAmountByStatus(@Param("status") PolicyStatus status);
 }

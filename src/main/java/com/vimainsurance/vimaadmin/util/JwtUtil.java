@@ -10,6 +10,7 @@ import org.springframework.stereotype.Component;
 
 import io.jsonwebtoken.Claims;
 import io.jsonwebtoken.JwtException;
+import io.jsonwebtoken.JwtParser;
 import io.jsonwebtoken.Jwts;
 import io.jsonwebtoken.SignatureAlgorithm;
 import io.jsonwebtoken.security.Keys;
@@ -26,9 +27,30 @@ public class JwtUtil {
     private long refreshexpiration;
 
     // private Key secretKey;
+    
+    // ✅ FIX: Cache JwtParser to prevent per-request creation
+    // This reduces memory overhead from creating new parser instances on every JWT validation
+    private volatile JwtParser jwtParser;
 
     private Key getSigningKey() {
         return Keys.hmacShaKeyFor(Base64.getDecoder().decode(securitykey));
+    }
+    
+    /**
+     * Get or create cached JwtParser instance
+     * Uses double-checked locking pattern for thread-safe lazy initialization
+     */
+    private JwtParser getJwtParser() {
+        if (jwtParser == null) {
+            synchronized (this) {
+                if (jwtParser == null) {
+                    jwtParser = Jwts.parserBuilder()
+                        .setSigningKey(getSigningKey())
+                        .build();
+                }
+            }
+        }
+        return jwtParser;
     }
     // public JwtUtil(){
     //     byte[] keyBytes = Base64.getDecoder().decode(securitykey);
@@ -61,9 +83,7 @@ public class JwtUtil {
 
 
     public String extractUsername(String token) {
-        return Jwts.parserBuilder()
-                .setSigningKey( getSigningKey())
-                .build()
+        return getJwtParser()
                 .parseClaimsJws(token)
                 .getBody()
                 .getSubject();
@@ -71,7 +91,7 @@ public class JwtUtil {
 
     public boolean validateToken(String token) {
         try {
-            Jwts.parserBuilder().setSigningKey( getSigningKey()).build().parseClaimsJws(token);
+            getJwtParser().parseClaimsJws(token);
             return true;
         } catch (JwtException e) {
             return false;
@@ -83,9 +103,7 @@ public class JwtUtil {
     }
 
     public Claims extractAllClaims(String token) {
-        return Jwts.parserBuilder()
-                .setSigningKey(getSigningKey())
-                .build()
+        return getJwtParser()
                 .parseClaimsJws(token)
                 .getBody();
     }

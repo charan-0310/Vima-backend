@@ -3,10 +3,10 @@ package com.vimainsurance.vimaadmin.service.serviceimpl;
 import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.HashMap;
-import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.stream.Collectors;
 import java.util.Objects;
 
@@ -201,6 +201,9 @@ public class DealsServiceImpl implements IDealsService{
         BaseResponse<DealsResponseDto> responseObj = new BaseResponse<>();
         try{
             Deals deals = dealsRepository.findById(individualId).orElseThrow(() -> new RuntimeException("Deals not found"));
+            if(deals.getOrganization() != null){
+                return responseObj.render(responseObj.formErrorResponse("Unauthorized access"));
+            }
             DealsResponseDto dealsResponseDto = new DealsResponseDto();
             dealsResponseDto.setIndividualId(deals.getIndividualId());
             dealsResponseDto.setFirstName(deals.getFirstName());
@@ -239,33 +242,75 @@ public class DealsServiceImpl implements IDealsService{
     public ResponseEntity<ResponseDto<List<DealsResponseDto>>> getAllDeals() {
         BaseResponse<List<DealsResponseDto>> responseObj = new BaseResponse<>();
         try{
-            List<Deals> deals = dealsRepository.findAll();
+            // WARNING: This method loads all deals without pagination - can cause memory issues
+            // Use a reasonable maximum limit to prevent memory issues
+            int maxLimit = 10000; // Maximum records to fetch
+            PageRequest maxPageRequest = PageRequest.of(0, maxLimit);
+            Page<Deals> dealsPage = dealsRepository.findAll(maxPageRequest);
+            
+            if (dealsPage.getTotalElements() > maxLimit) {
+                logger.warn("[correlationId:{}] Total deals ({}) exceeds maximum limit ({}). Only returning first {} records.", 
+                    MDC.get("correlationId"), dealsPage.getTotalElements(), maxLimit, maxLimit);
+            }
+            
+            List<Deals> deals = dealsPage.getContent().stream()
+                .filter(deal -> deal.getIsPrimaryMember() != null && deal.getIsPrimaryMember())
+                .collect(Collectors.toList());
+            
             List<DealsResponseDto> dealsResponseDtoList = new ArrayList<>();
+            
             // Optimized: Batch fetch all policies at once
             List<UUID> individualIds = deals.stream()
                 .map(Deals::getIndividualId)
                 .toList();
             
             Map<UUID, List<PolicyResponseDto>> policiesMap = new HashMap<>();
+            
             if (!individualIds.isEmpty()) {
                 // Single query to get all policies for all individuals
                 List<Policy> allPolicies = policyRepository.findByPrimaryIndividualIdIn(individualIds);
+                
+                // Batch fetch insurance providers to avoid N+1 queries
+                Set<UUID> providerIds = allPolicies.stream()
+                    .map(Policy::getInsuranceProviderId)
+                    .filter(Objects::nonNull)
+                    .collect(Collectors.toSet());
+                
+                final Map<UUID, String> finalProviderNamesMap;
+                if (!providerIds.isEmpty()) {
+                    List<InsuranceProvider> providers = insuranceProviderRepository.findAllById(providerIds);
+                    finalProviderNamesMap = providers.stream()
+                        .collect(Collectors.toMap(
+                            InsuranceProvider::getProviderId,
+                            InsuranceProvider::getProviderName,
+                            (existing, replacement) -> existing
+                        ));
+                } else {
+                    finalProviderNamesMap = new HashMap<>();
+                }
+                
+                // Limit policies per deal to prevent excessive memory usage
+                final int maxPoliciesPerDeal = 50;
                 policiesMap = allPolicies.stream()
                     .collect(Collectors.groupingBy(
                         Policy::getPrimaryIndividualId,
-                        Collectors.mapping(policy -> mapPolicyToResponseDto(policy), Collectors.toList())
+                        Collectors.collectingAndThen(
+                            Collectors.toList(),
+                            list -> list.stream()
+                                .limit(maxPoliciesPerDeal)
+                                .map(policy -> mapPolicyToResponseDto(policy, finalProviderNamesMap))
+                                .collect(Collectors.toList())
+                        )
                     ));
             }
             
             // Map deals to response DTOs with pre-fetched policies
             for(Deals deal : deals){
-                if(deal.getIsPrimaryMember()){
-                    DealsResponseDto dealsResponseDto = mapDealToResponseDto(deal);
-                    dealsResponseDto.setPolicies(policiesMap.getOrDefault(deal.getIndividualId(), new ArrayList<>()));
-                    dealsResponseDtoList.add(dealsResponseDto);
-                }
+                DealsResponseDto dealsResponseDto = mapDealToResponseDto(deal);
+                dealsResponseDto.setPolicies(policiesMap.getOrDefault(deal.getIndividualId(), new ArrayList<>()));
+                dealsResponseDtoList.add(dealsResponseDto);
             }
-            return responseObj.render(responseObj.formSuccessResponse(Constants.SUCCESS, dealsResponseDtoList));
+            return responseObj.render(responseObj.formSuccessResponse(Constants.SUCCESS, dealsResponseDtoList, dealsPage.getTotalElements()));
         }catch(Exception e){
             logger.error("Exception in getAllDeals", e);
             return responseObj.render(responseObj.formErrorResponse(e.getMessage()));
@@ -429,13 +474,44 @@ public class DealsServiceImpl implements IDealsService{
     
     /**
      * Maps Policy entity to PolicyResponseDto
+     * Uses individual repository lookup (for backward compatibility)
      */
     private PolicyResponseDto mapPolicyToResponseDto(Policy policy) {
+        return mapPolicyToResponseDto(policy, null);
+    }
+    
+    /**
+     * Maps Policy entity to PolicyResponseDto with pre-fetched provider names map
+     * This overload prevents N+1 queries by using a batch-fetched provider map
+     */
+    private PolicyResponseDto mapPolicyToResponseDto(Policy policy, Map<UUID, String> providerNamesMap) {
         PolicyResponseDto policyResponseDto = new PolicyResponseDto();
         policyResponseDto.setPolicyId(policy.getPolicyId());
         policyResponseDto.setPolicyNumber(policy.getPolicyNumber());
         policyResponseDto.setPrimaryIndividualId(policy.getPrimaryIndividualId());
-        policyResponseDto.setInsuranceProvider(insuranceProviderRepository.findById(policy.getInsuranceProviderId()).orElseThrow(() -> new RuntimeException("Insurance provider not found")).getProviderName());
+        
+        // Use provider map if available, otherwise fallback to individual query
+        if (providerNamesMap != null && policy.getInsuranceProviderId() != null) {
+            String providerName = providerNamesMap.get(policy.getInsuranceProviderId());
+            if (providerName != null) {
+                policyResponseDto.setInsuranceProvider(providerName);
+            } else {
+                // Fallback if provider not found in map
+                policyResponseDto.setInsuranceProvider(
+                    insuranceProviderRepository.findById(policy.getInsuranceProviderId())
+                        .map(InsuranceProvider::getProviderName)
+                        .orElse("Unknown Provider")
+                );
+            }
+        } else {
+            // Fallback for backward compatibility
+            policyResponseDto.setInsuranceProvider(
+                insuranceProviderRepository.findById(policy.getInsuranceProviderId())
+                    .orElseThrow(() -> new RuntimeException("Insurance provider not found"))
+                    .getProviderName()
+            );
+        }
+        
         policyResponseDto.setInsuranceProductId(policy.getInsuranceProductId());
         policyResponseDto.setOrganizationId(policy.getOrganizationId());
         policyResponseDto.setProductType(policy.getProductType().name());
@@ -589,18 +665,18 @@ public class DealsServiceImpl implements IDealsService{
             
             
             
-            // // Send Slack notification only in production
-            // if (EnvironmentUtil.isProductionEnvironment(environment)) {
-            //     try {
-            //         String slackMessage = buildSlackNotificationMessage(savedPolicy, primaryIndividual, agent);
-            //         slackNotificationUtil.sendSlackMessage("New Policy Issued!", slackMessage);
-            //     } catch (Exception slackException) {
-            //         logger.warn("[correlationId:{}] Failed to send Slack notification: {}", MDC.get("correlationId"), slackException.getMessage());
-            //         // Don't fail the request if Slack notification fails
-            //     }
-            // } else {
-            //     logger.debug("[correlationId:{}] Skipping Slack notification (not in production environment)", MDC.get("correlationId"));
-            // }
+            // Send Slack notification only in production
+            if (EnvironmentUtil.isProductionEnvironment(environment)) {
+                try {
+                    String slackMessage = buildSlackNotificationMessage(savedPolicy, primaryIndividual, agent);
+                    slackNotificationUtil.sendSlackMessage("New Policy Issued!", slackMessage);
+                } catch (Exception slackException) {
+                    logger.warn("[correlationId:{}] Failed to send Slack notification: {}", MDC.get("correlationId"), slackException.getMessage());
+                    // Don't fail the request if Slack notification fails
+                }
+            } else {
+                logger.debug("[correlationId:{}] Skipping Slack notification (not in production environment)", MDC.get("correlationId"));
+            }
             
             return responseObj.render(responseObj.formSuccessResponse(Constants.SUCCESS, "Policy created and documents uploaded successfully"));
         } catch (Exception e) {
@@ -728,23 +804,23 @@ public class DealsServiceImpl implements IDealsService{
                 totalActivePolicies = 0L;
             }
 
-            List<Policy> activePolicies = policyRepository.findByStatus(PolicyStatus.ACTIVE);
+            // Use aggregation queries instead of loading all active policies into memory
+            // This prevents OutOfMemoryError when there are many active policies
+            BigDecimal totalCoverage = policyRepository.sumSumInsuredByStatus(PolicyStatus.ACTIVE);
+            if (totalCoverage == null) {
+                totalCoverage = BigDecimal.ZERO;
+            }
 
-            BigDecimal totalCoverage = activePolicies.stream()
-                .map(Policy::getSumInsured)
-                .filter(Objects::nonNull)
-                .reduce(BigDecimal.ZERO, BigDecimal::add);
-
-            BigDecimal totalPremium = activePolicies.stream()
-                .map(Policy::getPremiumAmount)
-                .filter(Objects::nonNull)
-                .reduce(BigDecimal.ZERO, BigDecimal::add);
+            BigDecimal totalPremium = policyRepository.sumPremiumAmountByStatus(PolicyStatus.ACTIVE);
+            if (totalPremium == null) {
+                totalPremium = BigDecimal.ZERO;
+            }
 
             DealsDashboardResponseDto responseDto = new DealsDashboardResponseDto(
                 totalCustomers,
-                totalCoverage != null ? totalCoverage : BigDecimal.ZERO,
+                totalCoverage,
                 totalActivePolicies,
-                totalPremium != null ? totalPremium : BigDecimal.ZERO
+                totalPremium
             );
 
             return responseObj.render(responseObj.formSuccessResponse(Constants.SUCCESS, responseDto, 1));
@@ -761,35 +837,81 @@ public class DealsServiceImpl implements IDealsService{
         BaseResponse<List<DealsResponseDto>> responseObj = new BaseResponse<>();
         try {
             // Handle special case for getting all deals without pagination
+            // WARNING: This can cause memory issues with large datasets - consider adding a maximum limit
             if (page == -1 && rec == -1) {
-                List<Deals> dealsList = dealsRepository.findAll().stream()
-                    .filter(deal -> deal.getIsPrimaryMember() != null && deal.getIsPrimaryMember())
-                    .filter(deal -> deal.getOrganization() == null)
-                    .collect(Collectors.toList());
+                // Use a reasonable maximum limit to prevent memory issues
+                int maxLimit = 10000; // Maximum records to fetch
+                PageRequest maxPageRequest = PageRequest.of(0, maxLimit, createSort(sortBy, sortDirection));
+                Page<Deals> dealsPage = dealsRepository.findAllPrimaryMembers(
+                    productType != null && !productType.trim().isEmpty() ? ProductType.fromValue(productType).getValue() : null,
+                    maxPageRequest
+                );
                 
-                // Optimized: Batch fetch all policies at once
+                if (dealsPage.getTotalElements() > maxLimit) {
+                    logger.warn("[correlationId:{}] Total deals ({}) exceeds maximum limit ({}). Only returning first {} records.", 
+                        MDC.get("correlationId"), dealsPage.getTotalElements(), maxLimit, maxLimit);
+                }
+                
+                List<Deals> dealsList = dealsPage.getContent();
+                
+                // Optimized: Batch fetch all policies at once with limit per deal
                 List<UUID> individualIds = dealsList.stream()
                     .map(Deals::getIndividualId)
                     .toList();
                 
-                Map<UUID, List<PolicyResponseDto>> policiesMap;
+                Map<UUID, List<PolicyResponseDto>> policiesMap = new HashMap<>();
+                
                 if (!individualIds.isEmpty()) {
-                    List<Policy> allPolicies = policyRepository.findByPrimaryIndividualIdIn(individualIds);
+                    List<Policy> allPoliciesRaw = policyRepository.findByPrimaryIndividualIdIn(individualIds);
+                    
                     // Filter by productType if provided
+                    List<Policy> allPolicies;
                     if (productType != null && !productType.trim().isEmpty()) {
                         try {
                             ProductType productTypeEnum = ProductType.fromValue(productType);
-                            allPolicies = allPolicies.stream()
+                            allPolicies = allPoliciesRaw.stream()
                                 .filter(policy -> policy.getProductType() == productTypeEnum)
                                 .collect(Collectors.toList());
                         } catch (IllegalArgumentException e) {
                             logger.warn("[correlationId:{}] Invalid productType: {}", MDC.get("correlationId"), productType);
+                            allPolicies = allPoliciesRaw;
                         }
+                    } else {
+                        allPolicies = allPoliciesRaw;
                     }
-                    final Map<UUID, List<PolicyResponseDto>> tempPoliciesMap = allPolicies.stream()
+                    final List<Policy> finalAllPolicies = allPolicies;
+                    
+                    // Batch fetch insurance providers to avoid N+1 queries
+                    Set<UUID> providerIds = finalAllPolicies.stream()
+                        .map(Policy::getInsuranceProviderId)
+                        .filter(Objects::nonNull)
+                        .collect(Collectors.toSet());
+                    
+                    final Map<UUID, String> finalProviderNamesMap;
+                    if (!providerIds.isEmpty()) {
+                        List<InsuranceProvider> providers = insuranceProviderRepository.findAllById(providerIds);
+                        finalProviderNamesMap = providers.stream()
+                            .collect(Collectors.toMap(
+                                InsuranceProvider::getProviderId,
+                                InsuranceProvider::getProviderName,
+                                (existing, replacement) -> existing
+                            ));
+                    } else {
+                        finalProviderNamesMap = new HashMap<>();
+                    }
+                    
+                    // Limit policies per deal and map to DTOs with provider map
+                    final int maxPoliciesPerDeal = 50; // Limit policies per deal to prevent excessive memory usage
+                    final Map<UUID, List<PolicyResponseDto>> tempPoliciesMap = finalAllPolicies.stream()
                         .collect(Collectors.groupingBy(
                             Policy::getPrimaryIndividualId,
-                            Collectors.mapping(policy -> mapPolicyToResponseDto(policy), Collectors.toList())
+                            Collectors.collectingAndThen(
+                                Collectors.toList(),
+                                list -> list.stream()
+                                    .limit(maxPoliciesPerDeal)
+                                    .map(policy -> mapPolicyToResponseDto(policy, finalProviderNamesMap))
+                                    .collect(Collectors.toList())
+                            )
                         ));
                     policiesMap = tempPoliciesMap;
                     
@@ -799,8 +921,6 @@ public class DealsServiceImpl implements IDealsService{
                             .filter(deal -> tempPoliciesMap.containsKey(deal.getIndividualId()) && !tempPoliciesMap.get(deal.getIndividualId()).isEmpty())
                             .collect(Collectors.toList());
                     }
-                } else {
-                    policiesMap = new HashMap<>();
                 }
                 
                 List<DealsResponseDto> dealsResponseDtoList = new ArrayList<>();
@@ -810,7 +930,7 @@ public class DealsServiceImpl implements IDealsService{
                     dealsResponseDtoList.add(dealsResponseDto);
                 }
                 
-                return responseObj.render(responseObj.formSuccessResponse(Constants.SUCCESS, dealsResponseDtoList, dealsResponseDtoList.size()));
+                return responseObj.render(responseObj.formSuccessResponse(Constants.SUCCESS, dealsResponseDtoList, dealsPage.getTotalElements()));
             }
             
             // Create sort object
@@ -850,7 +970,7 @@ public class DealsServiceImpl implements IDealsService{
                 return responseObj.render(responseObj.formSuccessResponse(Constants.SUCCESS, new ArrayList<>(), 0));
             }
             
-            // Optimized: Batch fetch all policies at once
+            // Optimized: Batch fetch all policies at once with limit per deal
             List<UUID> individualIds = dealsPage.getContent().stream()
                 .map(Deals::getIndividualId)
                 .toList();
@@ -858,23 +978,51 @@ public class DealsServiceImpl implements IDealsService{
             Map<UUID, List<PolicyResponseDto>> policiesMap = new HashMap<>();
             if (!individualIds.isEmpty()) {
                 List<Policy> allPolicies = policyRepository.findByPrimaryIndividualIdIn(individualIds);
+                
+                // Batch fetch insurance providers to avoid N+1 queries
+                Set<UUID> providerIds = allPolicies.stream()
+                    .map(Policy::getInsuranceProviderId)
+                    .filter(Objects::nonNull)
+                    .collect(Collectors.toSet());
+                
+                final Map<UUID, String> finalProviderNamesMap;
+                if (!providerIds.isEmpty()) {
+                    List<InsuranceProvider> providers = insuranceProviderRepository.findAllById(providerIds);
+                    finalProviderNamesMap = providers.stream()
+                        .collect(Collectors.toMap(
+                            InsuranceProvider::getProviderId,
+                            InsuranceProvider::getProviderName,
+                            (existing, replacement) -> existing
+                        ));
+                } else {
+                    finalProviderNamesMap = new HashMap<>();
+                }
+                
+                // Limit policies per deal to prevent excessive memory usage
+                final int maxPoliciesPerDeal = 50;
                 policiesMap = allPolicies.stream()
                     .collect(Collectors.groupingBy(
                         Policy::getPrimaryIndividualId,
-                        Collectors.mapping(policy -> mapPolicyToResponseDto(policy), Collectors.toList())
+                        Collectors.collectingAndThen(
+                            Collectors.toList(),
+                            list -> list.stream()
+                                .limit(maxPoliciesPerDeal)
+                                .map(policy -> mapPolicyToResponseDto(policy, finalProviderNamesMap))
+                                .collect(Collectors.toList())
+                        )
                     ));
             }
             
             // Map deals to response DTOs with pre-fetched policies
-            LinkedHashSet<DealsResponseDto> dealsResponseSet = new LinkedHashSet<>();
+            // Use ArrayList directly instead of LinkedHashSet for better memory efficiency
+            List<DealsResponseDto> dealsResponseList = new ArrayList<>(dealsPage.getContent().size());
             for (Deals deal : dealsPage) {
                 DealsResponseDto dealsResponseDto = mapDealToResponseDto(deal);
                 dealsResponseDto.setPolicies(policiesMap.getOrDefault(deal.getIndividualId(), new ArrayList<>()));
-                dealsResponseSet.add(dealsResponseDto);
+                dealsResponseList.add(dealsResponseDto);
             }
             
-            List<DealsResponseDto> uniqueList = new ArrayList<>(dealsResponseSet);
-            return responseObj.render(responseObj.formSuccessResponse(Constants.SUCCESS, uniqueList, dealsPage.getTotalElements()));
+            return responseObj.render(responseObj.formSuccessResponse(Constants.SUCCESS, dealsResponseList, dealsPage.getTotalElements()));
         } catch (Exception e) {
             logger.error("[correlationId:{}] Exception in Deals getAllWithFilters: {}", MDC.get("correlationId"), e.getMessage(), e);
             return responseObj.render(responseObj.formErrorResponse(e.getMessage()));

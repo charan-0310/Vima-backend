@@ -6,6 +6,8 @@ import jakarta.persistence.Converter;
 public enum NomineeRelationship {
     SPOUSE("SPOUSE"),
     CHILD("CHILD"),
+    FATHER("FATHER"),
+    MOTHER("MOTHER"),
     PARENT("PARENT"),
     SIBLING("SIBLING"),
     OTHER("OTHER");

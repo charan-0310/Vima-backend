@@ -27,5 +27,7 @@ public class OrganizationEmployeeDto {
     private LocalDate dateOfBirth;
     private String gender;
     private Boolean isPrimaryMember;
+    private String relationship; // Relationship to primary member (for dependents)
+    private String organizationName;    
 }
 

@@ -7,6 +7,7 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.web.servlet.FilterRegistrationBean;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.core.env.Environment;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.authentication.AuthenticationProvider;
 import org.springframework.security.authentication.dao.DaoAuthenticationProvider;
@@ -14,6 +15,16 @@ import org.springframework.security.config.annotation.authentication.configurati
 import org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
+import org.springframework.security.core.authority.SimpleGrantedAuthority;
+import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
+import org.springframework.web.filter.OncePerRequestFilter;
+import jakarta.servlet.FilterChain;
+import jakarta.servlet.ServletException;
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
+import java.io.IOException;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.oauth2.client.userinfo.OAuth2UserRequest;
@@ -29,6 +40,7 @@ import com.vimainsurance.vimaadmin.config.oauth.VimaOAuth2SuccessHandler;
 import com.vimainsurance.vimaadmin.config.oauth.VimaOAuth2UserService;
 import com.vimainsurance.vimaadmin.util.AdminUserDetailsService;
 import com.vimainsurance.vimaadmin.util.CorrelationIdFilter;
+import com.vimainsurance.vimaadmin.util.EnvironmentUtil;
 
 /**
  * Spring Security Configuration
@@ -64,19 +76,65 @@ public class SecurityConfig {
 
     @Autowired
     private AuthentikJwtAuthenticationConverter jwtAuthenticationConverter;
+    
+    @Autowired
+    private Environment environment;
+    
+    /**
+     * Filter to set up mock authentication in dev mode
+     * This allows @PreAuthorize checks to pass without actual JWT tokens
+     */
+    private static class DevAuthenticationFilter extends OncePerRequestFilter {
+        @Override
+        protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain filterChain)
+                throws ServletException, IOException {
+            if (SecurityContextHolder.getContext().getAuthentication() == null) {
+                // Create a mock authentication with all authorities
+                UsernamePasswordAuthenticationToken auth = new UsernamePasswordAuthenticationToken(
+                    "dev-user",
+                    null,
+                    Arrays.asList(
+                        new SimpleGrantedAuthority("SUPER_ADMIN"),
+                        new SimpleGrantedAuthority("ADMIN"),
+                        new SimpleGrantedAuthority("VIMA_ADMIN"),
+                        new SimpleGrantedAuthority("SALES_MANAGER"),
+                        new SimpleGrantedAuthority("SALES_AGENT")
+                    )
+                );
+                SecurityContextHolder.getContext().setAuthentication(auth);
+            }
+            filterChain.doFilter(request, response);
+        }
+    }
 
     /**
      * Security filter chain configuration
      * 
      * Enables OAuth2 Resource Server with JWT validation for Authentik.
      * All /api/** endpoints are secured and require valid JWT tokens.
+     * 
+     * In dev profile, authentication is bypassed for easier development.
      */
     @Bean
     public SecurityFilterChain filterChain(HttpSecurity http) throws Exception {
+        // Check if dev profile is active using EnvironmentUtil
+        boolean isDevProfile = EnvironmentUtil.isDevEnvironment(environment);
+        
         http
             .cors(cors -> cors.configurationSource(corsConfigurationSource()))
-            .csrf(csrf -> csrf.disable())
-            .authorizeHttpRequests(auth -> auth
+            .csrf(csrf -> csrf.disable());
+        
+        if (isDevProfile) {
+            // Dev mode: bypass all authentication but set up a mock authentication
+            // so @PreAuthorize checks pass
+            http.authorizeHttpRequests(auth -> auth
+                .anyRequest().permitAll()
+            );
+            // Add a filter to set up mock authentication in dev mode
+            http.addFilterBefore(new DevAuthenticationFilter(), UsernamePasswordAuthenticationFilter.class);
+        } else {
+            // Production mode: normal security
+            http.authorizeHttpRequests(auth -> auth
                 // Public endpoints - no authentication required
                 .requestMatchers("/health", "/actuator/**", "/public/**").permitAll()
                 
@@ -113,6 +171,7 @@ public class SecurityConfig {
             )
             // Keep authentication provider for backward compatibility with legacy endpoints
             .authenticationProvider(authenticationProvider());
+        }
 
         return http.build();
     }

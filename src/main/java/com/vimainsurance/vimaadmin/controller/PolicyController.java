@@ -1,19 +1,35 @@
 package com.vimainsurance.vimaadmin.controller;
 
-import com.vimainsurance.vimaadmin.dto.PolicyRequestDto;
-import com.vimainsurance.vimaadmin.dto.PolicyResponseDto;
-import com.vimainsurance.vimaadmin.dto.ResponseDto;
-import com.vimainsurance.vimaadmin.service.IPolicyService;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.data.domain.Page;
-import org.springframework.data.domain.Pageable;
-import org.springframework.http.ResponseEntity;
-import org.springframework.security.access.prepost.PreAuthorize;
-import org.springframework.web.bind.annotation.*;
-
 import java.time.LocalDate;
 import java.util.List;
 import java.util.UUID;
+
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.slf4j.MDC;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
+import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.web.bind.annotation.DeleteMapping;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.ModelAttribute;
+import org.springframework.web.bind.annotation.PatchMapping;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.RestController;
+
+import com.vimainsurance.vimaadmin.dto.PolicyRequestDto;
+import com.vimainsurance.vimaadmin.dto.PolicyResponseDto;
+import com.vimainsurance.vimaadmin.dto.PolicyUploadRequestDto;
+import com.vimainsurance.vimaadmin.dto.ResponseDto;
+import com.vimainsurance.vimaadmin.service.IPolicyService;
 
 /**
  * Controller for Policy operations
@@ -22,6 +38,8 @@ import java.util.UUID;
 @RequestMapping("/api/v1/policies")
 @PreAuthorize("hasAnyAuthority('VIMA_ADMIN',  'SALES_MANAGER', 'SUPER_ADMIN', 'ADMIN')")
 public class PolicyController {
+
+    private static final Logger logger = LoggerFactory.getLogger(PolicyController.class);
 
     @Autowired
     private IPolicyService policyService;
@@ -89,6 +107,19 @@ public class PolicyController {
     @GetMapping("/organization/{organizationId}")
     public ResponseEntity<ResponseDto<List<PolicyResponseDto>>> getPoliciesByOrganizationId(@PathVariable UUID organizationId) {
         return policyService.getPoliciesByOrganizationId(organizationId);
+    }
+
+    /**
+     * Upload policy with details for an organization
+     */
+    @PostMapping(value = "/organization/{organizationId}", consumes = MediaType.MULTIPART_FORM_DATA_VALUE,
+        produces = MediaType.APPLICATION_JSON_VALUE)
+    @PreAuthorize("hasAnyAuthority('VIMA_ADMIN', 'SALES_MANAGER', 'SUPER_ADMIN', 'ADMIN')")
+    public ResponseEntity<ResponseDto<String>> uploadPolicyForOrganization(
+            @PathVariable UUID organizationId,
+            @ModelAttribute PolicyUploadRequestDto requestDto) {
+        logger.info("[correlationId:{}] /policies/organization/{} (POST) endpoint called", MDC.get("correlationId"), organizationId);
+        return policyService.uploadPolicyForOrganization(organizationId, requestDto);
     }
 
     /**

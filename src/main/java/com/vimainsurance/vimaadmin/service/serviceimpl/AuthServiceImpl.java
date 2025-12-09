@@ -73,7 +73,10 @@ public class AuthServiceImpl implements IAuthService {
     @Value("${google.recaptcha.site}")
     private String site;
 
-    private final RestTemplate restTemplate = new RestTemplate();
+    // ✅ FIX: Inject singleton RestTemplate instead of creating new one per request
+    // This prevents memory leaks from per-request RestTemplate creation
+    @Autowired
+    private RestTemplate restTemplate;
 
     // Database-based nonce storage (no longer using in-memory map)
 

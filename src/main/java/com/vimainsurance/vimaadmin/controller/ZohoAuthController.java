@@ -40,6 +40,11 @@ public class ZohoAuthController {
 
     @Value("${zoho.crm.client-secret}")
     private String clientSecret;
+    
+    // ✅ FIX: Inject singleton RestTemplate instead of creating new one per request
+    // This prevents memory leaks from per-request RestTemplate creation
+    @Autowired
+    private RestTemplate restTemplate;
 
     private final String REDIRECT_URI = "http://localhost:7219/api/v1/zoho/auth/callback";
     private final String AUTH_URL = "https://accounts.zoho.in/oauth/v2/auth";
@@ -61,7 +66,6 @@ public class ZohoAuthController {
     @GetMapping("/callback")
     public ResponseEntity<ZohoTokenResponseDto> handleCallback(@RequestParam String code) {
         logger.info("[correlationId:{}] /callback endpoint called", MDC.get("correlationId"));
-        RestTemplate restTemplate = new RestTemplate();
         
         HttpHeaders headers = new HttpHeaders();
         headers.setContentType(MediaType.APPLICATION_FORM_URLENCODED);

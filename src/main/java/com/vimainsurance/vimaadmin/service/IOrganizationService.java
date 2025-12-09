@@ -7,6 +7,7 @@ import org.springframework.core.io.Resource;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.multipart.MultipartFile;
 
+import com.vimainsurance.vimaadmin.dto.CsvUploadResponseDto;
 import com.vimainsurance.vimaadmin.dto.DocumentRequestDto;
 import com.vimainsurance.vimaadmin.dto.DocumentResponseDto;
 import com.vimainsurance.vimaadmin.dto.OrganizationEmployeeDto;
@@ -28,7 +29,13 @@ public interface IOrganizationService {
     ResponseEntity<ResponseDto<String>> deleteDocument(String documentId);
     ResponseEntity<ResponseDto<List<DocumentResponseDto>>> getDocuments(UUID organizationId);
     ResponseEntity<ResponseDto<List<OrganizationEmployeeDto>>> getEmployees(UUID organizationId);
-    ResponseEntity<ResponseDto<com.vimainsurance.vimaadmin.dto.CsvUploadResponseDto>> uploadDealsFromCsv(MultipartFile file, UUID organizationId);
+    ResponseEntity<ResponseDto<OrganizationEmployeeDto>> getEmployee(UUID individualId, UUID organizationId);
+    ResponseEntity<ResponseDto<List<OrganizationEmployeeDto>>> getEmployeeDependents(UUID individualId, UUID organizationId);
+    ResponseEntity<ResponseDto<CsvUploadResponseDto>> uploadDealsFromCsv(MultipartFile file, UUID organizationId);
+    ResponseEntity<ResponseDto<CsvUploadResponseDto>> deleteEmployeesFromCsv(MultipartFile file, UUID organizationId);
+    ResponseEntity<ResponseDto<com.vimainsurance.vimaadmin.dto.CsvValidationResponseDto>> validateCsv(MultipartFile file, UUID organizationId, String operation);
+    ResponseEntity<ResponseDto<String>> deleteEmployee(String employeeId, UUID organizationId);
+    ResponseEntity<ResponseDto<String>> bulkDeleteEmployees(com.vimainsurance.vimaadmin.dto.BulkEmployeeDeletionRequestDto requestDto, UUID organizationId);
 }
 
 

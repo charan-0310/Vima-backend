@@ -1,20 +1,15 @@
 package com.vimainsurance.vimaadmin.util;
 
-import java.io.IOException;
 import java.time.LocalDateTime;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
-import org.springframework.stereotype.Component;
 import org.springframework.stereotype.Service;
-import org.springframework.util.LinkedMultiValueMap;
-import org.springframework.util.MultiValueMap;
 import org.springframework.web.client.RestTemplate;
 
 import com.vimainsurance.vimaadmin.dto.ZohoTokenResponseDto;
@@ -34,11 +29,13 @@ public class ZohoUtil {
 
     @Value("${zoho.crm.client-secret}")
     private String clientSecret;
-
+    
+    // ✅ FIX: Inject singleton RestTemplate instead of creating new one per request
+    // This prevents memory leaks from per-request RestTemplate creation
+    @Autowired
+    private RestTemplate restTemplate;
 
     public  void refreshZohoAccessToken() {
-        RestTemplate restTemplate = new RestTemplate();
-        
         HttpHeaders headers = new HttpHeaders();
         headers.setContentType(MediaType.APPLICATION_FORM_URLENCODED);
 
