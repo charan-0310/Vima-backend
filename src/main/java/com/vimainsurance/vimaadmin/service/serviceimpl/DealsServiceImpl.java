@@ -121,6 +121,7 @@ public class DealsServiceImpl implements IDealsService{
             Deals deals = new Deals();
             deals.setFirstName(dealsRequestDto.getFirstName());
             deals.setLastName(dealsRequestDto.getLastName());
+            deals.setFullName(dealsRequestDto.getFullName());
             deals.setEmail(dealsRequestDto.getEmail());
             deals.setPhone(dealsRequestDto.getPhone());
             deals.setDateOfBirth(dealsRequestDto.getDateOfBirth());
@@ -163,6 +164,7 @@ public class DealsServiceImpl implements IDealsService{
             Deals deals = dealsRepository.findById(individualId).orElseThrow(() -> new RuntimeException("Deals not found"));
             deals.setFirstName(dealsRequestDto.getFirstName());
             deals.setLastName(dealsRequestDto.getLastName());
+            deals.setFullName(dealsRequestDto.getFullName());
             deals.setEmail(dealsRequestDto.getEmail());
             deals.setPhone(dealsRequestDto.getPhone());
             deals.setDateOfBirth(dealsRequestDto.getDateOfBirth());
@@ -185,6 +187,8 @@ public class DealsServiceImpl implements IDealsService{
             deals.setPreferredLanguage(dealsRequestDto.getPreferredLanguage());
             deals.setLeadId(dealsRequestDto.getLeadId());
             deals.setCustId(dealsRequestDto.getCustId());
+            deals.setMaritalStatus(dealsRequestDto.getMaritalStatus());
+            deals.setSumInsured(dealsRequestDto.getSumInsured());
             deals.setCreatedAt(dealsRequestDto.getCreatedAt());
             deals.setUpdatedAt(dealsRequestDto.getUpdatedAt());
             dealsRepository.save(deals);
@@ -208,6 +212,7 @@ public class DealsServiceImpl implements IDealsService{
             dealsResponseDto.setIndividualId(deals.getIndividualId());
             dealsResponseDto.setFirstName(deals.getFirstName());
             dealsResponseDto.setLastName(deals.getLastName());
+            dealsResponseDto.setFullName(deals.getFullName());
             dealsResponseDto.setEmail(deals.getEmail());
             dealsResponseDto.setPhone(deals.getPhone());
             dealsResponseDto.setDateOfBirth(deals.getDateOfBirth());
@@ -229,6 +234,8 @@ public class DealsServiceImpl implements IDealsService{
             dealsResponseDto.setPasswordHash(deals.getPasswordHash());
             dealsResponseDto.setPreferredLanguage(deals.getPreferredLanguage());
             dealsResponseDto.setLeadId(deals.getLeadId());
+            dealsResponseDto.setMaritalStatus(deals.getMaritalStatus());
+            dealsResponseDto.setSumInsured(deals.getSumInsured());
             dealsResponseDto.setCustId(deals.getCustId());
             dealsResponseDto.setUpdatedAt(deals.getUpdatedAt());
             return responseObj.render(responseObj.formSuccessResponse(Constants.SUCCESS, dealsResponseDto));
@@ -445,6 +452,7 @@ public class DealsServiceImpl implements IDealsService{
         dealsResponseDto.setIndividualId(deal.getIndividualId());
         dealsResponseDto.setFirstName(deal.getFirstName());
         dealsResponseDto.setLastName(deal.getLastName());
+        dealsResponseDto.setFullName(deal.getFullName());
         dealsResponseDto.setEmail(deal.getEmail());
         dealsResponseDto.setPhone(deal.getPhone());
         dealsResponseDto.setDateOfBirth(deal.getDateOfBirth());
@@ -467,6 +475,8 @@ public class DealsServiceImpl implements IDealsService{
         dealsResponseDto.setPreferredLanguage(deal.getPreferredLanguage());
         dealsResponseDto.setLeadId(deal.getLeadId());
         dealsResponseDto.setCustId(deal.getCustId());
+        dealsResponseDto.setMaritalStatus(deal.getMaritalStatus());
+        dealsResponseDto.setSumInsured(deal.getSumInsured());
         dealsResponseDto.setCreatedAt(deal.getCreatedAt());
         dealsResponseDto.setUpdatedAt(deal.getUpdatedAt());
         return dealsResponseDto;
@@ -550,6 +560,7 @@ public class DealsServiceImpl implements IDealsService{
                     Deals dependent = new Deals();
                     dependent.setFirstName(dependentDto.getFirstName());
                     dependent.setLastName(dependentDto.getLastName());
+                    dependent.setFullName(dependentDto.getFullName());
                     dependent.setEmail(primaryIndividual.getEmail());
                     dependent.setPhone(primaryIndividual.getPhone());
                     dependent.setDateOfBirth(dependentDto.getDateOfBirth());
@@ -570,7 +581,6 @@ public class DealsServiceImpl implements IDealsService{
                     dependent.setPrimaryIndividual(primaryIndividual);
                     dependent.setCreatedAt(LocalDateTime.now());
                     dependent.setUpdatedAt(LocalDateTime.now());
-                    
                     // Save dependent
                     Deals savedDependent = dealsRepository.save(dependent);
                     coveredIndividualIds.add(savedDependent.getIndividualId());
@@ -702,7 +712,7 @@ public class DealsServiceImpl implements IDealsService{
         String productTypeDisplay = formatProductType(policy.getProductType().name());
         
         // Client name
-        String clientName = primaryIndividual.getFirstName() + " " + primaryIndividual.getLastName();
+        String clientName = primaryIndividual.getFullName();
         
         // Build message with emojis
         message.append(":adult::skin-tone-4: Client: ").append(clientName).append("\n");
@@ -745,8 +755,8 @@ public class DealsServiceImpl implements IDealsService{
         if (dto == null) {
             throw new IllegalArgumentException("Nominee details cannot be null");
         }
-        if (dto.getFirstName() == null || dto.getFirstName().isBlank()) {
-            throw new IllegalArgumentException("Nominee first name is required");
+        if (dto.getFullName() == null || dto.getFullName().isBlank()) {
+            throw new IllegalArgumentException("Nominee full name is required");
         }
         if (dto.getDateOfBirth() == null) {
             throw new IllegalArgumentException("Nominee date of birth is required");
@@ -762,6 +772,7 @@ public class DealsServiceImpl implements IDealsService{
         nominee.setPolicy(policy);
         nominee.setFirstName(dto.getFirstName());
         nominee.setLastName(dto.getLastName());
+        nominee.setFullName(dto.getFullName());
         nominee.setDateOfBirth(dto.getDateOfBirth());
         nominee.setGender(dto.getGender());
         nominee.setRelationship(dto.getRelationship());
@@ -1052,6 +1063,7 @@ public class DealsServiceImpl implements IDealsService{
         return switch (frontendField.toLowerCase()) {
             case "firstname", "first_name", "name" -> "firstName";
             case "lastname", "last_name" -> "lastName";
+            case "fullname", "full_name" -> "fullName";
             case "email" -> "email";
             case "phone" -> "phone";
             case "pannumber", "pan_number", "pan" -> "panNumber";

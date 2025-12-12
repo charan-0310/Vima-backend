@@ -804,6 +804,7 @@ public class CustomerServiceImpl implements ICustomerService{
             Deals deals = new Deals();
             deals.setFirstName("");
             deals.setLastName(customer.getFullName());
+            deals.setFullName(customer.getFullName());
             deals.setEmail(customer.getEmail());
             deals.setPhone(customer.getPhoneNumber());
             deals.setDateOfBirth(customer.getDateOfBirth());

@@ -12,7 +12,7 @@ import lombok.NoArgsConstructor;
 @Data
 @NoArgsConstructor
 @AllArgsConstructor
-public class CsvUploadResponseDto {
+public class EmployeeUploadResponse {
     private int totalRows;
     private int successCount;
     private int errorCount;

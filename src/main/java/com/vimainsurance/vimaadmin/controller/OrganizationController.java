@@ -24,10 +24,11 @@ import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.multipart.MultipartFile;
 
 import com.vimainsurance.vimaadmin.dto.BulkEmployeeDeletionRequestDto;
-import com.vimainsurance.vimaadmin.dto.CsvUploadResponseDto;
+import com.vimainsurance.vimaadmin.dto.EmployeeUploadResponse;
 import com.vimainsurance.vimaadmin.dto.CsvValidationResponseDto;
 import com.vimainsurance.vimaadmin.dto.DocumentRequestDto;
 import com.vimainsurance.vimaadmin.dto.DocumentResponseDto;
+import com.vimainsurance.vimaadmin.dto.EmployeeUploadDto;
 import com.vimainsurance.vimaadmin.dto.OrganizationEmployeeDto;
 import com.vimainsurance.vimaadmin.dto.OrganizationRequestDto;
 import com.vimainsurance.vimaadmin.dto.OrganizationResponseDto;
@@ -196,11 +197,33 @@ public class OrganizationController {
             MDC.get("correlationId"), organizationId, operation);
         return organizationService.validateCsv(file, organizationId, operation);
     }
+
+
+    @PostMapping(value = "/organization/{organizationId}/validate")
+    @PreAuthorize("hasAnyAuthority('VIMA_ADMIN', 'SALES_MANAGER', 'SUPER_ADMIN', 'ADMIN')")
+    public ResponseEntity<ResponseDto<EmployeeUploadResponse>> validateEmployees(
+            @PathVariable UUID organizationId,
+            @RequestBody List<EmployeeUploadDto> employeeUploadDtoList) {
+        logger.info("[correlationId:{}] /organization/{}/upload endpoint called with operation: {}", 
+            MDC.get("correlationId"), organizationId);
+        return organizationService.validateEmployees(employeeUploadDtoList, organizationId);
+    }
+    
+
+    @PostMapping(value = "/organization/{organizationId}/upload")
+    @PreAuthorize("hasAnyAuthority('VIMA_ADMIN', 'SALES_MANAGER', 'SUPER_ADMIN', 'ADMIN')")
+    public ResponseEntity<ResponseDto<EmployeeUploadResponse>> uploadEmployees(
+            @PathVariable UUID organizationId,
+            @RequestBody List<EmployeeUploadDto> employeeUploadDtoList) {
+        logger.info("[correlationId:{}] /organization/{}/upload endpoint called with operation: {}", 
+            MDC.get("correlationId"), organizationId);
+        return organizationService.uploadEmployees(employeeUploadDtoList, organizationId);
+    }
     
     @PostMapping(value = "/organization/{organizationId}/upload/csv", consumes = MediaType.MULTIPART_FORM_DATA_VALUE,
         produces = MediaType.APPLICATION_JSON_VALUE)
     @PreAuthorize("hasAnyAuthority('VIMA_ADMIN', 'SALES_MANAGER', 'SUPER_ADMIN', 'ADMIN')")
-    public ResponseEntity<ResponseDto<CsvUploadResponseDto>> uploadDealsFromCsv(
+    public ResponseEntity<ResponseDto<EmployeeUploadResponse>> uploadDealsFromCsv(
             @PathVariable UUID organizationId,
             @RequestParam("file") MultipartFile file) {
         logger.info("[correlationId:{}] /organization/{}/upload/csv endpoint called", MDC.get("correlationId"), organizationId);
@@ -210,12 +233,21 @@ public class OrganizationController {
     @PostMapping(value = "/organization/{organizationId}/delete/csv", consumes = MediaType.MULTIPART_FORM_DATA_VALUE,
         produces = MediaType.APPLICATION_JSON_VALUE)
     @PreAuthorize("hasAnyAuthority('SUPER_ADMIN', 'ADMIN', 'VIMA_ADMIN')")
-    public ResponseEntity<ResponseDto<CsvUploadResponseDto>> deleteEmployeesFromCsv(
+    public ResponseEntity<ResponseDto<EmployeeUploadResponse>> deleteEmployeesFromCsv(
             @PathVariable UUID organizationId,
             @RequestParam("file") MultipartFile file) {
         logger.info("[correlationId:{}] /organization/{}/delete/csv endpoint called", MDC.get("correlationId"), organizationId);
         return organizationService.deleteEmployeesFromCsv(file, organizationId);
     }
+
+    @PostMapping(value = "/organization/{organizationId}/delete")
+    @PreAuthorize("hasAnyAuthority('SUPER_ADMIN', 'ADMIN', 'VIMA_ADMIN')")
+    public ResponseEntity<ResponseDto<EmployeeUploadResponse>> delete(
+            @PathVariable UUID organizationId,
+            @RequestBody List<BulkEmployeeDeletionRequestDto> bulkEmployeeDeletionRequestDtoList) {
+        logger.info("[correlationId:{}] /organization/{}/delete/csv endpoint called", MDC.get("correlationId"), organizationId);
+        return organizationService.delete(bulkEmployeeDeletionRequestDtoList, organizationId);
+}
     
     @DeleteMapping("/organization/{organizationId}/employee/{employeeId}")
     @PreAuthorize("hasAnyAuthority('SUPER_ADMIN', 'ADMIN', 'VIMA_ADMIN')")
@@ -234,7 +266,7 @@ public class OrganizationController {
             @RequestBody BulkEmployeeDeletionRequestDto requestDto) {
         logger.info("[correlationId:{}] /organization/{}/employees/bulk-delete (POST) endpoint called with {} employee IDs", 
             MDC.get("correlationId"), organizationId, 
-            requestDto != null && requestDto.getEmployeeIds() != null ? requestDto.getEmployeeIds().size() : 0);
+            requestDto != null && requestDto.getEmployeeId() != null ? 1 : 0);
         return organizationService.bulkDeleteEmployees(requestDto, organizationId);
     }
 }

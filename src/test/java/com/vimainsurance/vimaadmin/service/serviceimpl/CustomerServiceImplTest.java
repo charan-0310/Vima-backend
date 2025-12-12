@@ -254,7 +254,9 @@ class CustomerServiceImplTest {
     void testGetAllCustomers_WithoutPagination() {
         List<Customer> customers = new ArrayList<>();
         customers.add(customer);
-        when(customerRepository.findAll()).thenReturn(customers);
+        // When page=-1 and rec=-1, the method calls findAll(Pageable) and expects a Page<Customer>
+        Page<Customer> customerPage = new PageImpl<>(customers);
+        when(customerRepository.findAll(any(Pageable.class))).thenReturn(customerPage);
 
         ResponseEntity<ResponseDto<List<CustomerResponseDto>>> response = customerService.getAllCustomers("", -1, -1, null, "asc");
 
@@ -453,7 +455,8 @@ class CustomerServiceImplTest {
     // Test cases for getAllCustomers method - Exception handling
     @Test
     void testGetAllCustomers_Exception() {
-        when(customerRepository.findAll()).thenThrow(new RuntimeException("Database error"));
+        // When page=-1 and rec=-1, the method calls findAll(Pageable)
+        when(customerRepository.findAll(any(Pageable.class))).thenThrow(new RuntimeException("Database error"));
 
         ResponseEntity<ResponseDto<List<CustomerResponseDto>>> response = customerService.getAllCustomers("", -1, -1, null, "asc");
 

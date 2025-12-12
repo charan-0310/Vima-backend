@@ -4,12 +4,18 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.UUID;
 
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationToken;
 import org.springframework.stereotype.Component;
+
+import com.vimainsurance.vimaadmin.entity.AdminUser;
+import com.vimainsurance.vimaadmin.enums.UserRole;
+import com.vimainsurance.vimaadmin.repository.IAdminUserRepository;
 
 /**
  * Helper component to extract user details from JWT tokens issued by Authentik.
@@ -21,6 +27,9 @@ import org.springframework.stereotype.Component;
  */
 @Component
 public class JwtUserExtractor {
+
+    @Autowired
+    private IAdminUserRepository adminUserRepository;
 
     /**
      * Get the current JWT token from the security context
@@ -287,6 +296,53 @@ public class JwtUserExtractor {
             // Fallback to authentication name for non-JWT authentication
             return authentication != null ? authentication.getName() : null;
         }
+    }
+
+    /**
+     * Get current user's UUID from the database using username from token
+     * 
+     * @return UUID of current user if found, null otherwise
+     */
+    public UUID getCurrentUserId() {
+        String username = extractCurrentUsername();
+        if (username == null) {
+            return null;
+        }
+        
+        Optional<AdminUser> adminUser = adminUserRepository.findByUsername(username);
+        return adminUser.map(AdminUser::getId).orElse(null);
+    }
+
+    /**
+     * Get current user's role from the database using username from token
+     * 
+     * @return UserRole of current user if found, null otherwise
+     */
+    public UserRole getCurrentUserRole() {
+        String username = extractCurrentUsername();
+        if (username == null) {
+            return null;
+        }
+        
+        Optional<AdminUser> adminUser = adminUserRepository.findByUsername(username);
+        if (adminUser.isEmpty()) {
+            return null;
+        }
+        
+        try {
+            return UserRole.fromValue(adminUser.get().getRole());
+        } catch (IllegalArgumentException e) {
+            return null;
+        }
+    }
+
+    /**
+     * Get current user's username from token
+     * 
+     * @return username if found, null otherwise
+     */
+    public String getCurrentUsername() {
+        return extractCurrentUsername();
     }
 }
 

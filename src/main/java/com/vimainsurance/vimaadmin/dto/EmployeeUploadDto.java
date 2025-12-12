@@ -36,5 +36,8 @@ public class EmployeeUploadDto {
     public String department;
     public String maritalStatus;
     public String sumInsured;
-    public String remarks;
+
+    public String getComparisonString() {
+        return this.employeeId + this.relationship + this.name + this.dateOfBirth + this.gender + this.email + this.mobile + this.dateOfJoining + this.designation + this.department + this.maritalStatus + this.sumInsured;
+    }
 }

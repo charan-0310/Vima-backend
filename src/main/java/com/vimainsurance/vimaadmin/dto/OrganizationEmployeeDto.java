@@ -18,6 +18,7 @@ public class OrganizationEmployeeDto {
     private UUID individualId;
     private String firstName;
     private String lastName;
+    private String fullName;
     private String email;
     private String phone;
     private String employeeNumber;

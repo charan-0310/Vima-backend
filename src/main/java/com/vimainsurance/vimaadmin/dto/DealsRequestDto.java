@@ -17,6 +17,7 @@ import lombok.AllArgsConstructor;
 public class DealsRequestDto {
 private String firstName;
 private String lastName;
+private String fullName;
 private String email;
 private String phone;
 private LocalDate dateOfBirth;
@@ -40,6 +41,8 @@ private String passwordHash;
 private String preferredLanguage;
 private UUID leadId;
 private String custId;
+private String maritalStatus;
+private String sumInsured;
 private LocalDateTime createdAt;
 private LocalDateTime updatedAt;
 }

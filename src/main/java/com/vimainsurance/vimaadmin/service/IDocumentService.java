@@ -5,6 +5,7 @@ import com.vimainsurance.vimaadmin.entity.Document;
 import com.vimainsurance.vimaadmin.enums.DocumentCategory;
 import com.vimainsurance.vimaadmin.enums.DocumentEntityType;
 import com.vimainsurance.vimaadmin.enums.DocumentType;
+import com.vimainsurance.vimaadmin.enums.UserRole;
 import com.vimainsurance.vimaadmin.enums.DocumentCategory;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
@@ -192,4 +193,19 @@ public interface IDocumentService {
      * @return Response with validation result
      */
     ResponseEntity<ResponseDto<String>> validateFile(MultipartFile file, DocumentType documentType);
+
+
+    /**
+     * Upload a document to the database and S3
+     * 
+     * @param file The file to upload
+     * @param documentType The type of document (as String, will be mapped to enum)
+     * @param documentCategory The category of the document (as String, will be mapped to enum)
+     * @param documentEntityType The entity type of the document (as String, will be mapped to enum)
+     * @param entityId The ID of the entity this document belongs to
+     * @param notes Optional notes for the document
+     * @return Response with the document ID
+     * Note: uploadedBy and uploadedByRole are extracted from JWT token automatically
+     */
+    ResponseEntity<ResponseDto<String>> uploadDocument(MultipartFile file, String documentType, String documentCategory, String documentEntityType, String entityId, String notes);
 }

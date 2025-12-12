@@ -41,11 +41,14 @@ public class Deals {
     private UUID individualId;
 
     // Personal Information
-    @Column(name = "first_name", length = 100, nullable = false)
+    @Column(name = "first_name", length = 100)
     private String firstName;
 
     @Column(name = "last_name", length = 100)
     private String lastName;
+
+    @Column(name = "full_name", length = 255, unique = true)
+    private String fullName;
 
     @Column(name = "email", length = 255, unique = true)
     private String email;
@@ -138,4 +141,11 @@ public class Deals {
 
     @Column(name = "updated_at")
     private LocalDateTime updatedAt = LocalDateTime.now();
+
+    @Column(name = "marital_status")
+    private String maritalStatus;
+
+    @Column(name = "sum_insured")
+    private String sumInsured;
+
 }

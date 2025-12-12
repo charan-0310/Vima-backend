@@ -11,6 +11,7 @@ import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
+import java.util.Arrays;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.slf4j.MDC;
@@ -31,7 +32,8 @@ import org.springframework.web.multipart.MultipartFile;
 
 import com.vimainsurance.vimaadmin.dto.BaseResponse;
 import com.vimainsurance.vimaadmin.dto.BulkEmployeeDeletionRequestDto;
-import com.vimainsurance.vimaadmin.dto.CsvUploadResponseDto;
+import com.vimainsurance.vimaadmin.dto.EmployeeUploadResponse;
+import com.vimainsurance.vimaadmin.dto.EmployeeUploadDto;
 import com.vimainsurance.vimaadmin.dto.CsvValidationResponseDto;
 import com.vimainsurance.vimaadmin.dto.DocumentRequestDto;
 import com.vimainsurance.vimaadmin.dto.DocumentResponseDto;
@@ -63,6 +65,9 @@ import com.vimainsurance.vimaadmin.util.CsvDealsReaderUtil;
 public class OrganizationServiceImpl implements IOrganizationService {
 
     private static final Logger logger = LoggerFactory.getLogger(OrganizationServiceImpl.class);
+
+    @Autowired
+    private EmployeeService employeeService;
 
     @Autowired
     private IOrganizationRepository organizationRepository;
@@ -523,6 +528,7 @@ public class OrganizationServiceImpl implements IOrganizationService {
         dto.setIsPrimaryMember(deal.getIsPrimaryMember());
         dto.setRelationship(deal.getRelationship());
         dto.setOrganizationName(deal.getOrganization().getOrganizationName());
+        dto.setFullName(deal.getFullName());
         return dto;
     }
 
@@ -859,9 +865,9 @@ public class OrganizationServiceImpl implements IOrganizationService {
 
     @Override
     @Transactional(rollbackFor = Exception.class)
-    public ResponseEntity<ResponseDto<CsvUploadResponseDto>> uploadDealsFromCsv(MultipartFile file, UUID organizationId) {
+    public ResponseEntity<ResponseDto<EmployeeUploadResponse>> uploadDealsFromCsv(MultipartFile file, UUID organizationId) {
         logger.info("[correlationId:{}] uploadDealsFromCsv called with organizationId: {}", MDC.get("correlationId"), organizationId);
-        BaseResponse<CsvUploadResponseDto> responseObj = new BaseResponse<>();
+        BaseResponse<EmployeeUploadResponse> responseObj = new BaseResponse<>();
         
         try {
             // Validate file and organization using shared validation logic
@@ -869,13 +875,13 @@ public class OrganizationServiceImpl implements IOrganizationService {
             Organization organization = validateFileAndOrganization(file, organizationId, fileErrors);
             
             if (organization == null) {
-                CsvUploadResponseDto errorResponse = new CsvUploadResponseDto(
+                EmployeeUploadResponse errorResponse = new EmployeeUploadResponse(
                     0, 0, fileErrors.size(), 
                     fileErrors, 
                     "File upload failed",
                     0, 0
                 );
-                ResponseDto<CsvUploadResponseDto> response = new ResponseDto<>(
+                ResponseDto<EmployeeUploadResponse> response = new ResponseDto<>(
                     0, 
                     fileErrors.isEmpty() ? "Validation failed" : fileErrors.get(0), 
                     errorResponse
@@ -890,7 +896,7 @@ public class OrganizationServiceImpl implements IOrganizationService {
             
             if (parseResult.getDeals().isEmpty() && !parseResult.getErrors().isEmpty()) {
                 // All rows failed to parse
-                CsvUploadResponseDto errorResponse = new CsvUploadResponseDto(
+                EmployeeUploadResponse errorResponse = new EmployeeUploadResponse(
                     parseResult.getTotalRows(), 
                     0, 
                     parseResult.getErrorCount(),
@@ -899,7 +905,7 @@ public class OrganizationServiceImpl implements IOrganizationService {
                     parseResult.getTotalEmployees(),
                     parseResult.getTotalDependents()
                 );
-                ResponseDto<CsvUploadResponseDto> response = new ResponseDto<>(0, "Failed to parse CSV file", errorResponse);
+                ResponseDto<EmployeeUploadResponse> response = new ResponseDto<>(0, "Failed to parse CSV file", errorResponse);
                 logger.error("[correlationId:{}] Failed to parse CSV file: {}", MDC.get("correlationId"), response.getMessage());
                 return responseObj.render(response);
             }
@@ -916,7 +922,7 @@ public class OrganizationServiceImpl implements IOrganizationService {
                 logger.warn("[correlationId:{}] CSV validation failed with {} errors. Upload aborted.", 
                     MDC.get("correlationId"), validationErrors.size());
                 
-                CsvUploadResponseDto errorResponse = new CsvUploadResponseDto(
+                EmployeeUploadResponse errorResponse = new EmployeeUploadResponse(
                     parseResult.getTotalRows(),
                     0,
                     validationErrors.size(),
@@ -925,7 +931,7 @@ public class OrganizationServiceImpl implements IOrganizationService {
                     parseResult.getTotalEmployees(),
                     parseResult.getTotalDependents()
                 );
-                ResponseDto<CsvUploadResponseDto> response = new ResponseDto<>(
+                ResponseDto<EmployeeUploadResponse> response = new ResponseDto<>(
                     0, 
                     "CSV validation failed. Please fix errors and try again.", 
                     errorResponse
@@ -982,7 +988,7 @@ public class OrganizationServiceImpl implements IOrganizationService {
             
             // Prepare success response
             String message = String.format("Successfully added %d records from CSV", totalSaved);
-            CsvUploadResponseDto csvResponse = new CsvUploadResponseDto(
+            EmployeeUploadResponse csvResponse = new EmployeeUploadResponse(
                 parseResult.getTotalRows(),
                 totalSaved,
                 0,
@@ -999,20 +1005,20 @@ public class OrganizationServiceImpl implements IOrganizationService {
         } catch (Exception e) {
             logger.error("[correlationId:{}] Exception in uploadDealsFromCsv: {}", MDC.get("correlationId"), e.getMessage(), e);
             // Transaction will automatically rollback due to @Transactional annotation
-            CsvUploadResponseDto errorResponse = new CsvUploadResponseDto(0, 0, 1, 
+            EmployeeUploadResponse errorResponse = new EmployeeUploadResponse(0, 0, 1, 
                 List.of("Transaction rolled back: " + e.getMessage()), "File upload failed - no records were saved",
                 0, 0);
-            ResponseDto<CsvUploadResponseDto> response = new ResponseDto<>(0, e.getMessage(), errorResponse);
+            ResponseDto<EmployeeUploadResponse> response = new ResponseDto<>(0, e.getMessage(), errorResponse);
             return responseObj.render(response);
         }
     }
     
     @Override
     @Transactional(rollbackFor = Exception.class)
-    public ResponseEntity<ResponseDto<CsvUploadResponseDto>> deleteEmployeesFromCsv(MultipartFile file, UUID organizationId) {
+    public ResponseEntity<ResponseDto<EmployeeUploadResponse>> deleteEmployeesFromCsv(MultipartFile file, UUID organizationId) {
         logger.info("[correlationId:{}] deleteEmployeesFromCsv called for organizationId: {}", 
             MDC.get("correlationId"), organizationId);
-        BaseResponse<CsvUploadResponseDto> responseObj = new BaseResponse<>();
+        BaseResponse<EmployeeUploadResponse> responseObj = new BaseResponse<>();
         
         try {
             // Validate file and organization using shared validation logic
@@ -1020,13 +1026,13 @@ public class OrganizationServiceImpl implements IOrganizationService {
             Organization organization = validateFileAndOrganization(file, organizationId, fileErrors);
             
             if (organization == null) {
-                CsvUploadResponseDto errorResponse = new CsvUploadResponseDto(
+                EmployeeUploadResponse errorResponse = new EmployeeUploadResponse(
                     0, 0, fileErrors.size(), 
                     fileErrors, 
                     "File deletion failed",
                     0, 0
                 );
-                ResponseDto<CsvUploadResponseDto> response = new ResponseDto<>(
+                ResponseDto<EmployeeUploadResponse> response = new ResponseDto<>(
                     0, 
                     fileErrors.isEmpty() ? "Validation failed" : fileErrors.get(0), 
                     errorResponse
@@ -1040,7 +1046,7 @@ public class OrganizationServiceImpl implements IOrganizationService {
             CsvDealsReaderUtil.CsvParseResult parseResult = CsvDealsReaderUtil.parseGroupedCsvToDeals(file);
             
             if (parseResult.getDeals().isEmpty() && !parseResult.getErrors().isEmpty()) {
-                CsvUploadResponseDto errorResponse = new CsvUploadResponseDto(
+                EmployeeUploadResponse errorResponse = new EmployeeUploadResponse(
                     parseResult.getTotalRows(), 
                     0, 
                     parseResult.getErrorCount(),
@@ -1049,7 +1055,7 @@ public class OrganizationServiceImpl implements IOrganizationService {
                     parseResult.getTotalEmployees(),
                     parseResult.getTotalDependents()
                 );
-                ResponseDto<CsvUploadResponseDto> response = new ResponseDto<>(0, "Failed to parse CSV file", errorResponse);
+                ResponseDto<EmployeeUploadResponse> response = new ResponseDto<>(0, "Failed to parse CSV file", errorResponse);
                 logger.error("[correlationId:{}] Failed to parse CSV file: {}", MDC.get("correlationId"), response.getMessage());
                 return responseObj.render(response);
             }
@@ -1066,7 +1072,7 @@ public class OrganizationServiceImpl implements IOrganizationService {
                 logger.warn("[correlationId:{}] CSV validation failed with {} errors. Deletion aborted.", 
                     MDC.get("correlationId"), validationErrors.size());
                 
-                CsvUploadResponseDto errorResponse = new CsvUploadResponseDto(
+                EmployeeUploadResponse errorResponse = new EmployeeUploadResponse(
                     parseResult.getTotalRows(),
                     0,
                     validationErrors.size(),
@@ -1075,7 +1081,7 @@ public class OrganizationServiceImpl implements IOrganizationService {
                     parseResult.getTotalEmployees(),
                     parseResult.getTotalDependents()
                 );
-                ResponseDto<CsvUploadResponseDto> response = new ResponseDto<>(
+                ResponseDto<EmployeeUploadResponse> response = new ResponseDto<>(
                     0, 
                     "CSV validation failed. Please fix errors and try again.", 
                     errorResponse
@@ -1195,7 +1201,7 @@ public class OrganizationServiceImpl implements IOrganizationService {
             
             // Prepare success response
             String message = String.format("Successfully deleted %d records from CSV", totalDeleted);
-            CsvUploadResponseDto csvResponse = new CsvUploadResponseDto(
+            EmployeeUploadResponse csvResponse = new EmployeeUploadResponse(
                 parseResult.getTotalRows(),
                 totalDeleted,
                 0,
@@ -1212,10 +1218,10 @@ public class OrganizationServiceImpl implements IOrganizationService {
             
         } catch (Exception e) {
             logger.error("[correlationId:{}] Exception in deleteEmployeesFromCsv: {}", MDC.get("correlationId"), e.getMessage(), e);
-            CsvUploadResponseDto errorResponse = new CsvUploadResponseDto(0, 0, 1, 
+            EmployeeUploadResponse errorResponse = new EmployeeUploadResponse(0, 0, 1, 
                 List.of("Transaction rolled back: " + e.getMessage()), "File deletion failed - no records were deleted",
                 0, 0);
-            ResponseDto<CsvUploadResponseDto> response = new ResponseDto<>(0, e.getMessage(), errorResponse);
+            ResponseDto<EmployeeUploadResponse> response = new ResponseDto<>(0, e.getMessage(), errorResponse);
             return responseObj.render(response);
         }
     }
@@ -1276,12 +1282,12 @@ public class OrganizationServiceImpl implements IOrganizationService {
     @Transactional(rollbackFor = Exception.class)
     public ResponseEntity<ResponseDto<String>> bulkDeleteEmployees(BulkEmployeeDeletionRequestDto requestDto, UUID organizationId) {
         logger.info("[correlationId:{}] bulkDeleteEmployees called for {} employees, organizationId: {}", 
-            MDC.get("correlationId"), requestDto.getEmployeeIds() != null ? requestDto.getEmployeeIds().size() : 0, organizationId);
+            MDC.get("correlationId"), requestDto.getEmployeeId() != null ? 1 : 0, organizationId);
         BaseResponse<String> responseObj = new BaseResponse<>();
         
         try {
             // Validate request
-            if (requestDto == null || requestDto.getEmployeeIds() == null || requestDto.getEmployeeIds().isEmpty()) {
+            if (requestDto == null || requestDto.getEmployeeId() == null) {
                 return responseObj.render(responseObj.formErrorResponse("Employee IDs list cannot be empty"));
             }
             
@@ -1291,7 +1297,7 @@ public class OrganizationServiceImpl implements IOrganizationService {
                 return responseObj.render(responseObj.formErrorResponse("Organization not found"));
             }
             
-            List<String> employeeIds = requestDto.getEmployeeIds();
+            List<String> employeeIds = Arrays.asList(requestDto.getEmployeeId());
             LocalDateTime now = LocalDateTime.now();
             
             // Batch query to find all employees at once (optimized)
@@ -1368,6 +1374,61 @@ public class OrganizationServiceImpl implements IOrganizationService {
             return responseObj.render(responseObj.formErrorResponse(e.getMessage()));
         }
     }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public ResponseEntity<ResponseDto<EmployeeUploadResponse>> uploadEmployees(List<EmployeeUploadDto> employeeUploadDtoList, UUID organizationId) {
+    logger.info("[correlationId:{}] uploadEmployees called for {} employees, organizationId: {}", 
+        MDC.get("correlationId"), employeeUploadDtoList.size(), organizationId);
+    BaseResponse<EmployeeUploadResponse> responseObj = new BaseResponse<>();
+    try {
+        Organization organization = organizationRepository.findByOrganizationId(organizationId).orElseThrow(() -> new RuntimeException("Organization not found"));
+        EmployeeUploadResponse employeeUploadResponse = new EmployeeUploadResponse();
+        employeeUploadResponse = employeeService.uploadEmployees(employeeUploadDtoList, organization);
+        return responseObj.render(responseObj.formSuccessResponse(Constants.SUCCESS, employeeUploadResponse));
+    }
+    catch (Exception e) {
+        logger.error("[correlationId:{}] Exception in uploadEmployees: {}", MDC.get("correlationId"), e.getMessage(), e);
+        return responseObj.render(responseObj.formErrorResponse(e.getMessage()));
+    }
 }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public ResponseEntity<ResponseDto<EmployeeUploadResponse>> validateEmployees(List<EmployeeUploadDto> employeeUploadDtoList, UUID organizationId) {
+        logger.info("[correlationId:{}] validateEmployees called for {} employees, organizationId: {}", 
+            MDC.get("correlationId"), employeeUploadDtoList.size(), organizationId);
+        BaseResponse<EmployeeUploadResponse> responseObj = new BaseResponse<>();
+        try {
+            Organization organization = organizationRepository.findByOrganizationId(organizationId).orElseThrow(() -> new RuntimeException("Organization not found"));
+            EmployeeUploadResponse employeeUploadResponse = employeeService.validateEmployee(employeeUploadDtoList, organization);
+            return responseObj.render(responseObj.formSuccessResponse(Constants.SUCCESS, employeeUploadResponse));
+        }
+        catch (Exception e) {
+            logger.error("[correlationId:{}] Exception in validateEmployees: {}", MDC.get("correlationId"), e.getMessage(), e);
+            return responseObj.render(responseObj.formErrorResponse(e.getMessage()));
+        }
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public ResponseEntity<ResponseDto<EmployeeUploadResponse>> delete(List<BulkEmployeeDeletionRequestDto> bulkEmployeeDeletionRequestDtoList, UUID organizationId) {
+        logger.info("[correlationId:{}] delete called for {} employees, organizationId: {}", 
+            MDC.get("correlationId"), bulkEmployeeDeletionRequestDtoList.size(), organizationId);
+        BaseResponse<EmployeeUploadResponse> responseObj = new BaseResponse<>();
+        try {
+            Organization organization = organizationRepository.findByOrganizationId(organizationId).orElseThrow(() -> new RuntimeException("Organization not found"));
+            EmployeeUploadResponse employeeUploadResponse = employeeService.deleteEmployee(bulkEmployeeDeletionRequestDtoList, organization);
+            return responseObj.render(responseObj.formSuccessResponse(Constants.SUCCESS, employeeUploadResponse));
+        }
+        catch (Exception e) {
+            logger.error("[correlationId:{}] Exception in delete: {}", MDC.get("correlationId"), e.getMessage(), e);
+            return responseObj.render(responseObj.formErrorResponse(e.getMessage()));
+        }
+    }
+  
+}
+
+
 
 

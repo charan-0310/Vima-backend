@@ -48,6 +48,17 @@ public interface IDealsRepository extends JpaRepository<Deals, UUID> {
         """)
     Optional<Deals> findByEmployeeNumberAndOrganizationId(@Param("employeeNumber") String employeeNumber, @Param("organizationId") UUID organizationId);
     
+     /**
+     * Find deal by employee number and organizationId
+     */
+     @Query("""
+        SELECT d FROM Deals d
+        WHERE d.employeeNumber = :employeeNumber
+        AND d.organization.organizationId = :organizationId
+        AND d.relationship = :relationship
+        """)
+    Optional<Deals> findByEmployeeNumberAndOrganizationIdAndRelationship(@Param("employeeNumber") String employeeNumber, @Param("organizationId") UUID organizationId, @Param("relationship") String relationship);
+    
 
     @Query("""
         SELECT d FROM Deals d
@@ -55,7 +66,7 @@ public interface IDealsRepository extends JpaRepository<Deals, UUID> {
         AND d.organization.organizationId = :organizationId
         """)
     Optional<Deals> findByIndividualIdAndOrganizationId(@Param("individualId") UUID individualId, @Param("organizationId") UUID organizationId);
-        /**
+    /**
      * Batch find deals by employee numbers and organizationId (optimized for large CSV imports)
      */
     @Query("""
@@ -65,6 +76,18 @@ public interface IDealsRepository extends JpaRepository<Deals, UUID> {
         AND d.isPrimaryMember = true
         """)
     List<Deals> findByEmployeeNumberInAndOrganizationId(@Param("employeeNumbers") List<String> employeeNumbers, @Param("organizationId") UUID organizationId);
+    
+    /**
+     * Batch find deals by employee numbers and organizationId (optimized for large CSV imports)
+     */
+    @Query("""
+        SELECT d FROM Deals d
+        WHERE (d.phone IN :employeePhones OR d.email IN :employeeEmails)
+        AND d.organization.organizationId = :organizationId
+        AND d.isPrimaryMember = true
+        """)
+    List<Deals> findByEmployeePhoneAndEmployeeEmail(@Param("employeePhones") List<String> employeePhones, @Param("employeeEmails") List<String> employeeEmails, @Param("organizationId") UUID organizationId);
+    
     
     /**
      * Find deal by email
@@ -196,5 +219,28 @@ public interface IDealsRepository extends JpaRepository<Deals, UUID> {
         }
         return findByPrimaryIndividualId(primaryIndividual.getIndividualId());
     }
+    
+    /**
+     * Batch find primary employees by employee numbers, organizationId, and relationship (optimized for bulk uploads)
+     */
+    @Query("""
+        SELECT d FROM Deals d
+        WHERE d.employeeNumber IN :employeeNumbers
+        AND d.organization.organizationId = :organizationId
+        AND d.relationship = :relationship
+        """)
+    List<Deals> findByEmployeeNumberInAndOrganizationIdAndRelationship(
+        @Param("employeeNumbers") List<String> employeeNumbers, 
+        @Param("organizationId") UUID organizationId,
+        @Param("relationship") String relationship);
+    
+    /**
+     * Batch find dependents by multiple primary individual IDs (optimized for bulk uploads)
+     */
+    @Query("""
+        SELECT d FROM Deals d
+        WHERE d.primaryIndividual.individualId IN :primaryIndividualIds
+        """)
+    List<Deals> findByPrimaryIndividualIdIn(@Param("primaryIndividualIds") List<UUID> primaryIndividualIds);
 
 }

@@ -10,6 +10,7 @@ public class NomineeResponseDto {
     private UUID nomineeId;
     private String firstName;
     private String lastName;
+    private String fullName;
     private LocalDate dateOfBirth;
     private String relationship;
 }

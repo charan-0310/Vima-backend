@@ -18,6 +18,9 @@ public class DealsResponseDto {
     private UUID individualId;
     private String firstName;
     private String lastName;
+    private String fullName;
+    private String maritalStatus;
+    private String sumInsured;
     private String email;
     private String phone;
     private LocalDate dateOfBirth;
