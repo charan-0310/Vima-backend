@@ -12,11 +12,13 @@ import lombok.NoArgsConstructor;
 @Data
 @NoArgsConstructor
 @AllArgsConstructor
-public class CsvUploadResponseDto {
+public class EmployeeUploadResponse {
     private int totalRows;
     private int successCount;
     private int errorCount;
     private List<String> errors;
     private String message;
+    private int totalEmployees;
+    private int totalDependents;
 }
 

@@ -3,11 +3,12 @@ package com.vimainsurance.vimaadmin.service.serviceimpl;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
-import java.util.HashMap;
 import java.util.stream.Collectors;
 
 import org.slf4j.Logger;
@@ -17,37 +18,40 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.http.ResponseEntity;
-import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
 
 import com.vimainsurance.vimaadmin.dto.BaseResponse;
 import com.vimainsurance.vimaadmin.dto.DealsRequestDto;
 import com.vimainsurance.vimaadmin.dto.DealsResponseDto;
-import com.vimainsurance.vimaadmin.dto.MotorPolicyDetailsResponseDto;
-import com.vimainsurance.vimaadmin.dto.NomineeResponseDto;
+import com.vimainsurance.vimaadmin.dto.DocumentRequestDto;
 import com.vimainsurance.vimaadmin.dto.PolicyRequestDto;
 import com.vimainsurance.vimaadmin.dto.PolicyResponseDto;
+import com.vimainsurance.vimaadmin.dto.PolicyUploadRequestDto;
 import com.vimainsurance.vimaadmin.dto.ResponseDto;
 import com.vimainsurance.vimaadmin.entity.AdminUser;
 import com.vimainsurance.vimaadmin.entity.Deals;
 import com.vimainsurance.vimaadmin.entity.Document;
-import com.vimainsurance.vimaadmin.entity.MotorPolicyDetails;
 import com.vimainsurance.vimaadmin.entity.Nominee;
 import com.vimainsurance.vimaadmin.entity.Policy;
 import com.vimainsurance.vimaadmin.enums.AccountStatus;
 import com.vimainsurance.vimaadmin.enums.AccountType;
 import com.vimainsurance.vimaadmin.enums.CoverageType;
+import com.vimainsurance.vimaadmin.enums.DocumentCategory;
+import com.vimainsurance.vimaadmin.enums.DocumentEntityType;
+import com.vimainsurance.vimaadmin.enums.DocumentType;
 import com.vimainsurance.vimaadmin.enums.PaymentFrequency;
 import com.vimainsurance.vimaadmin.enums.PolicyStatus;
 import com.vimainsurance.vimaadmin.enums.ProductType;
+import com.vimainsurance.vimaadmin.enums.UserRole;
 import com.vimainsurance.vimaadmin.repository.IAdminUserRepository;
 import com.vimainsurance.vimaadmin.repository.IDealsRepository;
+import com.vimainsurance.vimaadmin.repository.IDocumentRepository;
 import com.vimainsurance.vimaadmin.repository.IInsuranceProviderRepository;
 import com.vimainsurance.vimaadmin.repository.IMotorPolicyDetailsRepository;
 import com.vimainsurance.vimaadmin.repository.INomineeRepository;
 import com.vimainsurance.vimaadmin.repository.IPolicyRepository;
+import com.vimainsurance.vimaadmin.service.IDocumentService;
 import com.vimainsurance.vimaadmin.service.IPolicyService;
-import com.vimainsurance.vimaadmin.repository.IDocumentRepository;
 import com.vimainsurance.vimaadmin.util.Constants;
 import com.vimainsurance.vimaadmin.util.JwtUserExtractor;
 /**
@@ -81,6 +85,9 @@ public class PolicyServiceImpl implements IPolicyService {
 
     @Autowired
     private JwtUserExtractor jwtUserExtractor;
+    
+    @Autowired
+    private IDocumentService documentService;
 
     @Override
     public ResponseEntity<ResponseDto<String>> createPolicy(PolicyRequestDto requestDto) {
@@ -503,12 +510,7 @@ public class PolicyServiceImpl implements IPolicyService {
             .map(this::mapToSimplifiedDependent)
             .collect(Collectors.toList()));
         List<Nominee> nominees = nomineeRepository.findByPolicyPolicyId(policy.getPolicyId());
-        responseDto.setNominees(nominees.stream()
-            .map(this::mapToSimplifiedNominee)
-            .collect(Collectors.toList()));
-
-        motorPolicyDetailsRepository.findByPolicyPolicyId(policy.getPolicyId())
-            .ifPresent(details -> responseDto.setMotorPolicyDetails(mapToMotorPolicyDetails(details)));
+        
         return responseDto;
     }
     
@@ -534,26 +536,94 @@ public class PolicyServiceImpl implements IPolicyService {
         return responseDto;
     }
 
-    private NomineeResponseDto mapToSimplifiedNominee(Nominee nominee) {
-        NomineeResponseDto responseDto = new NomineeResponseDto();
-        responseDto.setNomineeId(nominee.getNomineeId());
-        responseDto.setFirstName(nominee.getFirstName());
-        responseDto.setLastName(nominee.getLastName());
-        responseDto.setDateOfBirth(nominee.getDateOfBirth());
-        responseDto.setRelationship(nominee.getRelationship());
-        return responseDto;
+   
+    
+    @Override
+    public ResponseEntity<ResponseDto<String>> uploadPolicyForOrganization(UUID organizationId, PolicyUploadRequestDto requestDto) {
+        logger.info("[correlationId:{}] uploadPolicyForOrganization called for organizationId: {}", MDC.get("correlationId"), organizationId);
+        BaseResponse<String> responseObj = new BaseResponse<>();
+        try {
+            // Get current user
+            final String currentUsername = jwtUserExtractor.extractCurrentUsername();
+            Optional<AdminUser> adminUser = adminUserRepository.findByUsername(currentUsername);
+            if(adminUser.isEmpty()){
+                return responseObj.render(responseObj.formErrorResponse("Agent not found"));
+            }
+            AdminUser agent = adminUser.get();
+            
+            // For organization policies, try to find a primary individual from the organization
+            // If not found, we'll use organizationId as primaryIndividualId directly
+           
+                 
+            
+            // Create Policy entity
+            Policy policy = new Policy();
+            policy.setPolicyNumber(requestDto.getPolicyNumber());
+            // Use organizationId as primaryIndividualId as per requirement
+            policy.setPrimaryIndividualId(organizationId);
+            policy.setInsuranceProviderId(insuranceProviderRepository.findByProviderCode(requestDto.getProviderCode())
+                .orElseThrow(() -> new RuntimeException("Insurance provider not found")).getProviderId());
+            policy.setOrganizationId(organizationId);
+            policy.setProductType(ProductType.valueOf(requestDto.getProductType()));
+            policy.setCoverageType(CoverageType.valueOf(requestDto.getCoverageType()));
+            policy.setStatus(PolicyStatus.valueOf(requestDto.getStatus()));
+            policy.setCoveredIndividuals(Arrays.asList(organizationId));
+            policy.setSumInsured(requestDto.getSumInsured());
+            policy.setPremiumAmount(requestDto.getPremiumAmount());
+            policy.setStartDate(requestDto.getStartDate());
+            policy.setEndDate(requestDto.getEndDate());
+            policy.setRenewalDate(requestDto.getRenewalDate());
+            policy.setLeadId(organizationId); // Use organizationId as leadId
+            if (requestDto.getPaymentFrequency() != null && !requestDto.getPaymentFrequency().isEmpty()) {
+                policy.setPaymentFrequency(PaymentFrequency.fromValue(requestDto.getPaymentFrequency()));
+            } else {
+                policy.setPaymentFrequency(PaymentFrequency.YEARLY);
+            }
+            policy.setCreatedAt(LocalDateTime.now());
+            policy.setUpdatedAt(LocalDateTime.now());
+            
+            // Save policy to database
+            Policy savedPolicy = policyRepository.save(policy);
+            logger.info("[correlationId:{}] Policy saved with ID: {}", MDC.get("correlationId"), savedPolicy.getPolicyId());
+            
+            // Upload documents if provided
+            if (requestDto.getFiles() != null && requestDto.getFiles().length > 0) {
+                DocumentRequestDto documentRequest = new DocumentRequestDto();
+                documentRequest.setFiles(requestDto.getFiles());
+                documentRequest.setDocumentType(requestDto.getDocumentType());
+                documentRequest.setNotes(requestDto.getNotes());
+                documentRequest.setUploadedBy(agent.getId());
+                documentRequest.setUploadedByRole(UserRole.fromValue(agent.getRole()));
+                
+                ResponseEntity<ResponseDto<List<com.vimainsurance.vimaadmin.entity.Document>>> documentResponse = documentService.uploadKYCDocuments(
+                    documentRequest.getFiles(), 
+                    organizationId.toString(), 
+                    DocumentEntityType.POLICY, 
+                    DocumentType.fromValue(requestDto.getDocumentType()), 
+                    documentRequest.getUploadedBy(), 
+                    documentRequest.getUploadedByRole(), 
+                    documentRequest.getNotes(),
+                    DocumentCategory.POLICY_DOCUMENTS
+                );
+                if (documentResponse.getBody() != null && documentResponse.getBody().getPayload() != null && !documentResponse.getBody().getPayload().isEmpty()) {
+                    savedPolicy.setDocument(documentResponse.getBody().getPayload().get(0));
+                    policyRepository.save(savedPolicy);
+                }
+                if(documentResponse.getBody() != null && documentResponse.getBody().getErrorCode() != null){
+                    return responseObj.render(responseObj.formErrorResponse(documentResponse.getBody().getMessage()));
+                }
+            }
+            
+            return responseObj.render(responseObj.formSuccessResponse(Constants.SUCCESS, "Policy created and documents uploaded successfully"));
+        } catch (Exception e) {
+            logger.error("[correlationId:{}] Exception in uploadPolicyForOrganization: {}", MDC.get("correlationId"), e.getMessage(), e);
+            return responseObj.render(responseObj.formErrorResponse(e.getMessage()));
+        }
     }
+    
+    
 
-    private MotorPolicyDetailsResponseDto mapToMotorPolicyDetails(MotorPolicyDetails details) {
-        MotorPolicyDetailsResponseDto responseDto = new MotorPolicyDetailsResponseDto();
-        responseDto.setMotorPolicyId(details.getMotorPolicyId());
-        responseDto.setVehicleRegistrationNumber(details.getVehicleRegistrationNumber());
-        responseDto.setVehicleMake(details.getVehicleMake());
-        responseDto.setVehicleModel(details.getVehicleModel());
-        responseDto.setVehicleType(details.getVehicleType());
-        responseDto.setManufacturingYear(details.getManufacturingYear());
-        responseDto.setRegistrationDate(details.getRegistrationDate());
-        responseDto.setIdvValue(details.getIdvValue());
-        return responseDto;
-    }
+ 
+
+    
 }

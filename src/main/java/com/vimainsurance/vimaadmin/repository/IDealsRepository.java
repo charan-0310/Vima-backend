@@ -1,5 +1,6 @@
 package com.vimainsurance.vimaadmin.repository;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -11,7 +12,6 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
 import com.vimainsurance.vimaadmin.entity.Deals;
-import com.vimainsurance.vimaadmin.enums.ProductType;
 
 public interface IDealsRepository extends JpaRepository<Deals, UUID> {
 
@@ -37,6 +37,57 @@ public interface IDealsRepository extends JpaRepository<Deals, UUID> {
      * Find deal by employee number
      */
     Optional<Deals> findByEmployeeNumber(String employeeNumber);
+    
+    /**
+     * Find deal by employee number and organizationId
+     */
+    @Query("""
+        SELECT d FROM Deals d
+        WHERE d.employeeNumber = :employeeNumber
+        AND d.organization.organizationId = :organizationId
+        """)
+    Optional<Deals> findByEmployeeNumberAndOrganizationId(@Param("employeeNumber") String employeeNumber, @Param("organizationId") UUID organizationId);
+    
+     /**
+     * Find deal by employee number and organizationId
+     */
+     @Query("""
+        SELECT d FROM Deals d
+        WHERE d.employeeNumber = :employeeNumber
+        AND d.organization.organizationId = :organizationId
+        AND d.relationship = :relationship
+        """)
+    Optional<Deals> findByEmployeeNumberAndOrganizationIdAndRelationship(@Param("employeeNumber") String employeeNumber, @Param("organizationId") UUID organizationId, @Param("relationship") String relationship);
+    
+
+    @Query("""
+        SELECT d FROM Deals d
+        WHERE d.individualId = :individualId
+        AND d.organization.organizationId = :organizationId
+        """)
+    Optional<Deals> findByIndividualIdAndOrganizationId(@Param("individualId") UUID individualId, @Param("organizationId") UUID organizationId);
+    /**
+     * Batch find deals by employee numbers and organizationId (optimized for large CSV imports)
+     */
+    @Query("""
+        SELECT d FROM Deals d
+        WHERE d.employeeNumber IN :employeeNumbers
+        AND d.organization.organizationId = :organizationId
+        AND d.isPrimaryMember = true
+        """)
+    List<Deals> findByEmployeeNumberInAndOrganizationId(@Param("employeeNumbers") List<String> employeeNumbers, @Param("organizationId") UUID organizationId);
+    
+    /**
+     * Batch find deals by employee numbers and organizationId (optimized for large CSV imports)
+     */
+    @Query("""
+        SELECT d FROM Deals d
+        WHERE (d.phone IN :employeePhones OR d.email IN :employeeEmails)
+        AND d.organization.organizationId = :organizationId
+        AND d.isPrimaryMember = true
+        """)
+    List<Deals> findByEmployeePhoneAndEmployeeEmail(@Param("employeePhones") List<String> employeePhones, @Param("employeeEmails") List<String> employeeEmails, @Param("organizationId") UUID organizationId);
+    
     
     /**
      * Find deal by email
@@ -139,7 +190,8 @@ public interface IDealsRepository extends JpaRepository<Deals, UUID> {
 
     @Query("""
         SELECT COUNT(d) FROM Deals d
-        WHERE d.organization.organizationId = :organizationId
+        WHERE d.organization.organizationId = :organizationId 
+        AND d.isPrimaryMember = true
         """)
     Long countByOrganizationId(@Param("organizationId") UUID organizationId);
 
@@ -148,5 +200,47 @@ public interface IDealsRepository extends JpaRepository<Deals, UUID> {
         WHERE d.leadId = :leadId
         """)
     Optional<Deals> findByLeadId(@Param("leadId") UUID leadId);
+    
+    /**
+     * Find all dependents by primary individual ID
+     */
+    @Query("""
+        SELECT d FROM Deals d
+        WHERE d.primaryIndividual.individualId = :primaryIndividualId
+        """)
+    List<Deals> findByPrimaryIndividualId(@Param("primaryIndividualId") UUID primaryIndividualId);
+    
+    /**
+     * Find all dependents by primary individual entity (for deletion updates)
+     */
+    default List<Deals> findByPrimaryIndividual(Deals primaryIndividual) {
+        if (primaryIndividual == null || primaryIndividual.getIndividualId() == null) {
+            return new ArrayList<>();
+        }
+        return findByPrimaryIndividualId(primaryIndividual.getIndividualId());
+    }
+    
+    /**
+     * Batch find primary employees by employee numbers, organizationId, and relationship (optimized for bulk uploads)
+     */
+    @Query("""
+        SELECT d FROM Deals d
+        WHERE d.employeeNumber IN :employeeNumbers
+        AND d.organization.organizationId = :organizationId
+        AND d.relationship = :relationship
+        """)
+    List<Deals> findByEmployeeNumberInAndOrganizationIdAndRelationship(
+        @Param("employeeNumbers") List<String> employeeNumbers, 
+        @Param("organizationId") UUID organizationId,
+        @Param("relationship") String relationship);
+    
+    /**
+     * Batch find dependents by multiple primary individual IDs (optimized for bulk uploads)
+     */
+    @Query("""
+        SELECT d FROM Deals d
+        WHERE d.primaryIndividual.individualId IN :primaryIndividualIds
+        """)
+    List<Deals> findByPrimaryIndividualIdIn(@Param("primaryIndividualIds") List<UUID> primaryIndividualIds);
 
 }

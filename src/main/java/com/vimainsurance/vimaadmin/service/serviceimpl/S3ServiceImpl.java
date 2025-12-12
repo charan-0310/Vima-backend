@@ -3,7 +3,6 @@ package com.vimainsurance.vimaadmin.service.serviceimpl;
 import com.vimainsurance.vimaadmin.config.S3Config;
 import com.vimainsurance.vimaadmin.service.IS3Service;
 
-import org.apache.commons.io.FilenameUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.slf4j.MDC;
@@ -85,7 +84,7 @@ public class S3ServiceImpl implements IS3Service {
     public String uploadFile(File file, String key, String contentType) {
         logger.info("[correlationId:{}] Uploading file to S3: {}", MDC.get(CORRELATION_ID), key);
         
-        try {
+        try (FileInputStream fileInputStream = new FileInputStream(file)) {
             PutObjectRequest putObjectRequest = PutObjectRequest.builder()
                     .bucket(s3Config.getBucketName())
                     .key(key)
@@ -95,7 +94,7 @@ public class S3ServiceImpl implements IS3Service {
                     .contentLength(file.length())
                     .build();
 
-            s3Client.putObject(putObjectRequest, RequestBody.fromInputStream(new FileInputStream(file), file.length()));
+            s3Client.putObject(putObjectRequest, RequestBody.fromInputStream(fileInputStream, file.length()));
             
             String s3Url = String.format("https://%s.s3.%s.amazonaws.com/%s", 
                 s3Config.getBucketName(), s3Config.getRegion(), key);

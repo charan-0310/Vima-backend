@@ -6,15 +6,19 @@ import com.vimainsurance.vimaadmin.entity.Document;
 import com.vimainsurance.vimaadmin.enums.DocumentCategory;
 import com.vimainsurance.vimaadmin.enums.DocumentEntityType;
 import com.vimainsurance.vimaadmin.enums.DocumentType;
+import com.vimainsurance.vimaadmin.enums.UserRole;
 import com.vimainsurance.vimaadmin.repository.IDocumentRepository;
 import com.vimainsurance.vimaadmin.service.IDocumentService;
+import com.vimainsurance.vimaadmin.util.JwtUserExtractor;
 import com.vimainsurance.vimaadmin.util.Constants;
+import com.vimainsurance.vimaadmin.util.EnvironmentUtil;
 import com.vimainsurance.vimaadmin.util.IMaskService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.slf4j.MDC;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.core.env.Environment;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.http.ResponseEntity;
@@ -67,6 +71,12 @@ public class DocumentServiceImpl implements IDocumentService {
     private final com.vimainsurance.vimaadmin.config.S3Config s3Config;
 
     private final IMaskService maskService;
+    
+    @Autowired
+    private JwtUserExtractor jwtUserExtractor;
+
+    @Autowired
+    private Environment environment;
 
     @Autowired
     public DocumentServiceImpl(IDocumentRepository documentRepository, 
@@ -547,6 +557,66 @@ public class DocumentServiceImpl implements IDocumentService {
         }
     }
 
+   @Override
+   public ResponseEntity<ResponseDto<String>> uploadDocument(MultipartFile file, String documentType, String documentCategory, String documentEntityType, String entityId, String notes) {
+    BaseResponse<String> responseObj = new BaseResponse<>();
+    try {
+        // Get UUID and role from token using utility
+        String username = null;
+        UserRole uploadedByRole = null;
+        UUID uploadedBy = null;
+        if(EnvironmentUtil.isProductionEnvironment(environment)){
+        uploadedBy = jwtUserExtractor.getCurrentUserId();
+        uploadedByRole = jwtUserExtractor.getCurrentUserRole();
+        username = jwtUserExtractor.getCurrentUsername();
+        
+        if (uploadedBy == null || uploadedByRole == null) {
+            logger.error("[correlationId:{}] Unable to extract user information from token", MDC.get("correlationId"));
+            return responseObj.render(responseObj.formErrorResponse("Authentication required. Unable to extract user information from token."));
+        }
+        }
+        // Map String parameters to enums
+        DocumentType docType;
+        try {
+            docType = DocumentType.fromValue(documentType.toUpperCase());
+        } catch (IllegalArgumentException e) {
+            logger.error("[correlationId:{}] Invalid documentType: {}", MDC.get("correlationId"), documentType);
+            return responseObj.render(responseObj.formErrorResponse("Invalid documentType: " + documentType));
+        }
+
+        DocumentCategory docCategory;
+        try {
+            docCategory = DocumentCategory.fromValue(documentCategory.toUpperCase());
+        } catch (IllegalArgumentException e) {
+            logger.error("[correlationId:{}] Invalid documentCategory: {}", MDC.get("correlationId"), documentCategory);
+            return responseObj.render(responseObj.formErrorResponse("Invalid documentCategory: " + documentCategory));
+        }
+
+        DocumentEntityType entityType;
+        try {
+            entityType = DocumentEntityType.fromValue(documentEntityType.toUpperCase());
+        } catch (IllegalArgumentException e) {
+            logger.error("[correlationId:{}] Invalid documentEntityType: {}", MDC.get("correlationId"), documentEntityType);
+            return responseObj.render(responseObj.formErrorResponse("Invalid documentEntityType: " + documentEntityType));
+        }
+
+        logger.info("[correlationId:{}] Uploading document for entity: {} by user: {} ({})", 
+            MDC.get("correlationId"), entityId, uploadedBy, uploadedByRole);
+
+        String s3Key = generateS3KeyUploadDocument(entityType, entityId, docType, file.getOriginalFilename());
+        String s3Url = s3Service.uploadFile(file, s3Key);
+        Document document = createDocument(entityType, entityId, docType, docCategory, s3Key, file, uploadedBy, uploadedByRole, notes);
+        Document savedDocument = documentRepository.save(document);
+        return responseObj.render(responseObj.formSuccessResponse(Constants.SUCCESS, "Document uploaded successfully"));
+    }
+    catch(Exception e){
+        logger.error("[correlationId:{}] Error uploading document: {}", MDC.get("correlationId"), e.getMessage(), e);
+        return responseObj.render(responseObj.formErrorResponse("Error uploading document: " + e.getMessage()));
+    }
+   }
+
+
+
     // Private utility methods
     private Document createDocument(
             DocumentEntityType entityType, String entityId, DocumentType documentType, 
@@ -577,6 +647,11 @@ public class DocumentServiceImpl implements IDocumentService {
             return String.format("%s/%s/original/%s_%s%s", entityType.getValue().toLowerCase(), entityId, documentType.getValue(), timestamp, extension);
         }
         return String.format("%s/%s/masked/%s_%s%s", entityType.getValue().toLowerCase(), entityId, documentType.getValue(), timestamp, extension);
+    }
+
+
+    private String generateS3KeyUploadDocument(DocumentEntityType entityType, String entityId, DocumentType documentType, String fileName) {
+        return String.format("%s/%s/%s/%s%s", entityType.getValue().toLowerCase(), entityId, documentType.getValue().toLowerCase(), fileName, getFileExtension(fileName));
     }
     
     private String getFileExtension(String filename) {

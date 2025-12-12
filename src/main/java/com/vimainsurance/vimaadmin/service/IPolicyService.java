@@ -2,6 +2,7 @@ package com.vimainsurance.vimaadmin.service;
 
 import com.vimainsurance.vimaadmin.dto.PolicyRequestDto;
 import com.vimainsurance.vimaadmin.dto.PolicyResponseDto;
+import com.vimainsurance.vimaadmin.dto.PolicyUploadRequestDto;
 import com.vimainsurance.vimaadmin.dto.ResponseDto;
 import com.vimainsurance.vimaadmin.enums.PolicyStatus;
 import org.springframework.data.domain.Page;
@@ -96,4 +97,9 @@ public interface IPolicyService {
      * Get policy statistics
      */
     ResponseEntity<ResponseDto<Object>> getPolicyStatistics();
+    
+    /**
+     * Upload policy with details for an organization
+     */
+    ResponseEntity<ResponseDto<String>> uploadPolicyForOrganization(UUID organizationId, PolicyUploadRequestDto requestDto);
 }

@@ -446,16 +446,24 @@ public class CustomerServiceImpl implements ICustomerService{
     }
     
     private Page<Customer> getAllCustomersWithPremiumSorting(String search, int page, int rec, String sortDirection) {
-        // Get all customers without pagination first for premium sorting
+        // WARNING: Premium sorting requires loading all customers into memory
+        // Use a reasonable maximum limit to prevent memory issues
+        int maxLimit = 10000; // Maximum records to fetch for sorting
+        
         Page<Customer> allCustomers;
         if (search != null && !search.trim().isEmpty()) {
             // Use dedicated search method when search is provided
             allCustomers = customerRepository.searchAllCustomers(
-                search, PageRequest.of(0, Integer.MAX_VALUE));
+                search, PageRequest.of(0, maxLimit));
         } else {
             // Use basic method when no search is applied
             allCustomers = customerRepository.findAll(
-                PageRequest.of(0, Integer.MAX_VALUE));
+                PageRequest.of(0, maxLimit));
+        }
+        
+        if (allCustomers.getTotalElements() > maxLimit) {
+            logger.warn("[correlationId:{}] Total customers ({}) exceeds maximum limit ({}). Only sorting first {} records.", 
+                MDC.get("correlationId"), allCustomers.getTotalElements(), maxLimit, maxLimit);
         }
         
         // Sort by premium (best premium from quotes)
@@ -474,7 +482,7 @@ public class CustomerServiceImpl implements ICustomerService{
         int end = Math.min(start + rec, sortedCustomers.size());
         List<Customer> paginatedCustomers = sortedCustomers.subList(start, end);
         
-        return new PageImpl<>(paginatedCustomers, PageRequest.of(page, rec), sortedCustomers.size());
+        return new PageImpl<>(paginatedCustomers, PageRequest.of(page, rec), allCustomers.getTotalElements());
     }
 
     @Override
@@ -486,12 +494,22 @@ public class CustomerServiceImpl implements ICustomerService{
             List<CustomerResponseDto> responseList = new ArrayList<>();
             
             // Handle special case for getting all customers without pagination
+            // WARNING: This can cause memory issues with large datasets - consider adding a maximum limit
             if (page == -1 && rec == -1) {
-                List<Customer> customerList = customerRepository.findAll();
-                for (Customer customer : customerList) {
+                // Use a reasonable maximum limit to prevent memory issues
+                int maxLimit = 10000; // Maximum records to fetch
+                PageRequest maxPageRequest = PageRequest.of(0, maxLimit);
+                Page<Customer> customerPage = customerRepository.findAll(maxPageRequest);
+                
+                if (customerPage.getTotalElements() > maxLimit) {
+                    logger.warn("[correlationId:{}] Total customers ({}) exceeds maximum limit ({}). Only returning first {} records.", 
+                        MDC.get("correlationId"), customerPage.getTotalElements(), maxLimit, maxLimit);
+                }
+                
+                for (Customer customer : customerPage.getContent()) {
                     responseList.add(mapToResponseDto(customer));
                 }
-                return responseObj.render(responseObj.formSuccessResponse(Constants.SUCCESS, responseList, responseList.size()));
+                return responseObj.render(responseObj.formSuccessResponse(Constants.SUCCESS, responseList, customerPage.getTotalElements()));
             }
             
             // Determine which query method to use based on sorting
@@ -787,6 +805,7 @@ public class CustomerServiceImpl implements ICustomerService{
             Deals deals = new Deals();
             deals.setFirstName("");
             deals.setLastName(customer.getFullName());
+            deals.setFullName(customer.getFullName());
             deals.setEmail(customer.getEmail());
             deals.setPhone(customer.getPhoneNumber());
             deals.setDateOfBirth(customer.getDateOfBirth());
@@ -942,17 +961,17 @@ public class CustomerServiceImpl implements ICustomerService{
             policyRepository.save(savedPolicy);
             
             // Send Slack notification only in production
-            // if (EnvironmentUtil.isProductionEnvironment(environment)) {
-            //     try {
-            //         String slackMessage = buildCustomerToDealSlackMessage(customer, savedDeals, policyRequest, adminUser);
-            //         slackNotificationUtil.sendSlackMessage("New Policy Issued!", slackMessage);
-            //     } catch (Exception slackException) {
-            //         logger.warn("[correlationId:{}] Failed to send Slack notification: {}", MDC.get("correlationId"), slackException.getMessage());
-            //         // Don't fail the request if Slack notification fails
-            //     }
-            // } else {
-            //     logger.debug("[correlationId:{}] Skipping Slack notification (not in production environment)", MDC.get("correlationId"));
-            // }
+            if (EnvironmentUtil.isProductionEnvironment(environment)) {
+                try {
+                    String slackMessage = buildCustomerToDealSlackMessage(customer, savedDeals, policyRequest, adminUser);
+                    slackNotificationUtil.sendSlackMessage("New Policy Issued!", slackMessage);
+                } catch (Exception slackException) {
+                    logger.warn("[correlationId:{}] Failed to send Slack notification: {}", MDC.get("correlationId"), slackException.getMessage());
+                    // Don't fail the request if Slack notification fails
+                }
+            } else {
+                logger.debug("[correlationId:{}] Skipping Slack notification (not in production environment)", MDC.get("correlationId"));
+            }
             
             logger.info("[correlationId:{}] Customer converted to Deals successfully", MDC.get("correlationId"));
             return responseObj.render(responseObj.formSuccessResponse(Constants.SUCCESS, "Customer converted to Deals successfully"));

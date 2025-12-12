@@ -18,6 +18,7 @@ public class OrganizationEmployeeDto {
     private UUID individualId;
     private String firstName;
     private String lastName;
+    private String fullName;
     private String email;
     private String phone;
     private String employeeNumber;
@@ -27,5 +28,7 @@ public class OrganizationEmployeeDto {
     private LocalDate dateOfBirth;
     private String gender;
     private Boolean isPrimaryMember;
+    private String relationship; // Relationship to primary member (for dependents)
+    private String organizationName;    
 }
 

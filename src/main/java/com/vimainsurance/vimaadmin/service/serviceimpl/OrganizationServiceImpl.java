@@ -1,34 +1,40 @@
 package com.vimainsurance.vimaadmin.service.serviceimpl;
 
+import java.io.InputStream;
+import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
+import java.util.stream.Collectors;
 
+import java.util.Arrays;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.slf4j.MDC;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.core.io.InputStreamResource;
+import org.springframework.core.io.Resource;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
-import org.springframework.http.ResponseEntity;
-import org.springframework.stereotype.Service;
-
-import java.io.InputStream;
-import java.util.stream.Collectors;
-
-import org.springframework.web.multipart.MultipartFile;
-
-import org.springframework.core.io.Resource;
-import org.springframework.core.io.InputStreamResource;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.multipart.MultipartFile;
 
 import com.vimainsurance.vimaadmin.dto.BaseResponse;
+import com.vimainsurance.vimaadmin.dto.BulkEmployeeDeletionRequestDto;
+import com.vimainsurance.vimaadmin.dto.EmployeeUploadResponse;
+import com.vimainsurance.vimaadmin.dto.EmployeeUploadDto;
+import com.vimainsurance.vimaadmin.dto.CsvValidationResponseDto;
 import com.vimainsurance.vimaadmin.dto.DocumentRequestDto;
 import com.vimainsurance.vimaadmin.dto.DocumentResponseDto;
 import com.vimainsurance.vimaadmin.dto.OrganizationEmployeeDto;
@@ -39,27 +45,29 @@ import com.vimainsurance.vimaadmin.entity.AdminUser;
 import com.vimainsurance.vimaadmin.entity.Deals;
 import com.vimainsurance.vimaadmin.entity.Document;
 import com.vimainsurance.vimaadmin.entity.Organization;
+import com.vimainsurance.vimaadmin.enums.AccountStatus;
 import com.vimainsurance.vimaadmin.enums.DocumentCategory;
 import com.vimainsurance.vimaadmin.enums.DocumentEntityType;
 import com.vimainsurance.vimaadmin.enums.DocumentType;
 import com.vimainsurance.vimaadmin.enums.Industry;
 import com.vimainsurance.vimaadmin.enums.UserRole;
 import com.vimainsurance.vimaadmin.repository.IAdminUserRepository;
+import com.vimainsurance.vimaadmin.repository.IDealsRepository;
 import com.vimainsurance.vimaadmin.repository.IDocumentRepository;
 import com.vimainsurance.vimaadmin.repository.IOrganizationRepository;
-import com.vimainsurance.vimaadmin.repository.IDealsRepository;
 import com.vimainsurance.vimaadmin.service.IDocumentService;
 import com.vimainsurance.vimaadmin.service.IOrganizationService;
 import com.vimainsurance.vimaadmin.service.IS3Service;
 import com.vimainsurance.vimaadmin.util.Constants;
 import com.vimainsurance.vimaadmin.util.CsvDealsReaderUtil;
-import com.vimainsurance.vimaadmin.dto.CsvUploadResponseDto;
-import java.time.LocalDateTime;
 
 @Service
 public class OrganizationServiceImpl implements IOrganizationService {
 
     private static final Logger logger = LoggerFactory.getLogger(OrganizationServiceImpl.class);
+
+    @Autowired
+    private EmployeeService employeeService;
 
     @Autowired
     private IOrganizationRepository organizationRepository;
@@ -220,13 +228,23 @@ public class OrganizationServiceImpl implements IOrganizationService {
         BaseResponse<List<OrganizationResponseDto>> responseObj = new BaseResponse<>();
         try {
             // Handle special case for getting all organizations without pagination
+            // WARNING: This can cause memory issues with large datasets - consider adding a maximum limit
             if (page == -1 && rec == -1) {
-                List<Organization> orgList = organizationRepository.findAll();
+                // Use a reasonable maximum limit to prevent memory issues
+                int maxLimit = 10000; // Maximum records to fetch
+                PageRequest maxPageRequest = PageRequest.of(0, maxLimit, createSort(sortBy, sortDirection));
+                Page<Organization> orgPage = organizationRepository.findAll(maxPageRequest);
+                
+                if (orgPage.getTotalElements() > maxLimit) {
+                    logger.warn("[correlationId:{}] Total organizations ({}) exceeds maximum limit ({}). Only returning first {} records.", 
+                        MDC.get("correlationId"), orgPage.getTotalElements(), maxLimit, maxLimit);
+                }
+                
                 List<OrganizationResponseDto> out = new ArrayList<>();
-                for (Organization org : orgList) {
+                for (Organization org : orgPage.getContent()) {
                     out.add(mapToResponseDto(org));
                 }
-                return responseObj.render(responseObj.formSuccessResponse(Constants.SUCCESS, out, out.size()));
+                return responseObj.render(responseObj.formSuccessResponse(Constants.SUCCESS, out, orgPage.getTotalElements()));
             }
             
             // Create sort object
@@ -308,8 +326,9 @@ public class OrganizationServiceImpl implements IOrganizationService {
                 requestDto.getNotes(), 
                 DocumentCategory.fromValue(requestDto.getDocumentCategory())
             );
-            if(response.getBody() != null && response.getBody().getErrorCode() != null){
-                return responseObj.render(responseObj.formErrorResponse(response.getBody().getMessage()));
+            ResponseDto<List<Document>> responseBody = response.getBody();
+            if(responseBody != null && responseBody.getErrorCode() != null){
+                return responseObj.render(responseObj.formErrorResponse(responseBody.getMessage()));
             }
             return responseObj.render(responseObj.formSuccessResponse(Constants.SUCCESS, "Document uploaded successfully"));
         } catch (Exception e) {
@@ -399,11 +418,93 @@ public class OrganizationServiceImpl implements IOrganizationService {
         try {
             List<Deals> dealsList = dealsRepository.findByOrganizationId(organizationId);
             List<OrganizationEmployeeDto> responseDto = dealsList.stream()
+                .filter(deal -> Boolean.TRUE.equals(deal.getIsPrimaryMember()))
                 .map(this::mapToOrganizationEmployeeDto)
                 .collect(Collectors.toList());
             return responseObj.render(responseObj.formSuccessResponse(Constants.SUCCESS, responseDto, responseDto.size()));
         } catch (Exception e) {
             logger.error("[correlationId:{}] Exception in getEmployees: {}", MDC.get("correlationId"), e.getMessage(), e);
+            return responseObj.render(responseObj.formErrorResponse(e.getMessage()));
+        }
+    }
+    
+    @Override
+    public ResponseEntity<ResponseDto<OrganizationEmployeeDto>> getEmployee(UUID individualId, UUID organizationId) {
+        logger.info("[correlationId:{}] getEmployee called for individualId: {}, organizationId: {}", 
+            MDC.get("correlationId"), individualId.toString(), organizationId);
+        BaseResponse<OrganizationEmployeeDto> responseObj = new BaseResponse<>();
+        try {
+            // Validate organization
+            Optional<Organization> orgOpt = organizationRepository.findByOrganizationId(organizationId);
+            if (orgOpt.isEmpty()) {
+                return responseObj.render(responseObj.formErrorResponse("Organization not found"));
+            }
+            
+            // Find employee by employee number and organization
+            Optional<Deals> employeeOpt = dealsRepository.findByIndividualIdAndOrganizationId(individualId, organizationId);
+            
+            if (employeeOpt.isEmpty()) {
+                return responseObj.render(responseObj.formErrorResponse(
+                    String.format("Employee individual not found for organization")));
+            }
+            
+            Deals employee = employeeOpt.get();
+            
+            // Ensure it's a primary member (employee)
+            if (!Boolean.TRUE.equals(employee.getIsPrimaryMember())) {
+                return responseObj.render(responseObj.formErrorResponse(
+                    String.format("Unauthorized access")));
+            }
+            
+            OrganizationEmployeeDto responseDto = mapToOrganizationEmployeeDto(employee);
+            return responseObj.render(responseObj.formSuccessResponse(Constants.SUCCESS, responseDto));
+            
+        } catch (Exception e) {
+            logger.error("[correlationId:{}] Exception in getEmployee: {}", MDC.get("correlationId"), e.getMessage(), e);
+            return responseObj.render(responseObj.formErrorResponse(e.getMessage()));
+        }
+    }
+    
+    @Override
+    public ResponseEntity<ResponseDto<List<OrganizationEmployeeDto>>> getEmployeeDependents(UUID individualId, UUID organizationId) {
+        logger.info("[correlationId:{}] getEmployeeDependents called for employeeId: {}, organizationId: {}", 
+            MDC.get("correlationId"), individualId.toString(), organizationId);
+        BaseResponse<List<OrganizationEmployeeDto>> responseObj = new BaseResponse<>();
+        try {
+            // Validate organization
+            Optional<Organization> orgOpt = organizationRepository.findByOrganizationId(organizationId);
+            if (orgOpt.isEmpty()) {
+                return responseObj.render(responseObj.formErrorResponse("Organization not found"));
+            }
+            
+            // Find employee by employee number and organization
+            Optional<Deals> employeeOpt = dealsRepository.findByIndividualIdAndOrganizationId(individualId, organizationId);
+            
+            if (employeeOpt.isEmpty()) {
+                return responseObj.render(responseObj.formErrorResponse(
+                    String.format("Employee individual not found for organization")));
+            }
+            
+            Deals employee = employeeOpt.get();
+            
+            // Ensure it's a primary member (employee)
+            if (!Boolean.TRUE.equals(employee.getIsPrimaryMember())) {
+                return responseObj.render(responseObj.formErrorResponse(
+                    String.format("Unauthorized access")));
+            }
+            
+            // Find all dependents for this employee
+            List<Deals> dependents = dealsRepository.findByPrimaryIndividual(employee);
+            
+            // Map to DTOs
+            List<OrganizationEmployeeDto> responseDtoList = dependents.stream()
+                .map(this::mapToOrganizationEmployeeDto)
+                .collect(Collectors.toList());
+            
+            return responseObj.render(responseObj.formSuccessResponse(Constants.SUCCESS, responseDtoList, responseDtoList.size()));
+            
+        } catch (Exception e) {
+            logger.error("[correlationId:{}] Exception in getEmployeeDependents: {}", MDC.get("correlationId"), e.getMessage(), e);
             return responseObj.render(responseObj.formErrorResponse(e.getMessage()));
         }
     }
@@ -425,6 +526,9 @@ public class OrganizationServiceImpl implements IOrganizationService {
         dto.setDateOfBirth(deal.getDateOfBirth());
         dto.setGender(deal.getGender());
         dto.setIsPrimaryMember(deal.getIsPrimaryMember());
+        dto.setRelationship(deal.getRelationship());
+        dto.setOrganizationName(deal.getOrganization().getOrganizationName());
+        dto.setFullName(deal.getFullName());
         return dto;
     }
 
@@ -475,37 +579,72 @@ public class OrganizationServiceImpl implements IOrganizationService {
         return dto;
     }
 
+    /**
+     * Validates CSV file without processing it
+     * @param file CSV file to validate
+     * @param organizationId Organization ID
+     * @param operation Operation type: "upload" or "delete"
+     * @return Validation response with errors and warnings
+     */
     @Override
-    public ResponseEntity<ResponseDto<CsvUploadResponseDto>> uploadDealsFromCsv(MultipartFile file, UUID organizationId) {
-        logger.info("[correlationId:{}] uploadDealsFromCsv called with organizationId: {}", MDC.get("correlationId"), organizationId);
-        BaseResponse<CsvUploadResponseDto> responseObj = new BaseResponse<>();
+    public ResponseEntity<ResponseDto<CsvValidationResponseDto>> validateCsv(MultipartFile file, UUID organizationId, String operation) {
+        logger.info("[correlationId:{}] validateCsv called with organizationId: {}, operation: {}", 
+            MDC.get("correlationId"), organizationId, operation);
+        BaseResponse<CsvValidationResponseDto> responseObj = new BaseResponse<>();
         
         try {
             // Validate file
+            List<String> validationErrors = new ArrayList<>();
+            List<String> warnings = new ArrayList<>();
+            
             if (file == null || file.isEmpty()) {
-                CsvUploadResponseDto errorResponse = new CsvUploadResponseDto(0, 0, 1, 
-                    List.of("File is empty or not provided"), "File upload failed");
-                ResponseDto<CsvUploadResponseDto> response = new ResponseDto<>(0, "File is empty or not provided", errorResponse);
+                CsvValidationResponseDto errorResponse = new CsvValidationResponseDto(
+                    0, 0, 1, 
+                    List.of("File is empty or not provided"), 
+                    "File validation failed", 
+                    false
+                );
+                ResponseDto<CsvValidationResponseDto> response = new ResponseDto<>(0, "File is empty or not provided", errorResponse);
                 return responseObj.render(response);
             }
             
             // Validate file type
             String filename = file.getOriginalFilename();
-            if (filename == null || (!filename.endsWith(".csv") && !filename.endsWith(".CSV"))) {
-                CsvUploadResponseDto errorResponse = new CsvUploadResponseDto(0, 0, 1, 
-                    List.of("Invalid file type. Only CSV files are allowed"), "File upload failed");
-                ResponseDto<CsvUploadResponseDto> response = new ResponseDto<>(0, "Invalid file type. Only CSV files are allowed", errorResponse);
+            if (filename == null || (!filename.endsWith(".csv") && !filename.endsWith(".CSV") || !filename.endsWith(".xlsx") && !filename.endsWith(".XLSX") || !filename.endsWith(".xls") && !filename.endsWith(".XLS"))) {
+                CsvValidationResponseDto errorResponse = new CsvValidationResponseDto(
+                    0, 0, 1, 
+                    List.of("Invalid file type. Only CSV files are allowed"), 
+                    "File validation failed", 
+                    false
+                );
+                ResponseDto<CsvValidationResponseDto> response = new ResponseDto<>(0, "Invalid file type. Only CSV files are allowed", errorResponse);
                 return responseObj.render(response);
             }
             
-            // Validate and fetch organization if provided
+            // Validate operation type
+            if (operation == null || (!operation.equalsIgnoreCase("upload") && !operation.equalsIgnoreCase("delete"))) {
+                CsvValidationResponseDto errorResponse = new CsvValidationResponseDto(
+                    0, 0, 1, 
+                    List.of("Invalid operation type. Must be 'upload' or 'delete'"), 
+                    "File validation failed", 
+                    false
+                );
+                ResponseDto<CsvValidationResponseDto> response = new ResponseDto<>(0, "Invalid operation type", errorResponse);
+                return responseObj.render(response);
+            }
+            
+            // Validate and fetch organization
             Organization organization = null;
             if (organizationId != null) {
                 Optional<Organization> orgOpt = organizationRepository.findByOrganizationId(organizationId);
                 if (orgOpt.isEmpty()) {
-                    CsvUploadResponseDto errorResponse = new CsvUploadResponseDto(0, 0, 1, 
-                        List.of("Organization not found with ID: " + organizationId), "File upload failed");
-                    ResponseDto<CsvUploadResponseDto> response = new ResponseDto<>(0, "Organization not found", errorResponse);
+                    CsvValidationResponseDto errorResponse = new CsvValidationResponseDto(
+                        0, 0, 1, 
+                        List.of("Organization not found with ID: " + organizationId), 
+                        "File validation failed", 
+                        false
+                    );
+                    ResponseDto<CsvValidationResponseDto> response = new ResponseDto<>(0, "Organization not found", errorResponse);
                     return responseObj.render(response);
                 }
                 organization = orgOpt.get();
@@ -513,100 +652,783 @@ public class OrganizationServiceImpl implements IOrganizationService {
             }
             
             // Parse CSV file
-            CsvDealsReaderUtil.CsvParseResult parseResult = CsvDealsReaderUtil.parseCsvToDeals(file);
+            CsvDealsReaderUtil.CsvParseResult parseResult = CsvDealsReaderUtil.parseGroupedCsvToDeals(file);
+            validationErrors.addAll(parseResult.getErrors());
+            
+            if (parseResult.getDeals().isEmpty() && !parseResult.getErrors().isEmpty()) {
+                CsvValidationResponseDto errorResponse = new CsvValidationResponseDto(
+                    parseResult.getTotalRows(), 
+                    0, 
+                    parseResult.getErrorCount(),
+                    validationErrors,
+                    List.of(),
+                    "Failed to parse any valid records from CSV",
+                    false,
+                    parseResult.getTotalEmployees(),
+                    parseResult.getTotalDependents()
+                );
+                ResponseDto<CsvValidationResponseDto> response = new ResponseDto<>(0, "Failed to parse CSV file", errorResponse);
+                return responseObj.render(response);
+            }
+            
+            // Perform operation-specific validation
+            if ("upload".equalsIgnoreCase(operation)) {
+                validateForUpload(parseResult.getDeals(), organization, validationErrors, warnings);
+            } else if ("delete".equalsIgnoreCase(operation)) {
+                validateForDelete(parseResult.getDeals(), organization, validationErrors, warnings);
+            }
+            
+            // Calculate validation results
+            int validRows = parseResult.getDeals().size() - validationErrors.size() + parseResult.getErrors().size();
+            int invalidRows = validationErrors.size();
+            boolean isValid = invalidRows == 0;
+            
+            String message = isValid 
+                ? String.format("CSV validation passed. %d valid rows found", validRows)
+                : String.format("CSV validation failed. %d errors found", invalidRows);
+            
+            CsvValidationResponseDto validationResponse = new CsvValidationResponseDto(
+                parseResult.getTotalRows(),
+                validRows,
+                invalidRows,
+                validationErrors,
+                warnings,
+                message,
+                isValid,
+                parseResult.getTotalEmployees(),
+                parseResult.getTotalDependents()
+            );
+            
+
+            return responseObj.render(responseObj.formSuccessResponse(Constants.SUCCESS, validationResponse));
+            
+        } catch (Exception e) {
+            logger.error("[correlationId:{}] Exception in validateCsv: {}", MDC.get("correlationId"), e.getMessage(), e);
+            return responseObj.render(responseObj.formErrorResponse(e.getMessage()));
+        }
+    }
+    
+    /**
+     * Validates CSV data for upload operation
+     */
+    private void validateForUpload(List<Deals> deals, Organization organization, 
+                                   List<String> validationErrors, List<String> warnings) {
+        if (organization == null) {
+            validationErrors.add("Organization is required for upload operation");
+            return;
+        }
+        
+        Set<String> employeeIdsInBatch = new LinkedHashSet<>();
+        List<String> employeeIdsToCheck = new ArrayList<>();
+        
+        // First pass: collect all primary employee IDs
+        for (Deals deal : deals) {
+            if (Boolean.TRUE.equals(deal.getIsPrimaryMember()) && deal.getEmployeeNumber() != null) {
+                String employeeId = deal.getEmployeeNumber();
+                
+                // Check for duplicate in current batch
+                if (employeeIdsInBatch.contains(employeeId)) {
+                    validationErrors.add(String.format("Duplicate employee ID %s found in CSV file", employeeId));
+                    continue;
+                }
+                employeeIdsInBatch.add(employeeId);
+                employeeIdsToCheck.add(employeeId);
+            }
+        }
+        
+        // Batch check for existing employee IDs in database
+        if (!employeeIdsToCheck.isEmpty()) {
+            List<Deals> existingDeals = dealsRepository.findByEmployeeNumberInAndOrganizationId(
+                employeeIdsToCheck, organization.getOrganizationId());
+            
+            Map<String, Deals> existingDealsMap = existingDeals.stream()
+                .collect(Collectors.toMap(Deals::getEmployeeNumber, d -> d, (d1, d2) -> d1));
+            
+            for (String employeeId : employeeIdsToCheck) {
+                if (existingDealsMap.containsKey(employeeId)) {
+                    validationErrors.add(String.format("Employee ID %s already exists for organization %s", 
+                        employeeId, organization.getOrganizationName()));
+                }
+            }
+        }
+    }
+    
+    /**
+     * Validates CSV data for delete operation
+     * Validates both primary employees and dependent deletions
+     */
+    private void validateForDelete(List<Deals> deals, Organization organization, 
+                                   List<String> validationErrors, List<String> warnings) {
+        if (organization == null) {
+            validationErrors.add("Organization is required for delete operation");
+            return;
+        }
+        
+        Set<String> employeesToDelete = new LinkedHashSet<>();
+        List<String> employeeIdsToCheck = new ArrayList<>();
+        
+        // Collect employee IDs to delete (primary employees)
+        for (Deals deal : deals) {
+            if (Boolean.TRUE.equals(deal.getIsPrimaryMember()) && deal.getEmployeeNumber() != null) {
+                String employeeId = deal.getEmployeeNumber();
+                employeesToDelete.add(employeeId);
+                employeeIdsToCheck.add(employeeId);
+            }
+        }
+        
+        // Batch check for existing employees in database
+        if (!employeeIdsToCheck.isEmpty()) {
+            List<Deals> existingDeals = dealsRepository.findByEmployeeNumberInAndOrganizationId(
+                employeeIdsToCheck, organization.getOrganizationId());
+            
+            Map<String, Deals> existingDealsMap = existingDeals.stream()
+                .collect(Collectors.toMap(Deals::getEmployeeNumber, d -> d, (d1, d2) -> d1));
+            
+            // Validate primary employees exist
+            for (String employeeId : employeesToDelete) {
+                if (!existingDealsMap.containsKey(employeeId)) {
+                    validationErrors.add(String.format("Employee ID %s not found in database for deletion", employeeId));
+                }
+            }
+            
+            // Validate dependent deletions
+            for (Deals deal : deals) {
+                if (Boolean.FALSE.equals(deal.getIsPrimaryMember()) && deal.getEmployeeNumber() != null) {
+                    String employeeId = deal.getEmployeeNumber();
+                    
+                    // Skip if Self is being deleted (dependents will be deleted automatically)
+                    if (employeesToDelete.contains(employeeId)) {
+                        continue;
+                    }
+                    
+                    // Check if this specific dependent is marked for individual deletion
+                    if (deal.getStatus() == AccountStatus.INACTIVE) {
+                        Deals primaryDeal = existingDealsMap.get(employeeId);
+                        if (primaryDeal != null) {
+                            List<Deals> existingDependents = dealsRepository.findByPrimaryIndividual(primaryDeal);
+                            // Find matching dependent by relationship and name
+                            boolean dependentFound = false;
+                            for (Deals existingDependent : existingDependents) {
+                                if (existingDependent.getRelationship() != null && 
+                                    existingDependent.getRelationship().equalsIgnoreCase(deal.getRelationship()) &&
+                                    existingDependent.getFirstName() != null &&
+                                    existingDependent.getFirstName().equalsIgnoreCase(deal.getFirstName())) {
+                                    dependentFound = true;
+                                    break;
+                                }
+                            }
+                            if (!dependentFound) {
+                                validationErrors.add(String.format("Dependent %s (%s) not found for employee %s", 
+                                    deal.getFirstName(), deal.getRelationship(), employeeId));
+                            }
+                        } else {
+                            validationErrors.add(String.format("Employee ID %s not found for dependent deletion", employeeId));
+                        }
+                    }
+                }
+            }
+        }
+    }
+    
+    /**
+     * Validates file and organization (shared validation logic)
+     */
+    private Organization validateFileAndOrganization(MultipartFile file, UUID organizationId, 
+                                                      List<String> errors) {
+        // Validate file
+        if (file == null || file.isEmpty()) {
+            errors.add("File is empty or not provided");
+            return null;
+        }
+        
+        // Validate file type
+        String filename = file.getOriginalFilename();
+        if (filename == null || (!filename.endsWith(".csv") && !filename.endsWith(".CSV"))) {
+            errors.add("Invalid file type. Only CSV files are allowed");
+            return null;
+        }
+        
+        // Validate and fetch organization
+        if (organizationId == null) {
+            errors.add("Organization ID is required");
+            return null;
+        }
+        
+        Optional<Organization> orgOpt = organizationRepository.findByOrganizationId(organizationId);
+        if (orgOpt.isEmpty()) {
+            errors.add("Organization not found with ID: " + organizationId);
+            return null;
+        }
+        
+        return orgOpt.get();
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public ResponseEntity<ResponseDto<EmployeeUploadResponse>> uploadDealsFromCsv(MultipartFile file, UUID organizationId) {
+        logger.info("[correlationId:{}] uploadDealsFromCsv called with organizationId: {}", MDC.get("correlationId"), organizationId);
+        BaseResponse<EmployeeUploadResponse> responseObj = new BaseResponse<>();
+        
+        try {
+            // Validate file and organization using shared validation logic
+            List<String> fileErrors = new ArrayList<>();
+            Organization organization = validateFileAndOrganization(file, organizationId, fileErrors);
+            
+            if (organization == null) {
+                EmployeeUploadResponse errorResponse = new EmployeeUploadResponse(
+                    0, 0, fileErrors.size(), 
+                    fileErrors, 
+                    "File upload failed",
+                    0, 0
+                );
+                ResponseDto<EmployeeUploadResponse> response = new ResponseDto<>(
+                    0, 
+                    fileErrors.isEmpty() ? "Validation failed" : fileErrors.get(0), 
+                    errorResponse
+                );
+                return responseObj.render(response);
+            }
+            
+            logger.info("[correlationId:{}] Organization found: {}", MDC.get("correlationId"), organization.getOrganizationName());
+            
+            // Parse CSV file with grouped structure (employee_id with Self + dependents)
+            CsvDealsReaderUtil.CsvParseResult parseResult = CsvDealsReaderUtil.parseGroupedCsvToDeals(file);
             
             if (parseResult.getDeals().isEmpty() && !parseResult.getErrors().isEmpty()) {
                 // All rows failed to parse
-                CsvUploadResponseDto errorResponse = new CsvUploadResponseDto(
+                EmployeeUploadResponse errorResponse = new EmployeeUploadResponse(
                     parseResult.getTotalRows(), 
                     0, 
                     parseResult.getErrorCount(),
                     parseResult.getErrors(),
-                    "Failed to parse any valid records from CSV"
+                    "Failed to parse any valid records from CSV",
+                    parseResult.getTotalEmployees(),
+                    parseResult.getTotalDependents()
                 );
-                ResponseDto<CsvUploadResponseDto> response = new ResponseDto<>(0, "Failed to parse CSV file", errorResponse);
+                ResponseDto<EmployeeUploadResponse> response = new ResponseDto<>(0, "Failed to parse CSV file", errorResponse);
+                logger.error("[correlationId:{}] Failed to parse CSV file: {}", MDC.get("correlationId"), response.getMessage());
                 return responseObj.render(response);
             }
             
-            // Save deals to database
-            int savedCount = 0;
-            List<String> saveErrors = new ArrayList<>(parseResult.getErrors());
+            // STANDARD VALIDATION: Validate ALL records first before processing
+            List<String> validationErrors = new ArrayList<>(parseResult.getErrors());
+            List<String> warnings = new ArrayList<>();
             
+            // Use shared validation logic for upload - validates all records
+            validateForUpload(parseResult.getDeals(), organization, validationErrors, warnings);
+            
+            // STANDARD PRACTICE: If ANY validation errors exist, return early without processing
+            if (!validationErrors.isEmpty()) {
+                logger.warn("[correlationId:{}] CSV validation failed with {} errors. Upload aborted.", 
+                    MDC.get("correlationId"), validationErrors.size());
+                
+                EmployeeUploadResponse errorResponse = new EmployeeUploadResponse(
+                    parseResult.getTotalRows(),
+                    0,
+                    validationErrors.size(),
+                    validationErrors,
+                    String.format("Validation failed. %d error(s) found. Please fix errors and try again.", validationErrors.size()),
+                    parseResult.getTotalEmployees(),
+                    parseResult.getTotalDependents()
+                );
+                ResponseDto<EmployeeUploadResponse> response = new ResponseDto<>(
+                    0, 
+                    "CSV validation failed. Please fix errors and try again.", 
+                    errorResponse
+                );
+                return responseObj.render(response);
+            }
+            
+            // All validation passed - proceed with processing
+            logger.info("[correlationId:{}] CSV validation passed. Proceeding with upload of {} records.", 
+                MDC.get("correlationId"), parseResult.getDeals().size());
+            
+            // Prepare deals for batch save
+            List<Deals> dealsToSave = new ArrayList<>();
+            LocalDateTime now = LocalDateTime.now();
+            
+            // Set up all deals for saving
             for (Deals deal : parseResult.getDeals()) {
-                try {
-                    // Set timestamps
-                    LocalDateTime now = LocalDateTime.now();
-                    deal.setCreatedAt(now);
-                    deal.setUpdatedAt(now);
-                    
-                    // Set organization if provided
-                    if (organization != null) {
-                        deal.setOrganization(organization);
-                    }
-                    
-                    // Check if employee number already exists
-                    Optional<Deals> existingDeal = dealsRepository.findByEmployeeNumber(deal.getEmployeeNumber());
-                    if (existingDeal.isPresent()) {
-                        saveErrors.add(String.format("Employee ID %s already exists", deal.getEmployeeNumber()));
-                        continue;
-                    }
-                    
-                    // Check if email already exists (if provided)
-                    if (deal.getEmail() != null && !deal.getEmail().trim().isEmpty()) {
-                        Optional<Deals> existingByEmail = dealsRepository.findByEmail(deal.getEmail());
-                        if (existingByEmail.isPresent()) {
-                            saveErrors.add(String.format("Email %s already exists for Employee ID %s", 
-                                deal.getEmail(), deal.getEmployeeNumber()));
-                            continue;
-                        }
-                    }
-                    
-                    dealsRepository.save(deal);
-                    savedCount++;
-                    
-                } catch (Exception e) {
-                    String errorMsg = String.format("Failed to save Employee ID %s: %s", 
-                        deal.getEmployeeNumber(), e.getMessage());
-                    saveErrors.add(errorMsg);
-                    logger.error("Error saving deal for Employee ID {}: {}", deal.getEmployeeNumber(), e.getMessage(), e);
+                // Set status to ACTIVE for all new additions
+                deal.setStatus(AccountStatus.PENDING);
+                
+                // Set timestamps
+                deal.setCreatedAt(now);
+                deal.setUpdatedAt(now);
+                
+                // Set organization
+                deal.setOrganization(organization);
+                
+                dealsToSave.add(deal);
+            }
+            
+            // Save all deals in batches for better performance with large datasets
+            // JPA batch insert is configured in application properties
+            int batchSize = 500; // Process in batches of 500
+            int totalSaved = 0;
+            
+            logger.info("[correlationId:{}] Saving {} new deals in batches of {}", 
+                MDC.get("correlationId"), dealsToSave.size(), batchSize);
+            
+            // Save new deals
+            for (int i = 0; i < dealsToSave.size(); i += batchSize) {
+                int end = Math.min(i + batchSize, dealsToSave.size());
+                List<Deals> batch = dealsToSave.subList(i, end);
+                dealsRepository.saveAll(batch);
+                totalSaved += batch.size();
+                
+                if (i + batchSize < dealsToSave.size()) {
+                    logger.debug("[correlationId:{}] Saved batch: {}/{} deals", 
+                        MDC.get("correlationId"), totalSaved, dealsToSave.size());
                 }
             }
             
-            // Prepare response
-            String message;
-            if (savedCount == parseResult.getDeals().size()) {
-                message = String.format("Successfully uploaded %d records from CSV", savedCount);
-            } else {
-                message = String.format("Uploaded %d out of %d valid records. %d errors occurred.", 
-                    savedCount, parseResult.getDeals().size(), saveErrors.size());
-            }
+            logger.info("[correlationId:{}] Successfully saved {} deals in batches", 
+                MDC.get("correlationId"), totalSaved);
             
-            CsvUploadResponseDto csvResponse = new CsvUploadResponseDto(
+            // Prepare success response
+            String message = String.format("Successfully added %d records from CSV", totalSaved);
+            EmployeeUploadResponse csvResponse = new EmployeeUploadResponse(
                 parseResult.getTotalRows(),
-                savedCount,
-                saveErrors.size(),
-                saveErrors,
-                message
+                totalSaved,
+                0,
+                parseResult.getErrors(),
+                message,
+                parseResult.getTotalEmployees(),
+                parseResult.getTotalDependents()
             );
             
-            if (savedCount > 0) {
-                logger.info("[correlationId:{}] CSV upload completed: {} records saved, {} errors", 
-                    MDC.get("correlationId"), savedCount, saveErrors.size());
-                return responseObj.render(responseObj.formSuccessResponse(Constants.SUCCESS, csvResponse));
-            } else {
-                logger.warn("[correlationId:{}] CSV upload completed with no records saved", MDC.get("correlationId"));
-                ResponseDto<CsvUploadResponseDto> response = new ResponseDto<>(0, "No records were saved", csvResponse);
-                return responseObj.render(response);
-            }
+            logger.info("[correlationId:{}] CSV upload completed: {} records saved successfully", 
+                MDC.get("correlationId"), dealsToSave.size());
+            return responseObj.render(responseObj.formSuccessResponse(Constants.SUCCESS, csvResponse));
             
         } catch (Exception e) {
             logger.error("[correlationId:{}] Exception in uploadDealsFromCsv: {}", MDC.get("correlationId"), e.getMessage(), e);
-            CsvUploadResponseDto errorResponse = new CsvUploadResponseDto(0, 0, 1, 
-                List.of("Unexpected error: " + e.getMessage()), "File upload failed");
-            ResponseDto<CsvUploadResponseDto> response = new ResponseDto<>(0, e.getMessage(), errorResponse);
+            // Transaction will automatically rollback due to @Transactional annotation
+            EmployeeUploadResponse errorResponse = new EmployeeUploadResponse(0, 0, 1, 
+                List.of("Transaction rolled back: " + e.getMessage()), "File upload failed - no records were saved",
+                0, 0);
+            ResponseDto<EmployeeUploadResponse> response = new ResponseDto<>(0, e.getMessage(), errorResponse);
             return responseObj.render(response);
         }
     }
+    
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public ResponseEntity<ResponseDto<EmployeeUploadResponse>> deleteEmployeesFromCsv(MultipartFile file, UUID organizationId) {
+        logger.info("[correlationId:{}] deleteEmployeesFromCsv called for organizationId: {}", 
+            MDC.get("correlationId"), organizationId);
+        BaseResponse<EmployeeUploadResponse> responseObj = new BaseResponse<>();
+        
+        try {
+            // Validate file and organization using shared validation logic
+            List<String> fileErrors = new ArrayList<>();
+            Organization organization = validateFileAndOrganization(file, organizationId, fileErrors);
+            
+            if (organization == null) {
+                EmployeeUploadResponse errorResponse = new EmployeeUploadResponse(
+                    0, 0, fileErrors.size(), 
+                    fileErrors, 
+                    "File deletion failed",
+                    0, 0
+                );
+                ResponseDto<EmployeeUploadResponse> response = new ResponseDto<>(
+                    0, 
+                    fileErrors.isEmpty() ? "Validation failed" : fileErrors.get(0), 
+                    errorResponse
+                );
+                return responseObj.render(response);
+            }
+            
+            logger.info("[correlationId:{}] Organization found: {}", MDC.get("correlationId"), organization.getOrganizationName());
+            
+            // Parse CSV file with grouped structure
+            CsvDealsReaderUtil.CsvParseResult parseResult = CsvDealsReaderUtil.parseGroupedCsvToDeals(file);
+            
+            if (parseResult.getDeals().isEmpty() && !parseResult.getErrors().isEmpty()) {
+                EmployeeUploadResponse errorResponse = new EmployeeUploadResponse(
+                    parseResult.getTotalRows(), 
+                    0, 
+                    parseResult.getErrorCount(),
+                    parseResult.getErrors(),
+                    "Failed to parse any valid records from CSV",
+                    parseResult.getTotalEmployees(),
+                    parseResult.getTotalDependents()
+                );
+                ResponseDto<EmployeeUploadResponse> response = new ResponseDto<>(0, "Failed to parse CSV file", errorResponse);
+                logger.error("[correlationId:{}] Failed to parse CSV file: {}", MDC.get("correlationId"), response.getMessage());
+                return responseObj.render(response);
+            }
+            
+            // STANDARD VALIDATION: Validate ALL records first before processing
+            List<String> validationErrors = new ArrayList<>(parseResult.getErrors());
+            List<String> warnings = new ArrayList<>();
+            
+            // Use shared validation logic for delete - validates all records
+            validateForDelete(parseResult.getDeals(), organization, validationErrors, warnings);
+            
+            // STANDARD PRACTICE: If ANY validation errors exist, return early without processing
+            if (!validationErrors.isEmpty()) {
+                logger.warn("[correlationId:{}] CSV validation failed with {} errors. Deletion aborted.", 
+                    MDC.get("correlationId"), validationErrors.size());
+                
+                EmployeeUploadResponse errorResponse = new EmployeeUploadResponse(
+                    parseResult.getTotalRows(),
+                    0,
+                    validationErrors.size(),
+                    validationErrors,
+                    String.format("Validation failed. %d error(s) found. Please fix errors and try again.", validationErrors.size()),
+                    parseResult.getTotalEmployees(),
+                    parseResult.getTotalDependents()
+                );
+                ResponseDto<EmployeeUploadResponse> response = new ResponseDto<>(
+                    0, 
+                    "CSV validation failed. Please fix errors and try again.", 
+                    errorResponse
+                );
+                return responseObj.render(response);
+            }
+            
+            // All validation passed - proceed with processing deletions
+            logger.info("[correlationId:{}] CSV validation passed. Proceeding with deletion of {} records.", 
+                MDC.get("correlationId"), parseResult.getDeals().size());
+            
+            // Process deletions - collect deals to delete from database
+            List<Deals> dealsToDelete = new ArrayList<>();
+            
+            // Track which employees (Self) are being deleted - their dependents will also be deleted
+            Set<String> employeesToDelete = new LinkedHashSet<>();
+            
+            // First pass: identify deletions from CSV
+            for (Deals deal : parseResult.getDeals()) {
+                if (Boolean.TRUE.equals(deal.getIsPrimaryMember()) && deal.getEmployeeNumber() != null) {
+                    employeesToDelete.add(deal.getEmployeeNumber());
+                    logger.info("[correlationId:{}] Employee {} marked for deletion in CSV", 
+                        MDC.get("correlationId"), deal.getEmployeeNumber());
+                }
+            }
+            
+            // Collect all employee IDs to check in database
+            List<String> employeeIdsToCheck = new ArrayList<>();
+            for (Deals deal : parseResult.getDeals()) {
+                if (Boolean.TRUE.equals(deal.getIsPrimaryMember()) && deal.getEmployeeNumber() != null) {
+                    employeeIdsToCheck.add(deal.getEmployeeNumber());
+                }
+            }
+            
+            // Batch check for existing employees in database
+            if (!employeeIdsToCheck.isEmpty()) {
+                logger.info("[correlationId:{}] Checking {} employee IDs for deletion in database", 
+                    MDC.get("correlationId"), employeeIdsToCheck.size());
+                
+                List<Deals> existingDeals = dealsRepository.findByEmployeeNumberInAndOrganizationId(
+                    employeeIdsToCheck, organization.getOrganizationId());
+                
+                Map<String, Deals> existingDealsMap = existingDeals.stream()
+                    .collect(Collectors.toMap(Deals::getEmployeeNumber, d -> d, (d1, d2) -> d1));
+                
+                // Process Self deletions
+                for (String employeeId : employeesToDelete) {
+                    Deals existingDeal = existingDealsMap.get(employeeId);
+                    if (existingDeal != null) {
+                        // Self is being deleted - delete Self + ALL dependents
+                        dealsToDelete.add(existingDeal);
+                        
+                        // Get ALL existing dependents to delete
+                        List<Deals> existingDependents = dealsRepository.findByPrimaryIndividual(existingDeal);
+                        dealsToDelete.addAll(existingDependents);
+                        logger.info("[correlationId:{}] Employee {} and {} dependents will be deleted (Self deletion)", 
+                            MDC.get("correlationId"), employeeId, existingDependents.size());
+                    }
+                }
+                
+                // Process individual dependent deletions (validation already passed)
+                for (Deals deal : parseResult.getDeals()) {
+                    if (Boolean.FALSE.equals(deal.getIsPrimaryMember()) && deal.getEmployeeNumber() != null) {
+                        String employeeId = deal.getEmployeeNumber();
+                        
+                        // Skip if Self is being deleted (already handled above)
+                        if (employeesToDelete.contains(employeeId)) {
+                            continue;
+                        }
+                        
+                        // Check if this specific dependent is marked for individual deletion
+                        if (deal.getStatus() == AccountStatus.INACTIVE) {
+                            Deals primaryDeal = existingDealsMap.get(employeeId);
+                            if (primaryDeal != null) {
+                                List<Deals> existingDependents = dealsRepository.findByPrimaryIndividual(primaryDeal);
+                                // Find matching dependent by relationship and name (already validated)
+                                for (Deals existingDependent : existingDependents) {
+                                    if (existingDependent.getRelationship() != null && 
+                                        existingDependent.getRelationship().equalsIgnoreCase(deal.getRelationship()) &&
+                                        existingDependent.getFirstName() != null &&
+                                        existingDependent.getFirstName().equalsIgnoreCase(deal.getFirstName())) {
+                                        // Found matching dependent - add to deletion list
+                                        dealsToDelete.add(existingDependent);
+                                        logger.info("[correlationId:{}] Dependent {} ({}) will be deleted", 
+                                            MDC.get("correlationId"), deal.getFirstName(), deal.getRelationship());
+                                        break;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            
+            // Delete all records from database in batches
+            int batchSize = 500;
+            int totalDeleted = 0;
+            
+            logger.info("[correlationId:{}] Deleting {} records from database in batches of {}", 
+                MDC.get("correlationId"), dealsToDelete.size(), batchSize);
+            
+            for (int i = 0; i < dealsToDelete.size(); i += batchSize) {
+                int end = Math.min(i + batchSize, dealsToDelete.size());
+                List<Deals> batch = dealsToDelete.subList(i, end);
+                batch.forEach(deal -> deal.setStatus(AccountStatus.PENDING_DELETE));
+                dealsRepository.saveAll(batch);
+                totalDeleted += batch.size();
+                
+                if (i + batchSize < dealsToDelete.size()) {
+                    logger.debug("[correlationId:{}] Deleted batch: {}/{} records", 
+                        MDC.get("correlationId"), totalDeleted, dealsToDelete.size());
+                }
+            }
+            
+            logger.info("[correlationId:{}] Successfully deleted {} records in batches", 
+                MDC.get("correlationId"), totalDeleted);
+            
+            // Prepare success response
+            String message = String.format("Successfully deleted %d records from CSV", totalDeleted);
+            EmployeeUploadResponse csvResponse = new EmployeeUploadResponse(
+                parseResult.getTotalRows(),
+                totalDeleted,
+                0,
+                parseResult.getErrors(),
+                message,
+                parseResult.getTotalEmployees(),
+                parseResult.getTotalDependents()
+            );
+            
+            logger.info("[correlationId:{}] CSV deletion completed: {} records deleted successfully", 
+                MDC.get("correlationId"), totalDeleted);
+            
+            return responseObj.render(responseObj.formSuccessResponse("CSV deletion completed successfully", csvResponse));
+            
+        } catch (Exception e) {
+            logger.error("[correlationId:{}] Exception in deleteEmployeesFromCsv: {}", MDC.get("correlationId"), e.getMessage(), e);
+            EmployeeUploadResponse errorResponse = new EmployeeUploadResponse(0, 0, 1, 
+                List.of("Transaction rolled back: " + e.getMessage()), "File deletion failed - no records were deleted",
+                0, 0);
+            ResponseDto<EmployeeUploadResponse> response = new ResponseDto<>(0, e.getMessage(), errorResponse);
+            return responseObj.render(response);
+        }
+    }
+    
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public ResponseEntity<ResponseDto<String>> deleteEmployee(String employeeId, UUID organizationId) {
+        logger.info("[correlationId:{}] deleteEmployee called for employeeId: {}, organizationId: {}", 
+            MDC.get("correlationId"), employeeId, organizationId);
+        BaseResponse<String> responseObj = new BaseResponse<>();
+        
+        try {
+            // Validate organization
+            Optional<Organization> orgOpt = organizationRepository.findByOrganizationId(organizationId);
+            if (orgOpt.isEmpty()) {
+                return responseObj.render(responseObj.formErrorResponse("Organization not found"));
+            }
+            Organization organization = orgOpt.get();
+            
+            // Find employee by employee number
+            Optional<Deals> employeeOpt = dealsRepository.findByEmployeeNumberAndOrganizationId(
+                employeeId, organizationId);
+            
+            if (employeeOpt.isEmpty()) {
+                return responseObj.render(responseObj.formErrorResponse(
+                    String.format("Employee with ID %s not found for organization %s", employeeId, organization.getOrganizationName())));
+            }
+            
+            Deals employee = employeeOpt.get();
+            
+            // Mark employee as INACTIVE
+            employee.setStatus(AccountStatus.INACTIVE);
+            employee.setUpdatedAt(LocalDateTime.now());
+            dealsRepository.save(employee);
+            
+            // Mark all dependents as INACTIVE
+            List<Deals> dependents = dealsRepository.findByPrimaryIndividual(employee);
+            for (Deals dependent : dependents) {
+                dependent.setStatus(AccountStatus.INACTIVE);
+                dependent.setUpdatedAt(LocalDateTime.now());
+            }
+            if (!dependents.isEmpty()) {
+                dealsRepository.saveAll(dependents);
+                logger.info("[correlationId:{}] Marked employee {} and {} dependents as INACTIVE", 
+                    MDC.get("correlationId"), employeeId, dependents.size());
+            }
+            
+            return responseObj.render(responseObj.formSuccessResponse(Constants.SUCCESS, 
+                String.format("Employee %s and %d dependents marked as deleted", employeeId, dependents.size())));
+            
+        } catch (Exception e) {
+            logger.error("[correlationId:{}] Exception in deleteEmployee: {}", MDC.get("correlationId"), e.getMessage(), e);
+            return responseObj.render(responseObj.formErrorResponse(e.getMessage()));
+        }
+    }
+    
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public ResponseEntity<ResponseDto<String>> bulkDeleteEmployees(BulkEmployeeDeletionRequestDto requestDto, UUID organizationId) {
+        logger.info("[correlationId:{}] bulkDeleteEmployees called for {} employees, organizationId: {}", 
+            MDC.get("correlationId"), requestDto.getEmployeeId() != null ? 1 : 0, organizationId);
+        BaseResponse<String> responseObj = new BaseResponse<>();
+        
+        try {
+            // Validate request
+            if (requestDto == null || requestDto.getEmployeeId() == null) {
+                return responseObj.render(responseObj.formErrorResponse("Employee IDs list cannot be empty"));
+            }
+            
+            // Validate organization
+            Optional<Organization> orgOpt = organizationRepository.findByOrganizationId(organizationId);
+            if (orgOpt.isEmpty()) {
+                return responseObj.render(responseObj.formErrorResponse("Organization not found"));
+            }
+            
+            List<String> employeeIds = Arrays.asList(requestDto.getEmployeeId());
+            LocalDateTime now = LocalDateTime.now();
+            
+            // Batch query to find all employees at once (optimized)
+            List<Deals> employees = dealsRepository.findByEmployeeNumberInAndOrganizationId(
+                employeeIds, organizationId);
+            
+            if (employees.isEmpty()) {
+                return responseObj.render(responseObj.formErrorResponse(
+                    "No employees found with the provided employee IDs for this organization"));
+            }
+            
+            // Create a map for fast lookup
+            Map<String, Deals> employeesMap = employees.stream()
+                .collect(Collectors.toMap(Deals::getEmployeeNumber, d -> d, (d1, d2) -> d1));
+            
+            // Track results
+            int deletedCount = 0;
+            int dependentsDeletedCount = 0;
+            List<String> notFoundIds = new ArrayList<>();
+            List<Deals> allDealsToUpdate = new ArrayList<>();
+            
+            // Process each employee ID
+            for (String employeeId : employeeIds) {
+                Deals employee = employeesMap.get(employeeId);
+                
+                if (employee == null) {
+                    notFoundIds.add(employeeId);
+                    continue;
+                }
+                
+                // Mark employee as INACTIVE
+                employee.setStatus(AccountStatus.INACTIVE);
+                employee.setUpdatedAt(now);
+                allDealsToUpdate.add(employee);
+                deletedCount++;
+                
+                // Mark all dependents as INACTIVE
+                List<Deals> dependents = dealsRepository.findByPrimaryIndividual(employee);
+                for (Deals dependent : dependents) {
+                    dependent.setStatus(AccountStatus.INACTIVE);
+                    dependent.setUpdatedAt(now);
+                    allDealsToUpdate.add(dependent);
+                    dependentsDeletedCount++;
+                }
+            }
+            
+            // Batch update all deals (employees + dependents)
+            if (!allDealsToUpdate.isEmpty()) {
+                int batchSize = 500;
+                for (int i = 0; i < allDealsToUpdate.size(); i += batchSize) {
+                    int end = Math.min(i + batchSize, allDealsToUpdate.size());
+                    List<Deals> batch = allDealsToUpdate.subList(i, end);
+                    dealsRepository.saveAll(batch);
+                }
+            }
+            
+            // Prepare response message
+            StringBuilder message = new StringBuilder();
+            message.append(String.format("Successfully deleted %d employees and %d dependents", 
+                deletedCount, dependentsDeletedCount));
+            
+            if (!notFoundIds.isEmpty()) {
+                message.append(String.format(". %d employee ID(s) not found: %s", 
+                    notFoundIds.size(), String.join(", ", notFoundIds)));
+            }
+            
+            logger.info("[correlationId:{}] Bulk deletion completed: {} employees, {} dependents deleted. {} not found", 
+                MDC.get("correlationId"), deletedCount, dependentsDeletedCount, notFoundIds.size());
+            
+            return responseObj.render(responseObj.formSuccessResponse(Constants.SUCCESS, message.toString()));
+            
+        } catch (Exception e) {
+            logger.error("[correlationId:{}] Exception in bulkDeleteEmployees: {}", MDC.get("correlationId"), e.getMessage(), e);
+            return responseObj.render(responseObj.formErrorResponse(e.getMessage()));
+        }
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public ResponseEntity<ResponseDto<EmployeeUploadResponse>> uploadEmployees(List<EmployeeUploadDto> employeeUploadDtoList, UUID organizationId) {
+    logger.info("[correlationId:{}] uploadEmployees called for {} employees, organizationId: {}", 
+        MDC.get("correlationId"), employeeUploadDtoList.size(), organizationId);
+    BaseResponse<EmployeeUploadResponse> responseObj = new BaseResponse<>();
+    try {
+        Organization organization = organizationRepository.findByOrganizationId(organizationId).orElseThrow(() -> new RuntimeException("Organization not found"));
+        EmployeeUploadResponse employeeUploadResponse = new EmployeeUploadResponse();
+        employeeUploadResponse = employeeService.uploadEmployees(employeeUploadDtoList, organization);
+        return responseObj.render(responseObj.formSuccessResponse(Constants.SUCCESS, employeeUploadResponse));
+    }
+    catch (Exception e) {
+        logger.error("[correlationId:{}] Exception in uploadEmployees: {}", MDC.get("correlationId"), e.getMessage(), e);
+        return responseObj.render(responseObj.formErrorResponse(e.getMessage()));
+    }
 }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public ResponseEntity<ResponseDto<EmployeeUploadResponse>> validateEmployees(List<EmployeeUploadDto> employeeUploadDtoList, UUID organizationId) {
+        logger.info("[correlationId:{}] validateEmployees called for {} employees, organizationId: {}", 
+            MDC.get("correlationId"), employeeUploadDtoList.size(), organizationId);
+        BaseResponse<EmployeeUploadResponse> responseObj = new BaseResponse<>();
+        try {
+            Organization organization = organizationRepository.findByOrganizationId(organizationId).orElseThrow(() -> new RuntimeException("Organization not found"));
+            EmployeeUploadResponse employeeUploadResponse = employeeService.validateEmployee(employeeUploadDtoList, organization);
+            return responseObj.render(responseObj.formSuccessResponse(Constants.SUCCESS, employeeUploadResponse));
+        }
+        catch (Exception e) {
+            logger.error("[correlationId:{}] Exception in validateEmployees: {}", MDC.get("correlationId"), e.getMessage(), e);
+            return responseObj.render(responseObj.formErrorResponse(e.getMessage()));
+        }
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public ResponseEntity<ResponseDto<EmployeeUploadResponse>> delete(List<BulkEmployeeDeletionRequestDto> bulkEmployeeDeletionRequestDtoList, UUID organizationId) {
+        logger.info("[correlationId:{}] delete called for {} employees, organizationId: {}", 
+            MDC.get("correlationId"), bulkEmployeeDeletionRequestDtoList.size(), organizationId);
+        BaseResponse<EmployeeUploadResponse> responseObj = new BaseResponse<>();
+        try {
+            Organization organization = organizationRepository.findByOrganizationId(organizationId).orElseThrow(() -> new RuntimeException("Organization not found"));
+            EmployeeUploadResponse employeeUploadResponse = employeeService.deleteEmployee(bulkEmployeeDeletionRequestDtoList, organization);
+            return responseObj.render(responseObj.formSuccessResponse(Constants.SUCCESS, employeeUploadResponse));
+        }
+        catch (Exception e) {
+            logger.error("[correlationId:{}] Exception in delete: {}", MDC.get("correlationId"), e.getMessage(), e);
+            return responseObj.render(responseObj.formErrorResponse(e.getMessage()));
+        }
+    }
+  
+}
+
+
 
 

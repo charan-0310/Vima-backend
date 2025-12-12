@@ -9,6 +9,7 @@ import lombok.Data;
 public class NomineeRequestDto {
     private String firstName;
     private String lastName;
+    private String fullName;
     private LocalDate dateOfBirth;
     private String gender;
     private String relationship;

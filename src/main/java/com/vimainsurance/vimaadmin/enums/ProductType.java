@@ -11,7 +11,10 @@ public enum ProductType {
     MOTOR("MOTOR"),
     GENERAL("GENERAL"),
     TERM("TERM"),
-    LIFE("LIFE");
+    LIFE("LIFE"),
+    GHI("GHI"),
+    GPA("GPA"),
+    GTI("GTI");
 
     private final String value;
 

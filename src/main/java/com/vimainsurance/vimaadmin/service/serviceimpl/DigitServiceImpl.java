@@ -32,7 +32,7 @@ import com.vimainsurance.vimaadmin.service.IDigitService;
 import com.vimainsurance.vimaadmin.service.VendorApiService;
 import com.vimainsurance.vimaadmin.util.ConverterUtils;
 
-import io.jsonwebtoken.io.IOException;
+import java.io.IOException;
 
 import com.fasterxml.jackson.core.JsonGenerator;
 import com.fasterxml.jackson.core.type.TypeReference;
@@ -40,6 +40,30 @@ import com.fasterxml.jackson.core.type.TypeReference;
 
 @Service
 public class DigitServiceImpl implements IDigitService{
+
+    /**
+     * Singleton ObjectMapper to prevent per-request creation
+     * This reduces memory overhead and prevents potential ANTLR-related leaks
+     */
+    private static final ObjectMapper OBJECT_MAPPER = createObjectMapper();
+    
+    private static ObjectMapper createObjectMapper() {
+        ObjectMapper mapper = new ObjectMapper();
+        mapper.enable(SerializationFeature.INDENT_OUTPUT);
+        
+        // Custom null serializer: replaces null with ""
+        DefaultSerializerProvider.Impl sp = new DefaultSerializerProvider.Impl();
+        sp.setNullValueSerializer(new JsonSerializer<Object>() {
+            @Override
+            public void serialize(Object o, JsonGenerator jsonGenerator, SerializerProvider serializerProvider)
+                    throws IOException {
+                jsonGenerator.writeString("");
+            }
+        });
+        mapper.setSerializerProvider(sp);
+        
+        return mapper;
+    }
 
     @Autowired
     private  VendorRepository vendorRepository;
@@ -135,26 +159,16 @@ public class DigitServiceImpl implements IDigitService{
     }
 
     
+    /**
+     * Convert QQGlowWrapper to Map using singleton ObjectMapper
+     * This prevents per-request ObjectMapper creation and reduces memory overhead
+     */
     public Map<String, Object> convertToMap(QQGlowWrapper wrapper) {
-        ObjectMapper mapper = new ObjectMapper();
-        mapper.enable(SerializationFeature.INDENT_OUTPUT);
-    
-        // Custom null serializer: replaces null with ""
-        DefaultSerializerProvider.Impl sp = new DefaultSerializerProvider.Impl();
-        sp.setNullValueSerializer(new JsonSerializer<Object>() {
-            @Override
-            public void serialize(Object o, JsonGenerator jsonGenerator, SerializerProvider serializerProvider)
-                    throws IOException, java.io.IOException {
-                jsonGenerator.writeString("");
-            }
-        });
-        mapper.setSerializerProvider(sp);
-    
-        // First serialize to JSON string with nulls replaced
         try {
-            String json = mapper.writeValueAsString(wrapper);
+            // Use singleton ObjectMapper instead of creating new one per request
+            String json = OBJECT_MAPPER.writeValueAsString(wrapper);
             // Then deserialize into Map
-            return mapper.readValue(json, new TypeReference<Map<String, Object>>() {});
+            return OBJECT_MAPPER.readValue(json, new TypeReference<Map<String, Object>>() {});
         } catch (Exception e) {
             throw new RuntimeException("Error while converting to Map", e);
         }

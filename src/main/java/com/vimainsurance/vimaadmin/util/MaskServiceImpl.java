@@ -59,9 +59,14 @@ public class MaskServiceImpl implements IMaskService {
         tesseract.setPageSegMode(ITessAPI.TessPageSegMode.PSM_SPARSE_TEXT);
         tesseract.setTessVariable("tessedit_char_whitelist", "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ");
         String foundAadhar = "";
+        BufferedImage image = null;
+        BufferedImage bright = null;
+        Graphics2D g = null;
+        File maskedFile = null;
+        
         try {
-            BufferedImage image = ImageIO.read(file.getInputStream());
-            BufferedImage bright = new BufferedImage(image.getWidth(), image.getHeight(), image.getType());
+            image = ImageIO.read(file.getInputStream());
+            bright = new BufferedImage(image.getWidth(), image.getHeight(), image.getType());
             float scaleFactor = 1.5f;  // 1.0 = no change, >1 = brighter
             float offset = 15f; 
             RescaleOp rescaleOp = new RescaleOp(scaleFactor, offset, null);
@@ -69,56 +74,73 @@ public class MaskServiceImpl implements IMaskService {
             bright = ImageHelper.getScaledInstance(bright, image.getWidth() * 3, image.getHeight() * 3);
 
             List<Word> words = tesseract.getWords(bright, ITessAPI.TessPageIteratorLevel.RIL_TEXTLINE);
-            Graphics2D g = bright.createGraphics();
+            g = bright.createGraphics();
             g.setFont(new Font("Arial", Font.BOLD, 18));
             g.setColor(Color.BLACK);
             
-        for (Word word : words) {
-            String text = word.getText().replaceAll("[^A-Za-z0-9 ]", "").trim();
-            if (text.isEmpty()) continue;
-            Matcher m = AADHAAR_PATTERN.matcher(text);
-            if(m.find()){
-            foundAadhar = text;
-            String masked = maskAADHAR(text);
+            for (Word word : words) {
+                String text = word.getText().replaceAll("[^A-Za-z0-9 ]", "").trim();
+                if (text.isEmpty()) continue;
+                Matcher m = AADHAAR_PATTERN.matcher(text);
+                if(m.find()){
+                    foundAadhar = text;
+                    String masked = maskAADHAR(text);
 
-            Rectangle box = word.getBoundingBox();
-            int padding = 2; // reduce box padding (experiment with 1–4)
-            int maskX = box.x + padding;
-            int maskY = box.y + padding;
-            int maskW = box.width - 2 * padding;
-            int maskH = box.height - 2 * padding;
-            
-            g.setColor(Color.WHITE);
-            g.fillRect(maskX, maskY, maskW, maskH);
-            
-            // draw masked Aadhaar text smaller, centered
-            g.setColor(Color.BLACK);
-            int fontSize = Math.max(10, (int)(maskH * 0.6)); // scale text smaller than box
-            g.setFont(new Font("Helvetica", Font.BOLD, fontSize));
-            
-            // adjust Y-position for better centering
-            FontMetrics fm = g.getFontMetrics();
-            int textY = maskY + (maskH + fm.getAscent() - fm.getDescent()) / 2;
-            
-            g.drawString(masked, maskX + 3, textY);
+                    Rectangle box = word.getBoundingBox();
+                    int padding = 2; // reduce box padding (experiment with 1–4)
+                    int maskX = box.x + padding;
+                    int maskY = box.y + padding;
+                    int maskW = box.width - 2 * padding;
+                    int maskH = box.height - 2 * padding;
+                    
+                    g.setColor(Color.WHITE);
+                    g.fillRect(maskX, maskY, maskW, maskH);
+                    
+                    // draw masked Aadhaar text smaller, centered
+                    g.setColor(Color.BLACK);
+                    int fontSize = Math.max(10, (int)(maskH * 0.6)); // scale text smaller than box
+                    g.setFont(new Font("Helvetica", Font.BOLD, fontSize));
+                    
+                    // adjust Y-position for better centering
+                    FontMetrics fm = g.getFontMetrics();
+                    int textY = maskY + (maskH + fm.getAscent() - fm.getDescent()) / 2;
+                    
+                    g.drawString(masked, maskX + 3, textY);
 
-            System.out.println("Masked: " + text + " → " + masked);
+                    System.out.println("Masked: " + text + " → " + masked);
+                }
             }
-            }
-        
 
-        g.dispose();
-        String extension = FilenameUtils.getExtension(file.getName());
-        if (extension == null || extension.isEmpty()) {
-            extension = "png";
-        }
-        File maskedFile = File.createTempFile("masked_", "." + extension);    
-        ImageIO.write(bright, extension, maskedFile);
-        System.out.println("✅ Masked image saved: " + file.getName());
-        return maskedFile;
+            g.dispose();
+            g = null;
+            
+            String extension = FilenameUtils.getExtension(file.getName());
+            if (extension == null || extension.isEmpty()) {
+                extension = "png";
+            }
+            maskedFile = File.createTempFile("masked_", "." + extension);
+            maskedFile.deleteOnExit(); // Ensure temporary file is deleted on JVM exit
+            ImageIO.write(bright, extension, maskedFile);
+            System.out.println("✅ Masked image saved: " + file.getName());
+            return maskedFile;
         } catch (Exception e) {
             logger.error("Error masking AADHAR image: {}", e.getMessage());
+            // Clean up temporary file if created
+            if (maskedFile != null && maskedFile.exists()) {
+                maskedFile.delete();
+            }
             return null;
+        } finally {
+            // Dispose graphics and flush images to free memory
+            if (g != null) {
+                g.dispose();
+            }
+            if (image != null) {
+                image.flush();
+            }
+            if (bright != null) {
+                bright.flush();
+            }
         }
     }
 
@@ -129,50 +151,72 @@ public class MaskServiceImpl implements IMaskService {
         tesseract.setDatapath("/usr/share/tesseract-ocr/4.00/tessdata");
         tesseract.setLanguage("eng");
         tesseract.setPageSegMode(ITessAPI.TessPageSegMode.PSM_SPARSE_TEXT);
+        BufferedImage image = null;
+        BufferedImage bright = null;
+        Graphics2D g = null;
+        File maskedFile = null;
+        
         try {
-            BufferedImage image = ImageIO.read(file.getInputStream());
-            BufferedImage bright = new BufferedImage(image.getWidth(), image.getHeight(), image.getType());
+            image = ImageIO.read(file.getInputStream());
+            bright = new BufferedImage(image.getWidth(), image.getHeight(), image.getType());
             float scaleFactor = 1.0f;  // 1.0 = no change, >1 = brighter
             float offset = 15f; 
             RescaleOp rescaleOp = new RescaleOp(scaleFactor, offset, null);
             rescaleOp.filter(image, bright);
             bright = ImageHelper.getScaledInstance(bright, image.getWidth(), image.getHeight());
             List<Word> words = tesseract.getWords(bright, ITessAPI.TessPageIteratorLevel.RIL_WORD);
-            Graphics2D g = bright.createGraphics();
+            g = bright.createGraphics();
             g.setFont(new Font("Arial", Font.BOLD, 18));
             g.setColor(Color.BLACK);
             
-        for (Word word : words) {
-            String text = word.getText().replaceAll("[^A-Za-z0-9 ]", "").trim();
-            if (text.isEmpty()) continue;
+            for (Word word : words) {
+                String text = word.getText().replaceAll("[^A-Za-z0-9 ]", "").trim();
+                if (text.isEmpty()) continue;
 
-            if(PAN_PATTERN.matcher(text).matches()){
-            Rectangle box = word.getBoundingBox();
-            g.setColor(Color.WHITE);
-            g.fillRect(box.x, box.y, box.width, box.height);
+                if(PAN_PATTERN.matcher(text).matches()){
+                    Rectangle box = word.getBoundingBox();
+                    g.setColor(Color.WHITE);
+                    g.fillRect(box.x, box.y, box.width, box.height);
 
-            g.setColor(Color.BLACK);
-            String masked = maskPAN(text);
-            g.drawString(masked, box.x, box.y + box.height - 3);
+                    g.setColor(Color.BLACK);
+                    String masked = maskPAN(text);
+                    g.drawString(masked, box.x, box.y + box.height - 3);
 
-            System.out.println("Masked: " + text + " → " + masked);
+                    System.out.println("Masked: " + text + " → " + masked);
+                }
             }
-            }
-        
 
-        g.dispose();
-        String extension = FilenameUtils.getExtension(file.getName());
-        if (extension == null || extension.isEmpty()) {
-            extension = "png";
-        }
-        File maskedFile = File.createTempFile("masked_", "." + extension);    
-        ImageIO.write(bright, extension, maskedFile);    
-        System.out.println("✅ Masked image saved: " + maskedFile.getName());
-        return maskedFile;
+            g.dispose();
+            g = null;
+            
+            String extension = FilenameUtils.getExtension(file.getName());
+            if (extension == null || extension.isEmpty()) {
+                extension = "png";
+            }
+            maskedFile = File.createTempFile("masked_", "." + extension);
+            maskedFile.deleteOnExit(); // Ensure temporary file is deleted on JVM exit
+            ImageIO.write(bright, extension, maskedFile);    
+            System.out.println("✅ Masked image saved: " + maskedFile.getName());
+            return maskedFile;
         } catch (Exception e) {
             logger.error("Error masking PAN image: {}", e.getMessage());
+            // Clean up temporary file if created
+            if (maskedFile != null && maskedFile.exists()) {
+                maskedFile.delete();
+            }
             return null;
-         }    
+        } finally {
+            // Dispose graphics and flush images to free memory
+            if (g != null) {
+                g.dispose();
+            }
+            if (image != null) {
+                image.flush();
+            }
+            if (bright != null) {
+                bright.flush();
+            }
+        }
     }
 
     @Override
@@ -282,7 +326,9 @@ public class MaskServiceImpl implements IMaskService {
             newDoc.close();
 
             byte[] pdfBytes = baos.toByteArray();
+            baos.close(); // Close ByteArrayOutputStream
             File maskedFile = File.createTempFile("masked_", ".pdf");
+            maskedFile.deleteOnExit(); // Ensure temporary file is deleted on JVM exit
             FileUtils.writeByteArrayToFile(maskedFile, pdfBytes);
             System.out.println("✅ Masked + Flattened PDF saved at: " + file.getName().replace(".pdf", "_masked.pdf"));
             return maskedFile;
@@ -294,7 +340,7 @@ public class MaskServiceImpl implements IMaskService {
                 if (originalDoc != null) originalDoc.close();
                 if (newDoc != null) newDoc.close();
             } catch (Exception ex) {
-                ex.printStackTrace();
+                logger.error("Error closing PDF documents", ex);
             }
         }    
     }
@@ -393,7 +439,9 @@ public class MaskServiceImpl implements IMaskService {
             newDoc.close();
 
             byte[] pdfBytes = baos.toByteArray();
+            baos.close(); // Close ByteArrayOutputStream
             File maskedFile = File.createTempFile("masked_", ".pdf");
+            maskedFile.deleteOnExit(); // Ensure temporary file is deleted on JVM exit
             FileUtils.writeByteArrayToFile(maskedFile, pdfBytes);
             System.out.println("✅ Masked + Flattened PDF saved at: " + file.getName().replace(".pdf", "_masked.pdf"));
             return maskedFile;
@@ -406,7 +454,7 @@ public class MaskServiceImpl implements IMaskService {
                 if (originalDoc != null) originalDoc.close();
                 if (newDoc != null) newDoc.close();
             } catch (Exception ex) {
-                ex.printStackTrace();
+                logger.error("Error closing PDF documents", ex);
             }
         }
     }

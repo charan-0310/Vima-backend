@@ -7,7 +7,9 @@ import jakarta.persistence.Converter;
 public enum AccountStatus {
 INACTIVE("INACTIVE"),
 ACTIVE("ACTIVE"),
-SUSPENDED("SUSPENDED");
+SUSPENDED("SUSPENDED"),
+PENDING("PENDING"),
+PENDING_DELETE("PENDING_DELETE");
 
 private final String value;
 

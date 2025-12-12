@@ -52,6 +52,9 @@ public class Nominee {
 
     @Column(name = "last_name", length = 100)
     private String lastName;
+    
+    @Column(name = "full_name", length = 255, unique = true)
+    private String fullName;
 
     @Column(name = "date_of_birth", nullable = false)
     private LocalDate dateOfBirth;
