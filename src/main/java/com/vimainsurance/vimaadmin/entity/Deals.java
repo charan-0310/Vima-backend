@@ -118,6 +118,9 @@ public class Deals {
     @Column(name = "date_of_joining")
     private LocalDate dateOfJoining;
 
+    @Column(name = "date_of_exit")
+    private LocalDate dateOfExit;
+
     // Portal Access (only for primary members)
     @Column(name = "username", length = 100, unique = true)
     private String username;
@@ -147,5 +150,8 @@ public class Deals {
 
     @Column(name = "sum_insured")
     private String sumInsured;
+
+    @Column(name = "endorsement_id")
+    private UUID endorsementId;
 
 }

@@ -615,6 +615,26 @@ public class DocumentServiceImpl implements IDocumentService {
     }
    }
 
+    @Override
+    public ResponseEntity<ResponseDto<String>> multipleUploadDocument(MultipartFile[] files, String documentType, String documentCategory, String documentEntityType, String entityId, String notes) {
+        BaseResponse<String> responseObj = new BaseResponse<>();
+        try {
+            for(MultipartFile file : files) {
+                ResponseEntity<ResponseDto<String>> uploadDocument = uploadDocument(file, documentType, documentCategory, documentEntityType, entityId, notes);
+                if(uploadDocument.getBody() != null && uploadDocument.getBody().getErrorCode() != null) {
+                    logger.warn(FILE_VALIDATION_FAILED, 
+                               MDC.get(CORRELATION_ID), uploadDocument.getBody().getMessage());
+                    return responseObj.render(responseObj.formErrorResponse("Error uploading document: " + uploadDocument.getBody().getMessage()));
+                }
+            }
+            return responseObj.render(responseObj.formSuccessResponse(Constants.SUCCESS, "Documents uploaded successfully"));
+        }
+        catch(Exception e){
+            logger.error("[correlationId:{}] Error uploading multiple documents: {}", MDC.get("correlationId"), e.getMessage(), e);
+            return responseObj.render(responseObj.formErrorResponse("Error uploading multiple documents: " + e.getMessage()));
+        }
+    }
+
 
 
     // Private utility methods

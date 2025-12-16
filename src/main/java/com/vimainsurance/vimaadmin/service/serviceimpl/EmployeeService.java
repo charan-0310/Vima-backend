@@ -28,12 +28,26 @@ import com.vimainsurance.vimaadmin.entity.Deals;
 import com.vimainsurance.vimaadmin.enums.AccountStatus;
 import com.vimainsurance.vimaadmin.enums.AccountType;
 import com.vimainsurance.vimaadmin.enums.NomineeRelationship;
+import com.vimainsurance.vimaadmin.entity.AdminUser;
+
 import org.javers.core.Javers;
 import org.javers.core.diff.Diff;
+
+import com.vimainsurance.vimaadmin.entity.Endorsement;
+import com.vimainsurance.vimaadmin.enums.ConfirmationMethod;
+import com.vimainsurance.vimaadmin.enums.EndorsementType;
 
 import jakarta.validation.ConstraintViolation;
 import jakarta.validation.Validator;
 import lombok.extern.slf4j.Slf4j;
+
+import com.vimainsurance.vimaadmin.repository.IEndorsementRepository;
+
+import org.springframework.core.env.Environment;
+
+
+import com.vimainsurance.vimaadmin.util.EnvironmentUtil;
+import com.vimainsurance.vimaadmin.util.JwtUserExtractor;
 
 @Slf4j
 @Service
@@ -45,9 +59,19 @@ public class EmployeeService {
     @Autowired
     private IDealsRepository dealsRepository;
 
+    @Autowired
+    private JwtUserExtractor jwtUserExtractor;
+
 
     @Autowired
     private EmployeeBatchService employeeBatchService;
+
+    @Autowired
+    private IEndorsementRepository endorsementRepository;
+
+    @Autowired
+    private Environment environment;
+
 
        
     @Autowired
@@ -171,7 +195,7 @@ public class EmployeeService {
                     }
                 } 
                 // Validate Child relationship - must have explicit index (Child1, Child2, Child3, or Child4)
-                else if (relationship != null && relationship.toUpperCase().startsWith("CHILD")) {
+                else if (relationship.toUpperCase().startsWith("CHILD")) {
                     // Extract child index
                     int childIndex = extractChildIndexFromString(relationship);
                     
@@ -202,7 +226,7 @@ public class EmployeeService {
                 }
                 }
                 else if ("Spouse".equalsIgnoreCase(relationship) || 
-                        (relationship != null && relationship.toUpperCase().startsWith("SPOUSE"))) {
+                        (relationship.toUpperCase().startsWith("SPOUSE"))) {
                             LocalDate dateOfBirth = LocalDate.parse(employeeUploadDto.getDateOfBirth());
                             int age = LocalDate.now().getYear() - dateOfBirth.getYear();
                             
@@ -237,13 +261,6 @@ public class EmployeeService {
                     .distinct()
                     .collect(Collectors.toList());
                 
-                List<String> emailsToCheck = employeeUploadDtoList.stream()
-                    .filter(e -> "Self".equalsIgnoreCase(e.getRelationship()))
-                    .map(EmployeeUploadDto::getEmail)
-                    .filter(Objects::nonNull)
-                    .filter(email -> !email.trim().isEmpty())
-                    .distinct()
-                    .collect(Collectors.toList());
                 
                 // if (!phonesToCheck.isEmpty() || !emailsToCheck.isEmpty()) {
                 //     List<Deals> existingDealsByPhoneAndEmail = dealsRepository.findByEmployeePhoneAndEmployeeEmail(
@@ -769,8 +786,16 @@ public class EmployeeService {
     // }
     
     @Transactional(rollbackFor = Exception.class)
-    public EmployeeUploadResponse uploadEmployees(List<EmployeeUploadDto> employeeUploadDtoList, Organization organization) {
+    public EmployeeUploadResponse uploadEmployees(List<EmployeeUploadDto> employeeUploadDtoList, Organization organization, AdminUser adminUser) {
         try {
+          Endorsement endorsement = new Endorsement();
+          endorsement.setOrganization(organization);
+          endorsement.setStatus(AccountStatus.PENDING_APPROVAL);
+          endorsement.setEndorsementType(EndorsementType.ADDITION);
+          endorsement.setConfirmationMethod(ConfirmationMethod.PORTAL);
+          endorsement.setCreatedAt(LocalDateTime.now());
+          endorsement.setUpdatedAt(LocalDateTime.now());
+          endorsement.setUploadedBy(adminUser);
           EmployeeUploadResponse response = new EmployeeUploadResponse();
           EmployeeUploadResponse validateResponse = validateEmployee(employeeUploadDtoList, organization);
           if (validateResponse.getErrorCount() > 0)
@@ -785,8 +810,8 @@ public class EmployeeService {
           Map<String, Deals> primaryEmployeeMap = (Map<String, Deals>)existingPrimaries.stream().collect(Collectors.toMap(Deals::getEmployeeNumber, d -> d, (d1, d2) -> d1));
           List<String> phonesToCheckBulk = new ArrayList<>();
           List<String> emailsToCheckBulk = new ArrayList<>();
-          Map<String, EmployeeUploadDto> phoneToEmployeeMap = new HashMap<>();
-          Map<String, EmployeeUploadDto> emailToEmployeeMap = new HashMap<>();
+        //   Map<String, EmployeeUploadDto> phoneToEmployeeMap = new HashMap<>();
+        //   Map<String, EmployeeUploadDto> emailToEmployeeMap = new HashMap<>();
           for (Map.Entry<String, List<EmployeeUploadDto>> entry : groupedByEmployeeId.entrySet()) {
             String employeeId = entry.getKey();
             List<EmployeeUploadDto> employeeGroup = entry.getValue();
@@ -796,11 +821,9 @@ public class EmployeeService {
               String email = (selfDto.getEmail() != null && !selfDto.getEmail().trim().isEmpty()) ? selfDto.getEmail().trim() : null;
               if (phone != null) {
                 phonesToCheckBulk.add(phone);
-                phoneToEmployeeMap.put(phone, selfDto);
               } 
               if (email != null) {
                 emailsToCheckBulk.add(email);
-                emailToEmployeeMap.put(email, selfDto);
               } 
             } 
           } 
@@ -854,7 +877,7 @@ public class EmployeeService {
             } 
             Deals existingEmployee = primaryEmployeeMap.get(employeeId);
             if (existingEmployee != null) {
-              if (existingEmployee.getIsPrimaryMember() != null && existingEmployee.getIsPrimaryMember().booleanValue()) {
+              if (existingEmployee.getIsPrimaryMember() != null && existingEmployee.getIsPrimaryMember()) {
                 primaryEmployee = existingEmployee;
                 log.debug("Found existing primary employee for dependents: {}", employeeId);
               } else if (existingEmployee.getPrimaryIndividual() != null) {
@@ -918,8 +941,7 @@ public class EmployeeService {
                         .toUpperCase(), new ArrayList<>());
                     if (!existingWithSameRelationship.isEmpty()) {
                       existingDependent = existingWithSameRelationship.get(0);
-                      log.debug("Found existing child with index {} for employee {}, will update", 
-                          Integer.valueOf(childIndexFromJson), employeeId);
+                      log.debug("Found existing child with index {} for employee {}, will update", childIndexFromJson, employeeId);
                     } else {
                       for (int j = 1; j < childIndexFromJson; j++) {
                         String prevChildRel;
@@ -941,8 +963,7 @@ public class EmployeeService {
                           return validateResponse;
                         } 
                       } 
-                      log.debug("Validated previous children exist (in database or upload), will create new Child{} for employee {}", 
-                          Integer.valueOf(childIndexFromJson), employeeId);
+                      log.debug("Validated previous children exist (in database or upload), will create new Child{} for employee {}", childIndexFromJson, employeeId);
                     } 
                   } else {
                     mappedRelationship = mapRelationshipToNomineeRelationship(inputRelationship, 0);
@@ -987,24 +1008,27 @@ public class EmployeeService {
           } 
           int batchSize = 1000;
           int totalSaved = 0;
-          log.info("Saving {} deals ({} new, {} updated) in batches of {}", new Object[] { Integer.valueOf(dealsToSave.size()), Integer.valueOf(createdCount), Integer.valueOf(updatedCount), Integer.valueOf(batchSize) });
+          log.info("Saving {} deals ({} new, {} updated) in batches of {}", new Object[] { dealsToSave.size(), createdCount, updatedCount, batchSize });
           int i;
           if(updatedCount > 0 || createdCount > 0) {
+          endorsement = endorsementRepository.save(endorsement);
+          UUID endorsementId = endorsement.getEndorsementId();
           for (i = 0; i < dealsToSave.size(); i += batchSize) {
             int end = Math.min(i + batchSize, dealsToSave.size());
             List<Deals> batch = dealsToSave.subList(i, end);
+            batch.forEach(deal -> deal.setEndorsementId(endorsementId));
             this.dealsRepository.saveAll(batch);
             totalSaved += batch.size();
           } 
         }
-          log.info("Successfully saved {} deals ({} new, {} updated)", new Object[] { Integer.valueOf(totalSaved), Integer.valueOf(createdCount), Integer.valueOf(updatedCount) });
+          log.info("Successfully saved {} deals ({} new, {} updated)", new Object[] { totalSaved, createdCount, updatedCount });
           response.setTotalRows(employeeUploadDtoList.size());
           response.setTotalEmployees(selfCount(employeeUploadDtoList).intValue());
           response.setTotalDependents(dependentCount(employeeUploadDtoList).intValue());
           response.setSuccessCount(totalSaved);
           response.setErrorCount(0);
           response.setErrors(new ArrayList());
-          response.setMessage(String.format("Employees processed successfully: %d created, %d updated", new Object[] { Integer.valueOf(createdCount), Integer.valueOf(updatedCount) }));
+          response.setMessage(String.format("Employees processed successfully: %d created, %d updated", new Object[] { createdCount, updatedCount }));
           return response;
         } catch (Exception e) {
           log.error("Error uploading employees: {}", e.getMessage(), e);
@@ -1062,9 +1086,13 @@ public class EmployeeService {
     }
    }
 
-    public EmployeeUploadResponse deleteEmployee(List<BulkEmployeeDeletionRequestDto> bulkEmployeeDeletionRequestDtoList, Organization organization) {
+    public EmployeeUploadResponse deleteEmployee(List<BulkEmployeeDeletionRequestDto> bulkEmployeeDeletionRequestDtoList, Organization organization, AdminUser adminUser) {
         try{
             Set<UUID> individualIdsToDelete = new HashSet<>();
+            HashMap<String, LocalDate> dateOfExitMap = new HashMap<>();
+            for (BulkEmployeeDeletionRequestDto bulkEmployeeDeletionRequestDto : bulkEmployeeDeletionRequestDtoList) {
+                    dateOfExitMap.put(bulkEmployeeDeletionRequestDto.getEmployeeId(),parseDate(bulkEmployeeDeletionRequestDto.getDateOfExit()));
+            }
             List<String> errors = new ArrayList<>();
             int deletedCount = 0;
             int employeeCount = 0;
@@ -1079,6 +1107,9 @@ public class EmployeeService {
                     if(bulkEmployeeDeletionRequestDto.getRelationship().equalsIgnoreCase("Self")) {
                         Optional<Deals> deal = dealsRepository.findByEmployeeNumberAndOrganizationIdAndRelationship(bulkEmployeeDeletionRequestDto.getEmployeeId(), organization.getOrganizationId(), "SELF");
                         if(deal.isPresent()) {
+                            if(deal.get().getStatus().equals(AccountStatus.PENDING_DELETE)) {
+                                continue;
+                            }
                             List<Deals> dependents = dealsRepository.findByPrimaryIndividualIdIn(List.of(deal.get().getIndividualId()));
                             dependents.forEach(dependent -> individualIdsToDelete.add(dependent.getIndividualId()));
                             individualIdsToDelete.add(deal.get().getIndividualId());
@@ -1093,6 +1124,9 @@ public class EmployeeService {
                         String relationship = mapRelationshipToNomineeRelationship(bulkEmployeeDeletionRequestDto.getRelationship(), childIndexFromJson);
                         Optional<Deals> deal = dealsRepository.findByEmployeeNumberAndOrganizationIdAndRelationship(bulkEmployeeDeletionRequestDto.getEmployeeId(), organization.getOrganizationId(), relationship);
                         if(deal.isPresent()) {
+                            if(deal.get().getStatus().equals(AccountStatus.PENDING_DELETE)) {
+                                continue;
+                            }
                             if(individualIdsToDelete.contains(deal.get().getIndividualId())) {
                                 dependentCount++;
                             }
@@ -1110,13 +1144,29 @@ public class EmployeeService {
             if(!errors.isEmpty()) {
                 return new EmployeeUploadResponse(0, 0, errors.size(), errors, "Errors occurred while deleting employees", 0, 0);
             }
+            if(!individualIdsToDelete.isEmpty()) {
+            Endorsement endorsement = new Endorsement();
+            endorsement.setOrganization(organization);
+            endorsement.setStatus(AccountStatus.PENDING_EXIT);
+            endorsement.setEndorsementType(EndorsementType.DELETION);
+            endorsement.setConfirmationMethod(ConfirmationMethod.PORTAL);
+            endorsement.setCreatedAt(LocalDateTime.now());
+            endorsement.setUpdatedAt(LocalDateTime.now());
+            endorsement.setUploadedBy(adminUser);
+            endorsement = endorsementRepository.save(endorsement);
+            UUID endorsementId = endorsement.getEndorsementId();
             List<Deals> dealsToDelete = dealsRepository.findByIndividualIdIn(new ArrayList<>(individualIdsToDelete));
             dealsToDelete.forEach(deal -> deal.setStatus(AccountStatus.PENDING_DELETE));
+            dealsToDelete.forEach(deal -> deal.setDateOfExit(dateOfExitMap.get(deal.getEmployeeNumber())));
+            dealsToDelete.forEach(deal -> deal.setEndorsementId(endorsementId));
             dealsRepository.saveAll(dealsToDelete);
-            return new EmployeeUploadResponse(dealsToDelete.size(), deletedCount, 0, new ArrayList<>(), "Employees" + "(" + deletedCount + ")" + " and dependents" + "(" + dependentCount + ")" + " deleted successfully", employeeCount, dependentCount);
+            deletedCount = dealsToDelete.size();
+            }
+            return new EmployeeUploadResponse(deletedCount, deletedCount, 0, new ArrayList<>(), "Employees" + "(" + employeeCount + ")" + " and dependents" + "(" + dependentCount + ")" + " deleted successfully", employeeCount, dependentCount);
         }
         catch (Exception e) { 
-            return new EmployeeUploadResponse(0, 0, 0, new ArrayList<>(), e.getMessage(), 0, 0);
+            log.error("Error deleting employees: {}", e.getMessage(), e);
+            return new EmployeeUploadResponse(0, 0, 0, new ArrayList<>(), "ERROR OCCURED WHILE DELETING EMPLOYEES", 0, 0);
         }
     }   
 

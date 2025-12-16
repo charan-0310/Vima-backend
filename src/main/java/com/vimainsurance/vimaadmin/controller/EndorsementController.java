@@ -1,0 +1,173 @@
+package com.vimainsurance.vimaadmin.controller;
+
+import java.util.List;
+import java.util.UUID;
+
+import org.slf4j.Logger;4
+import org.slf4j.LoggerFactory;
+import org.slf4j.MDC;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.web.bind.annotation.CrossOrigin;
+import org.springframework.web.bind.annotation.DeleteMapping;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.RestController;
+
+import com.vimainsurance.vimaadmin.dto.EndorsementRequestDto;
+import com.vimainsurance.vimaadmin.dto.EndorsementResponseDto;
+import com.vimainsurance.vimaadmin.dto.ResponseDto;
+import com.vimainsurance.vimaadmin.service.IEndorsementService;
+
+/**
+ * Controller for Endorsement operations
+ */
+@RestController
+@CrossOrigin(allowedHeaders = "*")
+@RequestMapping("/api/v1/batches")
+public class EndorsementController {
+
+    private static final Logger logger = LoggerFactory.getLogger(EndorsementController.class);
+
+    @Autowired
+    private IEndorsementService endorsementService;
+
+    /**
+     * Create a new endorsement
+     */
+    @PostMapping
+    @PreAuthorize("hasAnyAuthority('SUPER_ADMIN', 'ADMIN', 'VIMA_ADMIN')")
+    public ResponseEntity<ResponseDto<String>> create(@RequestBody EndorsementRequestDto requestDto) {
+        logger.info("[correlationId:{}] /endorsements (POST) endpoint called", MDC.get("correlationId"));
+        return endorsementService.create(requestDto);
+    }
+
+    /**
+     * Update an existing endorsement
+     */
+    @PutMapping
+    @PreAuthorize("hasAnyAuthority('SUPER_ADMIN', 'ADMIN', 'VIMA_ADMIN')")
+    public ResponseEntity<ResponseDto<String>> update(@RequestBody EndorsementRequestDto requestDto) {
+        logger.info("[correlationId:{}] /endorsements (PUT) endpoint called", MDC.get("correlationId"));
+        return endorsementService.update(requestDto);
+    }
+
+    /**
+     * Delete an endorsement
+     */
+    @DeleteMapping("/{endorsementId}")
+    @PreAuthorize("hasAnyAuthority('SUPER_ADMIN', 'ADMIN', 'VIMA_ADMIN')")
+    public ResponseEntity<ResponseDto<String>> delete(@PathVariable UUID endorsementId) {
+        logger.info("[correlationId:{}] /endorsements/{} (DELETE) endpoint called", MDC.get("correlationId"), endorsementId);
+        return endorsementService.delete(endorsementId);
+    }
+
+    /**
+     * Get endorsement by ID
+     */
+    @GetMapping("/{endorsementId}")
+    @PreAuthorize("hasAnyAuthority('SUPER_ADMIN', 'ADMIN', 'VIMA_ADMIN', 'SALES_MANAGER')")
+    public ResponseEntity<ResponseDto<EndorsementResponseDto>> getById(@PathVariable UUID endorsementId) {
+        logger.info("[correlationId:{}] /endorsements/{} (GET) endpoint called", MDC.get("correlationId"), endorsementId);
+        return endorsementService.getById(endorsementId);
+    }
+
+    /**
+     * Get all endorsements
+     */
+    @GetMapping
+    @PreAuthorize("hasAnyAuthority('SUPER_ADMIN', 'ADMIN', 'VIMA_ADMIN', 'SALES_MANAGER')")
+    public ResponseEntity<ResponseDto<List<EndorsementResponseDto>>> getAll() {
+        logger.info("[correlationId:{}] /endorsements (GET) endpoint called", MDC.get("correlationId"));
+        return endorsementService.getAll();
+    }
+
+    /**
+     * Get endorsements by organization ID
+     */
+    @GetMapping("/organization/{organizationId}")
+    @PreAuthorize("hasAnyAuthority('SUPER_ADMIN', 'ADMIN', 'VIMA_ADMIN', 'SALES_MANAGER')")
+    public ResponseEntity<ResponseDto<List<EndorsementResponseDto>>> getByOrganizationId(
+            @PathVariable UUID organizationId) {
+        logger.info("[correlationId:{}] /endorsements/organization/{} (GET) endpoint called", MDC.get("correlationId"), organizationId);
+        return endorsementService.getByOrganizationId(organizationId);
+    }
+
+    /**
+     * Get endorsements by status
+     */
+    @GetMapping("/status/{status}")
+    @PreAuthorize("hasAnyAuthority('SUPER_ADMIN', 'ADMIN', 'VIMA_ADMIN', 'SALES_MANAGER')")
+    public ResponseEntity<ResponseDto<List<EndorsementResponseDto>>> getByStatus(@PathVariable String status) {
+        logger.info("[correlationId:{}] /endorsements/status/{} (GET) endpoint called", MDC.get("correlationId"), status);
+        return endorsementService.getByStatus(status);
+    }
+
+    /**
+     * Get endorsements by endorsement type (ADDITION or DELETION)
+     */
+    @GetMapping("/type/{endorsementType}")
+    @PreAuthorize("hasAnyAuthority('SUPER_ADMIN', 'ADMIN', 'VIMA_ADMIN', 'SALES_MANAGER')")
+    public ResponseEntity<ResponseDto<List<EndorsementResponseDto>>> getByEndorsementType(
+            @PathVariable String endorsementType) {
+        logger.info("[correlationId:{}] /endorsements/type/{} (GET) endpoint called", MDC.get("correlationId"), endorsementType);
+        return endorsementService.getByEndorsementType(endorsementType);
+    }
+
+    /**
+     * Get endorsements with filters, pagination, and sorting
+     * 
+     * Query Parameters:
+     * - organizationId: Filter by organization ID (optional)
+     * - organizationName: Search by organization name (case-insensitive, partial match) (optional)
+     * - status: Filter by status (optional)
+     * - endorsementType: Filter by endorsement type - ADDITION or DELETION (optional)
+     * - page: Page number (default: 0)
+     * - size: Records per page (default: 10)
+     * - sortBy: Field to sort by (default: createdAt)
+     * - sortDirection: Sort direction - asc or desc (default: desc)
+     */
+    @GetMapping("/filtered")
+    @PreAuthorize("hasAnyAuthority('SUPER_ADMIN', 'ADMIN', 'VIMA_ADMIN', 'SALES_MANAGER')")
+    public ResponseEntity<ResponseDto<List<EndorsementResponseDto>>> getAllWithFilters(
+            @RequestParam(required = false) UUID organizationId,
+            @RequestParam(required = false) String organizationName,
+            @RequestParam(required = false) String status,
+            @RequestParam(required = false) String endorsementType,
+            @RequestParam(defaultValue = "0", required = false) int page,
+            @RequestParam(defaultValue = "10", required = false) int size,
+            @RequestParam(required = false) String sortBy,
+            @RequestParam(defaultValue = "desc", required = false) String sortDirection) {
+        logger.info("[correlationId:{}] /endorsements/filtered (GET) endpoint called", MDC.get("correlationId"));
+        return endorsementService.getAllWithFilters(organizationId, organizationName, status, endorsementType, page, size, sortBy, sortDirection);
+    }
+
+    /**
+     * Approve an endorsement
+     */
+    @PostMapping("/{endorsementId}/approve")
+    @PreAuthorize("hasAnyAuthority('SUPER_ADMIN', 'ADMIN', 'VIMA_ADMIN')")
+    public ResponseEntity<ResponseDto<String>> approve(
+            @PathVariable UUID endorsementId,
+            @RequestParam UUID approvedBy,
+            @RequestParam(required = false) String confirmationMethod) {
+        logger.info("[correlationId:{}] /endorsements/{}/approve (POST) endpoint called", MDC.get("correlationId"), endorsementId);
+        return endorsementService.approve(endorsementId, approvedBy, confirmationMethod);
+    }
+
+    /**
+     * Reject an endorsement
+     */
+    @PostMapping("/{endorsementId}/reject")
+    @PreAuthorize("hasAnyAuthority('SUPER_ADMIN', 'ADMIN', 'VIMA_ADMIN')")
+    public ResponseEntity<ResponseDto<String>> reject(@PathVariable UUID endorsementId) {
+        logger.info("[correlationId:{}] /endorsements/{}/reject (POST) endpoint called", MDC.get("correlationId"), endorsementId);
+        return endorsementService.reject(endorsementId);
+    }
+}

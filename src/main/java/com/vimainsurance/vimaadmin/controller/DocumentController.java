@@ -29,4 +29,16 @@ public class DocumentController {
     ) {
         return documentService.uploadDocument(file, documentType, documentCategory, documentEntityType, entityId, notes);
     }
+
+    @PostMapping("/{documentEntityType}/{entityId}/multiple-upload")
+    public ResponseEntity<ResponseDto<String>> multipleUploadDocument(
+        @PathVariable String documentEntityType,
+        @PathVariable String entityId,
+        @RequestParam("files") MultipartFile[] files,
+        @RequestParam("documentType") String documentType,
+        @RequestParam("documentCategory") String documentCategory,
+        @RequestParam(value = "notes", required = false) String notes
+    ) { 
+        return documentService.multipleUploadDocument(files, documentType, documentCategory, documentEntityType, entityId, notes);
+    }
 }

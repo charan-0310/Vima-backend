@@ -208,4 +208,19 @@ public interface IDocumentService {
      * Note: uploadedBy and uploadedByRole are extracted from JWT token automatically
      */
     ResponseEntity<ResponseDto<String>> uploadDocument(MultipartFile file, String documentType, String documentCategory, String documentEntityType, String entityId, String notes);
+
+
+    /**
+     * Upload multiple documents to the database and S3
+     * 
+     * @param files Array of files to upload
+     * @param documentType The type of document (as String, will be mapped to enum)
+     * @param documentCategory The category of the document (as String, will be mapped to enum)
+     * @param documentEntityType The entity type of the document (as String, will be mapped to enum)
+     * @param entityId The ID of the entity this document belongs to
+     * @param notes Optional notes for the document
+     * @return Response with the document IDs
+     * Note: uploadedBy and uploadedByRole are extracted from JWT token automatically
+     */
+    ResponseEntity<ResponseDto<String>> multipleUploadDocument(MultipartFile[] files, String documentType, String documentCategory, String documentEntityType, String entityId, String notes);
 }

@@ -12,6 +12,7 @@ import java.util.UUID;
 import java.util.stream.Collectors;
 
 import java.util.Arrays;
+
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.slf4j.MDC;
@@ -60,6 +61,9 @@ import com.vimainsurance.vimaadmin.service.IOrganizationService;
 import com.vimainsurance.vimaadmin.service.IS3Service;
 import com.vimainsurance.vimaadmin.util.Constants;
 import com.vimainsurance.vimaadmin.util.CsvDealsReaderUtil;
+import com.vimainsurance.vimaadmin.util.EnvironmentUtil;
+import com.vimainsurance.vimaadmin.util.JwtUserExtractor;
+import org.springframework.core.env.Environment;
 
 @Service
 public class OrganizationServiceImpl implements IOrganizationService {
@@ -86,6 +90,12 @@ public class OrganizationServiceImpl implements IOrganizationService {
 
     @Autowired
     private IS3Service s3Service;
+
+    @Autowired
+    private JwtUserExtractor jwtUserExtractor;
+
+    @Autowired
+    private Environment environment;
 
     @Override
     public ResponseEntity<ResponseDto<String>> create(OrganizationRequestDto requestDto) {
@@ -1384,7 +1394,13 @@ public class OrganizationServiceImpl implements IOrganizationService {
     try {
         Organization organization = organizationRepository.findByOrganizationId(organizationId).orElseThrow(() -> new RuntimeException("Organization not found"));
         EmployeeUploadResponse employeeUploadResponse = new EmployeeUploadResponse();
-        employeeUploadResponse = employeeService.uploadEmployees(employeeUploadDtoList, organization);
+        AdminUser adminuser = null;
+        if(EnvironmentUtil.isProductionEnvironment(environment)) {
+            String username = jwtUserExtractor.getCurrentUsername();
+            adminuser = adminUserRepository.findByUsername(username).orElseThrow(() -> new RuntimeException("Admin user not found"));
+        }
+
+        employeeUploadResponse = employeeService.uploadEmployees(employeeUploadDtoList, organization, adminuser);
         return responseObj.render(responseObj.formSuccessResponse(Constants.SUCCESS, employeeUploadResponse));
     }
     catch (Exception e) {
@@ -1418,7 +1434,12 @@ public class OrganizationServiceImpl implements IOrganizationService {
         BaseResponse<EmployeeUploadResponse> responseObj = new BaseResponse<>();
         try {
             Organization organization = organizationRepository.findByOrganizationId(organizationId).orElseThrow(() -> new RuntimeException("Organization not found"));
-            EmployeeUploadResponse employeeUploadResponse = employeeService.deleteEmployee(bulkEmployeeDeletionRequestDtoList, organization);
+            AdminUser adminuser = null;
+            if(EnvironmentUtil.isProductionEnvironment(environment)) {
+                String username = jwtUserExtractor.getCurrentUsername();
+                adminuser = adminUserRepository.findByUsername(username).orElseThrow(() -> new RuntimeException("Admin user not found"));
+            }
+            EmployeeUploadResponse employeeUploadResponse = employeeService.deleteEmployee(bulkEmployeeDeletionRequestDtoList, organization, adminuser);
             return responseObj.render(responseObj.formSuccessResponse(Constants.SUCCESS, employeeUploadResponse));
         }
         catch (Exception e) {
