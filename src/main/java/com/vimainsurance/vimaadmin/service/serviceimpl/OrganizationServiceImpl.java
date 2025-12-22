@@ -539,6 +539,7 @@ public class OrganizationServiceImpl implements IOrganizationService {
         dto.setRelationship(deal.getRelationship());
         dto.setOrganizationName(deal.getOrganization().getOrganizationName());
         dto.setFullName(deal.getFullName());
+        dto.setSumInsured(deal.getSumInsured());
         return dto;
     }
 
@@ -1387,7 +1388,7 @@ public class OrganizationServiceImpl implements IOrganizationService {
 
     @Override
     @Transactional(rollbackFor = Exception.class)
-    public ResponseEntity<ResponseDto<EmployeeUploadResponse>> uploadEmployees(List<EmployeeUploadDto> employeeUploadDtoList, UUID organizationId) {
+    public ResponseEntity<ResponseDto<EmployeeUploadResponse>> uploadEmployees(List<EmployeeUploadDto> employeeUploadDtoList, UUID organizationId, String uploadType, MultipartFile file) {
     logger.info("[correlationId:{}] uploadEmployees called for {} employees, organizationId: {}", 
         MDC.get("correlationId"), employeeUploadDtoList.size(), organizationId);
     BaseResponse<EmployeeUploadResponse> responseObj = new BaseResponse<>();
@@ -1400,7 +1401,7 @@ public class OrganizationServiceImpl implements IOrganizationService {
             adminuser = adminUserRepository.findByUsername(username).orElseThrow(() -> new RuntimeException("Admin user not found"));
         }
 
-        employeeUploadResponse = employeeService.uploadEmployees(employeeUploadDtoList, organization, adminuser);
+        employeeUploadResponse = employeeService.uploadEmployees(employeeUploadDtoList, organization, adminuser, file, uploadType);
         return responseObj.render(responseObj.formSuccessResponse(Constants.SUCCESS, employeeUploadResponse));
     }
     catch (Exception e) {
@@ -1428,7 +1429,7 @@ public class OrganizationServiceImpl implements IOrganizationService {
 
     @Override
     @Transactional(rollbackFor = Exception.class)
-    public ResponseEntity<ResponseDto<EmployeeUploadResponse>> delete(List<BulkEmployeeDeletionRequestDto> bulkEmployeeDeletionRequestDtoList, UUID organizationId) {
+    public ResponseEntity<ResponseDto<EmployeeUploadResponse>> delete(List<BulkEmployeeDeletionRequestDto> bulkEmployeeDeletionRequestDtoList, UUID organizationId, String uploadType, MultipartFile file) {
         logger.info("[correlationId:{}] delete called for {} employees, organizationId: {}", 
             MDC.get("correlationId"), bulkEmployeeDeletionRequestDtoList.size(), organizationId);
         BaseResponse<EmployeeUploadResponse> responseObj = new BaseResponse<>();
@@ -1439,7 +1440,7 @@ public class OrganizationServiceImpl implements IOrganizationService {
                 String username = jwtUserExtractor.getCurrentUsername();
                 adminuser = adminUserRepository.findByUsername(username).orElseThrow(() -> new RuntimeException("Admin user not found"));
             }
-            EmployeeUploadResponse employeeUploadResponse = employeeService.deleteEmployee(bulkEmployeeDeletionRequestDtoList, organization, adminuser);
+            EmployeeUploadResponse employeeUploadResponse = employeeService.deleteEmployee(bulkEmployeeDeletionRequestDtoList, organization, adminuser, file, uploadType);
             return responseObj.render(responseObj.formSuccessResponse(Constants.SUCCESS, employeeUploadResponse));
         }
         catch (Exception e) {
@@ -1447,9 +1448,30 @@ public class OrganizationServiceImpl implements IOrganizationService {
             return responseObj.render(responseObj.formErrorResponse(e.getMessage()));
         }
     }
+
+    @Override
+    public ResponseEntity<ResponseDto<List<OrganizationEmployeeDto>>> getEmployeesByEndorsementId(UUID endorsementId, int page, int rec) {
+        logger.info("[correlationId:{}] getEmployeesByEndorsementId called for endorsementId: {}, page: {}, rec: {}", 
+            MDC.get("correlationId"), endorsementId, page, rec);
+        BaseResponse<List<OrganizationEmployeeDto>> responseObj = new BaseResponse<>();
+        try {
+            if(page == -1 && rec == -1) {
+                List<Deals> employees = dealsRepository.findByEndorsementId(endorsementId);
+                List<OrganizationEmployeeDto> employeeDtos = employees.stream()
+                    .map(this::mapToOrganizationEmployeeDto)
+                    .collect(Collectors.toList());
+                return responseObj.render(responseObj.formSuccessResponse(Constants.SUCCESS, employeeDtos, employees.size()));
+            }
+            Page<Deals> employees = dealsRepository.findByEndorsementId(endorsementId,PageRequest.of(page, rec));
+            List<OrganizationEmployeeDto> employeeDtos = employees.getContent().stream()
+                .map(this::mapToOrganizationEmployeeDto)
+                .collect(Collectors.toList());
+            return responseObj.render(responseObj.formSuccessResponse(Constants.SUCCESS, employeeDtos, employees.getTotalElements()));
+        }
+        catch (Exception e) {
+            logger.error("[correlationId:{}] Exception in getEmployeesByEndorsementId: {}", MDC.get("correlationId"), e.getMessage(), e);
+            return responseObj.render(responseObj.formErrorResponse(e.getMessage()));
+        }
+    }
   
 }
-
-
-
-

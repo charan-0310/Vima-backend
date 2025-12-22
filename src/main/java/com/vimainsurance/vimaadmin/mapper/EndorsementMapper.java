@@ -19,7 +19,7 @@ public class EndorsementMapper {
      * Maps EndorsementRequestDto to Endorsement entity
      */
     public static Endorsement mapToEntity(EndorsementRequestDto dto, Organization organization, Document document, 
-                                          AdminUser approvedBy, AdminUser uploadedBy) {
+                                          AdminUser uploadedBy) {
         Endorsement endorsement = new Endorsement();
         
         if (dto.getEndorsementId() != null) {
@@ -41,7 +41,7 @@ public class EndorsementMapper {
         
         endorsement.setTotalEmployees(dto.getTotalEmployees() != null ? dto.getTotalEmployees() : 0);
         endorsement.setTotalDependents(dto.getTotalDependents() != null ? dto.getTotalDependents() : 0);
-        endorsement.setApprovedBy(approvedBy);
+        endorsement.setApprovedBy(dto.getApprovedBy());
         endorsement.setUploadedBy(uploadedBy);
         
         if (dto.getConfirmationMethod() != null) {
@@ -63,7 +63,7 @@ public class EndorsementMapper {
     /**
      * Maps Endorsement entity to EndorsementResponseDto
      */
-    public static EndorsementResponseDto mapToResponseDto(Endorsement endorsement) {
+    public static EndorsementResponseDto mapToResponseDto(Endorsement endorsement, Long totalEmployees, Long totalDependents) {
         EndorsementResponseDto dto = new EndorsementResponseDto();
         
         dto.setEndorsementId(endorsement.getEndorsementId());
@@ -85,13 +85,12 @@ public class EndorsementMapper {
             dto.setStatus(endorsement.getStatus().getValue());
         }
         
-        dto.setTotalEmployees(endorsement.getTotalEmployees());
-        dto.setTotalDependents(endorsement.getTotalDependents());
+        dto.setTotalEmployees(totalEmployees.intValue());
+        dto.setTotalDependents(totalDependents.intValue());
         dto.setApprovedAt(endorsement.getApprovedAt());
         
         if (endorsement.getApprovedBy() != null) {
-            dto.setApprovedBy(endorsement.getApprovedBy().getId());
-            dto.setApprovedByName(endorsement.getApprovedBy().getFullName());
+            dto.setApprovedBy(endorsement.getApprovedBy());
         }
         
         if (endorsement.getUploadedBy() != null) {
@@ -121,7 +120,7 @@ public class EndorsementMapper {
      */
     public static void updateEntityFromDto(Endorsement endorsement, EndorsementRequestDto dto, 
                                            Organization organization, Document document,
-                                           AdminUser approvedBy, AdminUser uploadedBy) {
+                                           AdminUser uploadedBy) {
         if (organization != null) {
             endorsement.setOrganization(organization);
         }
@@ -146,8 +145,8 @@ public class EndorsementMapper {
             endorsement.setTotalDependents(dto.getTotalDependents());
         }
         
-        if (approvedBy != null) {
-            endorsement.setApprovedBy(approvedBy);
+        if (dto.getApprovedBy() != null) {
+            endorsement.setApprovedBy(dto.getApprovedBy().trim());
         }
         
         if (uploadedBy != null) {

@@ -3,13 +3,22 @@ package com.vimainsurance.vimaadmin.controller;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
+
 import com.vimainsurance.vimaadmin.dto.ResponseDto;
 import com.vimainsurance.vimaadmin.service.IDocumentService;
+
 import org.springframework.web.multipart.MultipartFile;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.PathVariable;
+
+import com.vimainsurance.vimaadmin.dto.DocumentResponseDto;
+
+import java.util.List;
+
+import org.springframework.core.io.Resource;
 
 @RestController
 @RequestMapping("/api/v1/documents")
@@ -40,5 +49,21 @@ public class DocumentController {
         @RequestParam(value = "notes", required = false) String notes
     ) { 
         return documentService.multipleUploadDocument(files, documentType, documentCategory, documentEntityType, entityId, notes);
+    }
+
+    @GetMapping("/{entityId}")
+    public ResponseEntity<ResponseDto<List<DocumentResponseDto>>> getDocuments(
+        @PathVariable String entityId,
+        @RequestParam(defaultValue = "0", required = false) int page,
+        @RequestParam(defaultValue = "10", required = false) int rec
+    ) {
+        return documentService.getDocuments(entityId, page, rec);
+    }
+
+    @GetMapping("/{documentId}/download")
+    public ResponseEntity<Resource> downloadDocument(
+        @PathVariable String documentId
+    ) {
+        return documentService.downloadDocument(documentId);
     }
 }

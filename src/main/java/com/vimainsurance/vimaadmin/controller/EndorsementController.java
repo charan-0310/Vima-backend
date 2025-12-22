@@ -1,12 +1,14 @@
 package com.vimainsurance.vimaadmin.controller;
 
+import java.util.Arrays;
 import java.util.List;
 import java.util.UUID;
 
-import org.slf4j.Logger;4
+import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.slf4j.MDC;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.CrossOrigin;
@@ -18,12 +20,16 @@ import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.RequestPart;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.multipart.MultipartFile;
 
 import com.vimainsurance.vimaadmin.dto.EndorsementRequestDto;
 import com.vimainsurance.vimaadmin.dto.EndorsementResponseDto;
+import com.vimainsurance.vimaadmin.dto.OrganizationEmployeeDto;
 import com.vimainsurance.vimaadmin.dto.ResponseDto;
 import com.vimainsurance.vimaadmin.service.IEndorsementService;
+import com.vimainsurance.vimaadmin.service.IOrganizationService;
 
 /**
  * Controller for Endorsement operations
@@ -37,6 +43,9 @@ public class EndorsementController {
 
     @Autowired
     private IEndorsementService endorsementService;
+
+    @Autowired
+    private IOrganizationService organizationService;
 
     /**
      * Create a new endorsement
@@ -140,25 +149,25 @@ public class EndorsementController {
             @RequestParam(required = false) String organizationName,
             @RequestParam(required = false) String status,
             @RequestParam(required = false) String endorsementType,
+            @RequestParam(required = false) String uploadedBy,
+            @RequestParam(required = false) String fromDate,
+            @RequestParam(required = false) String toDate,
             @RequestParam(defaultValue = "0", required = false) int page,
             @RequestParam(defaultValue = "10", required = false) int size,
             @RequestParam(required = false) String sortBy,
             @RequestParam(defaultValue = "desc", required = false) String sortDirection) {
         logger.info("[correlationId:{}] /endorsements/filtered (GET) endpoint called", MDC.get("correlationId"));
-        return endorsementService.getAllWithFilters(organizationId, organizationName, status, endorsementType, page, size, sortBy, sortDirection);
+        return endorsementService.getAllWithFilters(organizationId, organizationName, status, endorsementType, uploadedBy, fromDate, toDate, page, size, sortBy, sortDirection);
     }
 
     /**
      * Approve an endorsement
      */
-    @PostMapping("/{endorsementId}/approve")
+    @PostMapping(value = "/approve", consumes = MediaType.MULTIPART_FORM_DATA_VALUE, produces = MediaType.APPLICATION_JSON_VALUE)
     @PreAuthorize("hasAnyAuthority('SUPER_ADMIN', 'ADMIN', 'VIMA_ADMIN')")
-    public ResponseEntity<ResponseDto<String>> approve(
-            @PathVariable UUID endorsementId,
-            @RequestParam UUID approvedBy,
-            @RequestParam(required = false) String confirmationMethod) {
-        logger.info("[correlationId:{}] /endorsements/{}/approve (POST) endpoint called", MDC.get("correlationId"), endorsementId);
-        return endorsementService.approve(endorsementId, approvedBy, confirmationMethod);
+    public ResponseEntity<ResponseDto<String>> approve(@RequestPart("files") MultipartFile[] files, @RequestPart("requestDto") EndorsementRequestDto requestDto) {
+        logger.info("[correlationId:{}] /endorsements/approve (POST) endpoint called", MDC.get("correlationId"));
+        return endorsementService.approve(files, requestDto);
     }
 
     /**
@@ -169,5 +178,25 @@ public class EndorsementController {
     public ResponseEntity<ResponseDto<String>> reject(@PathVariable UUID endorsementId) {
         logger.info("[correlationId:{}] /endorsements/{}/reject (POST) endpoint called", MDC.get("correlationId"), endorsementId);
         return endorsementService.reject(endorsementId);
+    }
+
+    /* 
+     * Get pending count
+     */
+    @GetMapping("/pending-count")
+    @PreAuthorize("hasAnyAuthority('SUPER_ADMIN', 'ADMIN', 'VIMA_ADMIN', 'SALES_MANAGER')")
+    public ResponseEntity<ResponseDto<String>> getPendingCount() {
+        logger.info("[correlationId:{}] /endorsements/pending-count (GET) endpoint called", MDC.get("correlationId"));
+        return endorsementService.getPendingCount();
+    }
+
+    /* 
+    * Get employees by endorsement id with pagination
+     */
+    @GetMapping("/{endorsementId}/employees")
+    @PreAuthorize("hasAnyAuthority('SUPER_ADMIN', 'ADMIN', 'VIMA_ADMIN', 'SALES_MANAGER')")
+    public ResponseEntity<ResponseDto<List<OrganizationEmployeeDto>>> getEmployeesByEndorsementId(@PathVariable UUID endorsementId, @RequestParam (defaultValue = "-1", required = false) int page, @RequestParam (defaultValue = "-1", required = false) int rec) {
+        logger.info("[correlationId:{}] /endorsements/{}/employees (GET) endpoint called", MDC.get("correlationId"), endorsementId);
+        return organizationService.getEmployeesByEndorsementId(endorsementId, page, rec);
     }
 }

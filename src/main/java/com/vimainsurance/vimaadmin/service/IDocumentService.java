@@ -2,11 +2,10 @@ package com.vimainsurance.vimaadmin.service;
 
 import com.vimainsurance.vimaadmin.dto.ResponseDto;
 import com.vimainsurance.vimaadmin.entity.Document;
-import com.vimainsurance.vimaadmin.enums.DocumentCategory;
+import com.vimainsurance.vimaadmin.dto.DocumentResponseDto;
 import com.vimainsurance.vimaadmin.enums.DocumentEntityType;
 import com.vimainsurance.vimaadmin.enums.DocumentType;
-import com.vimainsurance.vimaadmin.enums.UserRole;
-import com.vimainsurance.vimaadmin.enums.DocumentCategory;
+
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.http.ResponseEntity;
@@ -14,6 +13,8 @@ import org.springframework.web.multipart.MultipartFile;
 
 import java.util.List;
 import java.util.UUID;
+
+import org.springframework.core.io.Resource;
 
 /**
  * Service interface for Document management
@@ -223,4 +224,22 @@ public interface IDocumentService {
      * Note: uploadedBy and uploadedByRole are extracted from JWT token automatically
      */
     ResponseEntity<ResponseDto<String>> multipleUploadDocument(MultipartFile[] files, String documentType, String documentCategory, String documentEntityType, String entityId, String notes);
+
+
+    /**
+     * Get documents by entity ID
+     * 
+     * @param entityId Entity ID
+     * @return Response with list of documents
+     */
+    ResponseEntity<ResponseDto<List<DocumentResponseDto>>> getDocuments(String entityId, int page, int rec);
+
+    /**
+     * Download document
+     * 
+     * @param documentId Document ID
+     * @return Response with document
+     */
+    ResponseEntity<Resource> downloadDocument(String documentId);
+
 }

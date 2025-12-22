@@ -13,6 +13,7 @@ import com.vimainsurance.vimaadmin.util.JwtUserExtractor;
 import com.vimainsurance.vimaadmin.util.Constants;
 import com.vimainsurance.vimaadmin.util.EnvironmentUtil;
 import com.vimainsurance.vimaadmin.util.IMaskService;
+
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.slf4j.MDC;
@@ -25,13 +26,24 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.MediaType;
+import org.springframework.core.io.InputStreamResource;
+import java.io.InputStream;
 
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.stream.Collectors;
 import java.io.File;
+
+import org.springframework.core.io.Resource;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.http.HttpStatus;
+
+import com.vimainsurance.vimaadmin.dto.DocumentResponseDto;
 
 /**
  * Service implementation for Document management
@@ -603,11 +615,11 @@ public class DocumentServiceImpl implements IDocumentService {
         logger.info("[correlationId:{}] Uploading document for entity: {} by user: {} ({})", 
             MDC.get("correlationId"), entityId, uploadedBy, uploadedByRole);
 
-        String s3Key = generateS3KeyUploadDocument(entityType, entityId, docType, file.getOriginalFilename());
+        String s3Key = generateS3KeyUploadDocument(entityType, entityId, docType, file.getOriginalFilename().toLowerCase());
         String s3Url = s3Service.uploadFile(file, s3Key);
         Document document = createDocument(entityType, entityId, docType, docCategory, s3Key, file, uploadedBy, uploadedByRole, notes);
         Document savedDocument = documentRepository.save(document);
-        return responseObj.render(responseObj.formSuccessResponse(Constants.SUCCESS, "Document uploaded successfully"));
+        return responseObj.render(responseObj.formSuccessResponse(Constants.SUCCESS, savedDocument.getDocumentId().toString()));
     }
     catch(Exception e){
         logger.error("[correlationId:{}] Error uploading document: {}", MDC.get("correlationId"), e.getMessage(), e);
@@ -636,6 +648,50 @@ public class DocumentServiceImpl implements IDocumentService {
     }
 
 
+    @Override
+    public ResponseEntity<ResponseDto<List<DocumentResponseDto>>> getDocuments(String entityId, int page, int rec) {
+        BaseResponse<List<DocumentResponseDto>> responseObj = new BaseResponse<>();
+        try {
+            if(page == -1 && rec == -1) {
+                logger.info("[correlationId:{}] Getting all documents for entity: {}", MDC.get("correlationId"), entityId);
+                List<Document> documents = documentRepository.findByEntityId(entityId);
+                List<DocumentResponseDto> documentResponseDtos = documents.stream()
+                    .map(document -> new DocumentResponseDto(document.getDocumentId().toString(), document.getDocumentType(), document.getUploadedAt(), document.getMimeType(), document.getNotes(), document.getOriginalFilename(), document.getDocumentCategory().toString(), formatFileSize(document.getFileSize())))
+                    .collect(Collectors.toList());
+                return responseObj.render(responseObj.formSuccessResponse(Constants.SUCCESS, documentResponseDtos, documents.size()));
+            }
+            Page<Document> documents = documentRepository.findByEntityId(entityId, PageRequest.of(page, rec));
+            List<DocumentResponseDto> documentResponseDtos = documents.getContent().stream()
+                .map(document -> new DocumentResponseDto(document.getDocumentId().toString(), document.getDocumentType(), document.getUploadedAt(), document.getMimeType(), document.getNotes(), document.getOriginalFilename(), document.getDocumentCategory().toString(), formatFileSize(document.getFileSize())))
+                .collect(Collectors.toList());
+            return responseObj.render(responseObj.formSuccessResponse(Constants.SUCCESS, documentResponseDtos, documents.getTotalElements()));
+        }
+        catch(Exception e){
+            logger.error("[correlationId:{}] Error getting documents: {}", MDC.get("correlationId"), e.getMessage());
+            return responseObj.render(responseObj.formErrorResponse("Error getting documents: " + e.getMessage()));
+        }
+    }
+
+    @Override
+    public ResponseEntity<Resource> downloadDocument(String documentId) {
+        try {
+            Optional<Document> documentOpt = documentRepository.findByDocumentId(UUID.fromString(documentId));
+            if(documentOpt.isEmpty()){
+                return ResponseEntity.status(HttpStatus.NOT_FOUND).build();
+            }
+            Document document = documentOpt.get();
+            InputStream downloadUrl = s3Service.downloadFile(document.getS3Key());
+            return ResponseEntity.ok()
+                .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=\"" + document.getOriginalFilename() + "\"")
+                .header("Access-Control-Expose-Headers", "content-disposition")
+                .contentType(MediaType.parseMediaType(document.getMimeType()))
+                .body(new InputStreamResource(downloadUrl));
+        }
+        catch(Exception e){
+            logger.error("[correlationId:{}] Error downloading document: {}", MDC.get("correlationId"), e.getMessage());
+            return ResponseEntity.status(HttpStatus.NOT_FOUND).build();
+        }
+    }
 
     // Private utility methods
     private Document createDocument(
@@ -671,7 +727,7 @@ public class DocumentServiceImpl implements IDocumentService {
 
 
     private String generateS3KeyUploadDocument(DocumentEntityType entityType, String entityId, DocumentType documentType, String fileName) {
-        return String.format("%s/%s/%s/%s%s", entityType.getValue().toLowerCase(), entityId, documentType.getValue().toLowerCase(), fileName, getFileExtension(fileName));
+        return String.format("%s/%s/%s/%s", entityType.getValue().toLowerCase(), entityId, documentType.getValue().toLowerCase(), fileName);
     }
     
     private String getFileExtension(String filename) {
@@ -694,4 +750,14 @@ public class DocumentServiceImpl implements IDocumentService {
         return mimeType != null && mimeType.startsWith("image/");
     }
     
+   private static String formatFileSize(long fileSize) {
+    if(fileSize < 1024) {
+        return fileSize + " B";
+    }
+    if(fileSize < 1024 * 1024) {
+        return fileSize / 1024 + " KB";
+    }
+    return fileSize / (1024 * 1024) + " MB";
+   }
+
 }

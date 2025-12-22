@@ -36,11 +36,12 @@ public interface IOrganizationService {
     ResponseEntity<ResponseDto<EmployeeUploadResponse>> uploadDealsFromCsv(MultipartFile file, UUID organizationId);
     ResponseEntity<ResponseDto<EmployeeUploadResponse>> deleteEmployeesFromCsv(MultipartFile file, UUID organizationId);
     ResponseEntity<ResponseDto<com.vimainsurance.vimaadmin.dto.CsvValidationResponseDto>> validateCsv(MultipartFile file, UUID organizationId, String operation);
-    ResponseEntity<ResponseDto<EmployeeUploadResponse>> delete(List<BulkEmployeeDeletionRequestDto> bulkEmployeeDeletionRequestDtoList, UUID organizationId);
+    ResponseEntity<ResponseDto<EmployeeUploadResponse>> delete(List<BulkEmployeeDeletionRequestDto> bulkEmployeeDeletionRequestDtoList, UUID organizationId, String uploadType, MultipartFile file);
     ResponseEntity<ResponseDto<String>> deleteEmployee(String employeeId, UUID organizationId);
     ResponseEntity<ResponseDto<String>> bulkDeleteEmployees(com.vimainsurance.vimaadmin.dto.BulkEmployeeDeletionRequestDto requestDto, UUID organizationId);
-    ResponseEntity<ResponseDto<EmployeeUploadResponse>> uploadEmployees(List<EmployeeUploadDto> employeeUploadDtoList, UUID organizationId);
+    ResponseEntity<ResponseDto<EmployeeUploadResponse>> uploadEmployees(List<EmployeeUploadDto> employeeUploadDtoList, UUID organizationId, String uploadType, MultipartFile file);
     ResponseEntity<ResponseDto<EmployeeUploadResponse>> validateEmployees(List<EmployeeUploadDto> employeeUploadDtoList, UUID organizationId);
+    ResponseEntity<ResponseDto<List<OrganizationEmployeeDto>>> getEmployeesByEndorsementId(UUID endorsementId, int page, int rec);
 }
 
 

@@ -27,7 +27,7 @@ public class EndorsementRequestDto {
     @Min(value = 0, message = "Total dependents must be non-negative")
     private Integer totalDependents = 0;
 
-    private UUID approvedBy; // AdminUser ID
+    private String approvedBy; // AdminUser Username
 
     private UUID uploadedBy; // AdminUser ID
 

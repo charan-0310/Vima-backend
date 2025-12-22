@@ -1,5 +1,6 @@
 package com.vimainsurance.vimaadmin.service.serviceimpl;
 
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
@@ -26,15 +27,29 @@ import com.vimainsurance.vimaadmin.entity.Document;
 import com.vimainsurance.vimaadmin.entity.Endorsement;
 import com.vimainsurance.vimaadmin.entity.Organization;
 import com.vimainsurance.vimaadmin.enums.AccountStatus;
-import com.vimainsurance.vimaadmin.enums.ConfirmationMethod;
 import com.vimainsurance.vimaadmin.enums.EndorsementType;
 import com.vimainsurance.vimaadmin.mapper.EndorsementMapper;
 import com.vimainsurance.vimaadmin.repository.IAdminUserRepository;
 import com.vimainsurance.vimaadmin.repository.IDocumentRepository;
 import com.vimainsurance.vimaadmin.repository.IEndorsementRepository;
 import com.vimainsurance.vimaadmin.repository.IOrganizationRepository;
+import com.vimainsurance.vimaadmin.repository.IDealsRepository;
 import com.vimainsurance.vimaadmin.service.IEndorsementService;
+import com.vimainsurance.vimaadmin.service.IDocumentService;
+import com.vimainsurance.vimaadmin.specification.EndorsementSpecification;
 import com.vimainsurance.vimaadmin.util.Constants;
+
+import org.springframework.core.env.Environment;
+
+import com.vimainsurance.vimaadmin.entity.Deals;
+
+import org.springframework.data.jpa.domain.Specification;
+import org.springframework.web.multipart.MultipartFile;
+
+import com.vimainsurance.vimaadmin.enums.DocumentCategory;
+import com.vimainsurance.vimaadmin.enums.DocumentEntityType;
+import com.vimainsurance.vimaadmin.enums.DocumentType;
+import com.vimainsurance.vimaadmin.util.EnvironmentUtil;
 
 @Service
 public class EndorsementServiceImpl implements IEndorsementService {
@@ -52,6 +67,15 @@ public class EndorsementServiceImpl implements IEndorsementService {
 
     @Autowired
     private IAdminUserRepository adminUserRepository;
+
+    @Autowired
+    private IDealsRepository dealsRepository;
+
+    @Autowired
+    private Environment environment;
+
+    @Autowired
+    private IDocumentService documentService;
 
     @Override
     @Transactional
@@ -76,15 +100,7 @@ public class EndorsementServiceImpl implements IEndorsementService {
                 document = docOpt.get();
             }
 
-            // Fetch AdminUser entities if provided
-            AdminUser approvedBy = null;
-            if (requestDto.getApprovedBy() != null) {
-                Optional<AdminUser> approvedByOpt = adminUserRepository.findById(requestDto.getApprovedBy());
-                if (approvedByOpt.isEmpty()) {
-                    return responseObj.render(responseObj.formErrorResponse("Approved by user not found"));
-                }
-                approvedBy = approvedByOpt.get();
-            }
+        
 
             AdminUser uploadedBy = null;
             if (requestDto.getUploadedBy() != null) {
@@ -96,7 +112,7 @@ public class EndorsementServiceImpl implements IEndorsementService {
             }
 
             // Map DTO to entity
-            Endorsement endorsement = EndorsementMapper.mapToEntity(requestDto, organization, document, approvedBy, uploadedBy);
+            Endorsement endorsement = EndorsementMapper.mapToEntity(requestDto, organization, document, uploadedBy);
             endorsementRepository.save(endorsement);
 
             return responseObj.render(responseObj.formSuccessResponse(Constants.SUCCESS, Constants.SAVE_SUCCESS));
@@ -149,30 +165,22 @@ public class EndorsementServiceImpl implements IEndorsementService {
             }
 
             // Fetch AdminUser entities if provided
-            AdminUser approvedBy = endorsement.getApprovedBy();
+            String approvedBy = endorsement.getApprovedBy();
             if (requestDto.getApprovedBy() != null) {
-                if (endorsement.getApprovedBy() == null || !requestDto.getApprovedBy().equals(endorsement.getApprovedBy().getId())) {
-                    Optional<AdminUser> approvedByOpt = adminUserRepository.findById(requestDto.getApprovedBy());
-                    if (approvedByOpt.isEmpty()) {
-                        return responseObj.render(responseObj.formErrorResponse("Approved by user not found"));
-                    }
-                    approvedBy = approvedByOpt.get();
-                }
+                approvedBy = requestDto.getApprovedBy();
             }
+
 
             AdminUser uploadedBy = endorsement.getUploadedBy();
             if (requestDto.getUploadedBy() != null) {
-                if (endorsement.getUploadedBy() == null || !requestDto.getUploadedBy().equals(endorsement.getUploadedBy().getId())) {
-                    Optional<AdminUser> uploadedByOpt = adminUserRepository.findById(requestDto.getUploadedBy());
-                    if (uploadedByOpt.isEmpty()) {
-                        return responseObj.render(responseObj.formErrorResponse("Uploaded by user not found"));
-                    }
-                    uploadedBy = uploadedByOpt.get();
+                Optional<AdminUser> uploadedByOpt = adminUserRepository.findById(requestDto.getUploadedBy());
+                if (uploadedByOpt.isEmpty()) {
+                    return responseObj.render(responseObj.formErrorResponse("Uploaded by user not found"));
                 }
+                uploadedBy = uploadedByOpt.get();
             }
-
             // Update entity from DTO
-            EndorsementMapper.updateEntityFromDto(endorsement, requestDto, organization, document, approvedBy, uploadedBy);
+            EndorsementMapper.updateEntityFromDto(endorsement, requestDto, organization, document, uploadedBy);
             endorsementRepository.save(endorsement);
 
             return responseObj.render(responseObj.formSuccessResponse(Constants.SUCCESS, Constants.UPDATE_SUCCESS));
@@ -214,7 +222,7 @@ public class EndorsementServiceImpl implements IEndorsementService {
                 return responseObj.render(responseObj.formErrorResponse(Constants.RECORD_NOT_FOUND_MESSAGE));
             }
 
-            EndorsementResponseDto dto = EndorsementMapper.mapToResponseDto(opt.get());
+            EndorsementResponseDto dto = EndorsementMapper.mapToResponseDto(opt.get(), dealsRepository.countByEndorsementIdAndRelationshipSelf(opt.get().getEndorsementId()), dealsRepository.countByEndorsementIdAndRelationshipNonSelf(opt.get().getEndorsementId()));
             return responseObj.render(responseObj.formSuccessResponse(Constants.SUCCESS, dto));
         } catch (Exception e) {
             logger.error("[correlationId:{}] Exception in Endorsement getById: {}", MDC.get("correlationId"), e.getMessage(), e);
@@ -230,7 +238,7 @@ public class EndorsementServiceImpl implements IEndorsementService {
             List<Endorsement> list = endorsementRepository.findAll();
             List<EndorsementResponseDto> out = new ArrayList<>();
             for (Endorsement endorsement : list) {
-                out.add(EndorsementMapper.mapToResponseDto(endorsement));
+                out.add(EndorsementMapper.mapToResponseDto(endorsement, dealsRepository.countByEndorsementIdAndRelationshipSelf(endorsement.getEndorsementId()), dealsRepository.countByEndorsementIdAndRelationshipNonSelf(endorsement.getEndorsementId())));
             }
             return responseObj.render(responseObj.formSuccessResponse(Constants.SUCCESS, out, out.size()));
         } catch (Exception e) {
@@ -247,7 +255,7 @@ public class EndorsementServiceImpl implements IEndorsementService {
             List<Endorsement> list = endorsementRepository.findByOrganization_OrganizationId(organizationId);
             List<EndorsementResponseDto> out = new ArrayList<>();
             for (Endorsement endorsement : list) {
-                out.add(EndorsementMapper.mapToResponseDto(endorsement));
+                out.add(EndorsementMapper.mapToResponseDto(endorsement, dealsRepository.countByEndorsementIdAndRelationshipSelf(endorsement.getEndorsementId()), dealsRepository.countByEndorsementIdAndRelationshipNonSelf(endorsement.getEndorsementId())));
             }
             return responseObj.render(responseObj.formSuccessResponse(Constants.SUCCESS, out, out.size()));
         } catch (Exception e) {
@@ -265,7 +273,7 @@ public class EndorsementServiceImpl implements IEndorsementService {
             List<Endorsement> list = endorsementRepository.findByStatus(accountStatus);
             List<EndorsementResponseDto> out = new ArrayList<>();
             for (Endorsement endorsement : list) {
-                out.add(EndorsementMapper.mapToResponseDto(endorsement));
+                out.add(EndorsementMapper.mapToResponseDto(endorsement, dealsRepository.countByEndorsementIdAndRelationshipSelf(endorsement.getEndorsementId()), dealsRepository.countByEndorsementIdAndRelationshipNonSelf(endorsement.getEndorsementId())));
             }
             return responseObj.render(responseObj.formSuccessResponse(Constants.SUCCESS, out, out.size()));
         } catch (IllegalArgumentException e) {
@@ -286,7 +294,7 @@ public class EndorsementServiceImpl implements IEndorsementService {
             List<Endorsement> list = endorsementRepository.findByEndorsementType(type);
             List<EndorsementResponseDto> out = new ArrayList<>();
             for (Endorsement endorsement : list) {
-                out.add(EndorsementMapper.mapToResponseDto(endorsement));
+                out.add(EndorsementMapper.mapToResponseDto(endorsement, dealsRepository.countByEndorsementIdAndRelationshipSelf(endorsement.getEndorsementId()), dealsRepository.countByEndorsementIdAndRelationshipNonSelf(endorsement.getEndorsementId())));
             }
             return responseObj.render(responseObj.formSuccessResponse(Constants.SUCCESS, out, out.size()));
         } catch (IllegalArgumentException e) {
@@ -300,60 +308,52 @@ public class EndorsementServiceImpl implements IEndorsementService {
 
     @Override
     public ResponseEntity<ResponseDto<List<EndorsementResponseDto>>> getAllWithFilters(
-            UUID organizationId, String organizationName, String status, String endorsementType,
-            int page, int size, String sortBy, String sortDirection) {
+            UUID organizationId, String organizationName, String status, String endorsementType, String uploadedBy,
+            String fromDate, String toDate, int page, int size, String sortBy, String sortDirection) {
         logger.info("[correlationId:{}] Endorsement getAllWithFilters called - organizationId: {}, organizationName: {}, status: {}, endorsementType: {}, page: {}, size: {}",
                 MDC.get("correlationId"), organizationId, organizationName, status, endorsementType, page, size);
         BaseResponse<List<EndorsementResponseDto>> responseObj = new BaseResponse<>();
         try {
+            LocalDateTime fromDateTime = null;
+            LocalDateTime toDateTime = null;
+            
+            if(status != null && !status.trim().isEmpty()) {
+                status = status.toUpperCase().trim();
+            }
+            
+            EndorsementType type = null;
+            if (endorsementType != null && !endorsementType.trim().isEmpty()) {
+                type = EndorsementType.fromValue(endorsementType);
+            }
+            if(fromDate != null) {
+                fromDateTime = LocalDate.parse(fromDate).atStartOfDay();
+            }
+            if(toDate != null) {
+                toDateTime = LocalDate.parse(toDate).atStartOfDay();
+            }
+            
+            // Build specification with all filters
+            Specification<Endorsement> spec = EndorsementSpecification.withFilters(
+                organizationId,
+                organizationName,
+                status,
+                type,
+                uploadedBy,
+                fromDateTime,
+                toDateTime
+            );
+            
+            // Create sort and page request
             Sort sort = createSort(sortBy, sortDirection);
             PageRequest pageRequest = PageRequest.of(page, size, sort);
-            Page<Endorsement> endorsementPage;
+            
+            // Execute query using specification
+            Page<Endorsement> endorsementPage = endorsementRepository.findAll(spec, pageRequest);
 
-            // Priority: organizationName search takes precedence if provided
-            if (organizationName != null && !organizationName.trim().isEmpty()) {
-                String searchName = organizationName.trim();
-                
-                if (status != null && endorsementType != null) {
-                    AccountStatus accountStatus = AccountStatus.fromValue(status);
-                    EndorsementType type = EndorsementType.fromValue(endorsementType);
-                    endorsementPage = endorsementRepository.findByOrganizationNameAndStatusAndEndorsementType(
-                            searchName, accountStatus, type, pageRequest);
-                } else if (status != null) {
-                    AccountStatus accountStatus = AccountStatus.fromValue(status);
-                    endorsementPage = endorsementRepository.findByOrganizationNameAndStatus(
-                            searchName, accountStatus, pageRequest);
-                } else if (endorsementType != null) {
-                    EndorsementType type = EndorsementType.fromValue(endorsementType);
-                    endorsementPage = endorsementRepository.findByOrganizationNameAndEndorsementType(
-                            searchName, type, pageRequest);
-                } else {
-                    endorsementPage = endorsementRepository.findByOrganizationName(searchName, pageRequest);
-                }
-            } else if (organizationId != null && status != null && endorsementType != null) {
-                AccountStatus accountStatus = AccountStatus.fromValue(status);
-                EndorsementType type = EndorsementType.fromValue(endorsementType);
-                endorsementPage = endorsementRepository.findByOrganizationIdAndStatusAndEndorsementType(
-                        organizationId, accountStatus, type, pageRequest);
-            } else if (organizationId != null && status != null) {
-                AccountStatus accountStatus = AccountStatus.fromValue(status);
-                List<Endorsement> list = endorsementRepository.findByOrganizationIdAndStatus(organizationId, accountStatus);
-                endorsementPage = createPageFromList(list, pageRequest);
-            } else if (organizationId != null) {
-                endorsementPage = endorsementRepository.findByOrganization_OrganizationId(organizationId, pageRequest);
-            } else if (status != null) {
-                AccountStatus accountStatus = AccountStatus.fromValue(status);
-                endorsementPage = endorsementRepository.findByStatus(accountStatus, pageRequest);
-            } else if (endorsementType != null) {
-                EndorsementType type = EndorsementType.fromValue(endorsementType);
-                endorsementPage = endorsementRepository.findByEndorsementType(type, pageRequest);
-            } else {
-                endorsementPage = endorsementRepository.findAll(pageRequest);
-            }
-
+            // Map to DTOs
             List<EndorsementResponseDto> out = new ArrayList<>();
             for (Endorsement endorsement : endorsementPage.getContent()) {
-                out.add(EndorsementMapper.mapToResponseDto(endorsement));
+                out.add(EndorsementMapper.mapToResponseDto(endorsement, dealsRepository.countByEndorsementIdAndRelationshipSelf(endorsement.getEndorsementId()), dealsRepository.countByEndorsementIdAndRelationshipNonSelf(endorsement.getEndorsementId())));
             }
 
             return responseObj.render(responseObj.formSuccessResponse(Constants.SUCCESS, out, endorsementPage.getTotalElements()));
@@ -368,41 +368,70 @@ public class EndorsementServiceImpl implements IEndorsementService {
 
     @Override
     @Transactional
-    public ResponseEntity<ResponseDto<String>> approve(UUID endorsementId, UUID approvedBy, String confirmationMethod) {
-        logger.info("[correlationId:{}] Endorsement approve called for {}", MDC.get("correlationId"), endorsementId);
+    public ResponseEntity<ResponseDto<String>> approve(MultipartFile[] files, EndorsementRequestDto requestDto) {
+        logger.info("[correlationId:{}] Endorsement approve called for {}", MDC.get("correlationId"), requestDto.getEndorsementId());
         BaseResponse<String> responseObj = new BaseResponse<>();
         try {
-            Optional<Endorsement> opt = endorsementRepository.findById(endorsementId);
+            if(files.length > 3) {
+                return responseObj.render(responseObj.formErrorResponse("Maximum 3 files are allowed"));
+            }
+            Optional<Endorsement> opt = endorsementRepository.findById(requestDto.getEndorsementId());
             if (opt.isEmpty()) {
                 return responseObj.render(responseObj.formErrorResponse(Constants.RECORD_NOT_FOUND_MESSAGE));
             }
-
-            // Fetch AdminUser entity
-            AdminUser approvedByUser = null;
-            if (approvedBy != null) {
-                Optional<AdminUser> approvedByOpt = adminUserRepository.findById(approvedBy);
-                if (approvedByOpt.isEmpty()) {
-                    return responseObj.render(responseObj.formErrorResponse("Approved by user not found"));
-                }
-                approvedByUser = approvedByOpt.get();
+            Optional<Organization> orgOpt = organizationRepository.findById(requestDto.getOrganizationId());
+            if (orgOpt.isEmpty()) {
+                return responseObj.render(responseObj.formErrorResponse("Organization not found"));
             }
 
+            Organization organization = orgOpt.get();
+            AdminUser uploadedBy = null;
+            if(EnvironmentUtil.isProductionEnvironment(environment)) {
+            Optional<AdminUser> uploadedByOpt = adminUserRepository.findById(requestDto.getUploadedBy());
+            if (uploadedByOpt.isEmpty()) {
+                return responseObj.render(responseObj.formErrorResponse("Uploaded by user not found"));
+            }
+            uploadedBy = uploadedByOpt.get();
+            }
             Endorsement endorsement = opt.get();
-            endorsement.setStatus(AccountStatus.APPROVED);
-            endorsement.setApprovedBy(approvedByUser);
-            endorsement.setApprovedAt(LocalDateTime.now());
-
-            if (confirmationMethod != null) {
-                endorsement.setConfirmationMethod(ConfirmationMethod.fromValue(confirmationMethod));
+            if(endorsement.getStatus().equals(AccountStatus.APPROVED)) {
+                return responseObj.render(responseObj.formErrorResponse("Endorsement already approved"));
             }
+            for(MultipartFile file : files) {
+                ResponseEntity<ResponseDto<String>> documentResponse = documentService.uploadDocument(file, DocumentType.OTHER.toString(), DocumentCategory.ENDORSEMENT_DOCUMENTS.toString(), DocumentEntityType.ORGANIZATION.toString(), endorsement.getEndorsementId().toString(), "Supporting Documents");
+                if(documentResponse.getBody() != null && documentResponse.getBody().getErrorCode() != null){
+                    return responseObj.render(responseObj.formErrorResponse(documentResponse.getBody().getMessage()));
+                }
+            }
+            EndorsementMapper.updateEntityFromDto(endorsement, requestDto, organization, null, uploadedBy);
 
+            List<Deals> deals = dealsRepository.findByEndorsementId(requestDto.getEndorsementId());
+            if(deals.isEmpty()) {
+                return responseObj.render(responseObj.formErrorResponse("No deals found to approve"));
+            }
+            if(!deals.stream().anyMatch(deal -> deal.getStatus().equals(AccountStatus.PENDING_APPROVAL) || deal.getStatus().equals(AccountStatus.PENDING_EXIT))) {
+                return responseObj.render(responseObj.formErrorResponse("No deals found to approve"));
+            }
+         
+            deals.stream().filter(deal -> deal.getStatus().equals(AccountStatus.PENDING_APPROVAL)).forEach(deal -> {
+                deal.setStatus(AccountStatus.APPROVED);
+                deal.setUpdatedAt(LocalDateTime.now());
+                dealsRepository.save(deal);
+            });
+            deals.stream().filter(deal -> deal.getStatus().equals(AccountStatus.PENDING_EXIT)).forEach(deal -> {
+                deal.setStatus(AccountStatus.LEAVING);
+                deal.setUpdatedAt(LocalDateTime.now());
+                dealsRepository.save(deal);
+            });
+            endorsement.setApprovedAt(LocalDateTime.now());
+            endorsement.setStatus(AccountStatus.APPROVED);
             endorsement.setUpdatedAt(LocalDateTime.now());
             endorsementRepository.save(endorsement);
 
             return responseObj.render(responseObj.formSuccessResponse(Constants.SUCCESS, "Endorsement approved successfully"));
         } catch (IllegalArgumentException e) {
-            logger.error("[correlationId:{}] Invalid confirmation method value: {}", MDC.get("correlationId"), confirmationMethod);
-            return responseObj.render(responseObj.formErrorResponse("Invalid confirmation method value: " + confirmationMethod));
+            logger.error("[correlationId:{}] Invalid confirmation method value: {}", MDC.get("correlationId"), requestDto.getConfirmationMethod());
+            return responseObj.render(responseObj.formErrorResponse("Invalid confirmation method value: " + requestDto.getConfirmationMethod()));
         } catch (Exception e) {
             logger.error("[correlationId:{}] Exception in Endorsement approve: {}", MDC.get("correlationId"), e.getMessage(), e);
             return responseObj.render(responseObj.formErrorResponse("Failed to approve endorsement!"));
@@ -432,6 +461,19 @@ public class EndorsementServiceImpl implements IEndorsementService {
         }
     }
 
+    @Override
+    public ResponseEntity<ResponseDto<String>> getPendingCount() {
+        logger.info("[correlationId:{}] Endorsement getPendingCount called for {}", MDC.get("correlationId"));
+        BaseResponse<String> responseObj = new BaseResponse<>();
+        try {
+            Long count = endorsementRepository.getPendingCount();
+            return responseObj.render(responseObj.formSuccessResponse(Constants.SUCCESS, "Pending count: " + count));
+        } catch (Exception e) {
+            logger.error("[correlationId:{}] Exception in Endorsement getPendingCount: {}", MDC.get("correlationId"), e.getMessage(), e);
+            return responseObj.render(responseObj.formErrorResponse(Constants.RECORD_NOT_FOUND_MESSAGE));
+        }
+    }
+
     /**
      * Helper method to create Sort object
      */
@@ -442,19 +484,17 @@ public class EndorsementServiceImpl implements IEndorsementService {
         if (sortDirection == null || sortDirection.trim().isEmpty()) {
             sortDirection = "DESC";
         }
+        if(sortBy.equalsIgnoreCase("organizationName")) {
+            sortBy = "organization.organizationName";
+        }
+        if(sortBy.equalsIgnoreCase("uploadedByName")) {
+            sortBy = "uploadedBy.username";
+        }
+
 
         Sort.Direction direction = sortDirection.equalsIgnoreCase("ASC") ? Sort.Direction.ASC : Sort.Direction.DESC;
         return Sort.by(direction, sortBy);
     }
 
-    /**
-     * Helper method to create Page from List (for cases where repository doesn't support pagination)
-     */
-    private Page<Endorsement> createPageFromList(List<Endorsement> list, PageRequest pageRequest) {
-        int start = (int) pageRequest.getOffset();
-        int end = Math.min((start + pageRequest.getPageSize()), list.size());
-        List<Endorsement> pageContent = start < list.size() ? list.subList(start, end) : new ArrayList<>();
-        return new org.springframework.data.domain.PageImpl<>(pageContent, pageRequest, list.size());
-    }
 }
 

@@ -6,7 +6,10 @@ import jakarta.persistence.Converter;
 public enum ConfirmationMethod {
     EMAIL("EMAIL"),
     PORTAL("PORTAL"),
-    API("API");
+    API("API"),
+    PHONE_CALL("PHONE_CALL"),
+    IN_PERSON("IN_PERSON"),
+    OTHER("OTHER");
 
     private final String value;
 
@@ -19,14 +22,13 @@ public enum ConfirmationMethod {
     }
 
     public static ConfirmationMethod fromValue(String value) {
-        for (ConfirmationMethod method : ConfirmationMethod.values()) {
-            if (method.value.equals(value)) {
-                return method;
+        for (ConfirmationMethod confirmationMethod : ConfirmationMethod.values()) {
+            if (confirmationMethod.value.equals(value)) {
+                return confirmationMethod;
             }
         }
         throw new IllegalArgumentException("Unknown ConfirmationMethod: " + value);
     }
-
     @Converter(autoApply = true)
     public static class ConfirmationMethodConverter implements AttributeConverter<ConfirmationMethod, String> {
         @Override

@@ -4,6 +4,7 @@ import java.util.List;
 import java.util.UUID;
 
 import org.springframework.http.ResponseEntity;
+import org.springframework.web.multipart.MultipartFile;
 
 import com.vimainsurance.vimaadmin.dto.EndorsementRequestDto;
 import com.vimainsurance.vimaadmin.dto.EndorsementResponseDto;
@@ -32,14 +33,19 @@ public interface IEndorsementService {
         String organizationName,
         String status, 
         String endorsementType,
+        String uploadedBy,
+        String fromDate,
+        String toDate,
         int page, 
         int size, 
         String sortBy, 
         String sortDirection
     );
     
-    ResponseEntity<ResponseDto<String>> approve(UUID endorsementId, UUID approvedBy, String confirmationMethod);
+    ResponseEntity<ResponseDto<String>> approve(MultipartFile[]  files,EndorsementRequestDto requestDto);
     
     ResponseEntity<ResponseDto<String>> reject(UUID endorsementId);
+
+    ResponseEntity<ResponseDto<String>> getPendingCount();
 }
 

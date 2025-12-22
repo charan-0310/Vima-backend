@@ -69,9 +69,8 @@ public class Endorsement {
     @Column(name = "approved_at")
     private LocalDateTime approvedAt;
 
-    @ManyToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "approved_by", referencedColumnName = "id")
-    private AdminUser approvedBy;
+    @Column(name = "approved_by", length = 50)
+    private String approvedBy;
 
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "uploaded_by", referencedColumnName = "id")

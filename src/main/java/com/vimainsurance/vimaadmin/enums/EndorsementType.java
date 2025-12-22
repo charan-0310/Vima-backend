@@ -5,7 +5,8 @@ import jakarta.persistence.Converter;
 
 public enum EndorsementType {
     ADDITION("ADDITION"),
-    DELETION("DELETION");
+    DELETION("DELETION"),
+    BULK_UPLOAD("BULK_UPLOAD");
 
     private final String value;
 

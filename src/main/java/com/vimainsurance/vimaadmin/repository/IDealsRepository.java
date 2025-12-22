@@ -10,10 +10,10 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
-
+import org.springframework.data.jpa.repository.JpaSpecificationExecutor;
 import com.vimainsurance.vimaadmin.entity.Deals;
 
-public interface IDealsRepository extends JpaRepository<Deals, UUID> {
+public interface IDealsRepository extends JpaRepository<Deals, UUID> , JpaSpecificationExecutor<Deals> {
 
     /**
      * Find deals by multiple individual IDs (batch query for optimization)
@@ -242,5 +242,37 @@ public interface IDealsRepository extends JpaRepository<Deals, UUID> {
         WHERE d.primaryIndividual.individualId IN :primaryIndividualIds
         """)
     List<Deals> findByPrimaryIndividualIdIn(@Param("primaryIndividualIds") List<UUID> primaryIndividualIds);
+    
+    /**
+     * Find deals by endorsementId
+     */
+    @Query("""
+        SELECT d FROM Deals d
+        WHERE d.endorsementId = :endorsementId
+        """)
+    List<Deals> findByEndorsementId(@Param("endorsementId") UUID endorsementId);
 
+    /**
+     * Find deals by endorsementId with Pagination
+     */
+    @Query("""
+        SELECT d FROM Deals d
+        WHERE d.endorsementId = :endorsementId
+        """)
+    Page<Deals> findByEndorsementId(@Param("endorsementId") UUID endorsementId,Pageable pageable);
+
+
+    @Query("""
+        SELECT COUNT(d) FROM Deals d
+        WHERE d.endorsementId = :endorsementId
+        AND d.relationship = 'SELF'
+        """)
+    Long countByEndorsementIdAndRelationshipSelf(@Param("endorsementId") UUID endorsementId);
+    
+    @Query("""
+        SELECT COUNT(d) FROM Deals d
+        WHERE d.endorsementId = :endorsementId
+        AND (d.relationship != 'SELF' OR d.relationship IS NULL)
+        """)
+    Long countByEndorsementIdAndRelationshipNonSelf(@Param("endorsementId") UUID endorsementId);
 }

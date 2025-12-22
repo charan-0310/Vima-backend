@@ -17,8 +17,7 @@ public class EndorsementResponseDto {
     private Integer totalEmployees;
     private Integer totalDependents;
     private LocalDateTime approvedAt;
-    private UUID approvedBy;
-    private String approvedByName;
+    private String approvedBy;
     private UUID uploadedBy;
     private String uploadedByName;
     private String confirmationMethod;
