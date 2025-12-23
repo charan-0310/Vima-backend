@@ -32,48 +32,42 @@ public class ManagerDashboardErrorHandler {
     
     public static ResponseEntity<ResponseDto<Object>> handleManagerNotFound(String username) {
         BaseResponse<Object> responseObj = new BaseResponse<>();
-        return responseObj.render(responseObj.formErrorResponse(
-            createErrorResponse(ErrorCode.MANAGER_NOT_FOUND, 
+        return responseObj.render(responseObj.formErrorResponse(createErrorResponse(ErrorCode.MANAGER_NOT_FOUND, 
                 "Manager with username '" + username + "' not found",
                 "The requested manager does not exist or is not active")));
     }
     
     public static ResponseEntity<ResponseDto<Object>> handleInvalidPeriod(String period) {
         BaseResponse<Object> responseObj = new BaseResponse<>();
-        return responseObj.render(responseObj.formErrorResponse(
-            createErrorResponse(ErrorCode.INVALID_PERIOD,
+        return responseObj.render(responseObj.formErrorResponse(createErrorResponse(ErrorCode.INVALID_PERIOD,
                 "Invalid period: " + period,
                 "Supported periods are: this_month, last_month, last_3_months, last_6_months, this_year")));
     }
     
     public static ResponseEntity<ResponseDto<Object>> handleUnauthorizedAccess(String username) {
         BaseResponse<Object> responseObj = new BaseResponse<>();
-        return responseObj.render(responseObj.formErrorResponse(
-            createErrorResponse(ErrorCode.UNAUTHORIZED_ACCESS,
+        return responseObj.render(responseObj.formErrorResponse(createErrorResponse(ErrorCode.UNAUTHORIZED_ACCESS,
                 "Unauthorized access to manager dashboard",
                 "User '" + username + "' does not have permission to access this manager's data")));
     }
     
     public static ResponseEntity<ResponseDto<Object>> handleDataAccessError(String operation, Exception e) {
         BaseResponse<Object> responseObj = new BaseResponse<>();
-        return responseObj.render(responseObj.formErrorResponse(
-            createErrorResponse(ErrorCode.DATA_ACCESS_ERROR,
+        return responseObj.render(responseObj.formErrorResponse(createErrorResponse(ErrorCode.DATA_ACCESS_ERROR,
                 "Error accessing data for " + operation,
                 e.getMessage())));
     }
     
     public static ResponseEntity<ResponseDto<Object>> handleCalculationError(String calculation, Exception e) {
         BaseResponse<Object> responseObj = new BaseResponse<>();
-        return responseObj.render(responseObj.formErrorResponse(
-            createErrorResponse(ErrorCode.CALCULATION_ERROR,
+        return responseObj.render(responseObj.formErrorResponse(createErrorResponse(ErrorCode.CALCULATION_ERROR,
                 "Error calculating " + calculation,
                 e.getMessage())));
     }
     
     public static ResponseEntity<ResponseDto<Object>> handleInternalServerError(String operation, Exception e) {
         BaseResponse<Object> responseObj = new BaseResponse<>();
-        return responseObj.render(responseObj.formErrorResponse(
-            createErrorResponse(ErrorCode.INTERNAL_SERVER_ERROR,
+        return responseObj.render(responseObj.formErrorResponse(createErrorResponse(ErrorCode.INTERNAL_SERVER_ERROR,
                 "Internal server error during " + operation,
                 e.getMessage())));
     }

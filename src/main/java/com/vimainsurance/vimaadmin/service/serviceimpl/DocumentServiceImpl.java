@@ -546,8 +546,7 @@ public class DocumentServiceImpl implements IDocumentService {
             // Check file size
             long maxSize = isImageFile(file.getContentType()) ? maxImageSize : maxFileSize;
             if (file.getSize() > maxSize) {
-                return responseObj.render(responseObj.formErrorResponse(
-                    "File size exceeds maximum allowed size of " + (maxSize / (1024 * 1024)) + "MB"));
+                return responseObj.render(responseObj.formErrorResponse("File size exceeds maximum allowed size of " + (maxSize / (1024 * 1024)) + "MB"));
             }
             
             // Check file extension

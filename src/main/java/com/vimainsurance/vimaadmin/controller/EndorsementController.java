@@ -165,7 +165,7 @@ public class EndorsementController {
      */
     @PostMapping(value = "/approve", consumes = MediaType.MULTIPART_FORM_DATA_VALUE, produces = MediaType.APPLICATION_JSON_VALUE)
     @PreAuthorize("hasAnyAuthority('SUPER_ADMIN', 'ADMIN', 'VIMA_ADMIN')")
-    public ResponseEntity<ResponseDto<String>> approve(@RequestPart("files") MultipartFile[] files, @RequestPart("requestDto") EndorsementRequestDto requestDto) {
+    public ResponseEntity<ResponseDto<String>> approve(@RequestPart(value = "files", required = false) MultipartFile[] files, @RequestPart("requestDto") EndorsementRequestDto requestDto) {
         logger.info("[correlationId:{}] /endorsements/approve (POST) endpoint called", MDC.get("correlationId"));
         return endorsementService.approve(files, requestDto);
     }
@@ -199,4 +199,16 @@ public class EndorsementController {
         logger.info("[correlationId:{}] /endorsements/{}/employees (GET) endpoint called", MDC.get("correlationId"), endorsementId);
         return organizationService.getEmployeesByEndorsementId(endorsementId, page, rec);
     }
+
+
+    /* 
+    * Confirm an endorsement
+    */
+    @PostMapping("/{endorsementId}/confirm")
+    @PreAuthorize("hasAnyAuthority('SUPER_ADMIN', 'ADMIN', 'VIMA_ADMIN')")
+    public ResponseEntity<ResponseDto<String>> confirm(@PathVariable UUID endorsementId) {
+        logger.info("[correlationId:{}] /endorsements/{}/confirm (POST) endpoint called", MDC.get("correlationId"), endorsementId);
+        return endorsementService.confirm(endorsementId);
+    }
+
 }

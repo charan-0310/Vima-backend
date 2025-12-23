@@ -50,6 +50,7 @@ import com.vimainsurance.vimaadmin.enums.DocumentCategory;
 import com.vimainsurance.vimaadmin.enums.DocumentEntityType;
 import com.vimainsurance.vimaadmin.enums.DocumentType;
 import com.vimainsurance.vimaadmin.util.EnvironmentUtil;
+import com.vimainsurance.vimaadmin.util.JwtUserExtractor;
 
 @Service
 public class EndorsementServiceImpl implements IEndorsementService {
@@ -76,6 +77,9 @@ public class EndorsementServiceImpl implements IEndorsementService {
 
     @Autowired
     private IDocumentService documentService;
+
+    @Autowired
+    private JwtUserExtractor jwtUserExtractor;
 
     @Override
     @Transactional
@@ -372,7 +376,7 @@ public class EndorsementServiceImpl implements IEndorsementService {
         logger.info("[correlationId:{}] Endorsement approve called for {}", MDC.get("correlationId"), requestDto.getEndorsementId());
         BaseResponse<String> responseObj = new BaseResponse<>();
         try {
-            if(files.length > 3) {
+            if(files != null && files.length > 3) {
                 return responseObj.render(responseObj.formErrorResponse("Maximum 3 files are allowed"));
             }
             Optional<Endorsement> opt = endorsementRepository.findById(requestDto.getEndorsementId());
@@ -387,7 +391,8 @@ public class EndorsementServiceImpl implements IEndorsementService {
             Organization organization = orgOpt.get();
             AdminUser uploadedBy = null;
             if(EnvironmentUtil.isProductionEnvironment(environment)) {
-            Optional<AdminUser> uploadedByOpt = adminUserRepository.findById(requestDto.getUploadedBy());
+                String username = jwtUserExtractor.getCurrentUsername();
+                Optional<AdminUser> uploadedByOpt = adminUserRepository.findByUsername(username);
             if (uploadedByOpt.isEmpty()) {
                 return responseObj.render(responseObj.formErrorResponse("Uploaded by user not found"));
             }
@@ -397,12 +402,14 @@ public class EndorsementServiceImpl implements IEndorsementService {
             if(endorsement.getStatus().equals(AccountStatus.APPROVED)) {
                 return responseObj.render(responseObj.formErrorResponse("Endorsement already approved"));
             }
+            if(files != null && files.length > 0) {
             for(MultipartFile file : files) {
                 ResponseEntity<ResponseDto<String>> documentResponse = documentService.uploadDocument(file, DocumentType.OTHER.toString(), DocumentCategory.ENDORSEMENT_DOCUMENTS.toString(), DocumentEntityType.ORGANIZATION.toString(), endorsement.getEndorsementId().toString(), "Supporting Documents");
                 if(documentResponse.getBody() != null && documentResponse.getBody().getErrorCode() != null){
                     return responseObj.render(responseObj.formErrorResponse(documentResponse.getBody().getMessage()));
                 }
             }
+           }
             EndorsementMapper.updateEntityFromDto(endorsement, requestDto, organization, null, uploadedBy);
 
             List<Deals> deals = dealsRepository.findByEndorsementId(requestDto.getEndorsementId());
@@ -474,6 +481,111 @@ public class EndorsementServiceImpl implements IEndorsementService {
         }
     }
 
+    @Override
+    @Transactional
+    public ResponseEntity<ResponseDto<String>> confirm(UUID endorsementId) {
+        logger.info("[correlationId:{}] Endorsement confirm called for {}", MDC.get("correlationId"), endorsementId);
+        BaseResponse<String> responseObj = new BaseResponse<>();
+        try {
+            // Check if there are any deals that need confirmation
+            List<Deals> deals = dealsRepository.findByEndorsementId(endorsementId);
+            if(deals.isEmpty()) {
+                return responseObj.render(responseObj.formErrorResponse("No deals found to confirm"));
+            }
+            
+            boolean hasPendingStatus = deals.stream()
+                .anyMatch(deal -> deal.getStatus().equals(AccountStatus.APPROVED) || 
+                                 deal.getStatus().equals(AccountStatus.LEAVING));
+            
+            if(!hasPendingStatus) {
+                return responseObj.render(responseObj.formErrorResponse("No deals found to confirm"));
+            }
+            
+            // Activation Logic: SQL Update (without date check)
+            // UPDATE customers SET status='ACTIVE', updated_at=CURRENT_TIMESTAMP 
+            // WHERE status='APPROVED' AND endorsement_id = :endorsementId
+            LocalDateTime updatedAt = LocalDateTime.now();
+            
+            int activatedCount = dealsRepository.activateApprovedDealsForConfirm(
+                endorsementId,
+                AccountStatus.APPROVED,
+                AccountStatus.ACTIVE,
+                updatedAt
+            );
+            
+            // Deactivation Logic: SQL Update (without date check)
+            // UPDATE customers SET status='INACTIVE', updated_at=CURRENT_TIMESTAMP 
+            // WHERE status='LEAVING' AND endorsement_id = :endorsementId
+            int deactivatedCount = dealsRepository.deactivateLeavingDealsForConfirm(
+                endorsementId,
+                AccountStatus.LEAVING,
+                AccountStatus.INACTIVE,
+                updatedAt
+            );
+            
+            // Update endorsement status to COMPLETED
+            Optional<Endorsement> endorsementOpt = endorsementRepository.findById(endorsementId);
+            if (endorsementOpt.isPresent()) {
+                Endorsement endorsement = endorsementOpt.get();
+                endorsement.setStatus(AccountStatus.COMPLETED);
+                endorsement.setUpdatedAt(updatedAt);
+                endorsementRepository.save(endorsement);
+            }
+            
+            if (activatedCount > 0 || deactivatedCount > 0) {
+                logger.info("[correlationId:{}] Activated {} deals and deactivated {} deals for endorsement {}", 
+                    MDC.get("correlationId"), activatedCount, deactivatedCount, endorsementId);
+            }
+            
+            return responseObj.render(responseObj.formSuccessResponse(Constants.SUCCESS, 
+                "Endorsement confirmed successfully. Activated: " + activatedCount + ", Deactivated: " + deactivatedCount));
+        } catch (Exception e) {
+            logger.error("[correlationId:{}] Exception in Endorsement confirm: {}", MDC.get("correlationId"), e.getMessage(), e);
+            return responseObj.render(responseObj.formErrorResponse("Failed to confirm endorsement!"));
+        }
+    }
+
+    @Override
+    @Transactional
+    public ResponseEntity<ResponseDto<String>> confirmSchedule() {
+        logger.info("[correlationId:{}] Endorsement confirmSchedule called for all deals", MDC.get("correlationId"));
+        BaseResponse<String> responseObj = new BaseResponse<>();
+        try {
+            // Activation Logic: SQL Update
+            // UPDATE customers SET status='ACTIVE', updated_at=CURRENT_TIMESTAMP 
+            // WHERE status='APPROVED' AND date_of_joining <= CURRENT_DATE
+            LocalDate currentDate = LocalDate.now();
+            LocalDateTime updatedAt = LocalDateTime.now();
+            
+            int activatedCount = dealsRepository.activateAllApprovedDealsByDate(
+                AccountStatus.APPROVED,
+                AccountStatus.ACTIVE,
+                currentDate,
+                updatedAt
+            );
+            
+            // Deactivation Logic: SQL Update
+            // UPDATE customers SET status='INACTIVE', updated_at=CURRENT_TIMESTAMP 
+            // WHERE status='LEAVING' AND date_of_exit <= CURRENT_DATE
+            int deactivatedCount = dealsRepository.deactivateAllLeavingDealsByDate(
+                AccountStatus.LEAVING,
+                AccountStatus.INACTIVE,
+                currentDate,
+                updatedAt
+            );
+            
+            if (activatedCount > 0 || deactivatedCount > 0) {
+                logger.info("[correlationId:{}] Activated {} deals and deactivated {} deals based on schedule", 
+                    MDC.get("correlationId"), activatedCount, deactivatedCount);
+            }
+            
+            return responseObj.render(responseObj.formSuccessResponse(Constants.SUCCESS, 
+                "Schedule confirmed successfully. Activated: " + activatedCount + ", Deactivated: " + deactivatedCount));
+        } catch (Exception e) {
+            logger.error("[correlationId:{}] Exception in Endorsement confirmSchedule: {}", MDC.get("correlationId"), e.getMessage(), e);
+            return responseObj.render(responseObj.formErrorResponse("Failed to confirm schedule endorsement!"));
+        }
+    }
     /**
      * Helper method to create Sort object
      */

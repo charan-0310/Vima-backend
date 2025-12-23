@@ -177,7 +177,7 @@ public class OrganizationServiceImpl implements IOrganizationService {
             return responseObj.render(responseObj.formSuccessResponse(Constants.SUCCESS, Constants.DELETE_MESSAGE));
         } catch (Exception e) {
             logger.error("[correlationId:{}] Exception in Organization delete: {}", MDC.get("correlationId"), e.getMessage(), e);
-            return responseObj.render(responseObj.formErrorResponse(e.getMessage()));
+            return responseObj.render(responseObj.formErrorResponse("Error Occured while deleting organization"));
         }
     }
 
@@ -291,7 +291,7 @@ public class OrganizationServiceImpl implements IOrganizationService {
             return responseObj.render(responseObj.formSuccessResponse(Constants.SUCCESS, uniqueList, organizationPage.getTotalElements()));
         } catch (Exception e) {
             logger.error("[correlationId:{}] Exception in Organization getAllWithFilters: {}", MDC.get("correlationId"), e.getMessage(), e);
-            return responseObj.render(responseObj.formErrorResponse(e.getMessage()));
+            return responseObj.render(responseObj.formErrorResponse("Error Occured while getting organizations"));
         }
     }
 
@@ -309,7 +309,7 @@ public class OrganizationServiceImpl implements IOrganizationService {
             return responseObj.render(responseObj.formSuccessResponse(Constants.SUCCESS, "Logo upload functionality to be implemented"));
         } catch (Exception e) {
             logger.error("[correlationId:{}] Exception in uploadLogo: {}", MDC.get("correlationId"), e.getMessage(), e);
-            return responseObj.render(responseObj.formErrorResponse(e.getMessage()));
+            return responseObj.render(responseObj.formErrorResponse("Error Occured while uploading logo"));
         }
     }
 
@@ -338,12 +338,12 @@ public class OrganizationServiceImpl implements IOrganizationService {
             );
             ResponseDto<List<Document>> responseBody = response.getBody();
             if(responseBody != null && responseBody.getErrorCode() != null){
-                return responseObj.render(responseObj.formErrorResponse(responseBody.getMessage()));
+                return responseObj.render(responseObj.formErrorResponse("Error Occured while uploading document"));
             }
             return responseObj.render(responseObj.formSuccessResponse(Constants.SUCCESS, "Document uploaded successfully"));
         } catch (Exception e) {
             logger.error("[correlationId:{}] Exception in uploadDocument: {}", MDC.get("correlationId"), e.getMessage(), e);
-            return responseObj.render(responseObj.formErrorResponse(e.getMessage()));
+            return responseObj.render(responseObj.formErrorResponse("Error Occured while uploading document"));
         }
     }
 
@@ -388,7 +388,7 @@ public class OrganizationServiceImpl implements IOrganizationService {
             return responseObj.render(responseObj.formSuccessResponse(Constants.SUCCESS, "Document deleted successfully"));
         } catch (Exception e) {
             logger.error("[correlationId:{}] Exception in deleteDocument: {}", MDC.get("correlationId"), e.getMessage(), e);
-            return responseObj.render(responseObj.formErrorResponse(e.getMessage()));
+            return responseObj.render(responseObj.formErrorResponse("Error Occured while deleting document"));
         }
     }
 
@@ -417,7 +417,7 @@ public class OrganizationServiceImpl implements IOrganizationService {
             return responseObj.render(responseObj.formSuccessResponse(Constants.SUCCESS, responseDto, responseDto.size()));
         } catch (Exception e) {
             logger.error("[correlationId:{}] Exception in getDocuments: {}", MDC.get("correlationId"), e.getMessage(), e);
-            return responseObj.render(responseObj.formErrorResponse(e.getMessage()));
+            return responseObj.render(responseObj.formErrorResponse("Error Occured while getting documents"));
         }
     }
 
@@ -434,7 +434,7 @@ public class OrganizationServiceImpl implements IOrganizationService {
             return responseObj.render(responseObj.formSuccessResponse(Constants.SUCCESS, responseDto, responseDto.size()));
         } catch (Exception e) {
             logger.error("[correlationId:{}] Exception in getEmployees: {}", MDC.get("correlationId"), e.getMessage(), e);
-            return responseObj.render(responseObj.formErrorResponse(e.getMessage()));
+            return responseObj.render(responseObj.formErrorResponse("Error Occured while getting employees"));
         }
     }
     
@@ -454,16 +454,14 @@ public class OrganizationServiceImpl implements IOrganizationService {
             Optional<Deals> employeeOpt = dealsRepository.findByIndividualIdAndOrganizationId(individualId, organizationId);
             
             if (employeeOpt.isEmpty()) {
-                return responseObj.render(responseObj.formErrorResponse(
-                    String.format("Employee individual not found for organization")));
+                return responseObj.render(responseObj.formErrorResponse(String.format("Employee individual not found for organization")));
             }
             
             Deals employee = employeeOpt.get();
             
             // Ensure it's a primary member (employee)
             if (!Boolean.TRUE.equals(employee.getIsPrimaryMember())) {
-                return responseObj.render(responseObj.formErrorResponse(
-                    String.format("Unauthorized access")));
+                return responseObj.render(responseObj.formErrorResponse("Unauthorized access"));
             }
             
             OrganizationEmployeeDto responseDto = mapToOrganizationEmployeeDto(employee);
@@ -471,7 +469,7 @@ public class OrganizationServiceImpl implements IOrganizationService {
             
         } catch (Exception e) {
             logger.error("[correlationId:{}] Exception in getEmployee: {}", MDC.get("correlationId"), e.getMessage(), e);
-            return responseObj.render(responseObj.formErrorResponse(e.getMessage()));
+            return responseObj.render(responseObj.formErrorResponse("Error Occured while getting employee"));
         }
     }
     
@@ -491,16 +489,14 @@ public class OrganizationServiceImpl implements IOrganizationService {
             Optional<Deals> employeeOpt = dealsRepository.findByIndividualIdAndOrganizationId(individualId, organizationId);
             
             if (employeeOpt.isEmpty()) {
-                return responseObj.render(responseObj.formErrorResponse(
-                    String.format("Employee individual not found for organization")));
+                return responseObj.render(responseObj.formErrorResponse(String.format("Employee individual not found for organization")));
             }
             
             Deals employee = employeeOpt.get();
             
             // Ensure it's a primary member (employee)
             if (!Boolean.TRUE.equals(employee.getIsPrimaryMember())) {
-                return responseObj.render(responseObj.formErrorResponse(
-                    String.format("Unauthorized access")));
+                return responseObj.render(responseObj.formErrorResponse(String.format("Unauthorized access")));
             }
             
             // Find all dependents for this employee
@@ -1257,8 +1253,7 @@ public class OrganizationServiceImpl implements IOrganizationService {
                 employeeId, organizationId);
             
             if (employeeOpt.isEmpty()) {
-                return responseObj.render(responseObj.formErrorResponse(
-                    String.format("Employee with ID %s not found for organization %s", employeeId, organization.getOrganizationName())));
+                return responseObj.render(responseObj.formErrorResponse(String.format("Employee with ID %s not found for organization %s", employeeId, organization.getOrganizationName())));
             }
             
             Deals employee = employeeOpt.get();
@@ -1316,8 +1311,7 @@ public class OrganizationServiceImpl implements IOrganizationService {
                 employeeIds, organizationId);
             
             if (employees.isEmpty()) {
-                return responseObj.render(responseObj.formErrorResponse(
-                    "No employees found with the provided employee IDs for this organization"));
+                return responseObj.render(responseObj.formErrorResponse("No employees found with the provided employee IDs for this organization"));
             }
             
             // Create a map for fast lookup
@@ -1400,13 +1394,12 @@ public class OrganizationServiceImpl implements IOrganizationService {
             String username = jwtUserExtractor.getCurrentUsername();
             adminuser = adminUserRepository.findByUsername(username).orElseThrow(() -> new RuntimeException("Admin user not found"));
         }
-
         employeeUploadResponse = employeeService.uploadEmployees(employeeUploadDtoList, organization, adminuser, file, uploadType);
         return responseObj.render(responseObj.formSuccessResponse(Constants.SUCCESS, employeeUploadResponse));
     }
     catch (Exception e) {
         logger.error("[correlationId:{}] Exception in uploadEmployees: {}", MDC.get("correlationId"), e.getMessage(), e);
-        return responseObj.render(responseObj.formErrorResponse(e.getMessage()));
+        return responseObj.render(responseObj.formErrorResponse("Error Occured while uploading employees"));
     }
 }
 
@@ -1423,7 +1416,7 @@ public class OrganizationServiceImpl implements IOrganizationService {
         }
         catch (Exception e) {
             logger.error("[correlationId:{}] Exception in validateEmployees: {}", MDC.get("correlationId"), e.getMessage(), e);
-            return responseObj.render(responseObj.formErrorResponse(e.getMessage()));
+            return responseObj.render(responseObj.formErrorResponse("Error Occured while validating employees"));
         }
     }
 
@@ -1445,7 +1438,7 @@ public class OrganizationServiceImpl implements IOrganizationService {
         }
         catch (Exception e) {
             logger.error("[correlationId:{}] Exception in delete: {}", MDC.get("correlationId"), e.getMessage(), e);
-            return responseObj.render(responseObj.formErrorResponse(e.getMessage()));
+            return responseObj.render(responseObj.formErrorResponse("Error Occured while deleting employees"));
         }
     }
 
@@ -1470,7 +1463,7 @@ public class OrganizationServiceImpl implements IOrganizationService {
         }
         catch (Exception e) {
             logger.error("[correlationId:{}] Exception in getEmployeesByEndorsementId: {}", MDC.get("correlationId"), e.getMessage(), e);
-            return responseObj.render(responseObj.formErrorResponse(e.getMessage()));
+            return responseObj.render(responseObj.formErrorResponse("Error Occured while getting employees by endorsement id"));
         }
     }
   

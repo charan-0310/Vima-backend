@@ -9,9 +9,14 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.repository.query.Param;
 import org.springframework.data.jpa.repository.JpaSpecificationExecutor;
+import org.springframework.transaction.annotation.Transactional;
 import com.vimainsurance.vimaadmin.entity.Deals;
+import com.vimainsurance.vimaadmin.enums.AccountStatus;
+import java.time.LocalDate;
+import java.time.LocalDateTime;
 
 public interface IDealsRepository extends JpaRepository<Deals, UUID> , JpaSpecificationExecutor<Deals> {
 
@@ -275,4 +280,133 @@ public interface IDealsRepository extends JpaRepository<Deals, UUID> , JpaSpecif
         AND (d.relationship != 'SELF' OR d.relationship IS NULL)
         """)
     Long countByEndorsementIdAndRelationshipNonSelf(@Param("endorsementId") UUID endorsementId);
+    
+    /**
+     * Activate approved deals where date of joining has passed
+     * UPDATE customers SET status='ACTIVE', updated_at=CURRENT_TIMESTAMP 
+     * WHERE status='APPROVED' AND date_of_joining <= CURRENT_DATE AND endorsement_id = :endorsementId
+     */
+    @Modifying
+    @Transactional
+    @Query("""
+        UPDATE Deals d 
+        SET d.status = :activeStatus, d.updatedAt = :updatedAt
+        WHERE d.status = :approvedStatus 
+        AND d.dateOfJoining <= :currentDate
+        AND d.endorsementId = :endorsementId
+        """)
+    int activateApprovedDeals(
+        @Param("endorsementId") UUID endorsementId,
+        @Param("approvedStatus") AccountStatus approvedStatus,
+        @Param("activeStatus") AccountStatus activeStatus,
+        @Param("currentDate") LocalDate currentDate,
+        @Param("updatedAt") LocalDateTime updatedAt
+    );
+    
+    /**
+     * Deactivate leaving deals where date of exit has passed
+     * UPDATE customers SET status='INACTIVE', updated_at=CURRENT_TIMESTAMP 
+     * WHERE status='LEAVING' AND date_of_exit <= CURRENT_DATE AND endorsement_id = :endorsementId
+     */
+    @Modifying
+    @Transactional
+    @Query("""
+        UPDATE Deals d 
+        SET d.status = :inactiveStatus, d.updatedAt = :updatedAt
+        WHERE d.status = :leavingStatus 
+        AND d.dateOfExit <= :currentDate
+        AND d.endorsementId = :endorsementId
+        """)
+    int deactivateLeavingDeals(
+        @Param("endorsementId") UUID endorsementId,
+        @Param("leavingStatus") AccountStatus leavingStatus,
+        @Param("inactiveStatus") AccountStatus inactiveStatus,
+        @Param("currentDate") LocalDate currentDate,
+        @Param("updatedAt") LocalDateTime updatedAt
+    );
+    
+    /**
+     * Activate approved deals (without date check) - for confirm method
+     * UPDATE customers SET status='ACTIVE', updated_at=CURRENT_TIMESTAMP 
+     * WHERE status='APPROVED' AND endorsement_id = :endorsementId
+     */
+    @Modifying
+    @Transactional
+    @Query("""
+        UPDATE Deals d 
+        SET d.status = :activeStatus, d.updatedAt = :updatedAt
+        WHERE d.status = :approvedStatus 
+        AND d.endorsementId = :endorsementId
+        """)
+    int activateApprovedDealsForConfirm(
+        @Param("endorsementId") UUID endorsementId,
+        @Param("approvedStatus") AccountStatus approvedStatus,
+        @Param("activeStatus") AccountStatus activeStatus,
+        @Param("updatedAt") LocalDateTime updatedAt
+    );
+    
+    /**
+     * Deactivate leaving deals (without date check) - for confirm method
+     * UPDATE customers SET status='INACTIVE', updated_at=CURRENT_TIMESTAMP 
+     * WHERE status='LEAVING' AND endorsement_id = :endorsementId
+     */
+    @Modifying
+    @Transactional
+    @Query("""
+        UPDATE Deals d 
+        SET d.status = :inactiveStatus, d.updatedAt = :updatedAt
+        WHERE d.status = :leavingStatus 
+        AND d.endorsementId = :endorsementId
+        """)
+    int deactivateLeavingDealsForConfirm(
+        @Param("endorsementId") UUID endorsementId,
+        @Param("leavingStatus") AccountStatus leavingStatus,
+        @Param("inactiveStatus") AccountStatus inactiveStatus,
+        @Param("updatedAt") LocalDateTime updatedAt
+    );
+
+
+    List<Deals> findByDateOfJoiningIsBefore(LocalDate dateOfJoining);
+    
+    /**
+     * Activate all approved deals where date of joining has passed (for scheduled confirmation)
+     * UPDATE customers SET status='ACTIVE', updated_at=CURRENT_TIMESTAMP 
+     * WHERE status='APPROVED' AND date_of_joining <= CURRENT_DATE
+     */
+    @Modifying
+    @Transactional
+    @Query("""
+        UPDATE Deals d 
+        SET d.status = :activeStatus, d.updatedAt = :updatedAt
+        WHERE d.status = :approvedStatus 
+        AND d.dateOfJoining <= :currentDate
+        AND d.dateOfJoining IS NOT NULL
+        """)
+    int activateAllApprovedDealsByDate(
+        @Param("approvedStatus") AccountStatus approvedStatus,
+        @Param("activeStatus") AccountStatus activeStatus,
+        @Param("currentDate") LocalDate currentDate,
+        @Param("updatedAt") LocalDateTime updatedAt
+    );
+    
+    /**
+     * Deactivate all leaving deals where date of exit has passed (for scheduled confirmation)
+     * UPDATE customers SET status='INACTIVE', updated_at=CURRENT_TIMESTAMP 
+     * WHERE status='LEAVING' AND date_of_exit <= CURRENT_DATE
+     */
+    @Modifying
+    @Transactional
+    @Query("""
+        UPDATE Deals d 
+        SET d.status = :inactiveStatus, d.updatedAt = :updatedAt
+        WHERE d.status = :leavingStatus 
+        AND d.dateOfExit <= :currentDate
+        AND d.dateOfExit IS NOT NULL
+        """)
+    int deactivateAllLeavingDealsByDate(
+        @Param("leavingStatus") AccountStatus leavingStatus,
+        @Param("inactiveStatus") AccountStatus inactiveStatus,
+        @Param("currentDate") LocalDate currentDate,
+        @Param("updatedAt") LocalDateTime updatedAt
+    );
 }

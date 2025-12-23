@@ -47,5 +47,10 @@ public interface IEndorsementService {
     ResponseEntity<ResponseDto<String>> reject(UUID endorsementId);
 
     ResponseEntity<ResponseDto<String>> getPendingCount();
+
+    ResponseEntity<ResponseDto<String>> confirm(UUID endorsementId);
+
+    ResponseEntity<ResponseDto<String>> confirmSchedule();
+
 }
 

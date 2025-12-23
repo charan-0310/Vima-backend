@@ -89,6 +89,7 @@ public class Deals {
     @JdbcTypeCode(SqlTypes.NAMED_ENUM)
     private AccountType accountType = AccountType.RETAIL_PRIMARY;
 
+    @DiffIgnore
     @Column(name = "status", nullable = false)
     @Enumerated(EnumType.STRING)
     @JdbcTypeCode(SqlTypes.NAMED_ENUM)

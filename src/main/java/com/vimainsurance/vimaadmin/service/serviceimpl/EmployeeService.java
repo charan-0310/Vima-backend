@@ -416,6 +416,11 @@ public class EmployeeService {
               Optional<Deals> existingPrimaryOptional = dealsRepository.findByEmployeeNumberAndOrganizationIdAndRelationship(employeeId, organization.getOrganizationId(), NomineeRelationship.SELF.getValue());
               if(existingPrimaryOptional.isPresent()) {
                 existingPrimaryFromDb = existingPrimaryOptional.get();
+                if(existingPrimaryFromDb.getStatus().equals(AccountStatus.PENDING_EXIT) || existingPrimaryFromDb.getStatus().equals(AccountStatus.LEAVING)) {
+                    validateResponse.getErrors().add("employeeId: " + employeeId + " - Employee is currently in leaving or pending exit status.");
+                    validateResponse.setMessage("Validation errors!!");
+                    return validateResponse;
+                }
               }
               if (existingPrimary != null || existingPrimaryFromDb != null) {
                 primaryEmployee = new Deals();
@@ -556,6 +561,11 @@ public class EmployeeService {
                   } 
                   if (existingDependent != null) {
                     Deals existingDependentToCompare = new Deals();
+                    if(existingDependent.getStatus().equals(AccountStatus.PENDING_EXIT) || existingDependent.getStatus().equals(AccountStatus.LEAVING)) {
+                        validateResponse.getErrors().add("employeeId: " + employeeId + " - Dependent is currently in leaving or pending exit status.");
+                        validateResponse.setMessage("Validation errors!!");
+                        return validateResponse;
+                    }
                     updateDealFromDto(existingDependentToCompare, dependentDto, organization);
                     existingDependentToCompare.setIndividualId(existingDependent.getIndividualId());
                     existingDependentToCompare.setCreatedAt(existingDependent.getCreatedAt());
@@ -622,6 +632,9 @@ public class EmployeeService {
           response.setErrorCount(0);
           response.setErrors(new ArrayList());
           response.setMessage(String.format("Employees processed successfully: %d created, %d updated", new Object[] { createdCount, updatedCount }));
+          if(createdCount == 0 && updatedCount == 0) {
+            response.setMessage("No changes detected!");
+          }
           return response;
         } catch (Exception e) {
           log.error("Error uploading employees: {}", e.getMessage(), e);
@@ -701,7 +714,7 @@ public class EmployeeService {
                         Optional<Deals> deal = dealsRepository.findByEmployeeNumberAndOrganizationIdAndRelationship(bulkEmployeeDeletionRequestDto.getEmployeeId(), organization.getOrganizationId(), "SELF");
                         if(deal.isPresent()) {
                             if(!deal.get().getStatus().equals(AccountStatus.ACTIVE)) {
-                                errors.add("employeeId: " + bulkEmployeeDeletionRequestDto.getEmployeeId() + " - Dependent is not active");
+                                errors.add("employeeId: " + bulkEmployeeDeletionRequestDto.getEmployeeId() + " - Employee is not active");
                                 continue;
                             }
                             List<Deals> dependents = dealsRepository.findByPrimaryIndividualIdIn(List.of(deal.get().getIndividualId()));
@@ -723,9 +736,10 @@ public class EmployeeService {
                                 continue;
                             }
                             if(individualIdsToDelete.contains(deal.get().getIndividualId())) {
-                                dependentCount++;
+                                continue;
                             }
                             individualIdsToDelete.add(deal.get().getIndividualId());
+                            dependentCount++;
                         }
                         else {
                             errors.add("employeeId: " + bulkEmployeeDeletionRequestDto.getEmployeeId() + " - Dependent not found");
