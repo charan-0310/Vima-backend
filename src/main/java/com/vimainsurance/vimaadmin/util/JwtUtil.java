@@ -57,18 +57,20 @@ public class JwtUtil {
     //     this.secretKey = Keys.hmacShaKeyFor(keyBytes);
     // }
 
-    public String generateToken(String username, String role, String email, String agentId) {
-        return Jwts.builder()
+    public String generateToken(String username, String role, String email, String agentId, String organizationId) {
+        String token =  Jwts.builder()
                 .setSubject(username)
                 .setIssuer("VimaInsurance-AdminAPI")
                 .setId(UUID.randomUUID().toString())
                 .claim("role", role)
                 .claim("email", email)
                 .claim("agentId", agentId)
+                .claim("organizationId", organizationId)
                 .setIssuedAt(new Date())
                 .setExpiration(new Date(System.currentTimeMillis() + expiration))
                 .signWith( getSigningKey(), SignatureAlgorithm.HS256)
                 .compact();
+        return token;
     }
 
     public String generateRefreshToken(String username, String role) {

@@ -243,4 +243,10 @@ public interface IDealsRepository extends JpaRepository<Deals, UUID> {
         """)
     List<Deals> findByPrimaryIndividualIdIn(@Param("primaryIndividualIds") List<UUID> primaryIndividualIds);
 
+    @Query("SELECT d FROM Deals d WHERE d.organization.organizationId = :organizationId AND d.isPrimaryMember = true")
+    Page<Deals> findEmployeesByOrganizationId(@Param("organizationId") UUID organizationId, Pageable pageable);
+
+    @Query("SELECT COUNT(d) FROM Deals d WHERE d.organization.organizationId = :organizationId AND d.isPrimaryMember = false")
+    Long countDependentsByOrganizationId(@Param("organizationId") UUID organizationId);
+
 }

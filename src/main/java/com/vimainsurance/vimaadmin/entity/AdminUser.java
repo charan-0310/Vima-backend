@@ -82,5 +82,9 @@ public class AdminUser {
     @OneToMany(mappedBy = "reportingTo")
     private List<AdminUser> subordinates;
 
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "organization_id")
+    private Organization organization;
+
 }
 

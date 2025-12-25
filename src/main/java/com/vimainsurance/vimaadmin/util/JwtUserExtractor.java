@@ -344,5 +344,14 @@ public class JwtUserExtractor {
     public String getCurrentUsername() {
         return extractCurrentUsername();
     }
+
+    public UUID getCompanyId(Jwt jwt) {
+        String companyIdStr = jwt.getClaimAsString("company_id");
+        return companyIdStr != null ? UUID.fromString(companyIdStr) : null;
+    }
+
+    public UUID getCurrentCompanyId() {
+        return getCurrentJwt().map(this::getCompanyId).orElse(null);
+    }
 }
 

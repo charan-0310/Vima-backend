@@ -107,23 +107,30 @@ public class SecurityConfig {
         }
     }
 
+    // Bean to provide TenantFilter so it can be injected and reused
+    @Bean
+    public TenantFilter tenantFilter() {
+        // requireTenant=false to allow unauthenticated public endpoints like health to function
+        return new TenantFilter();
+    }
+
     /**
      * Security filter chain configuration
-     * 
+     *
      * Enables OAuth2 Resource Server with JWT validation for Authentik.
      * All /api/** endpoints are secured and require valid JWT tokens.
-     * 
+     *
      * In dev profile, authentication is bypassed for easier development.
      */
     @Bean
     public SecurityFilterChain filterChain(HttpSecurity http) throws Exception {
         // Check if dev profile is active using EnvironmentUtil
         boolean isDevProfile = EnvironmentUtil.isDevEnvironment(environment);
-        
+
         http
             .cors(cors -> cors.configurationSource(corsConfigurationSource()))
             .csrf(csrf -> csrf.disable());
-        
+
         if (isDevProfile) {
             // Dev mode: bypass all authentication but set up a mock authentication
             // so @PreAuthorize checks pass
@@ -137,15 +144,15 @@ public class SecurityConfig {
             http.authorizeHttpRequests(auth -> auth
                 // Public endpoints - no authentication required
                 .requestMatchers("/health", "/actuator/**", "/public/**").permitAll()
-                
+
                 // Legacy endpoints that may need authentication - keeping for backward compatibility
                 // These should eventually be migrated to use JWT tokens
-                .requestMatchers("/api/v1/login", "/oauth2/**", "/api/v1/zoho/auth/**", 
-                    "/api/v1/nonce", "/api/v1/auth/challenge", "/api/v1/auth/login").permitAll() 
-                
+                .requestMatchers("/api/v1/login", "/oauth2/**", "/api/v1/zoho/auth/**",
+                    "/api/v1/nonce", "/api/v1/auth/challenge", "/api/v1/auth/login").permitAll()
+
                 // Test endpoint - requires specific authorities
                 .requestMatchers("/api/v1/test").hasAnyAuthority("VIMA_ADMIN", "SALES_AGENT")
-                
+
                 // Swagger/OpenAPI documentation - public access
                 .requestMatchers(
                     "/v3/api-docs/**",
@@ -153,10 +160,10 @@ public class SecurityConfig {
                     "/swagger-ui.html",
                     "/favicon.ico"
                 ).permitAll()
-                
+
                 // All other /api/** endpoints require authentication via JWT
                 .requestMatchers("/api/**").authenticated()
-                
+
                 // All other requests require authentication
                 .anyRequest().authenticated()
             )
@@ -169,13 +176,15 @@ public class SecurityConfig {
                     .jwtAuthenticationConverter(jwtAuthenticationConverter)
                 )
             )
+            // Ensure tenant is resolved early in the chain so authentication/authorization and DB resolvers can use it
+            .addFilterBefore(tenantFilter(), UsernamePasswordAuthenticationFilter.class)
             // Keep authentication provider for backward compatibility with legacy endpoints
             .authenticationProvider(authenticationProvider());
         }
 
         return http.build();
     }
-    
+
     // Legacy OAuth2 client configuration - kept for backward compatibility
     // This is not used when JWT tokens are validated via resource server
     @Bean
@@ -187,7 +196,7 @@ public class SecurityConfig {
     public AuthenticationSuccessHandler oAuth2AuthenticationSuccessHandler() {
         return new VimaOAuth2SuccessHandler();
     }
-    
+
     @Bean
     public AuthenticationManager authenticationManager(AuthenticationConfiguration config) throws Exception {
         return config.getAuthenticationManager();
@@ -236,3 +245,4 @@ public class SecurityConfig {
         return registration;
     }
 }
+
