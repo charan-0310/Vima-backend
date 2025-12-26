@@ -98,7 +98,8 @@ public class SecurityConfig {
                         new SimpleGrantedAuthority("ADMIN"),
                         new SimpleGrantedAuthority("VIMA_ADMIN"),
                         new SimpleGrantedAuthority("SALES_MANAGER"),
-                        new SimpleGrantedAuthority("SALES_AGENT")
+                        new SimpleGrantedAuthority("SALES_AGENT"),
+                        new SimpleGrantedAuthority("HR_MANAGER")
                     )
                 );
                 SecurityContextHolder.getContext().setAuthentication(auth);
@@ -132,56 +133,59 @@ public class SecurityConfig {
             .csrf(csrf -> csrf.disable());
 
         if (isDevProfile) {
+            // Ensure tenant is resolved early in the chain for both environments
+            // Add tenant filter before security filters so DB resolvers and auth can read tenant
+            http.addFilterBefore(tenantFilter(), UsernamePasswordAuthenticationFilter.class);
+
             // Dev mode: bypass all authentication but set up a mock authentication
             // so @PreAuthorize checks pass
             http.authorizeHttpRequests(auth -> auth
-                .anyRequest().permitAll()
+                    .anyRequest().permitAll()
             );
-            // Add a filter to set up mock authentication in dev mode
-            http.addFilterBefore(new DevAuthenticationFilter(), UsernamePasswordAuthenticationFilter.class);
+
+            // Add a filter to set up mock authentication in dev mode.
+            // Place DevAuthenticationFilter after TenantFilter so tenant info is available to the mock auth.
+            http.addFilterAfter(new DevAuthenticationFilter(), TenantFilter.class);
         } else {
+            // Ensure tenant is resolved early in the chain so authentication/authorization and DB resolvers can use it
+            http.addFilterBefore(tenantFilter(), UsernamePasswordAuthenticationFilter.class);
+
             // Production mode: normal security
             http.authorizeHttpRequests(auth -> auth
-                // Public endpoints - no authentication required
-                .requestMatchers("/health", "/actuator/**", "/public/**").permitAll()
+                            // Public endpoints - no authentication required
+                            .requestMatchers("/health", "/actuator/**", "/public/**").permitAll()
 
-                // Legacy endpoints that may need authentication - keeping for backward compatibility
-                // These should eventually be migrated to use JWT tokens
-                .requestMatchers("/api/v1/login", "/oauth2/**", "/api/v1/zoho/auth/**",
-                    "/api/v1/nonce", "/api/v1/auth/challenge", "/api/v1/auth/login").permitAll()
+                            // Legacy endpoints that may need authentication - keeping for backward compatibility
+                            // These should eventually be migrated to use JWT tokens
+                            .requestMatchers("/api/v1/login", "/oauth2/**", "/api/v1/zoho/auth/**",
+                                    "/api/v1/nonce", "/api/v1/auth/challenge", "/api/v1/auth/login").permitAll()
 
-                // Test endpoint - requires specific authorities
-                .requestMatchers("/api/v1/test").hasAnyAuthority("VIMA_ADMIN", "SALES_AGENT")
+                            // Test endpoint - requires specific authorities
+                            .requestMatchers("/api/v1/test").hasAnyAuthority("VIMA_ADMIN", "SALES_AGENT")
 
-                // Swagger/OpenAPI documentation - public access
-                .requestMatchers(
-                    "/v3/api-docs/**",
-                    "/swagger-ui/**",
-                    "/swagger-ui.html",
-                    "/favicon.ico"
-                ).permitAll()
+                            // Swagger/OpenAPI documentation - public access
+                            .requestMatchers(
+                                    "/v3/api-docs/**",
+                                    "/swagger-ui/**",
+                                    "/swagger-ui.html",
+                                    "/favicon.ico"
+                            ).permitAll()
 
-                // All other /api/** endpoints require authentication via JWT
-                .requestMatchers("/api/**").authenticated()
+                            // All other /api/** endpoints require authentication via JWT
+                            .requestMatchers("/api/**").authenticated()
 
-                // All other requests require authentication
-                .anyRequest().authenticated()
-            )
-            // Enable OAuth2 Resource Server for JWT validation
-            // This validates JWT tokens issued by Authentik against the configured issuer-uri
-            // JWT configuration comes from application properties (spring.security.oauth2.resourceserver.jwt.issuer-uri)
-            // Custom converter extracts roles/authorities from JWT claims (groups, roles, etc.)
-            .oauth2ResourceServer(oauth2 -> oauth2
-                .jwt(jwt -> jwt
-                    .jwtAuthenticationConverter(jwtAuthenticationConverter)
-                )
-            )
-            // Ensure tenant is resolved early in the chain so authentication/authorization and DB resolvers can use it
-            .addFilterBefore(tenantFilter(), UsernamePasswordAuthenticationFilter.class)
-            // Keep authentication provider for backward compatibility with legacy endpoints
-            .authenticationProvider(authenticationProvider());
+                            // All other requests require authentication
+                            .anyRequest().authenticated()
+                    )
+                    // Enable OAuth2 Resource Server for JWT validation
+                    .oauth2ResourceServer(oauth2 -> oauth2
+                            .jwt(jwt -> jwt
+                                    .jwtAuthenticationConverter(jwtAuthenticationConverter)
+                            )
+                    )
+                    // Keep authentication provider for backward compatibility with legacy endpoints
+                    .authenticationProvider(authenticationProvider());
         }
-
         return http.build();
     }
 
