@@ -20,6 +20,7 @@ import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.RequestPart;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.multipart.MultipartFile;
 
@@ -29,6 +30,7 @@ import com.vimainsurance.vimaadmin.dto.CsvValidationResponseDto;
 import com.vimainsurance.vimaadmin.dto.DocumentRequestDto;
 import com.vimainsurance.vimaadmin.dto.DocumentResponseDto;
 import com.vimainsurance.vimaadmin.dto.EmployeeUploadDto;
+import com.vimainsurance.vimaadmin.dto.EmployeeUploadRequest;
 import com.vimainsurance.vimaadmin.dto.OrganizationEmployeeDto;
 import com.vimainsurance.vimaadmin.dto.OrganizationRequestDto;
 import com.vimainsurance.vimaadmin.dto.OrganizationResponseDto;
@@ -210,14 +212,18 @@ public class OrganizationController {
     }
     
 
-    @PostMapping(value = "/organization/{organizationId}/upload")
+    @PostMapping(value = "/organization/{organizationId}/upload",
+        consumes = MediaType.MULTIPART_FORM_DATA_VALUE,
+        produces = MediaType.APPLICATION_JSON_VALUE)
     @PreAuthorize("hasAnyAuthority('VIMA_ADMIN', 'SALES_MANAGER', 'SUPER_ADMIN', 'ADMIN')")
     public ResponseEntity<ResponseDto<EmployeeUploadResponse>> uploadEmployees(
             @PathVariable UUID organizationId,
-            @RequestBody List<EmployeeUploadDto> employeeUploadDtoList) {
+            @RequestParam("file") MultipartFile file,
+            @RequestParam("uploadType") String uploadType,
+            @RequestPart("employees") List<EmployeeUploadDto> employeeUploadDtoList) {
         logger.info("[correlationId:{}] /organization/{}/upload endpoint called with operation: {}", 
             MDC.get("correlationId"), organizationId);
-        return organizationService.uploadEmployees(employeeUploadDtoList, organizationId);
+        return organizationService.uploadEmployees(employeeUploadDtoList, organizationId, uploadType, file);
     }
     
     @PostMapping(value = "/organization/{organizationId}/upload/csv", consumes = MediaType.MULTIPART_FORM_DATA_VALUE,
@@ -240,13 +246,16 @@ public class OrganizationController {
         return organizationService.deleteEmployeesFromCsv(file, organizationId);
     }
 
-    @PostMapping(value = "/organization/{organizationId}/delete")
+    @PostMapping(value = "/organization/{organizationId}/delete", consumes = MediaType.MULTIPART_FORM_DATA_VALUE,
+        produces = MediaType.APPLICATION_JSON_VALUE)
     @PreAuthorize("hasAnyAuthority('SUPER_ADMIN', 'ADMIN', 'VIMA_ADMIN')")
     public ResponseEntity<ResponseDto<EmployeeUploadResponse>> delete(
             @PathVariable UUID organizationId,
-            @RequestBody List<BulkEmployeeDeletionRequestDto> bulkEmployeeDeletionRequestDtoList) {
+            @RequestParam("uploadType") String uploadType,
+            @RequestParam("file") MultipartFile file,
+            @RequestPart("employees") List<BulkEmployeeDeletionRequestDto> bulkEmployeeDeletionRequestDtoList) {
         logger.info("[correlationId:{}] /organization/{}/delete/csv endpoint called", MDC.get("correlationId"), organizationId);
-        return organizationService.delete(bulkEmployeeDeletionRequestDtoList, organizationId);
+        return organizationService.delete(bulkEmployeeDeletionRequestDtoList, organizationId, uploadType, file);
 }
     
     @DeleteMapping("/organization/{organizationId}/employee/{employeeId}")

@@ -150,7 +150,7 @@ public class CustomerServiceImpl implements ICustomerService{
             if (phoneNumber != null && !phoneNumber.isBlank()) {
                 Optional<Customer> existByPhonenumber = customerRepository.findByPhoneNumber(phoneNumber);
                 if(existByPhonenumber.isPresent()){
-                    return responseObj.render(responseObj.formErrorResponse( "Already Existed"));
+                    return responseObj.render(responseObj.formErrorResponse("Already Existed"));
                 }
 
                 String normalizedNumber = normalizePhoneNumber(phoneNumber);

@@ -134,7 +134,7 @@ public class AdminUserServiceImpl implements IAdminUserService {
             return responseObj.render(responseObj.formSuccessResponse(Constants.SUCCESS, mapToResponseDto(saved)));
         } catch (Exception e) {
             logger.error("Error updating admin user", e);
-            return responseObj.render(responseObj.formErrorResponse(e.getMessage()));
+            return responseObj.render(responseObj.formErrorResponse("Error Occured while updating admin user"));
         }
     }
 
@@ -153,7 +153,7 @@ public class AdminUserServiceImpl implements IAdminUserService {
             return responseObj.render(responseObj.formSuccessResponse(Constants.SUCCESS, "Deleted successfully"));
         } catch (Exception e) {
             logger.error("Error deleting admin user", e);
-            return responseObj.render(responseObj.formErrorResponse(e.getMessage()));
+            return responseObj.render(responseObj.formErrorResponse("Error Occured while deleting admin user"));
         }
     }
 

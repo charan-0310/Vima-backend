@@ -4,11 +4,13 @@ import com.vimainsurance.vimaadmin.enums.DocumentType;
 
 import java.time.LocalDateTime;
 
-import com.vimainsurance.vimaadmin.enums.DocumentEntityType;
 
 import lombok.Data;
-
+import lombok.AllArgsConstructor;
+import lombok.NoArgsConstructor;
 @Data
+@AllArgsConstructor
+@NoArgsConstructor
 public class DocumentResponseDto {
 String documentId;      
 DocumentType documentType;
@@ -17,4 +19,5 @@ String documentMimeType;
 String notes;
 String documentName;
 String category;
+String size;
 }

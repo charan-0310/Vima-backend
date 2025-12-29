@@ -6,6 +6,7 @@ import java.util.UUID;
 
 import org.hibernate.annotations.JdbcTypeCode;
 import org.hibernate.type.SqlTypes;
+import org.javers.core.metamodel.annotation.DiffIgnore;
 
 import com.vimainsurance.vimaadmin.enums.AccountStatus;
 import com.vimainsurance.vimaadmin.enums.AccountType;
@@ -88,6 +89,7 @@ public class Deals {
     @JdbcTypeCode(SqlTypes.NAMED_ENUM)
     private AccountType accountType = AccountType.RETAIL_PRIMARY;
 
+    @DiffIgnore
     @Column(name = "status", nullable = false)
     @Enumerated(EnumType.STRING)
     @JdbcTypeCode(SqlTypes.NAMED_ENUM)
@@ -118,6 +120,9 @@ public class Deals {
     @Column(name = "date_of_joining")
     private LocalDate dateOfJoining;
 
+    @Column(name = "date_of_exit")
+    private LocalDate dateOfExit;
+
     // Portal Access (only for primary members)
     @Column(name = "username", length = 100, unique = true)
     private String username;
@@ -147,5 +152,8 @@ public class Deals {
 
     @Column(name = "sum_insured")
     private String sumInsured;
+
+    @Column(name = "endorsement_id")
+    private UUID endorsementId;
 
 }
