@@ -1,5 +1,6 @@
 package com.vimainsurance.vimaadmin.specification;
 
+import java.util.List;
 import java.util.UUID;
 import java.time.LocalDateTime;
 
@@ -20,7 +21,7 @@ public class EndorsementSpecification {
      * Builds a Specification for filtering endorsements based on provided criteria
      */
     public static Specification<Endorsement> withFilters(
-            UUID organizationId,
+            List<UUID> organizationIds,
             String organizationName,
             String status,
             EndorsementType endorsementType,
@@ -32,11 +33,18 @@ public class EndorsementSpecification {
             Predicate predicate = criteriaBuilder.conjunction();
             
             // Filter by organization ID
-            if (organizationId != null) {
-                predicate = criteriaBuilder.and(
-                    predicate,
-                    criteriaBuilder.equal(root.get("organization").get("organizationId"), organizationId)
-                );
+            if (organizationIds != null && !organizationIds.isEmpty()) {
+                if (organizationIds.size() == 1) {
+                    predicate = criteriaBuilder.and(
+                            predicate,
+                            criteriaBuilder.equal(root.get("organization").get("organizationId"), organizationIds.get(0))
+                    );
+                } else {
+                    predicate = criteriaBuilder.and(
+                            predicate,
+                            root.get("organization").get("organizationId").in(organizationIds)
+                    );
+                }
             }
             if(fromDate != null) {
                 predicate = criteriaBuilder.and(

@@ -19,6 +19,7 @@ import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
+import org.springframework.security.web.context.SecurityContextPersistenceFilter;
 import org.springframework.web.filter.OncePerRequestFilter;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
@@ -41,6 +42,7 @@ import com.vimainsurance.vimaadmin.config.oauth.VimaOAuth2UserService;
 import com.vimainsurance.vimaadmin.util.AdminUserDetailsService;
 import com.vimainsurance.vimaadmin.util.CorrelationIdFilter;
 import com.vimainsurance.vimaadmin.util.EnvironmentUtil;
+import com.vimainsurance.vimaadmin.util.JwtUserExtractor;
 
 /**
  * Spring Security Configuration
@@ -61,6 +63,9 @@ public class SecurityConfig {
     
     @Autowired
     private AdminUserDetailsService userDetailsService;
+
+    @Autowired(required = false)
+    private JwtUserExtractor jwtUserExtractor;
 
     @Value("${cors.allowed-origins}")
     private String allowedOrigins;
@@ -112,7 +117,12 @@ public class SecurityConfig {
     @Bean
     public TenantFilter tenantFilter() {
         // requireTenant=false to allow unauthenticated public endpoints like health to function
-        return new TenantFilter();
+        TenantFilter tf = new TenantFilter();
+        // Inject jwtUserExtractor if available so the programmatically created filter has what it needs
+        if (this.jwtUserExtractor != null) {
+            tf.setJwtUserExtractor(this.jwtUserExtractor);
+        }
+        return tf;
     }
 
     /**

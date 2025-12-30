@@ -4,9 +4,11 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 
+import com.vimainsurance.vimaadmin.util.TenantContext;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.slf4j.MDC;
@@ -335,10 +337,32 @@ public class EndorsementServiceImpl implements IEndorsementService {
             if(toDate != null) {
                 toDateTime = LocalDate.parse(toDate).atStartOfDay();
             }
-            
+            // Multi-tenant: restrict by organization IDs from JWT
+            Map<String, List<String>> tenantMap = TenantContext.getCurrentTenant();
+            List<String> orgIds = (tenantMap != null) ? tenantMap.get("organizationIds") : null;
+
+            // Ensure orgIds is a mutable non-null list so later code can add provided organizationId
+            if (orgIds == null) {
+                orgIds = new ArrayList<>();
+            }
+
+            // If a specific organizationId param is provided, include it if not already present
+            if (organizationId != null && !orgIds.contains(organizationId.toString())) {
+                orgIds.add(organizationId.toString());
+            }
+
+            List<UUID> organizationIds = new ArrayList<>();
+            for (String orgIdStr : orgIds) {
+                try {
+                    organizationIds.add(UUID.fromString(orgIdStr));
+                } catch (IllegalArgumentException iae) {
+                    logger.warn("[correlationId:{}] Skipping invalid organizationId from tenant context: {}", MDC.get("correlationId"), orgIdStr);
+                }
+            }
+            logger.info("####################### ORGANIZATION IDS: " + organizationIds.toString());
             // Build specification with all filters
             Specification<Endorsement> spec = EndorsementSpecification.withFilters(
-                organizationId,
+                organizationIds,
                 organizationName,
                 status,
                 type,
@@ -470,7 +494,7 @@ public class EndorsementServiceImpl implements IEndorsementService {
 
     @Override
     public ResponseEntity<ResponseDto<String>> getPendingCount() {
-        logger.info("[correlationId:{}] Endorsement getPendingCount called for {}", MDC.get("correlationId"));
+        logger.info("[correlationId:{}] Endorsement getPendingCount called", MDC.get("correlationId"));
         BaseResponse<String> responseObj = new BaseResponse<>();
         try {
             Long count = endorsementRepository.getPendingCount();
