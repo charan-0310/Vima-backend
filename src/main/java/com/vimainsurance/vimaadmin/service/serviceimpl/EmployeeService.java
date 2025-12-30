@@ -28,12 +28,33 @@ import com.vimainsurance.vimaadmin.entity.Deals;
 import com.vimainsurance.vimaadmin.enums.AccountStatus;
 import com.vimainsurance.vimaadmin.enums.AccountType;
 import com.vimainsurance.vimaadmin.enums.NomineeRelationship;
+import com.vimainsurance.vimaadmin.entity.AdminUser;
+
 import org.javers.core.Javers;
 import org.javers.core.diff.Diff;
+
+
+import com.vimainsurance.vimaadmin.entity.Endorsement;
+import com.vimainsurance.vimaadmin.enums.ConfirmationMethod;
+import com.vimainsurance.vimaadmin.enums.DocumentCategory;
+import com.vimainsurance.vimaadmin.enums.DocumentType;
+import com.vimainsurance.vimaadmin.enums.EndorsementType;
 
 import jakarta.validation.ConstraintViolation;
 import jakarta.validation.Validator;
 import lombok.extern.slf4j.Slf4j;
+
+import com.vimainsurance.vimaadmin.repository.IEndorsementRepository;
+
+import org.springframework.core.env.Environment;
+import org.springframework.web.multipart.MultipartFile;
+
+import com.vimainsurance.vimaadmin.entity.Document;
+import com.vimainsurance.vimaadmin.enums.DocumentEntityType;
+import com.vimainsurance.vimaadmin.service.IDocumentService;
+import com.vimainsurance.vimaadmin.repository.IDocumentRepository;
+import com.vimainsurance.vimaadmin.exception.DocumentUploadException;
+import com.vimainsurance.vimaadmin.util.JwtUserExtractor;
 
 @Slf4j
 @Service
@@ -46,8 +67,19 @@ public class EmployeeService {
     private IDealsRepository dealsRepository;
 
 
+
     @Autowired
     private EmployeeBatchService employeeBatchService;
+
+    @Autowired
+    private IEndorsementRepository endorsementRepository;
+
+    @Autowired
+    private IDocumentRepository documentRepository;
+
+
+    @Autowired
+    private IDocumentService iDocumentService;
 
        
     @Autowired
@@ -171,7 +203,7 @@ public class EmployeeService {
                     }
                 } 
                 // Validate Child relationship - must have explicit index (Child1, Child2, Child3, or Child4)
-                else if (relationship != null && relationship.toUpperCase().startsWith("CHILD")) {
+                else if (relationship.toUpperCase().startsWith("CHILD")) {
                     // Extract child index
                     int childIndex = extractChildIndexFromString(relationship);
                     
@@ -202,7 +234,7 @@ public class EmployeeService {
                 }
                 }
                 else if ("Spouse".equalsIgnoreCase(relationship) || 
-                        (relationship != null && relationship.toUpperCase().startsWith("SPOUSE"))) {
+                        (relationship.toUpperCase().startsWith("SPOUSE"))) {
                             LocalDate dateOfBirth = LocalDate.parse(employeeUploadDto.getDateOfBirth());
                             int age = LocalDate.now().getYear() - dateOfBirth.getYear();
                             
@@ -217,7 +249,25 @@ public class EmployeeService {
                                 errors.add("employeeId: " + employeeId + " - Spouse age must be greater than 18 years old");
                             }
                 }
-              
+                else if ("Father".equalsIgnoreCase(relationship) || 
+                        (relationship.toUpperCase().startsWith("FATHER"))|("Father in law".equalsIgnoreCase(relationship) || 
+                        (relationship.toUpperCase().startsWith("FATHER_IN_LAW")))||("Mother in law".equalsIgnoreCase(relationship) || 
+                        (relationship.toUpperCase().startsWith("MOTHER_IN_LAW")))|("Mother".equalsIgnoreCase(relationship) || 
+                        (relationship.toUpperCase().startsWith("MOTHER")))) {
+                            LocalDate dateOfBirth = LocalDate.parse(employeeUploadDto.getDateOfBirth());
+                            int age = LocalDate.now().getYear() - dateOfBirth.getYear();
+                            
+                            // Adjust age if birthday hasn't occurred this year
+                            LocalDate now = LocalDate.now();
+                            if (dateOfBirth.plusYears(age).isAfter(now)) {
+                                age--;
+                            }
+                            
+                            // Father/Mother/Father in law/Mother in law age should be less than 70 (i.e., must be less than 70)
+                            if (age > 100) {
+                                errors.add("employeeId: " + employeeId + " - Father/Mother/Father in law/Mother in law age must be less than 100 years old");
+                        }
+                }
             }
         }
         // List<Deals> existingDeals = dealsRepository.findByEmployeeNumberInAndOrganizationId(getEmployeeIds(employeeUploadDtoList), organization.getOrganizationId());
@@ -237,13 +287,6 @@ public class EmployeeService {
                     .distinct()
                     .collect(Collectors.toList());
                 
-                List<String> emailsToCheck = employeeUploadDtoList.stream()
-                    .filter(e -> "Self".equalsIgnoreCase(e.getRelationship()))
-                    .map(EmployeeUploadDto::getEmail)
-                    .filter(Objects::nonNull)
-                    .filter(email -> !email.trim().isEmpty())
-                    .distinct()
-                    .collect(Collectors.toList());
                 
                 // if (!phonesToCheck.isEmpty() || !emailsToCheck.isEmpty()) {
                 //     List<Deals> existingDealsByPhoneAndEmail = dealsRepository.findByEmployeePhoneAndEmployeeEmail(
@@ -310,467 +353,18 @@ public class EmployeeService {
     }
 
 
-    /*
-    Employee Save Logic
-    - Validate the employees using validateEmployee method
-    - If there are errors, return the errors in the EmployeeUploadResponse
-    - If there are no errors, save the employees using the dealsRepository.saveAll method
-    - Return the response in the EmployeeUploadResponse
-    */
-    // public EmployeeUploadResponse uploadEmployees(List<EmployeeUploadDto> employeeUploadDtoList, Organization organization) {
-    //     try {
-    //         EmployeeUploadResponse response = new EmployeeUploadResponse();
-    //         EmployeeUploadResponse validateResponse = validateEmployee(employeeUploadDtoList, organization);
-    //         response.setTotalRows(validateResponse.getTotalRows());
-    //         response.setTotalEmployees(validateResponse.getTotalEmployees());
-    //         response.setTotalDependents(validateResponse.getTotalDependents());
-    //         response.setSuccessCount(validateResponse.getSuccessCount());
-    //         response.setErrorCount(validateResponse.getErrorCount());
-    //         response.setErrors(validateResponse.getErrors());
-    //         response.setMessage(validateResponse.getMessage());
-           
-    //         if(validateResponse.getSuccessCount() > 0) {
-    //             List<Deals> dealsList = EmployeeToDeals.mapToDealsList(employeeUploadDtoList, organization);
-    //             // for (Deals deal : dealsList) {
-    //                 // Optional<Deals> existingDealOptional = dealsRepository.findByEmployeeNumberAndOrganizationId(deal.getEmployeeNumber(), organization.getOrganizationId());
-    //                 // if(existingDealOptional.isPresent()) {
-    //                 //     Deals existingDeal = existingDealOptional.get();
-    //                 //     existingDeal.setFirstName(deal.getFirstName());
-    //                 //     existingDeal.setLastName(deal.getLastName());
-    //                 //     existingDeal.setEmail(deal.getEmail());
-    //                 //     existingDeal.setPhone(deal.getPhone());
-    //                 //     existingDeal.setDateOfBirth(deal.getDateOfBirth());
-    //                 //     existingDeal.setGender(deal.getGender());
-    //                 //     existingDeal.setAddress(deal.getAddress());
-    //                 //     existingDeal.setCity(deal.getCity());
-    //                 //     existingDeal.setState(deal.getState());
-    //                 //     existingDeal.setPincode(deal.getPincode());
-    //                 //     existingDeal.setAccountType(deal.getAccountType());
-    //                 //     existingDeal.setStatus(deal.getStatus());
-    //                 //     existingDeal.setEmployeeNumber(deal.getEmployeeNumber());
-    //                 //     existingDeal.setRelationship(deal.getRelationship());
-    //                 //     existingDeal.setDesignation(deal.getDesignation());
-    //                 //     existingDeal.setDateOfJoining(deal.getDateOfJoining());
-    //                 //     existingDeal.setPrimaryIndividual(deal.getPrimaryIndividual());
-    //                 //     existingDeal.setUpdatedAt(LocalDateTime.now());
-    //                 //     dealsRepository.save(existingDeal);
-    //                 // }
-    //                 // else {
-    //                     dealsRepository.saveAll(dealsList);
-    //                 // }
-    //             }
-            
-
-    //         return response;
-    //     }
-    //     catch (Exception e) {
-    //         return new EmployeeUploadResponse(0, 0, 0, new ArrayList<>(), e.getMessage(), 0, 0);
-    //     }
-    // }
-
-    // @Transactional(rollbackFor = Exception.class)
-    // public EmployeeUploadResponse uploadEmployees(List<EmployeeUploadDto> employeeUploadDtoList, Organization organization) {
-    //     try {
-    //         EmployeeUploadResponse response = new EmployeeUploadResponse();
-    //         EmployeeUploadResponse validateResponse = validateEmployee(employeeUploadDtoList, organization);
-            
-    //         // If validation failed, return validation response
-    //         if (validateResponse.getErrorCount() > 0) {
-    //             return validateResponse;
-    //         }
-            
-    //         // Group by employeeId to handle primary + dependents together
-    //         Map<String, List<EmployeeUploadDto>> groupedByEmployeeId = groupByEmployeeId(employeeUploadDtoList);
-    //         List<Deals> dealsToCreate = new ArrayList<>();
-    //         List<Deals> dealsToUpdate = new ArrayList<>();
-    //         List<Deals> dealsToSave = new ArrayList<>();
-    //         int updatedCount = 0;
-    //         int createdCount = 0;
-            
-    //         List<String> allEmployeeIds = new ArrayList<>(groupedByEmployeeId.keySet());
-    //         List<Deals> existingPrimaries = dealsRepository.findByEmployeeNumberInAndOrganizationIdAndRelationship(
-    //             allEmployeeIds, organization.getOrganizationId(), NomineeRelationship.SELF.getValue());
-    //         Map<String, Deals> primaryEmployeeMap = existingPrimaries.stream()
-    //             .collect(Collectors.toMap(Deals::getEmployeeNumber, d -> d, (d1, d2) -> d1));
-            
-    //         List<String> phonesToCheckBulk = new ArrayList<>();
-    //         List<String> emailsToCheckBulk = new ArrayList<>();
-    //         Map<String, EmployeeUploadDto> phoneToEmployeeMap = new HashMap<>();
-    //         Map<String, EmployeeUploadDto> emailToEmployeeMap = new HashMap<>();
-            
-    //         for (Map.Entry<String, List<EmployeeUploadDto>> entry : groupedByEmployeeId.entrySet()) {
-    //             String employeeId = entry.getKey();
-    //             List<EmployeeUploadDto> employeeGroup = entry.getValue();
-    //             EmployeeUploadDto selfDto = employeeGroup.stream()
-    //                 .filter(e -> "Self".equalsIgnoreCase(e.getRelationship()))
-    //                 .findFirst()
-    //                 .orElse(null);
-                
-    //             if (selfDto != null && !primaryEmployeeMap.containsKey(employeeId)) {
-    //                 String phone = selfDto.getMobile() != null && !selfDto.getMobile().trim().isEmpty() 
-    //                     ? selfDto.getMobile().trim() : null;
-    //                 String email = selfDto.getEmail() != null && !selfDto.getEmail().trim().isEmpty() 
-    //                     ? selfDto.getEmail().trim() : null;
-                    
-    //                 if (phone != null) {
-    //                     phonesToCheckBulk.add(phone);
-    //                     phoneToEmployeeMap.put(phone, selfDto);
-    //                 }
-    //                 if (email != null) {
-    //                     emailsToCheckBulk.add(email);
-    //                     emailToEmployeeMap.put(email, selfDto);
-    //                 }
-    //             }
-    //         }
-            
-    //         Set<String> existingPhones = new HashSet<>();
-    //         Set<String> existingEmails = new HashSet<>();
-    //         if (!phonesToCheckBulk.isEmpty() || !emailsToCheckBulk.isEmpty()) {
-    //             List<Deals> existingDuplicates = dealsRepository.findByEmployeePhoneAndEmployeeEmail(
-    //                 phonesToCheckBulk, emailsToCheckBulk, organization.getOrganizationId());
-                
-    //             existingPhones = existingDuplicates.stream()
-    //                 .map(Deals::getPhone)
-    //                 .filter(Objects::nonNull)
-    //                 .map(String::trim)
-    //                 .collect(Collectors.toSet());
-                
-    //             existingEmails = existingDuplicates.stream()
-    //                 .map(Deals::getEmail)
-    //                 .filter(Objects::nonNull)
-    //                 .map(String::trim)
-    //                 .collect(Collectors.toSet());
-    //         }
-            
-    //         List<Deals> primaryEmployeesForDependents = new ArrayList<>();
-            
-    //         // Process each employee group
-    //         for (Map.Entry<String, List<EmployeeUploadDto>> entry : groupedByEmployeeId.entrySet()) {
-    //             String employeeId = entry.getKey();
-    //             List<EmployeeUploadDto> employeeGroup = entry.getValue();
-                
-    //             // Find or create primary employee (Self)
-    //             Deals primaryEmployee = null;
-    //             EmployeeUploadDto selfDto = employeeGroup.stream()
-    //                 .filter(e -> "Self".equalsIgnoreCase(e.getRelationship()))
-    //                 .findFirst()
-    //                 .orElse(null);
-                
-    //             if (selfDto != null) {
-    //                 // Check if primary employee exists (from bulk fetch)
-    //                 Deals existingPrimary = primaryEmployeeMap.get(employeeId);
-                    
-    //                 if (existingPrimary != null) {
-    //                     primaryEmployee = existingPrimary;
-    //                     // Ensure individualId is preserved (should already be set from database)
-    //                     if (primaryEmployee.getIndividualId() == null) {
-    //                         log.error("Existing primary employee {} has no individualId! This should not happen.", employeeId);
-    //                     }
-    //                     updateDealFromDto(primaryEmployee, selfDto, organization);
-    //                     primaryEmployee.setRelationship(mapRelationshipToNomineeRelationship("Self", 0));
-    //                     primaryEmployee.setUpdatedAt(LocalDateTime.now());
-    //                     dealsToSave.add(primaryEmployee);
-
-    //                     updatedCount++;
-    //                     log.debug("Updating existing primary employee: {} with individualId: {}", 
-    //                         employeeId, primaryEmployee.getIndividualId());
-    //                 } else {
-    //                     // Check for duplicates (from bulk check)
-    //                     List<String> duplicateErrors = new ArrayList<>();
-    //                     String phone = selfDto.getMobile() != null && !selfDto.getMobile().trim().isEmpty() 
-    //                         ? selfDto.getMobile().trim() : null;
-    //                     String email = selfDto.getEmail() != null && !selfDto.getEmail().trim().isEmpty() 
-    //                         ? selfDto.getEmail().trim() : null;
-                        
-    //                     if (phone != null && existingPhones.contains(phone)) {
-    //                         duplicateErrors.add("employeeId: " + employeeId + " - Phone number already exists: " + phone);
-    //                     }
-                        
-    //                     if (email != null && existingEmails.contains(email)) {
-    //                         duplicateErrors.add("employeeId: " + employeeId + " - Email already exists: " + email);
-    //                     }
-                        
-    //                     if (!duplicateErrors.isEmpty()) {
-    //                         validateResponse.getErrors().addAll(duplicateErrors);
-    //                         return validateResponse;
-    //                     }
-                        
-    //                     // Create new primary employee
-    //                     primaryEmployee = EmployeeToDeals.mapToDeals(selfDto, organization);
-    //                     primaryEmployee.setRelationship(mapRelationshipToNomineeRelationship("Self", 0));
-    //                     primaryEmployee.setCreatedAt(LocalDateTime.now());
-    //                     primaryEmployee.setUpdatedAt(LocalDateTime.now());
-    //                     // Ensure individualId is null for new records
-    //                     primaryEmployee.setIndividualId(null);
-    //                     createdCount++;
-    //                     dealsToSave.add(primaryEmployee);
-    //                     log.debug("Creating new primary employee: {} (individualId: null)", employeeId);
-    //                 }
-    //             } else {
-    //                 // No Self in upload - check if employee already exists (from bulk fetch)
-    //                 Deals existingEmployee = primaryEmployeeMap.get(employeeId);
-                    
-    //                 if (existingEmployee != null) {
-    //                     if (existingEmployee.getIsPrimaryMember() != null && existingEmployee.getIsPrimaryMember()) {
-    //                         // It's a primary employee - use it as primaryEmployee
-    //                         primaryEmployee = existingEmployee;
-    //                         log.debug("Found existing primary employee for dependents: {}", employeeId);
-    //                     } else {
-    //                         // It's a dependent - find its primary individual
-    //                         if (existingEmployee.getPrimaryIndividual() != null) {
-    //                             primaryEmployee = existingEmployee.getPrimaryIndividual();
-    //                             log.debug("Found existing primary employee through dependent: {}", employeeId);
-    //                         } else {
-    //                             validateResponse.getErrors().add("employeeId: " + employeeId + " - Employee exists but is a dependent without primary individual");
-    //                             return validateResponse;
-    //                         }
-    //                     }
-    //                     // Add to list for bulk dependent fetch (even though we're not updating it)
-    //                     primaryEmployeesForDependents.add(primaryEmployee);
-    //                 } else {
-    //                     // No Self in upload and employee doesn't exist - error
-    //                     validateResponse.getErrors().add("employeeId: " + employeeId + " - Employee not found. Cannot add dependents without primary employee (Self). Please include Self in the upload or ensure the employee exists in the database.");
-    //                     return validateResponse;
-    //                 }
-    //             }
-    //         }
-            
-    //         // Build a combined map of employeeId to primary employee (including both existing and newly created)
-    //         Map<String, Deals> allPrimaryEmployeesMap = new HashMap<>(primaryEmployeeMap);
-    //         // Add newly created primary employees from dealsToCreate
-    //         for (Deals deal : dealsToCreate) {
-    //             if (deal.getRelationship() != null && NomineeRelationship.SELF.getValue().equals(deal.getRelationship()) 
-    //                 && deal.getEmployeeNumber() != null) {
-    //                 allPrimaryEmployeesMap.put(deal.getEmployeeNumber(), deal);
-    //             }
-    //         }
-    //         // Add existing primary employees that were found when processing dependents-only uploads
-    //         // (they're in primaryEmployeesForDependents but might not be in allPrimaryEmployeesMap yet)
-    //         for (Deals primary : primaryEmployeesForDependents) {
-    //             if (primary != null && primary.getEmployeeNumber() != null 
-    //                 && !allPrimaryEmployeesMap.containsKey(primary.getEmployeeNumber())) {
-    //                 allPrimaryEmployeesMap.put(primary.getEmployeeNumber(), primary);
-    //             }
-    //         }
-            
-    //         // Fetch existing dependents only for primary employees that already exist in DB (have individualId)
-    //         List<UUID> primaryIndividualIds = primaryEmployeesForDependents.stream()
-    //             .filter(p -> p.getIndividualId() != null)
-    //             .map(Deals::getIndividualId)
-    //             .collect(Collectors.toList());
-            
-    //         Map<UUID, List<Deals>> dependentsByPrimaryId = new HashMap<>();
-    //         if (!primaryIndividualIds.isEmpty()) {
-    //             List<Deals> allExistingDependents = dealsRepository.findByPrimaryIndividualIdIn(primaryIndividualIds);
-    //             dependentsByPrimaryId = allExistingDependents.stream()
-    //                 .filter(d -> d.getPrimaryIndividual() != null && d.getPrimaryIndividual().getIndividualId() != null)
-    //                 .collect(Collectors.groupingBy(d -> d.getPrimaryIndividual().getIndividualId()));
-    //         }
-            
-    //         // Process dependents for each employee group
-    //         for (Map.Entry<String, List<EmployeeUploadDto>> entry : groupedByEmployeeId.entrySet()) {
-    //             String employeeId = entry.getKey();
-    //             List<EmployeeUploadDto> employeeGroup = entry.getValue();
-                
-    //             // Get primary employee from the combined map (includes both existing and newly created)
-    //             Deals primaryEmployee = allPrimaryEmployeesMap.get(employeeId);
-                
-    //             if (primaryEmployee != null) {
-    //                 // Get existing dependents for this primary employee (from bulk fetch)
-    //                 // For newly created employees (individualId is null), there are no existing dependents
-    //                 List<Deals> existingDependents = new ArrayList<>();
-    //                 if (primaryEmployee.getIndividualId() != null) {
-    //                     existingDependents = dependentsByPrimaryId.getOrDefault(
-    //                         primaryEmployee.getIndividualId(), new ArrayList<>());
-    //                 }
-                    
-    //                 // Group existing dependents by relationship type
-    //                 Map<String, List<Deals>> existingDependentsByRelationship = existingDependents.stream()
-    //                     .filter(d -> d.getRelationship() != null)
-    //                     .collect(Collectors.groupingBy(
-    //                         d -> d.getRelationship().toUpperCase(),
-    //                         Collectors.toList()
-    //                     ));
-                    
-    //                 // Process dependents from DTO
-    //                 for (EmployeeUploadDto dependentDto : employeeGroup) {
-    //                     if (!"Self".equalsIgnoreCase(dependentDto.getRelationship())) {
-    //                         String inputRelationship = dependentDto.getRelationship();
-                            
-    //                         // Map relationship to NomineeRelationship enum value
-    //                         String mappedRelationship;
-    //                         Deals existingDependent = null;
-                            
-    //                         if (inputRelationship != null && inputRelationship.toUpperCase().startsWith("CHILD")) {
-    //                             // Extract child index from relationship (Child1 -> 1, Child2 -> 2, etc.)
-    //                             final int childIndexFromJson = extractChildIndexFromString(inputRelationship);
-                                
-    //                             // Validate explicit index is provided
-    //                             if (childIndexFromJson == 0) {
-    //                                 validateResponse.getErrors().add("employeeId: " + employeeId + 
-    //                                     " - Child relationship must have explicit index. Use Child1, Child2, Child3, or Child4");
-    //                                 return validateResponse;
-    //                             }
-                                
-    //                             if (childIndexFromJson > 4) {
-    //                                 validateResponse.getErrors().add("employeeId: " + employeeId + 
-    //                                     " - Child index cannot be greater than 4. Maximum allowed: Child4");
-    //                                 return validateResponse;
-    //                             }
-                                
-    //                             // Explicit index provided (Child1, Child2, etc.)
-    //                             mappedRelationship = mapRelationshipToNomineeRelationship(inputRelationship, childIndexFromJson);
-                                
-    //                             // Check if this specific child index already exists
-    //                             List<Deals> existingWithSameRelationship = existingDependentsByRelationship.getOrDefault(
-    //                                 mappedRelationship.toUpperCase(), new ArrayList<>());
-                                
-    //                             if (!existingWithSameRelationship.isEmpty()) {
-    //                                 // Child with this index already exists in database - will update it
-    //                                 existingDependent = existingWithSameRelationship.get(0);
-    //                                 log.debug("Found existing child with index {} for employee {}, will update", 
-    //                                     childIndexFromJson, employeeId);
-    //                             } else {
-    //                                 // New child insert - validate that previous children exist
-    //                                 // Check both database AND current upload batch
-    //                                 for (int i = 1; i < childIndexFromJson; i++) {
-    //                                     final int prevChildIndex = i; // Make final for lambda
-    //                                     String prevChildRel;
-    //                                     try {
-    //                                         prevChildRel = NomineeRelationship.valueOf("CHILD" + prevChildIndex).getValue();
-    //                                     } catch (IllegalArgumentException e) {
-    //                                         prevChildRel = "CHILD" + prevChildIndex;
-    //                                     }
-                                        
-    //                                     // Check if previous child exists in database
-    //                                     boolean existsInDatabase = existingDependentsByRelationship.containsKey(prevChildRel.toUpperCase());
-                                        
-    //                                     // Check if previous child exists in current upload batch
-    //                                     boolean existsInUpload = employeeGroup.stream()
-    //                                         .anyMatch(dto -> {
-    //                                             if (dto.getRelationship() == null) return false;
-    //                                             int idx = extractChildIndexFromString(dto.getRelationship());
-    //                                             return idx == prevChildIndex;
-    //                                         });
-                                        
-    //                                     if (!existsInDatabase && !existsInUpload) {
-    //                                         validateResponse.getErrors().add("employeeId: " + employeeId + 
-    //                                             " - Cannot insert Child" + childIndexFromJson + " without Child" + prevChildIndex);
-    //                                         return validateResponse;
-    //                                     }
-    //                                 }
-    //                                 log.debug("Validated previous children exist (in database or upload), will create new Child{} for employee {}", 
-    //                                     childIndexFromJson, employeeId);
-    //                             }
-    //                         } else {
-    //                             // For non-child relationships (Spouse, Father, Mother), map directly
-    //                             mappedRelationship = mapRelationshipToNomineeRelationship(inputRelationship, 0);
-                                
-    //                             // Check if dependent with same relationship exists
-    //                             List<Deals> existingWithSameRelationship = existingDependentsByRelationship.getOrDefault(
-    //                                 mappedRelationship.toUpperCase(), new ArrayList<>());
-                                
-    //                             if (!existingWithSameRelationship.isEmpty()) {
-    //                                 // For relationships that should be unique (Spouse, Father, Mother), take the first one
-    //                                 existingDependent = existingWithSameRelationship.get(0);
-    //                             }
-    //                         }
-                            
-    //                         if (existingDependent != null) {
-    //                             // Update existing dependent with same relationship
-    //                             // Ensure individualId is preserved (should already be set from database)
-    //                             if (existingDependent.getIndividualId() == null) {
-    //                                 log.error("Existing dependent {} for employee {} has no individualId! This should not happen.", 
-    //                                     inputRelationship, employeeId);
-    //                             }
-    //                             updateDealFromDto(existingDependent, dependentDto, organization);
-    //                             existingDependent.setRelationship(mappedRelationship);
-    //                             existingDependent.setPrimaryIndividual(primaryEmployee);
-    //                             existingDependent.setUpdatedAt(LocalDateTime.now());
-    //                             dealsToSave.add(existingDependent);
-    //                             updatedCount++;
-    //                             log.debug("Updating existing dependent: {} - {} (mapped to {}) with individualId: {}", 
-    //                                 employeeId, inputRelationship, mappedRelationship, existingDependent.getIndividualId());
-    //                         } else {
-    //                             // Create new dependent
-    //                             Deals newDependent = EmployeeToDeals.mapToDeals(dependentDto, organization);
-    //                             newDependent.setEmployeeNumber(employeeId);
-    //                             newDependent.setRelationship(mappedRelationship);
-    //                             newDependent.setPrimaryIndividual(primaryEmployee);
-    //                             newDependent.setCreatedAt(LocalDateTime.now());
-    //                             newDependent.setUpdatedAt(LocalDateTime.now());
-    //                             // Ensure individualId is null for new records
-    //                             dealsToSave.add(newDependent);
-    //                             createdCount++;
-    //                             log.debug("Creating new dependent: {} - {} (mapped to {}) (individualId: null)", 
-    //                                 employeeId, inputRelationship, mappedRelationship);
-    //                         }
-    //                     }
-    //                 }
-    //             }
-    //         }
-            
-    //         int batchSize = 1000; 
-    //         int totalSaved = 0;
-
-    //         // Batch insert new deals and batch update existing deals
-    //         // int batchSize = 500; // Match JPA batch_size configuration
-    //         // int totalInserted = 0;
-    //         // int totalUpdated = 0;
-            
-    //         // // Safety check: Filter out any deals with individualId from dealsToCreate (should only be in dealsToUpdate)
-    //         // List<Deals> validDealsToCreate = dealsToSave.stream()
-    //         //     .filter(d -> d.getIndividualId() == null)
-    //         //     .collect(Collectors.toList());
-            
-    //         // // Safety check: Filter out any deals without individualId from dealsToUpdate (should only be in dealsToCreate)
-    //         // List<Deals> validDealsToUpdate = dealsToSave.stream()
-    //         //     .filter(d -> d.getIndividualId() != null)
-    //         //     .collect(Collectors.toList());
-            
-    //         // if (validdealsToSave.size() != dealsToSave.size()) {
-    //         //     log.warn("Found {} deals with individualId in dealsToCreate list, filtering them out", 
-    //         //         dealsToSave.size() - validdealsToSave.size());
-    //         // }
-            
-    //         // if (validdealsToSave.size() != dealsToSave.size()) {
-    //         //     log.warn("Found {} deals without individualId in dealsToUpdate list, filtering them out", 
-    //         //         dealsToSave.size() - validdealsToSave.size());
-    //         // }
-            
-    //         // log.info("Saving {} deals ({} new, {} updated) in batches of {}", 
-    //         //     validdealsToSave.size() + validdealsToSave.size(), validdealsToSave.size(), validdealsToSave.size(), batchSize);
-            
-    //         // Batch insert new deals (only those without individualId)
-    //         // if (!validdealsToSave.isEmpty()) {
-    //         //     totalInserted = employeeBatchService.batchInsertDeals(validDealsToCreate, organization, batchSize);
-    //         //     log.info("Successfully batch inserted {} new deals", totalInserted);
-    //         // }
-            
-    //         // Batch update existing deals (only those with individualId)
-    //         // if (!validdealsToSave.isEmpty()) {
-    //         //     totalUpdated = employeeBatchService.batchUpdateDeals(validDealsToUpdate, organization, batchSize);
-    //         //     log.info("Successfully batch updated {} deals", totalUpdated);
-    //         // }
-    //         for (int i = 0; i < dealsToSave.size(); i += batchSize) {
-    //             int end = Math.min(i + batchSize, dealsToSave.size());
-    //             List<Deals> batch = dealsToSave.subList(i, end);
-    //             dealsRepository.saveAll(batch);
-    //             totalSaved += batch.size();
-    //         }
-            
-    //         log.info("Successfully saved {} deals ({} new, {} updated)", totalSaved, createdCount, updatedCount);
-    //         return new EmployeeUploadResponse(totalSaved, createdCount, updatedCount, new ArrayList<>(), "Employees processed successfully", selfCount(employeeUploadDtoList).intValue(), dependentCount(employeeUploadDtoList).intValue());
-    //     }
-    //     catch (Exception e) {
-    //         log.error("Error uploading employees: {}", e.getMessage(), e);
-    //         throw new RuntimeException("Failed to save employees: " + e.getMessage(), e);
-    //     }
-    // }
     
     @Transactional(rollbackFor = Exception.class)
-    public EmployeeUploadResponse uploadEmployees(List<EmployeeUploadDto> employeeUploadDtoList, Organization organization) {
+    public EmployeeUploadResponse uploadEmployees(List<EmployeeUploadDto> employeeUploadDtoList, Organization organization, AdminUser adminUser, MultipartFile file, String uploadType) {
         try {
+          Endorsement endorsement = new Endorsement();
+          endorsement.setOrganization(organization);
+          endorsement.setStatus(AccountStatus.PENDING_APPROVAL);
+          endorsement.setEndorsementType(getEndorsementType(uploadType));
+          endorsement.setConfirmationMethod(ConfirmationMethod.PORTAL);
+          endorsement.setCreatedAt(LocalDateTime.now());
+          endorsement.setUpdatedAt(LocalDateTime.now());
+          endorsement.setUploadedBy(adminUser);
           EmployeeUploadResponse response = new EmployeeUploadResponse();
           EmployeeUploadResponse validateResponse = validateEmployee(employeeUploadDtoList, organization);
           if (validateResponse.getErrorCount() > 0)
@@ -785,8 +379,8 @@ public class EmployeeService {
           Map<String, Deals> primaryEmployeeMap = (Map<String, Deals>)existingPrimaries.stream().collect(Collectors.toMap(Deals::getEmployeeNumber, d -> d, (d1, d2) -> d1));
           List<String> phonesToCheckBulk = new ArrayList<>();
           List<String> emailsToCheckBulk = new ArrayList<>();
-          Map<String, EmployeeUploadDto> phoneToEmployeeMap = new HashMap<>();
-          Map<String, EmployeeUploadDto> emailToEmployeeMap = new HashMap<>();
+        //   Map<String, EmployeeUploadDto> phoneToEmployeeMap = new HashMap<>();
+        //   Map<String, EmployeeUploadDto> emailToEmployeeMap = new HashMap<>();
           for (Map.Entry<String, List<EmployeeUploadDto>> entry : groupedByEmployeeId.entrySet()) {
             String employeeId = entry.getKey();
             List<EmployeeUploadDto> employeeGroup = entry.getValue();
@@ -796,11 +390,9 @@ public class EmployeeService {
               String email = (selfDto.getEmail() != null && !selfDto.getEmail().trim().isEmpty()) ? selfDto.getEmail().trim() : null;
               if (phone != null) {
                 phonesToCheckBulk.add(phone);
-                phoneToEmployeeMap.put(phone, selfDto);
               } 
               if (email != null) {
                 emailsToCheckBulk.add(email);
-                emailToEmployeeMap.put(email, selfDto);
               } 
             } 
           } 
@@ -820,10 +412,27 @@ public class EmployeeService {
             EmployeeUploadDto selfDto = employeeGroup.stream().filter(e -> "Self".equalsIgnoreCase(e.getRelationship())).findFirst().orElse(null);
             if (selfDto != null) {
               Deals existingPrimary = primaryEmployeeMap.get(employeeId);
-              if (existingPrimary != null) {
-                primaryEmployee = existingPrimary;
+              Deals existingPrimaryFromDb = null;
+              Optional<Deals> existingPrimaryOptional = dealsRepository.findByEmployeeNumberAndOrganizationIdAndRelationship(employeeId, organization.getOrganizationId(), NomineeRelationship.SELF.getValue());
+              if(existingPrimaryOptional.isPresent()) {
+                existingPrimaryFromDb = existingPrimaryOptional.get();
+                if(existingPrimaryFromDb.getStatus().equals(AccountStatus.PENDING_EXIT) || existingPrimaryFromDb.getStatus().equals(AccountStatus.LEAVING)) {
+                    validateResponse.getErrors().add("employeeId: " + employeeId + " - Employee is currently in leaving or pending exit status.");
+                    validateResponse.setMessage("Validation errors!!");
+                    return validateResponse;
+                }
+              }
+              if (existingPrimary != null || existingPrimaryFromDb != null) {
+                primaryEmployee = new Deals();
                 updateDealFromDto(primaryEmployee, selfDto, organization);
-                Diff diff = javers.compare(existingPrimary, primaryEmployee);
+                primaryEmployee.setIndividualId(existingPrimaryFromDb.getIndividualId());
+                primaryEmployee.setCreatedAt(existingPrimaryFromDb.getCreatedAt());
+                primaryEmployee.setUpdatedAt(existingPrimaryFromDb.getUpdatedAt());
+                primaryEmployee.setEndorsementId(existingPrimaryFromDb.getEndorsementId());
+                primaryEmployee.setPrimaryIndividual(existingPrimaryFromDb.getPrimaryIndividual());
+                primaryEmployee.setRelationship(existingPrimaryFromDb.getRelationship());
+                primaryEmployee.setStatus(existingPrimaryFromDb.getStatus());
+                Diff diff = javers.compare(existingPrimaryFromDb, primaryEmployee);
                 if(diff.hasChanges()) {
                 primaryEmployee.setRelationship(mapRelationshipToNomineeRelationship("Self", 0));
                 updatedCount++;
@@ -839,6 +448,7 @@ public class EmployeeService {
                   duplicateErrors.add("employeeId: " + employeeId + " - Email already exists: " + email); 
                 if (!duplicateErrors.isEmpty()) {
                   validateResponse.getErrors().addAll(duplicateErrors);
+                  validateResponse.setMessage("Validation errors!!");
                   return validateResponse;
                 } 
                 primaryEmployee = EmployeeToDeals.mapToDeals(selfDto, organization);
@@ -854,7 +464,7 @@ public class EmployeeService {
             } 
             Deals existingEmployee = primaryEmployeeMap.get(employeeId);
             if (existingEmployee != null) {
-              if (existingEmployee.getIsPrimaryMember() != null && existingEmployee.getIsPrimaryMember().booleanValue()) {
+              if (existingEmployee.getIsPrimaryMember() != null && existingEmployee.getIsPrimaryMember()) {
                 primaryEmployee = existingEmployee;
                 log.debug("Found existing primary employee for dependents: {}", employeeId);
               } else if (existingEmployee.getPrimaryIndividual() != null) {
@@ -918,8 +528,7 @@ public class EmployeeService {
                         .toUpperCase(), new ArrayList<>());
                     if (!existingWithSameRelationship.isEmpty()) {
                       existingDependent = existingWithSameRelationship.get(0);
-                      log.debug("Found existing child with index {} for employee {}, will update", 
-                          Integer.valueOf(childIndexFromJson), employeeId);
+                      log.debug("Found existing child with index {} for employee {}, will update", childIndexFromJson, employeeId);
                     } else {
                       for (int j = 1; j < childIndexFromJson; j++) {
                         String prevChildRel;
@@ -941,8 +550,7 @@ public class EmployeeService {
                           return validateResponse;
                         } 
                       } 
-                      log.debug("Validated previous children exist (in database or upload), will create new Child{} for employee {}", 
-                          Integer.valueOf(childIndexFromJson), employeeId);
+                      log.debug("Validated previous children exist (in database or upload), will create new Child{} for employee {}", childIndexFromJson, employeeId);
                     } 
                   } else {
                     mappedRelationship = mapRelationshipToNomineeRelationship(inputRelationship, 0);
@@ -953,6 +561,11 @@ public class EmployeeService {
                   } 
                   if (existingDependent != null) {
                     Deals existingDependentToCompare = new Deals();
+                    if(existingDependent.getStatus().equals(AccountStatus.PENDING_EXIT) || existingDependent.getStatus().equals(AccountStatus.LEAVING)) {
+                        validateResponse.getErrors().add("employeeId: " + employeeId + " - Dependent is currently in leaving or pending exit status.");
+                        validateResponse.setMessage("Validation errors!!");
+                        return validateResponse;
+                    }
                     updateDealFromDto(existingDependentToCompare, dependentDto, organization);
                     existingDependentToCompare.setIndividualId(existingDependent.getIndividualId());
                     existingDependentToCompare.setCreatedAt(existingDependent.getCreatedAt());
@@ -960,6 +573,7 @@ public class EmployeeService {
                     existingDependentToCompare.setRelationship(existingDependent.getRelationship());
                     existingDependentToCompare.setStatus(existingDependent.getStatus());
                     existingDependentToCompare.setUpdatedAt(existingDependent.getUpdatedAt());
+                    existingDependentToCompare.setEndorsementId(existingDependent.getEndorsementId());
                     Diff diff = javers.compare(existingDependent,existingDependentToCompare);
                     if(diff.hasChanges()) {
                     log.info("Differences found in existing dependent: {}", diff.prettyPrint());
@@ -987,24 +601,40 @@ public class EmployeeService {
           } 
           int batchSize = 1000;
           int totalSaved = 0;
-          log.info("Saving {} deals ({} new, {} updated) in batches of {}", new Object[] { Integer.valueOf(dealsToSave.size()), Integer.valueOf(createdCount), Integer.valueOf(updatedCount), Integer.valueOf(batchSize) });
+          log.info("Saving {} deals ({} new, {} updated) in batches of {}", new Object[] { dealsToSave.size(), createdCount, updatedCount, batchSize });
           int i;
           if(updatedCount > 0 || createdCount > 0) {
+          endorsement.setTotalEmployees(selfCount(employeeUploadDtoList).intValue());
+          endorsement.setTotalDependents(dependentCount(employeeUploadDtoList).intValue());
+          endorsement = endorsementRepository.save(endorsement);
+          try {
+              Document document = uploadDocuments(file, organization, adminUser, endorsement);
+              endorsement.setDocument(document);
+              endorsementRepository.save(endorsement);
+          } catch (DocumentUploadException e) {
+              log.error("Failed to upload document for endorsement {}: {}", endorsement.getEndorsementId(), e.getMessage(), e);
+              return new EmployeeUploadResponse(0, 0, 0, new ArrayList<>(), "Failed to upload documents: " + e.getMessage(), 0, 0);
+          }
+          UUID endorsementId = endorsement.getEndorsementId();
           for (i = 0; i < dealsToSave.size(); i += batchSize) {
             int end = Math.min(i + batchSize, dealsToSave.size());
             List<Deals> batch = dealsToSave.subList(i, end);
+            batch.forEach(deal -> deal.setEndorsementId(endorsementId));
             this.dealsRepository.saveAll(batch);
             totalSaved += batch.size();
           } 
         }
-          log.info("Successfully saved {} deals ({} new, {} updated)", new Object[] { Integer.valueOf(totalSaved), Integer.valueOf(createdCount), Integer.valueOf(updatedCount) });
+          log.info("Successfully saved {} deals ({} new, {} updated)", new Object[] { totalSaved, createdCount, updatedCount });
           response.setTotalRows(employeeUploadDtoList.size());
           response.setTotalEmployees(selfCount(employeeUploadDtoList).intValue());
           response.setTotalDependents(dependentCount(employeeUploadDtoList).intValue());
           response.setSuccessCount(totalSaved);
           response.setErrorCount(0);
           response.setErrors(new ArrayList());
-          response.setMessage(String.format("Employees processed successfully: %d created, %d updated", new Object[] { Integer.valueOf(createdCount), Integer.valueOf(updatedCount) }));
+          response.setMessage(String.format("Employees processed successfully: %d created, %d updated", new Object[] { createdCount, updatedCount }));
+          if(createdCount == 0 && updatedCount == 0) {
+            response.setMessage("No changes detected!");
+          }
           return response;
         } catch (Exception e) {
           log.error("Error uploading employees: {}", e.getMessage(), e);
@@ -1014,11 +644,11 @@ public class EmployeeService {
 
     
     public Long selfCount(List<EmployeeUploadDto> employeeUploadDtoList) {
-        return employeeUploadDtoList.stream().filter(e -> Objects.equals(e.getRelationship(), "Self")).count();
+        return employeeUploadDtoList.stream().filter(e ->  e.getRelationship().equalsIgnoreCase("Self")).count();
     }
 
     public Long dependentCount(List<EmployeeUploadDto> employeeUploadDtoList) {
-        return employeeUploadDtoList.stream().filter(e -> !Objects.equals(e.getRelationship(), "Self")).count();
+        return employeeUploadDtoList.stream().filter(e -> !e.getRelationship().equalsIgnoreCase("Self")).count();
     }
 
 
@@ -1062,9 +692,13 @@ public class EmployeeService {
     }
    }
 
-    public EmployeeUploadResponse deleteEmployee(List<BulkEmployeeDeletionRequestDto> bulkEmployeeDeletionRequestDtoList, Organization organization) {
+    public EmployeeUploadResponse deleteEmployee(List<BulkEmployeeDeletionRequestDto> bulkEmployeeDeletionRequestDtoList, Organization organization, AdminUser adminUser, MultipartFile file, String uploadType) {
         try{
             Set<UUID> individualIdsToDelete = new HashSet<>();
+            HashMap<String, LocalDate> dateOfExitMap = new HashMap<>();
+            for (BulkEmployeeDeletionRequestDto bulkEmployeeDeletionRequestDto : bulkEmployeeDeletionRequestDtoList) {
+                    dateOfExitMap.put(bulkEmployeeDeletionRequestDto.getEmployeeId(),parseDate(bulkEmployeeDeletionRequestDto.getDateOfExit()));
+            }
             List<String> errors = new ArrayList<>();
             int deletedCount = 0;
             int employeeCount = 0;
@@ -1079,6 +713,10 @@ public class EmployeeService {
                     if(bulkEmployeeDeletionRequestDto.getRelationship().equalsIgnoreCase("Self")) {
                         Optional<Deals> deal = dealsRepository.findByEmployeeNumberAndOrganizationIdAndRelationship(bulkEmployeeDeletionRequestDto.getEmployeeId(), organization.getOrganizationId(), "SELF");
                         if(deal.isPresent()) {
+                            if(!deal.get().getStatus().equals(AccountStatus.ACTIVE)) {
+                                errors.add("employeeId: " + bulkEmployeeDeletionRequestDto.getEmployeeId() + " - Employee is not active");
+                                continue;
+                            }
                             List<Deals> dependents = dealsRepository.findByPrimaryIndividualIdIn(List.of(deal.get().getIndividualId()));
                             dependents.forEach(dependent -> individualIdsToDelete.add(dependent.getIndividualId()));
                             individualIdsToDelete.add(deal.get().getIndividualId());
@@ -1093,10 +731,15 @@ public class EmployeeService {
                         String relationship = mapRelationshipToNomineeRelationship(bulkEmployeeDeletionRequestDto.getRelationship(), childIndexFromJson);
                         Optional<Deals> deal = dealsRepository.findByEmployeeNumberAndOrganizationIdAndRelationship(bulkEmployeeDeletionRequestDto.getEmployeeId(), organization.getOrganizationId(), relationship);
                         if(deal.isPresent()) {
+                            if(!deal.get().getStatus().equals(AccountStatus.ACTIVE)) {
+                                errors.add("employeeId: " + bulkEmployeeDeletionRequestDto.getEmployeeId() + " - Dependent is not active");
+                                continue;
+                            }
                             if(individualIdsToDelete.contains(deal.get().getIndividualId())) {
-                                dependentCount++;
+                                continue;
                             }
                             individualIdsToDelete.add(deal.get().getIndividualId());
+                            dependentCount++;
                         }
                         else {
                             errors.add("employeeId: " + bulkEmployeeDeletionRequestDto.getEmployeeId() + " - Dependent not found");
@@ -1104,19 +747,45 @@ public class EmployeeService {
                     }
                 }
             }
-            if(individualIdsToDelete.isEmpty()) {
-                return new EmployeeUploadResponse(0, 0, 0, new ArrayList<>(), "No individuals to delete", 0, 0);
-            }
             if(!errors.isEmpty()) {
                 return new EmployeeUploadResponse(0, 0, errors.size(), errors, "Errors occurred while deleting employees", 0, 0);
             }
+            if(individualIdsToDelete.isEmpty()) {
+                return new EmployeeUploadResponse(0, 0, 0, new ArrayList<>(), "No individuals to delete", 0, 0);
+            }
+            if(!individualIdsToDelete.isEmpty()) {
+            Endorsement endorsement = new Endorsement();
+            endorsement.setOrganization(organization);
+            endorsement.setStatus(AccountStatus.PENDING_EXIT);
+            endorsement.setEndorsementType(getEndorsementType(uploadType));
+            endorsement.setConfirmationMethod(ConfirmationMethod.PORTAL);
+            endorsement.setCreatedAt(LocalDateTime.now());
+            endorsement.setUpdatedAt(LocalDateTime.now());
+            endorsement.setUploadedBy(adminUser);
+            endorsement.setTotalEmployees(employeeCount);
+            endorsement.setTotalDependents(dependentCount);
+            endorsement = endorsementRepository.save(endorsement);
+            try {
+                Document document = uploadDocuments(file, organization, adminUser, endorsement);
+                endorsement.setDocument(document);
+                endorsementRepository.save(endorsement);
+            } catch (DocumentUploadException e) {
+                log.error("Failed to upload document for endorsement {}: {}", endorsement.getEndorsementId(), e.getMessage(), e);
+                return new EmployeeUploadResponse(0, 0, 0, new ArrayList<>(), "Failed to upload documents: " + e.getMessage(), 0, 0);
+            }
+            UUID endorsementId = endorsement.getEndorsementId();
             List<Deals> dealsToDelete = dealsRepository.findByIndividualIdIn(new ArrayList<>(individualIdsToDelete));
-            dealsToDelete.forEach(deal -> deal.setStatus(AccountStatus.PENDING_DELETE));
+            dealsToDelete.forEach(deal -> deal.setStatus(AccountStatus.PENDING_EXIT));
+            dealsToDelete.forEach(deal -> deal.setDateOfExit(dateOfExitMap.get(deal.getEmployeeNumber())));
+            dealsToDelete.forEach(deal -> deal.setEndorsementId(endorsementId));
             dealsRepository.saveAll(dealsToDelete);
-            return new EmployeeUploadResponse(dealsToDelete.size(), deletedCount, 0, new ArrayList<>(), "Employees" + "(" + deletedCount + ")" + " and dependents" + "(" + dependentCount + ")" + " deleted successfully", employeeCount, dependentCount);
+            deletedCount = dealsToDelete.size();
+        }
+            return new EmployeeUploadResponse(deletedCount, deletedCount, 0, new ArrayList<>(), "Employees" + "(" + employeeCount + ")" + " and dependents" + "(" + dependentCount + ")" + " deleted successfully", employeeCount, dependentCount);
         }
         catch (Exception e) { 
-            return new EmployeeUploadResponse(0, 0, 0, new ArrayList<>(), e.getMessage(), 0, 0);
+            log.error("Error deleting employees: {}", e.getMessage(), e);
+            return new EmployeeUploadResponse(0, 0, 0, new ArrayList<>(), "ERROR OCCURED WHILE DELETING EMPLOYEES", 0, 0);
         }
     }   
 
@@ -1279,5 +948,59 @@ public class EmployeeService {
         }
         
         return false;
+    }
+
+
+    /**
+     * Uploads a document for an endorsement and returns the created Document entity.
+     * 
+     * @param file The file to upload
+     * @param organization The organization associated with the document
+     * @param adminUser The user uploading the document
+     * @param endorsement The endorsement this document is associated with
+     * @return The created Document entity
+     * @throws DocumentUploadException if the upload fails or document cannot be found after upload
+     */
+    public Document uploadDocuments(MultipartFile file, Organization organization, AdminUser adminUser, Endorsement endorsement) 
+        throws DocumentUploadException {
+        try {
+            String documentId = iDocumentService.uploadDocument(
+                file, 
+                DocumentType.ENDORSEMENT.getValue(), 
+                DocumentCategory.ENDORSEMENT_DOCUMENTS.getValue(), 
+                DocumentEntityType.ORGANIZATION.getValue(), 
+                endorsement.getEndorsementId().toString(), 
+                ""
+            ).getBody().getPayload();
+            
+            if (documentId == null || documentId.isEmpty()) {
+                throw new DocumentUploadException("Document upload returned null or empty ID for endorsement: " + endorsement.getEndorsementId());
+            }
+            
+            return documentRepository.findByDocumentId(UUID.fromString(documentId))
+                .orElseThrow(() -> new DocumentUploadException(
+                    "Document with ID " + documentId + " not found after upload for endorsement: " + endorsement.getEndorsementId()));
+                
+        } catch (DocumentUploadException e) {
+            // Re-throw specific exceptions
+            throw e;
+        } catch (IllegalArgumentException e) {
+            log.error("Invalid document ID format for endorsement {}: {}", endorsement.getEndorsementId(), e.getMessage(), e);
+            throw new DocumentUploadException("Invalid document ID format for endorsement: " + endorsement.getEndorsementId(), e);
+        } catch (Exception e) {
+            log.error("Error uploading document for endorsement {}: {}", endorsement.getEndorsementId(), e.getMessage(), e);
+            throw new DocumentUploadException("Failed to upload document for endorsement: " + endorsement.getEndorsementId() + ". " + e.getMessage(), e);
+        }
+    }
+
+    public static EndorsementType getEndorsementType(String uploadType) {
+        if(uploadType.equalsIgnoreCase("bulk-upload")) {
+            return EndorsementType.BULK_UPLOAD;
+        } else if(uploadType.equalsIgnoreCase("addition")) {
+            return EndorsementType.ADDITION;
+        } else if(uploadType.equalsIgnoreCase("deletion")) {
+            return EndorsementType.DELETION;
+        }
+        throw new IllegalArgumentException("Invalid upload type: " + uploadType);
     }
 }

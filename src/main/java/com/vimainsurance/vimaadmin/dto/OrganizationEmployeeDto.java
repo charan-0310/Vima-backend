@@ -22,6 +22,7 @@ public class OrganizationEmployeeDto {
     private String email;
     private String phone;
     private String employeeNumber;
+    private String sumInsured;
     private String designation;
     private LocalDate dateOfJoining;
     private String status; // AccountStatus as string

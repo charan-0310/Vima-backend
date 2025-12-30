@@ -84,7 +84,7 @@ public class EmployeeToDeals {
         deals.setOrganization(organization);
         
         // Default values
-        deals.setStatus(AccountStatus.PENDING);
+        deals.setStatus(AccountStatus.PENDING_APPROVAL);
         deals.setPreferredLanguage("en");
         
         return deals;
