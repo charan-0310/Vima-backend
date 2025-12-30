@@ -23,7 +23,7 @@ import org.springframework.web.filter.OncePerRequestFilter;
 @Slf4j
 public class TenantFilter extends OncePerRequestFilter {
 
-    @Autowired(required = false)
+    @Autowired
     private JwtUserExtractor jwtUserExtractor;
 
     // Setter so SecurityConfig can inject the JwtUserExtractor when creating the bean programmatically
@@ -39,7 +39,9 @@ public class TenantFilter extends OncePerRequestFilter {
 
             // Try to resolve tenant from request first (header or host)
             Map<String, List<String>> tenantMap = new HashMap<>();
-
+            if(jwtUserExtractor != null){
+                tenantMap.put("organizationIds", jwtUserExtractor.getCurrentOrganizations());
+            }
             // 1) Check header (commonly used): X-Tenant-Id (comma separated if multiple)
             String tenantHeader = request.getHeader("X-Tenant-Id");
             if (tenantHeader != null && !tenantHeader.isBlank()) {

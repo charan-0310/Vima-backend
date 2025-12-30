@@ -19,7 +19,6 @@ import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
-import org.springframework.security.web.context.SecurityContextPersistenceFilter;
 import org.springframework.web.filter.OncePerRequestFilter;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
@@ -157,10 +156,9 @@ public class SecurityConfig {
             // Place DevAuthenticationFilter after TenantFilter so tenant info is available to the mock auth.
             http.addFilterAfter(new DevAuthenticationFilter(), TenantFilter.class);
         } else {
-            // Ensure tenant is resolved early in the chain so authentication/authorization and DB resolvers can use it
-            http.addFilterBefore(tenantFilter(), UsernamePasswordAuthenticationFilter.class);
-
             // Production mode: normal security
+            // Note: TenantFilter will be added after OAuth2 Resource Server (line 198)
+            // to ensure it can extract tenant from both headers/host AND JWT claims
             http.authorizeHttpRequests(auth -> auth
                             // Public endpoints - no authentication required
                             .requestMatchers("/health", "/actuator/**", "/public/**").permitAll()
@@ -194,7 +192,10 @@ public class SecurityConfig {
                             )
                     )
                     // Keep authentication provider for backward compatibility with legacy endpoints
-                    .authenticationProvider(authenticationProvider());
+                    .authenticationProvider(authenticationProvider())
+                    // Add TenantFilter after OAuth2 Resource Server processes JWT
+                    // This ensures tenant can be extracted from both headers/host AND JWT claims
+                    .addFilterAfter(tenantFilter(), org.springframework.security.oauth2.server.resource.web.authentication.BearerTokenAuthenticationFilter.class);
         }
         return http.build();
     }
