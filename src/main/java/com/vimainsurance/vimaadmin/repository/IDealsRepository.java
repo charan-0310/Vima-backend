@@ -247,7 +247,7 @@ public interface IDealsRepository extends JpaRepository<Deals, UUID> , JpaSpecif
         WHERE d.primaryIndividual.individualId IN :primaryIndividualIds
         """)
     List<Deals> findByPrimaryIndividualIdIn(@Param("primaryIndividualIds") List<UUID> primaryIndividualIds);
-    
+
     /**
      * Find deals by endorsementId
      */
@@ -273,17 +273,17 @@ public interface IDealsRepository extends JpaRepository<Deals, UUID> , JpaSpecif
         AND d.relationship = 'SELF'
         """)
     Long countByEndorsementIdAndRelationshipSelf(@Param("endorsementId") UUID endorsementId);
-    
+
     @Query("""
         SELECT COUNT(d) FROM Deals d
         WHERE d.endorsementId = :endorsementId
         AND (d.relationship != 'SELF' OR d.relationship IS NULL)
         """)
     Long countByEndorsementIdAndRelationshipNonSelf(@Param("endorsementId") UUID endorsementId);
-    
+
     /**
      * Activate approved deals where date of joining has passed
-     * UPDATE customers SET status='ACTIVE', updated_at=CURRENT_TIMESTAMP 
+     * UPDATE customers SET status='ACTIVE', updated_at=CURRENT_TIMESTAMP
      * WHERE status='APPROVED' AND date_of_joining <= CURRENT_DATE AND endorsement_id = :endorsementId
      */
     @Modifying
@@ -302,10 +302,10 @@ public interface IDealsRepository extends JpaRepository<Deals, UUID> , JpaSpecif
         @Param("currentDate") LocalDate currentDate,
         @Param("updatedAt") LocalDateTime updatedAt
     );
-    
+
     /**
      * Deactivate leaving deals where date of exit has passed
-     * UPDATE customers SET status='INACTIVE', updated_at=CURRENT_TIMESTAMP 
+     * UPDATE customers SET status='INACTIVE', updated_at=CURRENT_TIMESTAMP
      * WHERE status='LEAVING' AND date_of_exit <= CURRENT_DATE AND endorsement_id = :endorsementId
      */
     @Modifying
@@ -324,10 +324,10 @@ public interface IDealsRepository extends JpaRepository<Deals, UUID> , JpaSpecif
         @Param("currentDate") LocalDate currentDate,
         @Param("updatedAt") LocalDateTime updatedAt
     );
-    
+
     /**
      * Activate approved deals (without date check) - for confirm method
-     * UPDATE customers SET status='ACTIVE', updated_at=CURRENT_TIMESTAMP 
+     * UPDATE customers SET status='ACTIVE', updated_at=CURRENT_TIMESTAMP
      * WHERE status='APPROVED' AND endorsement_id = :endorsementId
      */
     @Modifying
@@ -344,10 +344,10 @@ public interface IDealsRepository extends JpaRepository<Deals, UUID> , JpaSpecif
         @Param("activeStatus") AccountStatus activeStatus,
         @Param("updatedAt") LocalDateTime updatedAt
     );
-    
+
     /**
      * Deactivate leaving deals (without date check) - for confirm method
-     * UPDATE customers SET status='INACTIVE', updated_at=CURRENT_TIMESTAMP 
+     * UPDATE customers SET status='INACTIVE', updated_at=CURRENT_TIMESTAMP
      * WHERE status='LEAVING' AND endorsement_id = :endorsementId
      */
     @Modifying
@@ -367,10 +367,10 @@ public interface IDealsRepository extends JpaRepository<Deals, UUID> , JpaSpecif
 
 
     List<Deals> findByDateOfJoiningIsBefore(LocalDate dateOfJoining);
-    
+
     /**
      * Activate all approved deals where date of joining has passed (for scheduled confirmation)
-     * UPDATE customers SET status='ACTIVE', updated_at=CURRENT_TIMESTAMP 
+     * UPDATE customers SET status='ACTIVE', updated_at=CURRENT_TIMESTAMP
      * WHERE status='APPROVED' AND date_of_joining <= CURRENT_DATE
      */
     @Modifying
@@ -388,10 +388,10 @@ public interface IDealsRepository extends JpaRepository<Deals, UUID> , JpaSpecif
         @Param("currentDate") LocalDate currentDate,
         @Param("updatedAt") LocalDateTime updatedAt
     );
-    
+
     /**
      * Deactivate all leaving deals where date of exit has passed (for scheduled confirmation)
-     * UPDATE customers SET status='INACTIVE', updated_at=CURRENT_TIMESTAMP 
+     * UPDATE customers SET status='INACTIVE', updated_at=CURRENT_TIMESTAMP
      * WHERE status='LEAVING' AND date_of_exit <= CURRENT_DATE
      */
     @Modifying

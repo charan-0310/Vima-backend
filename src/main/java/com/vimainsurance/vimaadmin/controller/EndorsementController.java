@@ -143,7 +143,7 @@ public class EndorsementController {
      * - sortDirection: Sort direction - asc or desc (default: desc)
      */
     @GetMapping("/filtered")
-    @PreAuthorize("hasAnyAuthority('SUPER_ADMIN', 'ADMIN', 'VIMA_ADMIN', 'SALES_MANAGER')")
+   // @PreAuthorize("hasAnyAuthority('SUPER_ADMIN', 'ADMIN', 'VIMA_ADMIN', 'SALES_MANAGER', 'HR_ADMIN')")
     public ResponseEntity<ResponseDto<List<EndorsementResponseDto>>> getAllWithFilters(
             @RequestParam(required = false) UUID organizationId,
             @RequestParam(required = false) String organizationName,

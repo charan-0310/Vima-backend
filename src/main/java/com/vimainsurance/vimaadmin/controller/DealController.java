@@ -43,11 +43,13 @@ public class DealController {
 
     
 
+
     @GetMapping
     @PreAuthorize("hasAnyAuthority('VIMA_ADMIN', 'SALES_MANAGER', 'SUPER_ADMIN', 'ADMIN')")
     public ResponseEntity<ResponseDto<List<DealsResponseDto>>> getAllDeals() {
         return dealsService.getAllDeals();
     }
+
     @GetMapping("/{individualId}")
     @PreAuthorize("hasAnyAuthority('VIMA_ADMIN', 'SALES_MANAGER', 'SUPER_ADMIN', 'ADMIN')")
     public ResponseEntity<ResponseDto<DealsResponseDto>> getDealsById(@PathVariable UUID individualId) {

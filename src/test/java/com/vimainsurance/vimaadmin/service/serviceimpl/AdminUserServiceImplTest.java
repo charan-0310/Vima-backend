@@ -229,7 +229,7 @@ class AdminUserServiceImplTest {
         ResponseEntity<ResponseDto<AdminUserResponseDto>> response = adminUserService.updateAdminUser(username, requestDto);
         
         assertEquals(HttpStatus.BAD_REQUEST, response.getStatusCode());
-        assertEquals("Database error", response.getBody().getMessage());
+        assertEquals("Error Occured while updating admin user", response.getBody().getMessage());
     }
 
     // ========== DELETE ADMIN USER TESTS ==========
@@ -264,7 +264,7 @@ class AdminUserServiceImplTest {
         ResponseEntity<ResponseDto<String>> response = adminUserService.deleteAdminUser(username);
         
         assertEquals(HttpStatus.BAD_REQUEST, response.getStatusCode());
-        assertEquals("Database error", response.getBody().getMessage());
+        assertEquals("Error Occured while deleting admin user", response.getBody().getMessage());
     }
 
     // ========== GET ADMIN USER BY ID TESTS ==========

@@ -152,7 +152,7 @@ class AuthServiceImplTest {
         when(adminUserRepository.findByUsername(anyString())).thenReturn(Optional.of(adminUser));
 
         // Mock JWT token generation
-        when(jwtUtil.generateToken(anyString(), anyString(), anyString(), anyString()))
+        when(jwtUtil.generateToken(anyString(), anyString(), anyString(), anyString(), anyString()))
             .thenReturn("test-jwt-token");
         when(jwtUtil.generateRefreshToken(anyString(), anyString()))
             .thenReturn("test-refresh-token");
@@ -234,7 +234,7 @@ class AuthServiceImplTest {
         when(jwtUtil.validateToken(anyString())).thenReturn(true);
         when(jwtUtil.extractUsername(anyString())).thenReturn("testuser");
         when(adminUserRepository.findByUsername(anyString())).thenReturn(Optional.of(adminUser));
-        when(jwtUtil.generateToken(anyString(), anyString(), anyString(), anyString())).thenReturn("new-access-token");
+        when(jwtUtil.generateToken(anyString(), anyString(), anyString(), anyString(), anyString())).thenReturn("new-access-token");
 
         // Perform refresh token
         ResponseEntity<ResponseDto<RefreshTokenResponseDto>> response = authService.getRefreshToken(refreshTokenRequestDto);
@@ -378,7 +378,7 @@ class AuthServiceImplTest {
         when(passwordEncoder.matches(anyString(), anyString())).thenReturn(true);
         
         // Mock JWT token generation
-        when(jwtUtil.generateToken(anyString(), anyString(), anyString(), anyString()))
+        when(jwtUtil.generateToken(anyString(), anyString(), anyString(), anyString(), anyString()))
             .thenReturn("test-jwt-token");
         when(jwtUtil.generateRefreshToken(anyString(), anyString()))
             .thenReturn("test-refresh-token");

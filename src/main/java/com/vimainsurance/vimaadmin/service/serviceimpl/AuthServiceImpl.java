@@ -102,7 +102,11 @@ public class AuthServiceImpl implements IAuthService {
             
             AdminUser adminUser = adminUserRepository.findByUsername(requestDto.getUsername()).orElseThrow();    
             SecurityContextHolder.getContext().setAuthentication(authentication);
-            String token = jwtUtil.generateToken(requestDto.getUsername(), authentication.getAuthorities().iterator().next().getAuthority(), adminUser.getEmail(), adminUser.getAgentId());
+            String organizationId = "";
+            if (adminUser.getOrganization() != null && adminUser.getOrganization().getOrganizationId() != null) {
+                organizationId = adminUser.getOrganization().getOrganizationId().toString();
+            }
+            String token = jwtUtil.generateToken(requestDto.getUsername(), authentication.getAuthorities().iterator().next().getAuthority(), adminUser.getEmail(), adminUser.getAgentId(), organizationId );
             String refreshToken = jwtUtil.generateRefreshToken(requestDto.getUsername(), authentication.getAuthorities().iterator().next().getAuthority());
             // Initialize Zoho CRM after successful authentication
 
@@ -138,8 +142,11 @@ public class AuthServiceImpl implements IAuthService {
                 // Log the error but don't fail the token refresh
                 logger.error("Failed to refresh Zoho token", e);
             }
-
-            String newAccessToken = jwtUtil.generateToken(username, adminUser.getRole(), adminUser.getEmail(), adminUser.getAgentId());
+            String organizationId = "";
+            if (adminUser.getOrganization() != null && adminUser.getOrganization().getOrganizationId() != null) {
+                organizationId = adminUser.getOrganization().getOrganizationId().toString();
+            }
+            String newAccessToken = jwtUtil.generateToken(username, adminUser.getRole(), adminUser.getEmail(), adminUser.getAgentId(), organizationId);
 
             return responseObj.render(responseObj.formSuccessResponse(Constants.SUCCESS, new RefreshTokenResponseDto(newAccessToken)));
 
@@ -295,8 +302,11 @@ public class AuthServiceImpl implements IAuthService {
                 return responseObj.render(responseObj.formErrorResponse("Invalid credentials"));
             }
 
-            
-            String token = jwtUtil.generateToken(requestDto.getUsername(), adminUser.getRole(), adminUser.getEmail(), adminUser.getAgentId());
+            String organizationId = "";
+            if (adminUser.getOrganization() != null && adminUser.getOrganization().getOrganizationId() != null) {
+                organizationId = adminUser.getOrganization().getOrganizationId().toString();
+            }
+            String token = jwtUtil.generateToken(requestDto.getUsername(), adminUser.getRole(), adminUser.getEmail(), adminUser.getAgentId(), organizationId);
             String refreshToken = jwtUtil.generateRefreshToken(requestDto.getUsername(), adminUser.getRole());
             // Initialize Zoho CRM after successful authentication
 

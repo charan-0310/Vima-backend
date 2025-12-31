@@ -344,5 +344,43 @@ public class JwtUserExtractor {
     public String getCurrentUsername() {
         return extractCurrentUsername();
     }
+
+    public UUID getCompanyId(Jwt jwt) {
+        String companyIdStr = jwt.getClaimAsString("company_id");
+        return companyIdStr != null ? UUID.fromString(companyIdStr) : null;
+    }
+
+    public UUID getCurrentCompanyId() {
+        return getCurrentJwt().map(this::getCompanyId).orElse(null);
+    }
+
+    public List<String> getOrganizations(Jwt jwt) {
+        List<String> orgs = new ArrayList<>();
+        Object claim = jwt.getClaim("organization_ids");
+        if (claim == null) {
+            claim = jwt.getClaim("organizations");
+        }
+        if (claim instanceof List) {
+            ((List<?>) claim).forEach(item -> {
+                if (item instanceof String) {
+                    orgs.add((String) item);
+                } else if (item instanceof Map) {
+                    Object id = ((Map<?, ?>) item).get("id");
+                    if (id instanceof String) {
+                        orgs.add((String) id);
+                    }
+                }
+            });
+        } else if (claim instanceof String) {
+            orgs.add((String) claim);
+        }
+        return orgs;
+    }
+
+    public List<String> getCurrentOrganizations() {
+        return getCurrentJwt()
+                .map(this::getOrganizations)
+                .orElse(new ArrayList<>());
+    }
 }
 
