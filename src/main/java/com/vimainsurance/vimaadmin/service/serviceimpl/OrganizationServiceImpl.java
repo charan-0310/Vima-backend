@@ -63,7 +63,11 @@ import com.vimainsurance.vimaadmin.util.Constants;
 import com.vimainsurance.vimaadmin.util.CsvDealsReaderUtil;
 import com.vimainsurance.vimaadmin.util.EnvironmentUtil;
 import com.vimainsurance.vimaadmin.util.JwtUserExtractor;
+
 import org.springframework.core.env.Environment;
+
+import com.vimainsurance.vimaadmin.dto.AuthentikGroupCreationDto;
+import com.vimainsurance.vimaadmin.util.AuthentikUtil;
 
 @Service
 public class OrganizationServiceImpl implements IOrganizationService {
@@ -97,7 +101,11 @@ public class OrganizationServiceImpl implements IOrganizationService {
     @Autowired
     private Environment environment;
 
+    @Autowired
+    private AuthentikUtil authentikUtil;
+
     @Override
+    @Transactional(rollbackFor = Exception.class)
     public ResponseEntity<ResponseDto<String>> create(OrganizationRequestDto requestDto) {
         logger.info("[correlationId:{}] Organization create called", MDC.get("correlationId"));
         BaseResponse<String> responseObj = new BaseResponse<>();
@@ -120,7 +128,12 @@ public class OrganizationServiceImpl implements IOrganizationService {
             if (requestDto.getIndustry() != null && !requestDto.getIndustry().trim().isEmpty()) {
                 org.setIndustry(Industry.fromValue(requestDto.getIndustry()));
             }
-            organizationRepository.save(org);
+            Organization savedOrg = organizationRepository.save(org);
+            AuthentikGroupCreationDto authentikGroupCreationDto = new AuthentikGroupCreationDto();
+            authentikGroupCreationDto.setName("ORG_" + savedOrg.getOrganizationName().trim().toUpperCase().replaceAll("[^A-Z0-9]", "_"));
+            authentikGroupCreationDto.setIsSuperUser(false);
+            authentikGroupCreationDto.setAttributes(Map.of("organization_id", savedOrg.getOrganizationId().toString()));
+            authentikUtil.createGroup(authentikGroupCreationDto);
             return responseObj.render(responseObj.formSuccessResponse(Constants.SUCCESS, Constants.SAVE_SUCCESS));
         } catch (Exception e) {
             logger.error("[correlationId:{}] Exception in Organization create: {}", MDC.get("correlationId"), e.getMessage(), e);
