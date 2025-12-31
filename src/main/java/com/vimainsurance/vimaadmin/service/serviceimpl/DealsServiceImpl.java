@@ -52,6 +52,7 @@ import com.vimainsurance.vimaadmin.service.IDocumentService;
 import com.vimainsurance.vimaadmin.service.IS3Service;
 import com.vimainsurance.vimaadmin.util.Constants;
 import com.vimainsurance.vimaadmin.util.EnvironmentUtil;
+import com.vimainsurance.vimaadmin.util.JwtUserExtractor;
 import com.vimainsurance.vimaadmin.util.SlackNotificationUtil;
 import java.io.InputStream;
 import java.time.LocalDateTime;
@@ -72,7 +73,6 @@ import org.springframework.stereotype.Service;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
-import com.vimainsurance.vimaadmin.util.JwtUserExtractor;
 
 @Service
 public class DealsServiceImpl implements IDealsService{

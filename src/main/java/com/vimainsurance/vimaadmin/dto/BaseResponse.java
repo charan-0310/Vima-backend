@@ -2,6 +2,7 @@ package com.vimainsurance.vimaadmin.dto;
 
 
 import org.springframework.http.ResponseEntity;
+import java.util.List;
 
 public class BaseResponse<T> {
 
@@ -20,9 +21,13 @@ public class BaseResponse<T> {
 	public ResponseDto<T> formErrorResponse(Integer errorCode, String message) {
 		return new ResponseDto<>(errorCode, message);
 	}
-
+	
 	public ResponseDto<T> formErrorResponse(String message) {
 		return new ResponseDto<>(0, message);
+	}
+
+	public ResponseDto<T> formErrorResponse(String message, T payload) {
+		return new ResponseDto<>(400,message, payload);
 	}
 
 	public ResponseEntity<ResponseDto<T>> render(ResponseDto<T> response) {

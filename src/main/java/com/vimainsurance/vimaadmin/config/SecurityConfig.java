@@ -41,6 +41,7 @@ import com.vimainsurance.vimaadmin.config.oauth.VimaOAuth2UserService;
 import com.vimainsurance.vimaadmin.util.AdminUserDetailsService;
 import com.vimainsurance.vimaadmin.util.CorrelationIdFilter;
 import com.vimainsurance.vimaadmin.util.EnvironmentUtil;
+import com.vimainsurance.vimaadmin.util.JwtUserExtractor;
 
 /**
  * Spring Security Configuration
@@ -61,6 +62,9 @@ public class SecurityConfig {
     
     @Autowired
     private AdminUserDetailsService userDetailsService;
+
+    @Autowired(required = false)
+    private JwtUserExtractor jwtUserExtractor;
 
     @Value("${cors.allowed-origins}")
     private String allowedOrigins;
@@ -98,7 +102,8 @@ public class SecurityConfig {
                         new SimpleGrantedAuthority("ADMIN"),
                         new SimpleGrantedAuthority("VIMA_ADMIN"),
                         new SimpleGrantedAuthority("SALES_MANAGER"),
-                        new SimpleGrantedAuthority("SALES_AGENT")
+                        new SimpleGrantedAuthority("SALES_AGENT"),
+                        new SimpleGrantedAuthority("HR_MANAGER")
                     )
                 );
                 SecurityContextHolder.getContext().setAuthentication(auth);
@@ -107,75 +112,94 @@ public class SecurityConfig {
         }
     }
 
+    // Bean to provide TenantFilter so it can be injected and reused
+    @Bean
+    public TenantFilter tenantFilter() {
+        // requireTenant=false to allow unauthenticated public endpoints like health to function
+        TenantFilter tf = new TenantFilter();
+        // Inject jwtUserExtractor if available so the programmatically created filter has what it needs
+        if (this.jwtUserExtractor != null) {
+            tf.setJwtUserExtractor(this.jwtUserExtractor);
+        }
+        return tf;
+    }
+
     /**
      * Security filter chain configuration
-     * 
+     *
      * Enables OAuth2 Resource Server with JWT validation for Authentik.
      * All /api/** endpoints are secured and require valid JWT tokens.
-     * 
+     *
      * In dev profile, authentication is bypassed for easier development.
      */
     @Bean
     public SecurityFilterChain filterChain(HttpSecurity http) throws Exception {
         // Check if dev profile is active using EnvironmentUtil
         boolean isDevProfile = EnvironmentUtil.isDevEnvironment(environment);
-        
+
         http
             .cors(cors -> cors.configurationSource(corsConfigurationSource()))
             .csrf(csrf -> csrf.disable());
-        
+
         if (isDevProfile) {
+            // Ensure tenant is resolved early in the chain for both environments
+            // Add tenant filter before security filters so DB resolvers and auth can read tenant
+            http.addFilterBefore(tenantFilter(), UsernamePasswordAuthenticationFilter.class);
+
             // Dev mode: bypass all authentication but set up a mock authentication
             // so @PreAuthorize checks pass
             http.authorizeHttpRequests(auth -> auth
-                .anyRequest().permitAll()
+                    .anyRequest().permitAll()
             );
-            // Add a filter to set up mock authentication in dev mode
-            http.addFilterBefore(new DevAuthenticationFilter(), UsernamePasswordAuthenticationFilter.class);
+
+            // Add a filter to set up mock authentication in dev mode.
+            // Place DevAuthenticationFilter after TenantFilter so tenant info is available to the mock auth.
+            http.addFilterAfter(new DevAuthenticationFilter(), TenantFilter.class);
         } else {
             // Production mode: normal security
+            // Note: TenantFilter will be added after OAuth2 Resource Server (line 198)
+            // to ensure it can extract tenant from both headers/host AND JWT claims
             http.authorizeHttpRequests(auth -> auth
-                // Public endpoints - no authentication required
-                .requestMatchers("/health", "/actuator/**", "/public/**").permitAll()
-                
-                // Legacy endpoints that may need authentication - keeping for backward compatibility
-                // These should eventually be migrated to use JWT tokens
-                .requestMatchers("/api/v1/login", "/oauth2/**", "/api/v1/zoho/auth/**", 
-                    "/api/v1/nonce", "/api/v1/auth/challenge", "/api/v1/auth/login").permitAll() 
-                
-                // Test endpoint - requires specific authorities
-                .requestMatchers("/api/v1/test").hasAnyAuthority("VIMA_ADMIN", "SALES_AGENT")
-                
-                // Swagger/OpenAPI documentation - public access
-                .requestMatchers(
-                    "/v3/api-docs/**",
-                    "/swagger-ui/**",
-                    "/swagger-ui.html",
-                    "/favicon.ico"
-                ).permitAll()
-                
-                // All other /api/** endpoints require authentication via JWT
-                .requestMatchers("/api/**").authenticated()
-                
-                // All other requests require authentication
-                .anyRequest().authenticated()
-            )
-            // Enable OAuth2 Resource Server for JWT validation
-            // This validates JWT tokens issued by Authentik against the configured issuer-uri
-            // JWT configuration comes from application properties (spring.security.oauth2.resourceserver.jwt.issuer-uri)
-            // Custom converter extracts roles/authorities from JWT claims (groups, roles, etc.)
-            .oauth2ResourceServer(oauth2 -> oauth2
-                .jwt(jwt -> jwt
-                    .jwtAuthenticationConverter(jwtAuthenticationConverter)
-                )
-            )
-            // Keep authentication provider for backward compatibility with legacy endpoints
-            .authenticationProvider(authenticationProvider());
-        }
+                            // Public endpoints - no authentication required
+                            .requestMatchers("/health", "/actuator/**", "/public/**").permitAll()
 
+                            // Legacy endpoints that may need authentication - keeping for backward compatibility
+                            // These should eventually be migrated to use JWT tokens
+                            .requestMatchers("/api/v1/login", "/oauth2/**", "/api/v1/zoho/auth/**",
+                                    "/api/v1/nonce", "/api/v1/auth/challenge", "/api/v1/auth/login").permitAll()
+
+                            // Test endpoint - requires specific authorities
+                            .requestMatchers("/api/v1/test").hasAnyAuthority("VIMA_ADMIN", "SALES_AGENT")
+
+                            // Swagger/OpenAPI documentation - public access
+                            .requestMatchers(
+                                    "/v3/api-docs/**",
+                                    "/swagger-ui/**",
+                                    "/swagger-ui.html",
+                                    "/favicon.ico"
+                            ).permitAll()
+
+                            // All other /api/** endpoints require authentication via JWT
+                            .requestMatchers("/api/**").authenticated()
+
+                            // All other requests require authentication
+                            .anyRequest().authenticated()
+                    )
+                    // Enable OAuth2 Resource Server for JWT validation
+                    .oauth2ResourceServer(oauth2 -> oauth2
+                            .jwt(jwt -> jwt
+                                    .jwtAuthenticationConverter(jwtAuthenticationConverter)
+                            )
+                    )
+                    // Keep authentication provider for backward compatibility with legacy endpoints
+                    .authenticationProvider(authenticationProvider())
+                    // Add TenantFilter after OAuth2 Resource Server processes JWT
+                    // This ensures tenant can be extracted from both headers/host AND JWT claims
+                    .addFilterAfter(tenantFilter(), org.springframework.security.oauth2.server.resource.web.authentication.BearerTokenAuthenticationFilter.class);
+        }
         return http.build();
     }
-    
+
     // Legacy OAuth2 client configuration - kept for backward compatibility
     // This is not used when JWT tokens are validated via resource server
     @Bean
@@ -187,7 +211,7 @@ public class SecurityConfig {
     public AuthenticationSuccessHandler oAuth2AuthenticationSuccessHandler() {
         return new VimaOAuth2SuccessHandler();
     }
-    
+
     @Bean
     public AuthenticationManager authenticationManager(AuthenticationConfiguration config) throws Exception {
         return config.getAuthenticationManager();
@@ -236,3 +260,4 @@ public class SecurityConfig {
         return registration;
     }
 }
+

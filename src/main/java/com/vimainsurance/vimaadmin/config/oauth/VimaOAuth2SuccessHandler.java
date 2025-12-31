@@ -52,7 +52,11 @@ public class VimaOAuth2SuccessHandler implements AuthenticationSuccessHandler {
         }
         AdminUser user = userOptional.get();
         System.out.println((String)oauthUser.getAttribute("sub"));
-        String accessToken = jwtUtil.generateToken(user.getUsername(), user.getRole(), user.getEmail(), user.getAgentId());
+        String organizationId = "";
+        if (user.getOrganization() != null && user.getOrganization().getOrganizationId() != null) {
+            organizationId = user.getOrganization().getOrganizationId().toString();
+        }
+        String accessToken = jwtUtil.generateToken(user.getUsername(), user.getRole(), user.getEmail(), user.getAgentId(), organizationId);
         String refreshToken = jwtUtil.generateRefreshToken(user.getUsername(), user.getRole());
        String redirectUrl = UriComponentsBuilder
         .fromUriString(uiRedirectUrl+"/oauth2")

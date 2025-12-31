@@ -2,11 +2,10 @@ package com.vimainsurance.vimaadmin.service;
 
 import com.vimainsurance.vimaadmin.dto.ResponseDto;
 import com.vimainsurance.vimaadmin.entity.Document;
-import com.vimainsurance.vimaadmin.enums.DocumentCategory;
+import com.vimainsurance.vimaadmin.dto.DocumentResponseDto;
 import com.vimainsurance.vimaadmin.enums.DocumentEntityType;
 import com.vimainsurance.vimaadmin.enums.DocumentType;
-import com.vimainsurance.vimaadmin.enums.UserRole;
-import com.vimainsurance.vimaadmin.enums.DocumentCategory;
+
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.http.ResponseEntity;
@@ -14,6 +13,8 @@ import org.springframework.web.multipart.MultipartFile;
 
 import java.util.List;
 import java.util.UUID;
+
+import org.springframework.core.io.Resource;
 
 /**
  * Service interface for Document management
@@ -208,4 +209,37 @@ public interface IDocumentService {
      * Note: uploadedBy and uploadedByRole are extracted from JWT token automatically
      */
     ResponseEntity<ResponseDto<String>> uploadDocument(MultipartFile file, String documentType, String documentCategory, String documentEntityType, String entityId, String notes);
+
+
+    /**
+     * Upload multiple documents to the database and S3
+     * 
+     * @param files Array of files to upload
+     * @param documentType The type of document (as String, will be mapped to enum)
+     * @param documentCategory The category of the document (as String, will be mapped to enum)
+     * @param documentEntityType The entity type of the document (as String, will be mapped to enum)
+     * @param entityId The ID of the entity this document belongs to
+     * @param notes Optional notes for the document
+     * @return Response with the document IDs
+     * Note: uploadedBy and uploadedByRole are extracted from JWT token automatically
+     */
+    ResponseEntity<ResponseDto<String>> multipleUploadDocument(MultipartFile[] files, String documentType, String documentCategory, String documentEntityType, String entityId, String notes);
+
+
+    /**
+     * Get documents by entity ID
+     * 
+     * @param entityId Entity ID
+     * @return Response with list of documents
+     */
+    ResponseEntity<ResponseDto<List<DocumentResponseDto>>> getDocuments(String entityId, int page, int rec);
+
+    /**
+     * Download document
+     * 
+     * @param documentId Document ID
+     * @return Response with document
+     */
+    ResponseEntity<Resource> downloadDocument(String documentId);
+
 }
