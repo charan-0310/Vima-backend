@@ -1,5 +1,7 @@
 package com.vimainsurance.vimaadmin.controller;
 
+import com.vimainsurance.vimaadmin.dto.FeatureFlagResponseDto;
+import com.vimainsurance.vimaadmin.service.FeatureFlagService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.slf4j.MDC;
@@ -17,14 +19,14 @@ import org.springframework.web.bind.annotation.RestController;
 import com.vimainsurance.vimaadmin.dto.ChallengeLoginRequestDto;
 import com.vimainsurance.vimaadmin.dto.ChallengeRequestDto;
 import com.vimainsurance.vimaadmin.dto.ChallengeResponseDto;
-import com.vimainsurance.vimaadmin.dto.EncryptedLoginRequestDto;
 import com.vimainsurance.vimaadmin.dto.LoginRequestDto;
 import com.vimainsurance.vimaadmin.dto.LoginResponseDto;
-import com.vimainsurance.vimaadmin.dto.PublicKeyResponseDto;
 import com.vimainsurance.vimaadmin.dto.RefreshTokenRequestDto;
 import com.vimainsurance.vimaadmin.dto.RefreshTokenResponseDto;
 import com.vimainsurance.vimaadmin.dto.ResponseDto;
 import com.vimainsurance.vimaadmin.service.IAuthService;
+
+import java.util.List;
 
 @RestController
 @CrossOrigin(allowedHeaders = "*")
@@ -35,6 +37,9 @@ public class AuthController {
 
     @Autowired
     private IAuthService authService;
+
+    @Autowired
+    private FeatureFlagService featureFlagService;
 
     @GetMapping("/test")
     @PreAuthorize("hasRole('ADMIN')")
@@ -78,5 +83,12 @@ public class AuthController {
     public ResponseEntity<Void> getNonce() {
         logger.debug("[correlationId:{}] /nonce endpoint called", MDC.get("correlationId"));
         return ResponseEntity.noContent().build();
+    }
+
+    @GetMapping("/auth/me")
+    public ResponseEntity<ResponseDto<List<FeatureFlagResponseDto>>> getFeatureFalgs() {
+    //    logger.info("[correlationId:{}] /auth/challenge endpoint called for username", MDC.get("correlationId"));
+        ChallengeRequestDto requestDto = new ChallengeRequestDto(username);
+        return authService.getChallenge(requestDto);
     }
 }
