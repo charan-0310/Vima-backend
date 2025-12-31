@@ -86,9 +86,11 @@ public class AuthController {
     }
 
     @GetMapping("/auth/me")
+    @PreAuthorize("hasAnyAuthority('SUPER_ADMIN', 'ADMIN', 'VIMA_ADMIN', 'SALES_MANAGER', 'SALES_AGENT', 'HR_ADMIN')")
     public ResponseEntity<ResponseDto<List<FeatureFlagResponseDto>>> getFeatureFalgs() {
-    //    logger.info("[correlationId:{}] /auth/challenge endpoint called for username", MDC.get("correlationId"));
-        ChallengeRequestDto requestDto = new ChallengeRequestDto(username);
-        return authService.getChallenge(requestDto);
+        List<FeatureFlagResponseDto> response = featureFlagService.findAllMatchedFeatureFlags();
+        ResponseDto<List<FeatureFlagResponseDto>> dto = new ResponseDto<>();
+        dto.setPayload(response);
+        return ResponseEntity.ok(dto);
     }
 }

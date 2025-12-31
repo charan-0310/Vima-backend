@@ -13,8 +13,6 @@ import lombok.NoArgsConstructor;
 @AllArgsConstructor
 public class FeatureFlagResponseDto {
 
-    private String id;
-
     @JsonProperty("flag_id")
     private String flagId;
 

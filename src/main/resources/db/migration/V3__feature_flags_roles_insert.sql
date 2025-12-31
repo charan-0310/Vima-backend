@@ -29,4 +29,4 @@ INSERT INTO admin.feature_flag_roles (id, flag_id, role_name, actions)
 VALUES ('3c4d5e6f-7a8b-9c0d-1e2f-3a4b5c6d7e8f', '0f1e2d3c-4b5a-6c7d-8e9f-0a1b2c3d4e5f', 'ROLE_SALES_MANAGER', ARRAY['READ','WRITE','APPROVE']::permission_action[]);
 
 INSERT INTO admin.feature_flag_roles (id, flag_id, role_name, actions)
-VALUES ('0d1e2f3a-4b5c-6d7e-8f90-123456789abc', 'a3b2c1d4-5e6f-7a8b-9c0d-1e2f3a4b5c6d', 'ROLE_SALES_MANAGER', ARRAY['READ','WRITE','APPROVE']::permission_action[]);z
+VALUES ('0d1e2f3a-4b5c-6d7e-8f90-123456789abc', 'a3b2c1d4-5e6f-7a8b-9c0d-1e2f3a4b5c6d', 'ROLE_SALES_MANAGER', ARRAY['READ','WRITE','APPROVE']::permission_action[]);

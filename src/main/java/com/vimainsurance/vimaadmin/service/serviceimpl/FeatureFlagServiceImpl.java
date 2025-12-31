@@ -32,7 +32,7 @@ public class FeatureFlagServiceImpl implements FeatureFlagService {
     public List<FeatureFlagResponseDto> findAllMatchedFeatureFlags() {
 
         // Fetch flags with roles and companies to avoid N+1
-        List<FeatureFlag> featureFlags = featureFlagRepository.findAll(FeatureFlagSpecification.fetchRelations());
+        List<FeatureFlag> featureFlags = featureFlagRepository.findAll();
 
         Map<String, List<String>> currentTenant = TenantContext.getCurrentTenant();
         // Support both keys "ROLES" and "roles" (tenant source may vary)
@@ -85,45 +85,56 @@ public class FeatureFlagServiceImpl implements FeatureFlagService {
                 continue; // not accessible to this tenant
             }
 
-            // Build DTO
-            FeatureFlagResponseDto dto = new FeatureFlagResponseDto();
-            // Use flagId as both id and flag_id for now
-            dto.setId(flag.getFlagId() != null ? flag.getFlagId().toString() : null);
-            dto.setFlagId(flag.getFlagId() != null ? flag.getFlagId().toString() : null);
-            dto.setFlagKey(flag.getFlagKey());
-            dto.setDescription(flag.getDescription());
-            dto.setIsActive(Boolean.TRUE);
+            /// Build DTO
+                FeatureFlagResponseDto dto = createDto(flag, matchedRoles, matchedCompanies, isSuperAdmin);
+                responseDtos.add(dto);
+        }
 
-            // Collect actions from matched roles and companies (union)
-            Set<String> actionsUnion = new LinkedHashSet<>();
+        return responseDtos;
+    }
+
+    private FeatureFlagResponseDto createDto(FeatureFlag flag,
+                                             List<FeatureFlagRole> matchedRoles,
+                                             List<FeatureFlagCompany> matchedCompanies,
+                                             boolean isSuperAdmin) {
+        FeatureFlagResponseDto dto = new FeatureFlagResponseDto();
+        dto.setFlagId(flag.getFlagId() != null ? flag.getFlagId().toString() : null);
+        dto.setFlagKey(flag.getFlagKey());
+        dto.setDescription(flag.getDescription());
+        dto.setIsActive(Boolean.TRUE);
+
+        Set<String> actionsUnion = new LinkedHashSet<>();
+        if (matchedRoles != null) {
             for (FeatureFlagRole r : matchedRoles) {
                 if (r.getActions() != null) {
                     actionsUnion.addAll(Arrays.asList(r.getActions()));
                 }
             }
+        }
+        if (matchedCompanies != null) {
             for (FeatureFlagCompany c : matchedCompanies) {
                 if (c.getActions() != null) {
                     actionsUnion.addAll(Arrays.asList(c.getActions()));
                 }
             }
-            // If super admin and no explicit actions found, optionally expose all role actions
-            if (isSuperAdmin && actionsUnion.isEmpty()) {
-                // gather all actions from flag
-                if (flag.getRoles() != null) {
-                    for (FeatureFlagRole r : flag.getRoles()) {
-                        if (r.getActions() != null) actionsUnion.addAll(Arrays.asList(r.getActions()));
-                    }
-                }
-                if (flag.getCompanies() != null) {
-                    for (FeatureFlagCompany c : flag.getCompanies()) {
-                        if (c.getActions() != null) actionsUnion.addAll(Arrays.asList(c.getActions()));
-                    }
+        }
+
+        if (isSuperAdmin && actionsUnion.isEmpty()) {
+            if (flag.getRoles() != null) {
+                for (FeatureFlagRole r : flag.getRoles()) {
+                    if (r.getActions() != null) actionsUnion.addAll(Arrays.asList(r.getActions()));
                 }
             }
-            dto.setActions(new ArrayList<>(actionsUnion));
+            if (flag.getCompanies() != null) {
+                for (FeatureFlagCompany c : flag.getCompanies()) {
+                    if (c.getActions() != null) actionsUnion.addAll(Arrays.asList(c.getActions()));
+                }
+            }
+        }
+        dto.setActions(new ArrayList<>(actionsUnion));
 
-            // Map companies (only matched ones)
-            List<FeatureFlagResponseDto.CompanyDto> companyDtos = new ArrayList<>();
+        List<FeatureFlagResponseDto.CompanyDto> companyDtos = new ArrayList<>();
+        if (matchedCompanies != null) {
             for (FeatureFlagCompany c : matchedCompanies) {
                 FeatureFlagResponseDto.CompanyDto cd = new FeatureFlagResponseDto.CompanyDto();
                 cd.setId(c.getId() != null ? c.getId().toString() : null);
@@ -132,17 +143,10 @@ public class FeatureFlagServiceImpl implements FeatureFlagService {
                 cd.setActions(c.getActions() != null ? Arrays.asList(c.getActions()) : List.of());
                 companyDtos.add(cd);
             }
-            dto.setCompanies(companyDtos);
-
-            responseDtos.add(dto);
         }
+        dto.setCompanies(companyDtos);
 
-        return responseDtos;
-    }
-
-    private List<FeatureFlagResponseDto> mapToResponseDtos() {
-        // Deprecated: mapping is now done in findAllMatchedFeatureFlags
-        return List.of();
+        return dto;
     }
 }
 
