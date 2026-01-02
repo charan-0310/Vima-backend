@@ -8,6 +8,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.slf4j.MDC;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.core.io.Resource;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
@@ -24,6 +25,7 @@ import org.springframework.web.bind.annotation.RequestPart;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.multipart.MultipartFile;
 
+import com.vimainsurance.vimaadmin.dto.DocumentResponseDto;
 import com.vimainsurance.vimaadmin.dto.EndorsementRequestDto;
 import com.vimainsurance.vimaadmin.dto.EndorsementResponseDto;
 import com.vimainsurance.vimaadmin.dto.OrganizationEmployeeDto;
@@ -209,6 +211,26 @@ public class EndorsementController {
     public ResponseEntity<ResponseDto<String>> confirm(@PathVariable UUID endorsementId) {
         logger.info("[correlationId:{}] /endorsements/{}/confirm (POST) endpoint called", MDC.get("correlationId"), endorsementId);
         return endorsementService.confirm(endorsementId);
+    }
+
+    /* 
+    * Get documents by endorsement id
+    */
+    @GetMapping("/{endorsementId}/documents")
+    @PreAuthorize("hasAnyAuthority('SUPER_ADMIN', 'ADMIN', 'VIMA_ADMIN', 'SALES_MANAGER')")
+    public ResponseEntity<ResponseDto<List<DocumentResponseDto>>> getDocuments(@PathVariable UUID endorsementId, @RequestParam (defaultValue = "-1", required = false) int page, @RequestParam (defaultValue = "-1", required = false) int rec) {
+        logger.info("[correlationId:{}] /endorsements/{}/documents (GET) endpoint called", MDC.get("correlationId"), endorsementId);
+        return endorsementService.getDocuments(endorsementId.toString(), page, rec);
+    }
+    
+    /* 
+    * Download document by endorsement id and document id
+    */
+    @GetMapping("/{endorsementId}/documents/{documentId}/download")
+    @PreAuthorize("hasAnyAuthority('SUPER_ADMIN', 'ADMIN', 'VIMA_ADMIN', 'SALES_MANAGER')")
+    public ResponseEntity<Resource> downloadDocument(@PathVariable UUID endorsementId, @PathVariable String documentId) {
+        logger.info("[correlationId:{}] /endorsements/{}/documents/{}/download (GET) endpoint called", MDC.get("correlationId"), endorsementId, documentId);
+        return endorsementService.downloadDocument(endorsementId, documentId);
     }
 
 }

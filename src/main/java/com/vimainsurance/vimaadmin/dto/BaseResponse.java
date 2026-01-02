@@ -1,8 +1,8 @@
 package com.vimainsurance.vimaadmin.dto;
 
 
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
-import java.util.List;
 
 public class BaseResponse<T> {
 
@@ -44,7 +44,40 @@ public class BaseResponse<T> {
 	}
 
 	private ResponseEntity<ResponseDto<T>> renderError(ResponseDto<T> response) {
-		return ResponseEntity.badRequest().body(response);
+		Integer errorCode = response.getErrorCode();
+		HttpStatus httpStatus;
+		
+		if (errorCode != null) {
+			// Map error codes to HTTP status codes
+			switch (errorCode) {
+				case 401:
+					httpStatus = HttpStatus.UNAUTHORIZED;
+					break;
+				case 403:
+					httpStatus = HttpStatus.FORBIDDEN;
+					break;
+				case 404:
+					httpStatus = HttpStatus.NOT_FOUND;
+					break;
+				case 409:
+					httpStatus = HttpStatus.CONFLICT;
+					break;
+				case 422:
+					httpStatus = HttpStatus.UNPROCESSABLE_ENTITY;
+					break;
+				case 500:
+					httpStatus = HttpStatus.INTERNAL_SERVER_ERROR;
+					break;
+				default:
+					// Default to 400 for other error codes
+					httpStatus = HttpStatus.BAD_REQUEST;
+					break;
+			}
+		} else {
+			httpStatus = HttpStatus.BAD_REQUEST;
+		}
+		
+		return ResponseEntity.status(httpStatus).body(response);
 	}
 
 }
