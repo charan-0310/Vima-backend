@@ -44,21 +44,21 @@ public class CustomerController {
     private ICustomerService iCustomerService;
 
     @PostMapping("/agent/{username}/customer")
-    @PreAuthorize("hasAnyAuthority('VIMA_ADMIN', 'SALES_AGENT', 'SALES_MANAGER', 'SUPER_ADMIN', 'ADMIN')")
+    @PreAuthorize("hasAnyRole('VIMA_ADMIN', 'SALES_AGENT', 'SALES_MANAGER', 'SUPER_ADMIN', 'ADMIN')")
     public ResponseEntity<ResponseDto<String>> create(@RequestBody CustomerRequestDto requestDto, @PathVariable String username){
         logger.info("[correlationId:{}] /agent/{}/customer endpoint called", MDC.get("correlationId"), username);
         return iCustomerService.create(requestDto, username);
     }
 
     @PutMapping("/customer")
-    @PreAuthorize("hasAnyAuthority('VIMA_ADMIN', 'SALES_AGENT', 'SALES_MANAGER', 'SUPER_ADMIN', 'ADMIN')")
+    @PreAuthorize("hasAnyRole('VIMA_ADMIN', 'SALES_AGENT', 'SALES_MANAGER', 'SUPER_ADMIN', 'ADMIN')")
     public ResponseEntity<ResponseDto<String>> update(@RequestBody CustomerRequestDto requestDto){
         logger.info("[correlationId:{}] /customer (PUT) endpoint called", MDC.get("correlationId"));
         return iCustomerService.update(requestDto);
     }
 
     @DeleteMapping("/customers")
-    @PreAuthorize("hasAnyAuthority('VIMA_ADMIN', 'SALES_AGENT', 'SALES_MANAGER', 'SUPER_ADMIN', 'ADMIN')")
+    @PreAuthorize("hasAnyRole('VIMA_ADMIN', 'SALES_AGENT', 'SALES_MANAGER', 'SUPER_ADMIN', 'ADMIN')")
     public ResponseEntity<ResponseDto<String>> bulkDelete(@RequestBody CustomerBulkDeleteRequestDto requestDto) {
         logger.info("[correlationId:{}] /customers (DELETE) endpoint called for bulk deletion", MDC.get("correlationId"));
         return iCustomerService.bulkDelete(requestDto);
@@ -81,7 +81,7 @@ public class CustomerController {
      * - city, state, email, phoneNumber: Sort by respective fields
      */
     @GetMapping("/agent/{username}/customers")
-    @PreAuthorize("hasAnyAuthority('VIMA_ADMIN', 'SALES_AGENT', 'SALES_MANAGER', 'SUPER_ADMIN', 'ADMIN')")
+    @PreAuthorize("hasAnyRole('VIMA_ADMIN', 'SALES_AGENT', 'SALES_MANAGER', 'SUPER_ADMIN', 'ADMIN')")
     public ResponseEntity<ResponseDto<List<CustomerResponseDto>>> getCustomerByAgent(
             @PathVariable String username,
             @RequestParam(defaultValue = "0", required = false) int page,
@@ -94,7 +94,7 @@ public class CustomerController {
     }
 
     @GetMapping("/customers/{custid}")
-    @PreAuthorize("hasAnyAuthority('VIMA_ADMIN', 'SALES_AGENT', 'SALES_MANAGER', 'SUPER_ADMIN', 'ADMIN')")
+    @PreAuthorize("hasAnyRole('VIMA_ADMIN', 'SALES_AGENT', 'SALES_MANAGER', 'SUPER_ADMIN', 'ADMIN')")
     public ResponseEntity<ResponseDto<CustomerResponseDto>> getCustomerById(@PathVariable String custid){
         logger.info("[correlationId:{}] /customers/{} endpoint called", MDC.get("correlationId"), custid);
         return iCustomerService.getByCustId(custid);
@@ -117,7 +117,7 @@ public class CustomerController {
      * - city, state, email, phoneNumber: Sort by respective fields
      */
     @GetMapping("/admin/customers")
-    @PreAuthorize("hasAnyAuthority('VIMA_ADMIN', 'SALES_AGENT', 'SALES_MANAGER', 'SUPER_ADMIN', 'ADMIN')")
+    @PreAuthorize("hasAnyRole('VIMA_ADMIN', 'SALES_AGENT', 'SALES_MANAGER', 'SUPER_ADMIN', 'ADMIN')")
     public ResponseEntity<ResponseDto<List<CustomerResponseDto>>> getAll(
             @RequestParam(defaultValue = "0", required = false) int page,
             @RequestParam(defaultValue = "10", required = false) int rec,
@@ -129,7 +129,7 @@ public class CustomerController {
     }
 
     @PutMapping("/agent/{username}/customer/{customerId}/pipeline")
-    @PreAuthorize("hasAnyAuthority('VIMA_ADMIN', 'SALES_AGENT', 'SALES_MANAGER', 'SUPER_ADMIN', 'ADMIN')")
+    @PreAuthorize("hasAnyRole('VIMA_ADMIN', 'SALES_AGENT', 'SALES_MANAGER', 'SUPER_ADMIN', 'ADMIN')")
     public ResponseEntity<ResponseDto<String>> updatePipelineStatus(
             @PathVariable String username,
             @PathVariable String customerId,
@@ -141,28 +141,28 @@ public class CustomerController {
 
     @PostMapping(value = "/customer/{customerId}/upload", consumes = MediaType.MULTIPART_FORM_DATA_VALUE,
     produces = MediaType.APPLICATION_JSON_VALUE)
-    @PreAuthorize("hasAnyAuthority('VIMA_ADMIN', 'SALES_AGENT', 'SALES_MANAGER', 'SUPER_ADMIN', 'ADMIN')")
+    @PreAuthorize("hasAnyRole('VIMA_ADMIN', 'SALES_AGENT', 'SALES_MANAGER', 'SUPER_ADMIN', 'ADMIN')")
     public ResponseEntity<ResponseDto<String>> uploadDocument(@ModelAttribute DocumentRequestDto requestDto, @PathVariable String customerId) {
         logger.info("[correlationId:{}] /customer/{}/document endpoint called", MDC.get("correlationId"), customerId);
         return iCustomerService.uploadDocument(requestDto, customerId);
     }
 
     @GetMapping("/customer/{customerId}/documents")
-    @PreAuthorize("hasAnyAuthority('VIMA_ADMIN', 'SALES_AGENT', 'SALES_MANAGER', 'SUPER_ADMIN', 'ADMIN')")
+    @PreAuthorize("hasAnyRole('VIMA_ADMIN', 'SALES_AGENT', 'SALES_MANAGER', 'SUPER_ADMIN', 'ADMIN')")
     public ResponseEntity<ResponseDto<List<DocumentResponseDto>>> getDocuments(@PathVariable String customerId) {
         logger.info("[correlationId:{}] /customer/{}/documents endpoint called", MDC.get("correlationId"), customerId);
         return iCustomerService.getDocuments(customerId);
     }
 
     @GetMapping("/customer/{customerId}/{documentId}/download")
-    @PreAuthorize("hasAnyAuthority('VIMA_ADMIN', 'SALES_AGENT', 'SALES_MANAGER', 'SUPER_ADMIN', 'ADMIN')")
+    @PreAuthorize("hasAnyRole('VIMA_ADMIN', 'SALES_AGENT', 'SALES_MANAGER', 'SUPER_ADMIN', 'ADMIN')")
     public ResponseEntity<Resource> getDocumentDownloadUrl(@PathVariable String customerId, @PathVariable String documentId) {
         logger.info("[correlationId:{}] /customer/{}/{}/download endpoint called", MDC.get("correlationId"), customerId, documentId);
         return iCustomerService.downloadDocument(documentId);
     }
 
     @DeleteMapping("/customer/{customerId}/{documentId}")
-    @PreAuthorize("hasAnyAuthority('VIMA_ADMIN', 'SALES_AGENT', 'SALES_MANAGER', 'SUPER_ADMIN', 'ADMIN')")
+    @PreAuthorize("hasAnyRole('VIMA_ADMIN', 'SALES_AGENT', 'SALES_MANAGER', 'SUPER_ADMIN', 'ADMIN')")
     public ResponseEntity<ResponseDto<String>> deleteDocument(@PathVariable String customerId, @PathVariable String documentId) {
         logger.info("[correlationId:{}] /customer/{}/{}/delete endpoint called", MDC.get("correlationId"), customerId, documentId);
         return iCustomerService.deleteDocument(documentId);
@@ -170,7 +170,7 @@ public class CustomerController {
 
     @PostMapping(value = "/customer/{customerId}/todeal", consumes = MediaType.MULTIPART_FORM_DATA_VALUE,
     produces = MediaType.APPLICATION_JSON_VALUE)
-    @PreAuthorize("hasAnyAuthority('VIMA_ADMIN', 'SALES_AGENT', 'SALES_MANAGER', 'SUPER_ADMIN', 'ADMIN')")
+    @PreAuthorize("hasAnyRole('VIMA_ADMIN', 'SALES_AGENT', 'SALES_MANAGER', 'SUPER_ADMIN', 'ADMIN')")
     public ResponseEntity<ResponseDto<String>> customerToDeals(@PathVariable String customerId, @ModelAttribute ConvertToDealRequestDto requestDto) {
         logger.info("[correlationId:{}] /customer/{}/to-deals endpoint called", MDC.get("correlationId"), customerId);
         return iCustomerService.customerToDeals(requestDto, customerId);

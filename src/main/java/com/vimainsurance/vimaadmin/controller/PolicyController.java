@@ -36,7 +36,7 @@ import com.vimainsurance.vimaadmin.service.IPolicyService;
  */
 @RestController
 @RequestMapping("/api/v1/policies")
-@PreAuthorize("hasAnyAuthority('VIMA_ADMIN',  'SALES_MANAGER', 'SUPER_ADMIN', 'ADMIN')")
+@PreAuthorize("hasAnyRole('VIMA_ADMIN',  'SALES_MANAGER', 'SUPER_ADMIN', 'ADMIN')")
 public class PolicyController {
 
     private static final Logger logger = LoggerFactory.getLogger(PolicyController.class);
@@ -114,7 +114,7 @@ public class PolicyController {
      */
     @PostMapping(value = "/organization/{organizationId}", consumes = MediaType.MULTIPART_FORM_DATA_VALUE,
         produces = MediaType.APPLICATION_JSON_VALUE)
-    @PreAuthorize("hasAnyAuthority('VIMA_ADMIN', 'SALES_MANAGER', 'SUPER_ADMIN', 'ADMIN')")
+    @PreAuthorize("hasAnyRole('VIMA_ADMIN', 'SALES_MANAGER', 'SUPER_ADMIN', 'ADMIN')")
     public ResponseEntity<ResponseDto<String>> uploadPolicyForOrganization(
             @PathVariable UUID organizationId,
             @ModelAttribute PolicyUploadRequestDto requestDto) {
