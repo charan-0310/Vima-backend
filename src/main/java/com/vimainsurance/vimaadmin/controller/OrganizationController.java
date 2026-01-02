@@ -48,42 +48,42 @@ public class OrganizationController {
     private IOrganizationService organizationService;
 
     @PostMapping("/organization")
-    @PreAuthorize("hasAnyAuthority('SUPER_ADMIN', 'ADMIN', 'VIMA_ADMIN')")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'VIMA_ADMIN')")
     public ResponseEntity<ResponseDto<String>> create(@RequestBody OrganizationRequestDto requestDto) {
         logger.info("[correlationId:{}] /organization (POST) endpoint called", MDC.get("correlationId"));
         return organizationService.create(requestDto);
     }
 
     @PutMapping("/organization")
-    @PreAuthorize("hasAnyAuthority('SUPER_ADMIN', 'ADMIN', 'VIMA_ADMIN')")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'VIMA_ADMIN')")
     public ResponseEntity<ResponseDto<String>> update(@RequestBody OrganizationRequestDto requestDto) {
         logger.info("[correlationId:{}] /organization (PUT) endpoint called", MDC.get("correlationId"));
         return organizationService.update(requestDto);
     }
 
     @DeleteMapping("/organization/{organizationId}")
-    @PreAuthorize("hasAnyAuthority('SUPER_ADMIN', 'ADMIN', 'VIMA_ADMIN')")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'VIMA_ADMIN')")
     public ResponseEntity<ResponseDto<String>> delete(@PathVariable UUID organizationId) {
         logger.info("[correlationId:{}] /organization/{} (DELETE) endpoint called", MDC.get("correlationId"), organizationId);
         return organizationService.delete(organizationId);
     }
 
     @GetMapping("/organization/{organizationId}")
-    @PreAuthorize("hasAnyAuthority('SUPER_ADMIN', 'ADMIN', 'VIMA_ADMIN', 'SALES_MANAGER')")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'VIMA_ADMIN', 'SALES_MANAGER')")
     public ResponseEntity<ResponseDto<OrganizationResponseDto>> getById(@PathVariable UUID organizationId) {
         logger.info("[correlationId:{}] /organization/{} (GET) endpoint called", MDC.get("correlationId"), organizationId);
         return organizationService.getById(organizationId);
     }
 
     @GetMapping("/organizations")
-    @PreAuthorize("hasAnyAuthority('SUPER_ADMIN', 'ADMIN', 'VIMA_ADMIN', 'SALES_MANAGER')")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'VIMA_ADMIN', 'SALES_MANAGER')")
     public ResponseEntity<ResponseDto<List<OrganizationResponseDto>>> getAll() {
         logger.info("[correlationId:{}] /organizations (GET) endpoint called", MDC.get("correlationId"));
         return organizationService.getAll();
     }
 
     @GetMapping("/organizations/active")
-    @PreAuthorize("hasAnyAuthority('SUPER_ADMIN', 'ADMIN', 'VIMA_ADMIN', 'SALES_MANAGER')")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'VIMA_ADMIN', 'SALES_MANAGER')")
     public ResponseEntity<ResponseDto<List<OrganizationResponseDto>>> getAllActive() {
         logger.info("[correlationId:{}] /organizations/active (GET) endpoint called", MDC.get("correlationId"));
         return organizationService.getAllActive();
@@ -103,7 +103,7 @@ public class OrganizationController {
      * Special: Use page=-1 and rec=-1 to get all records without pagination
      */
     @GetMapping("/organizations/filtered")
-    @PreAuthorize("hasAnyAuthority('SUPER_ADMIN', 'ADMIN', 'VIMA_ADMIN', 'SALES_MANAGER')")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'VIMA_ADMIN', 'SALES_MANAGER')")
     public ResponseEntity<ResponseDto<List<OrganizationResponseDto>>> getAllWithFilters(
             @RequestParam(defaultValue = "0", required = false) int page,
             @RequestParam(defaultValue = "10", required = false) int rec,
@@ -116,14 +116,14 @@ public class OrganizationController {
     }
 
     @GetMapping("/organization/{organizationId}/documents")
-    @PreAuthorize("hasAnyAuthority('SUPER_ADMIN', 'ADMIN', 'VIMA_ADMIN', 'SALES_MANAGER')")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'VIMA_ADMIN', 'SALES_MANAGER')")
     public ResponseEntity<ResponseDto<List<DocumentResponseDto>>> getDocuments(@PathVariable UUID organizationId) {
         logger.info("[correlationId:{}] /organization/{}/documents (GET) endpoint called", MDC.get("correlationId"), organizationId);
         return organizationService.getDocuments(organizationId);
     }
 
     @PostMapping("/organization/{organizationId}/documents/upload")
-    @PreAuthorize("hasAnyAuthority('SUPER_ADMIN', 'ADMIN', 'VIMA_ADMIN')")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'VIMA_ADMIN')")
     public ResponseEntity<ResponseDto<String>> uploadDocument(
             @PathVariable UUID organizationId,
             @RequestParam("files") MultipartFile[] files,
@@ -140,28 +140,28 @@ public class OrganizationController {
     }
 
     @GetMapping("/organization/{organizationId}/documents/{documentId}/download")
-    @PreAuthorize("hasAnyAuthority('SUPER_ADMIN', 'ADMIN', 'VIMA_ADMIN', 'SALES_MANAGER')")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'VIMA_ADMIN', 'SALES_MANAGER')")
     public ResponseEntity<Resource> downloadDocument(@PathVariable UUID organizationId, @PathVariable String documentId) {
         logger.info("[correlationId:{}] /organization/{}/documents/{}/download (GET) endpoint called", MDC.get("correlationId"), organizationId, documentId);
         return organizationService.downloadDocument(organizationId, documentId);
     }
 
     @DeleteMapping("/organization/{organizationId}/documents/{documentId}")
-    @PreAuthorize("hasAnyAuthority('SUPER_ADMIN', 'ADMIN', 'VIMA_ADMIN')")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'VIMA_ADMIN')")
     public ResponseEntity<ResponseDto<String>> deleteDocument(@PathVariable UUID organizationId, @PathVariable String documentId) {
         logger.info("[correlationId:{}] /organization/{}/documents/{} (DELETE) endpoint called", MDC.get("correlationId"), organizationId, documentId);
         return organizationService.deleteDocument(organizationId, documentId);
     }
 
     @GetMapping("/organization/{organizationId}/employees")
-    @PreAuthorize("hasAnyAuthority('SUPER_ADMIN', 'ADMIN', 'VIMA_ADMIN', 'SALES_MANAGER')")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'VIMA_ADMIN', 'SALES_MANAGER')")
     public ResponseEntity<ResponseDto<List<OrganizationEmployeeDto>>> getEmployees(@PathVariable UUID organizationId) {
         logger.info("[correlationId:{}] /organization/{}/employees (GET) endpoint called", MDC.get("correlationId"), organizationId);
         return organizationService.getEmployees(organizationId);
     }
     
     @GetMapping("/organization/{organizationId}/employee/{individualId}")
-    @PreAuthorize("hasAnyAuthority('SUPER_ADMIN', 'ADMIN', 'VIMA_ADMIN', 'SALES_MANAGER')")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'VIMA_ADMIN', 'SALES_MANAGER')")
     public ResponseEntity<ResponseDto<OrganizationEmployeeDto>> getEmployee(
             @PathVariable UUID organizationId,
             @PathVariable UUID individualId) {
@@ -171,7 +171,7 @@ public class OrganizationController {
     }
     
     @GetMapping("/organization/{organizationId}/employee/{individualId}/dependents")
-    @PreAuthorize("hasAnyAuthority('SUPER_ADMIN', 'ADMIN', 'VIMA_ADMIN', 'SALES_MANAGER')")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'VIMA_ADMIN', 'SALES_MANAGER')")
     public ResponseEntity<ResponseDto<List<OrganizationEmployeeDto>>> getEmployeeDependents(
             @PathVariable UUID organizationId,
             @PathVariable UUID individualId) {
@@ -190,7 +190,7 @@ public class OrganizationController {
      */
     @PostMapping(value = "/organization/{organizationId}/validate/csv", consumes = MediaType.MULTIPART_FORM_DATA_VALUE,
         produces = MediaType.APPLICATION_JSON_VALUE)
-    @PreAuthorize("hasAnyAuthority('VIMA_ADMIN', 'SALES_MANAGER', 'SUPER_ADMIN', 'ADMIN')")
+    @PreAuthorize("hasAnyRole('VIMA_ADMIN', 'SALES_MANAGER', 'SUPER_ADMIN', 'ADMIN')")
     public ResponseEntity<ResponseDto<CsvValidationResponseDto>> validateCsv(
             @PathVariable UUID organizationId,
             @RequestParam("file") MultipartFile file,
@@ -202,7 +202,7 @@ public class OrganizationController {
 
 
     @PostMapping(value = "/organization/{organizationId}/validate")
-    @PreAuthorize("hasAnyAuthority('VIMA_ADMIN', 'SALES_MANAGER', 'SUPER_ADMIN', 'ADMIN')")
+    @PreAuthorize("hasAnyRole('VIMA_ADMIN', 'SALES_MANAGER', 'SUPER_ADMIN', 'ADMIN')")
     public ResponseEntity<ResponseDto<EmployeeUploadResponse>> validateEmployees(
             @PathVariable UUID organizationId,
             @RequestBody List<EmployeeUploadDto> employeeUploadDtoList) {
@@ -215,7 +215,7 @@ public class OrganizationController {
     @PostMapping(value = "/organization/{organizationId}/upload",
         consumes = MediaType.MULTIPART_FORM_DATA_VALUE,
         produces = MediaType.APPLICATION_JSON_VALUE)
-    @PreAuthorize("hasAnyAuthority('VIMA_ADMIN', 'SALES_MANAGER', 'SUPER_ADMIN', 'ADMIN')")
+    @PreAuthorize("hasAnyRole('VIMA_ADMIN', 'SALES_MANAGER', 'SUPER_ADMIN', 'ADMIN')")
     public ResponseEntity<ResponseDto<EmployeeUploadResponse>> uploadEmployees(
             @PathVariable UUID organizationId,
             @RequestParam("file") MultipartFile file,
@@ -228,7 +228,7 @@ public class OrganizationController {
     
     @PostMapping(value = "/organization/{organizationId}/upload/csv", consumes = MediaType.MULTIPART_FORM_DATA_VALUE,
         produces = MediaType.APPLICATION_JSON_VALUE)
-    @PreAuthorize("hasAnyAuthority('VIMA_ADMIN', 'SALES_MANAGER', 'SUPER_ADMIN', 'ADMIN')")
+    @PreAuthorize("hasAnyRole('VIMA_ADMIN', 'SALES_MANAGER', 'SUPER_ADMIN', 'ADMIN')")
     public ResponseEntity<ResponseDto<EmployeeUploadResponse>> uploadDealsFromCsv(
             @PathVariable UUID organizationId,
             @RequestParam("file") MultipartFile file) {
@@ -238,7 +238,7 @@ public class OrganizationController {
     
     @PostMapping(value = "/organization/{organizationId}/delete/csv", consumes = MediaType.MULTIPART_FORM_DATA_VALUE,
         produces = MediaType.APPLICATION_JSON_VALUE)
-    @PreAuthorize("hasAnyAuthority('SUPER_ADMIN', 'ADMIN', 'VIMA_ADMIN')")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'VIMA_ADMIN')")
     public ResponseEntity<ResponseDto<EmployeeUploadResponse>> deleteEmployeesFromCsv(
             @PathVariable UUID organizationId,
             @RequestParam("file") MultipartFile file) {
@@ -248,7 +248,7 @@ public class OrganizationController {
 
     @PostMapping(value = "/organization/{organizationId}/delete", consumes = MediaType.MULTIPART_FORM_DATA_VALUE,
         produces = MediaType.APPLICATION_JSON_VALUE)
-    @PreAuthorize("hasAnyAuthority('SUPER_ADMIN', 'ADMIN', 'VIMA_ADMIN')")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'VIMA_ADMIN')")
     public ResponseEntity<ResponseDto<EmployeeUploadResponse>> delete(
             @PathVariable UUID organizationId,
             @RequestParam("uploadType") String uploadType,
@@ -259,7 +259,7 @@ public class OrganizationController {
 }
     
     @DeleteMapping("/organization/{organizationId}/employee/{employeeId}")
-    @PreAuthorize("hasAnyAuthority('SUPER_ADMIN', 'ADMIN', 'VIMA_ADMIN')")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'VIMA_ADMIN')")
     public ResponseEntity<ResponseDto<String>> deleteEmployee(
             @PathVariable UUID organizationId,
             @PathVariable String employeeId) {
@@ -269,7 +269,7 @@ public class OrganizationController {
     }
     
     @PostMapping("/organization/{organizationId}/employees/bulk-delete")
-    @PreAuthorize("hasAnyAuthority('SUPER_ADMIN', 'ADMIN', 'VIMA_ADMIN')")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'VIMA_ADMIN')")
     public ResponseEntity<ResponseDto<String>> bulkDeleteEmployees(
             @PathVariable UUID organizationId,
             @RequestBody BulkEmployeeDeletionRequestDto requestDto) {

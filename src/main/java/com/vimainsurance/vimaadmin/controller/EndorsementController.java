@@ -53,7 +53,7 @@ public class EndorsementController {
      * Create a new endorsement
      */
     @PostMapping
-    @PreAuthorize("hasAnyAuthority('SUPER_ADMIN', 'ADMIN', 'VIMA_ADMIN')")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'VIMA_ADMIN')")
     public ResponseEntity<ResponseDto<String>> create(@RequestBody EndorsementRequestDto requestDto) {
         logger.info("[correlationId:{}] /endorsements (POST) endpoint called", MDC.get("correlationId"));
         return endorsementService.create(requestDto);
@@ -63,7 +63,7 @@ public class EndorsementController {
      * Update an existing endorsement
      */
     @PutMapping
-    @PreAuthorize("hasAnyAuthority('SUPER_ADMIN', 'ADMIN', 'VIMA_ADMIN')")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'VIMA_ADMIN')")
     public ResponseEntity<ResponseDto<String>> update(@RequestBody EndorsementRequestDto requestDto) {
         logger.info("[correlationId:{}] /endorsements (PUT) endpoint called", MDC.get("correlationId"));
         return endorsementService.update(requestDto);
@@ -73,7 +73,7 @@ public class EndorsementController {
      * Delete an endorsement
      */
     @DeleteMapping("/{endorsementId}")
-    @PreAuthorize("hasAnyAuthority('SUPER_ADMIN', 'ADMIN', 'VIMA_ADMIN')")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'VIMA_ADMIN')")
     public ResponseEntity<ResponseDto<String>> delete(@PathVariable UUID endorsementId) {
         logger.info("[correlationId:{}] /endorsements/{} (DELETE) endpoint called", MDC.get("correlationId"), endorsementId);
         return endorsementService.delete(endorsementId);
@@ -83,7 +83,7 @@ public class EndorsementController {
      * Get endorsement by ID
      */
     @GetMapping("/{endorsementId}")
-    @PreAuthorize("hasAnyAuthority('SUPER_ADMIN', 'ADMIN', 'VIMA_ADMIN', 'SALES_MANAGER')")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'VIMA_ADMIN', 'SALES_MANAGER')")
     public ResponseEntity<ResponseDto<EndorsementResponseDto>> getById(@PathVariable UUID endorsementId) {
         logger.info("[correlationId:{}] /endorsements/{} (GET) endpoint called", MDC.get("correlationId"), endorsementId);
         return endorsementService.getById(endorsementId);
@@ -93,7 +93,7 @@ public class EndorsementController {
      * Get all endorsements
      */
     @GetMapping
-    @PreAuthorize("hasAnyAuthority('SUPER_ADMIN', 'ADMIN', 'VIMA_ADMIN', 'SALES_MANAGER')")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'VIMA_ADMIN', 'SALES_MANAGER')")
     public ResponseEntity<ResponseDto<List<EndorsementResponseDto>>> getAll() {
         logger.info("[correlationId:{}] /endorsements (GET) endpoint called", MDC.get("correlationId"));
         return endorsementService.getAll();
@@ -103,7 +103,7 @@ public class EndorsementController {
      * Get endorsements by organization ID
      */
     @GetMapping("/organization/{organizationId}")
-    @PreAuthorize("hasAnyAuthority('SUPER_ADMIN', 'ADMIN', 'VIMA_ADMIN', 'SALES_MANAGER')")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'VIMA_ADMIN', 'SALES_MANAGER')")
     public ResponseEntity<ResponseDto<List<EndorsementResponseDto>>> getByOrganizationId(
             @PathVariable UUID organizationId) {
         logger.info("[correlationId:{}] /endorsements/organization/{} (GET) endpoint called", MDC.get("correlationId"), organizationId);
@@ -114,7 +114,7 @@ public class EndorsementController {
      * Get endorsements by status
      */
     @GetMapping("/status/{status}")
-    @PreAuthorize("hasAnyAuthority('SUPER_ADMIN', 'ADMIN', 'VIMA_ADMIN', 'SALES_MANAGER')")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'VIMA_ADMIN', 'SALES_MANAGER')")
     public ResponseEntity<ResponseDto<List<EndorsementResponseDto>>> getByStatus(@PathVariable String status) {
         logger.info("[correlationId:{}] /endorsements/status/{} (GET) endpoint called", MDC.get("correlationId"), status);
         return endorsementService.getByStatus(status);
@@ -124,7 +124,7 @@ public class EndorsementController {
      * Get endorsements by endorsement type (ADDITION or DELETION)
      */
     @GetMapping("/type/{endorsementType}")
-    @PreAuthorize("hasAnyAuthority('SUPER_ADMIN', 'ADMIN', 'VIMA_ADMIN', 'SALES_MANAGER')")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'VIMA_ADMIN', 'SALES_MANAGER')")
     public ResponseEntity<ResponseDto<List<EndorsementResponseDto>>> getByEndorsementType(
             @PathVariable String endorsementType) {
         logger.info("[correlationId:{}] /endorsements/type/{} (GET) endpoint called", MDC.get("correlationId"), endorsementType);
@@ -145,7 +145,7 @@ public class EndorsementController {
      * - sortDirection: Sort direction - asc or desc (default: desc)
      */
     @GetMapping("/filtered")
-   // @PreAuthorize("hasAnyAuthority('SUPER_ADMIN', 'ADMIN', 'VIMA_ADMIN', 'SALES_MANAGER', 'HR_ADMIN')")
+   // @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'VIMA_ADMIN', 'SALES_MANAGER', 'HR_ADMIN')")
     public ResponseEntity<ResponseDto<List<EndorsementResponseDto>>> getAllWithFilters(
             @RequestParam(required = false) UUID organizationId,
             @RequestParam(required = false) String organizationName,
@@ -166,7 +166,7 @@ public class EndorsementController {
      * Approve an endorsement
      */
     @PostMapping(value = "/approve", consumes = MediaType.MULTIPART_FORM_DATA_VALUE, produces = MediaType.APPLICATION_JSON_VALUE)
-    @PreAuthorize("hasAnyAuthority('SUPER_ADMIN', 'ADMIN', 'VIMA_ADMIN')")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'VIMA_ADMIN')")
     public ResponseEntity<ResponseDto<String>> approve(@RequestPart(value = "files", required = false) MultipartFile[] files, @RequestPart("requestDto") EndorsementRequestDto requestDto) {
         logger.info("[correlationId:{}] /endorsements/approve (POST) endpoint called", MDC.get("correlationId"));
         return endorsementService.approve(files, requestDto);
@@ -176,7 +176,7 @@ public class EndorsementController {
      * Reject an endorsement
      */
     @PostMapping("/{endorsementId}/reject")
-    @PreAuthorize("hasAnyAuthority('SUPER_ADMIN', 'ADMIN', 'VIMA_ADMIN')")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'VIMA_ADMIN')")
     public ResponseEntity<ResponseDto<String>> reject(@PathVariable UUID endorsementId) {
         logger.info("[correlationId:{}] /endorsements/{}/reject (POST) endpoint called", MDC.get("correlationId"), endorsementId);
         return endorsementService.reject(endorsementId);
@@ -186,7 +186,7 @@ public class EndorsementController {
      * Get pending count
      */
     @GetMapping("/pending-count")
-    @PreAuthorize("hasAnyAuthority('SUPER_ADMIN', 'ADMIN', 'VIMA_ADMIN', 'SALES_MANAGER')")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'VIMA_ADMIN', 'SALES_MANAGER')")
     public ResponseEntity<ResponseDto<String>> getPendingCount() {
         logger.info("[correlationId:{}] /endorsements/pending-count (GET) endpoint called", MDC.get("correlationId"));
         return endorsementService.getPendingCount();
@@ -196,7 +196,7 @@ public class EndorsementController {
     * Get employees by endorsement id with pagination
      */
     @GetMapping("/{endorsementId}/employees")
-    @PreAuthorize("hasAnyAuthority('SUPER_ADMIN', 'ADMIN', 'VIMA_ADMIN', 'SALES_MANAGER')")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'VIMA_ADMIN', 'SALES_MANAGER')")
     public ResponseEntity<ResponseDto<List<OrganizationEmployeeDto>>> getEmployeesByEndorsementId(@PathVariable UUID endorsementId, @RequestParam (defaultValue = "-1", required = false) int page, @RequestParam (defaultValue = "-1", required = false) int rec) {
         logger.info("[correlationId:{}] /endorsements/{}/employees (GET) endpoint called", MDC.get("correlationId"), endorsementId);
         return organizationService.getEmployeesByEndorsementId(endorsementId, page, rec);
@@ -207,7 +207,7 @@ public class EndorsementController {
     * Confirm an endorsement
     */
     @PostMapping("/{endorsementId}/confirm")
-    @PreAuthorize("hasAnyAuthority('SUPER_ADMIN', 'ADMIN', 'VIMA_ADMIN')")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'VIMA_ADMIN')")
     public ResponseEntity<ResponseDto<String>> confirm(@PathVariable UUID endorsementId) {
         logger.info("[correlationId:{}] /endorsements/{}/confirm (POST) endpoint called", MDC.get("correlationId"), endorsementId);
         return endorsementService.confirm(endorsementId);
