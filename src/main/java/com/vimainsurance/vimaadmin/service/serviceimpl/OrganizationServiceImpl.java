@@ -22,6 +22,7 @@ import org.springframework.core.io.Resource;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
+import org.springframework.data.jpa.domain.Specification;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
@@ -59,10 +60,12 @@ import com.vimainsurance.vimaadmin.repository.IOrganizationRepository;
 import com.vimainsurance.vimaadmin.service.IDocumentService;
 import com.vimainsurance.vimaadmin.service.IOrganizationService;
 import com.vimainsurance.vimaadmin.service.IS3Service;
+import com.vimainsurance.vimaadmin.specification.OrganizationSpecification;
 import com.vimainsurance.vimaadmin.util.Constants;
 import com.vimainsurance.vimaadmin.util.CsvDealsReaderUtil;
 import com.vimainsurance.vimaadmin.util.EnvironmentUtil;
 import com.vimainsurance.vimaadmin.util.JwtUserExtractor;
+import com.vimainsurance.vimaadmin.exception.OrganizationAccessDeniedException;
 
 import org.springframework.core.env.Environment;
 
@@ -146,6 +149,7 @@ public class OrganizationServiceImpl implements IOrganizationService {
         logger.info("[correlationId:{}] Organization update called", MDC.get("correlationId"));
         BaseResponse<String> responseObj = new BaseResponse<>();
         try {
+            jwtUserExtractor.validateOrganizationAccess(requestDto.getOrganizationId());
             if (requestDto.getOrganizationId() == null) {
                 return responseObj.render(responseObj.formErrorResponse("Organization ID is required"));
             }
@@ -168,6 +172,9 @@ public class OrganizationServiceImpl implements IOrganizationService {
             org.setUpdatedAt(java.time.LocalDateTime.now());
             organizationRepository.save(org);
             return responseObj.render(responseObj.formSuccessResponse(Constants.SUCCESS, Constants.UPDATE_SUCCESS));
+        } catch (OrganizationAccessDeniedException e) {
+            logger.warn("[correlationId:{}] Organization access denied for organizationId: {}", MDC.get("correlationId"), requestDto.getOrganizationId());
+            return responseObj.render(responseObj.formErrorResponse(403, e.getMessage()));
         } catch (Exception e) {
             logger.error("[correlationId:{}] Exception in Organization update: {}", MDC.get("correlationId"), e.getMessage(), e);
             return responseObj.render(responseObj.formErrorResponse(e.getMessage()));
@@ -199,11 +206,15 @@ public class OrganizationServiceImpl implements IOrganizationService {
         logger.info("[correlationId:{}] Organization getById called for {}", MDC.get("correlationId"), organizationId);
         BaseResponse<OrganizationResponseDto> responseObj = new BaseResponse<>();
         try {
+            jwtUserExtractor.validateOrganizationAccess(organizationId);
             Optional<Organization> opt = organizationRepository.findById(organizationId);
             if (opt.isEmpty()) {
                 return responseObj.render(responseObj.formErrorResponse(Constants.RECORD_NOT_FOUND_MESSAGE));
             }
             return responseObj.render(responseObj.formSuccessResponse(Constants.SUCCESS, mapToResponseDto(opt.get())));
+        } catch (OrganizationAccessDeniedException e) {
+            logger.warn("[correlationId:{}] Organization access denied for organizationId: {}", MDC.get("correlationId"), organizationId);
+            return responseObj.render(responseObj.formErrorResponse(403, e.getMessage()));
         } catch (Exception e) {
             logger.error("[correlationId:{}] Exception in Organization getById: {}", MDC.get("correlationId"), e.getMessage(), e);
             return responseObj.render(responseObj.formErrorResponse(e.getMessage()));
@@ -250,6 +261,7 @@ public class OrganizationServiceImpl implements IOrganizationService {
                    MDC.get("correlationId"), search, status, sortBy, sortDirection);
         BaseResponse<List<OrganizationResponseDto>> responseObj = new BaseResponse<>();
         try {
+            List<UUID> organizationIds = jwtUserExtractor.getCurrentOrganizations().stream().map(UUID::fromString).collect(Collectors.toList());
             // Handle special case for getting all organizations without pagination
             // WARNING: This can cause memory issues with large datasets - consider adding a maximum limit
             if (page == -1 && rec == -1) {
@@ -274,22 +286,11 @@ public class OrganizationServiceImpl implements IOrganizationService {
             Sort sort = createSort(sortBy, sortDirection);
             PageRequest pageRequest = PageRequest.of(page, rec, sort);
             
-            Page<Organization> organizationPage;
+            // Build specification with filters
+            Specification<Organization> spec = OrganizationSpecification.withFilters(organizationIds, search, status);
             
-            // Determine which query method to use based on search and status filters
-            if (search != null && !search.trim().isEmpty() && status != null && !status.trim().isEmpty()) {
-                // Both search and status filter
-                organizationPage = organizationRepository.searchOrganizationsByStatus(status, search, pageRequest);
-            } else if (search != null && !search.trim().isEmpty()) {
-                // Only search filter
-                organizationPage = organizationRepository.searchOrganizations(search, pageRequest);
-            } else if (status != null && !status.trim().isEmpty()) {
-                // Only status filter
-                organizationPage = organizationRepository.findAllByStatusWithPagination(status, pageRequest);
-            } else {
-                // No filters - get all
-                organizationPage = organizationRepository.findAll(pageRequest);
-            }
+            // Execute query using specification
+            Page<Organization> organizationPage = organizationRepository.findAll(spec, pageRequest);
 
             LinkedHashSet<OrganizationResponseDto> organizationResponseSet = new LinkedHashSet<>();
             if (organizationPage.isEmpty()) {
@@ -331,6 +332,7 @@ public class OrganizationServiceImpl implements IOrganizationService {
         logger.info("[correlationId:{}] uploadDocument called for organization {}", MDC.get("correlationId"), organizationId);
         BaseResponse<String> responseObj = new BaseResponse<>();
         try {
+            jwtUserExtractor.validateOrganizationAccess(organizationId);
             String uploadedBy = SecurityContextHolder.getContext().getAuthentication().getName();
             Optional<AdminUser> adminUser = adminUserRepository.findByUsername(uploadedBy);
             if(adminUser.isEmpty()){
@@ -341,7 +343,7 @@ public class OrganizationServiceImpl implements IOrganizationService {
             requestDto.setUploadedByRole(UserRole.fromValue(agent.getRole()));
             ResponseEntity<ResponseDto<List<Document>>> response = documentService.uploadKYCDocuments(
                 requestDto.getFiles(), 
-                organizationId.toString(), 
+                organizationId.toString(),
                 DocumentEntityType.ORGANIZATION, 
                 DocumentType.fromValue(requestDto.getDocumentType()), 
                 requestDto.getUploadedBy(), 
@@ -354,6 +356,9 @@ public class OrganizationServiceImpl implements IOrganizationService {
                 return responseObj.render(responseObj.formErrorResponse("Error Occured while uploading document"));
             }
             return responseObj.render(responseObj.formSuccessResponse(Constants.SUCCESS, "Document uploaded successfully"));
+        } catch (OrganizationAccessDeniedException e) {
+            logger.warn("[correlationId:{}] Organization access denied for organizationId: {}", MDC.get("correlationId"), organizationId);
+            return responseObj.render(responseObj.formErrorResponse(403, e.getMessage()));
         } catch (Exception e) {
             logger.error("[correlationId:{}] Exception in uploadDocument: {}", MDC.get("correlationId"), e.getMessage(), e);
             return responseObj.render(responseObj.formErrorResponse("Error Occured while uploading document"));
@@ -361,9 +366,10 @@ public class OrganizationServiceImpl implements IOrganizationService {
     }
 
     @Override
-    public ResponseEntity<Resource> downloadDocument(String documentId) {
+    public ResponseEntity<Resource> downloadDocument(UUID organizationId, String documentId) {
         logger.info("[correlationId:{}] downloadDocument called for document {}", MDC.get("correlationId"), documentId);
         try {
+            jwtUserExtractor.validateOrganizationAccess(organizationId);
             Optional<Document> documentOpt = documentRepository.findByDocumentId(UUID.fromString(documentId));
             if(documentOpt.isEmpty()){
                 return ResponseEntity.status(HttpStatus.NOT_FOUND).build();
@@ -375,6 +381,9 @@ public class OrganizationServiceImpl implements IOrganizationService {
                 .header("Access-Control-Expose-Headers", "content-disposition")
                 .contentType(MediaType.parseMediaType(document.getMimeType()))
                 .body(new InputStreamResource(downloadUrl));
+        } catch (OrganizationAccessDeniedException e) {
+            logger.warn("[correlationId:{}] Organization access denied for organizationId: {}", MDC.get("correlationId"), organizationId);
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
         } catch (Exception e) {
             logger.error("[correlationId:{}] Exception in downloadDocument: {}", MDC.get("correlationId"), e.getMessage(), e);
             return ResponseEntity.status(HttpStatus.NOT_FOUND).build();
@@ -382,10 +391,11 @@ public class OrganizationServiceImpl implements IOrganizationService {
     }
 
     @Override
-    public ResponseEntity<ResponseDto<String>> deleteDocument(String documentId) {
+    public ResponseEntity<ResponseDto<String>> deleteDocument(UUID organizationId, String documentId) {
         logger.info("[correlationId:{}] deleteDocument called for document {}", MDC.get("correlationId"), documentId);
         BaseResponse<String> responseObj = new BaseResponse<>();
         try {
+            jwtUserExtractor.validateOrganizationAccess(organizationId);
             Optional<Document> documentOpt = documentRepository.findByDocumentId(UUID.fromString(documentId));
             if(documentOpt.isEmpty()){
                 return responseObj.render(responseObj.formErrorResponse(Constants.RECORD_NOT_FOUND_MESSAGE));
@@ -399,6 +409,9 @@ public class OrganizationServiceImpl implements IOrganizationService {
             documentRepository.delete(document);
             logger.info("[correlationId:{}] Document deleted successfully", MDC.get("correlationId"));
             return responseObj.render(responseObj.formSuccessResponse(Constants.SUCCESS, "Document deleted successfully"));
+        } catch (OrganizationAccessDeniedException e) {
+            logger.warn("[correlationId:{}] Organization access denied for organizationId: {}", MDC.get("correlationId"), organizationId);
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
         } catch (Exception e) {
             logger.error("[correlationId:{}] Exception in deleteDocument: {}", MDC.get("correlationId"), e.getMessage(), e);
             return responseObj.render(responseObj.formErrorResponse("Error Occured while deleting document"));
@@ -410,6 +423,7 @@ public class OrganizationServiceImpl implements IOrganizationService {
         logger.info("[correlationId:{}] getDocuments called for organization {}", MDC.get("correlationId"), organizationId);
         BaseResponse<List<DocumentResponseDto>> responseObj = new BaseResponse<>();
         try {
+            jwtUserExtractor.validateOrganizationAccess(organizationId);
             List<DocumentResponseDto> responseDto = documentRepository
                 .findByEntityId(
                     organizationId.toString()
@@ -428,6 +442,9 @@ public class OrganizationServiceImpl implements IOrganizationService {
                 })
                 .collect(Collectors.toList());
             return responseObj.render(responseObj.formSuccessResponse(Constants.SUCCESS, responseDto, responseDto.size()));
+        } catch (OrganizationAccessDeniedException e) {
+            logger.warn("[correlationId:{}] Organization access denied for organizationId: {}", MDC.get("correlationId"), organizationId);
+            return responseObj.render(responseObj.formErrorResponse(403, e.getMessage()));
         } catch (Exception e) {
             logger.error("[correlationId:{}] Exception in getDocuments: {}", MDC.get("correlationId"), e.getMessage(), e);
             return responseObj.render(responseObj.formErrorResponse("Error Occured while getting documents"));
@@ -439,12 +456,16 @@ public class OrganizationServiceImpl implements IOrganizationService {
         logger.info("[correlationId:{}] getEmployees called for organization {}", MDC.get("correlationId"), organizationId);
         BaseResponse<List<OrganizationEmployeeDto>> responseObj = new BaseResponse<>();
         try {
+            jwtUserExtractor.validateOrganizationAccess(organizationId);
             List<Deals> dealsList = dealsRepository.findByOrganizationId(organizationId);
             List<OrganizationEmployeeDto> responseDto = dealsList.stream()
                 .filter(deal -> Boolean.TRUE.equals(deal.getIsPrimaryMember()))
                 .map(this::mapToOrganizationEmployeeDto)
                 .collect(Collectors.toList());
             return responseObj.render(responseObj.formSuccessResponse(Constants.SUCCESS, responseDto, responseDto.size()));
+        } catch (OrganizationAccessDeniedException e) {
+            logger.warn("[correlationId:{}] Organization access denied for organizationId: {}", MDC.get("correlationId"), organizationId);
+            return responseObj.render(responseObj.formErrorResponse(403, e.getMessage()));
         } catch (Exception e) {
             logger.error("[correlationId:{}] Exception in getEmployees: {}", MDC.get("correlationId"), e.getMessage(), e);
             return responseObj.render(responseObj.formErrorResponse("Error Occured while getting employees"));
@@ -1400,6 +1421,7 @@ public class OrganizationServiceImpl implements IOrganizationService {
         MDC.get("correlationId"), employeeUploadDtoList.size(), organizationId);
     BaseResponse<EmployeeUploadResponse> responseObj = new BaseResponse<>();
     try {
+        jwtUserExtractor.validateOrganizationAccess(organizationId);
         Organization organization = organizationRepository.findByOrganizationId(organizationId).orElseThrow(() -> new RuntimeException("Organization not found"));
         EmployeeUploadResponse employeeUploadResponse = new EmployeeUploadResponse();
         AdminUser adminuser = null;
@@ -1409,6 +1431,10 @@ public class OrganizationServiceImpl implements IOrganizationService {
         }
         employeeUploadResponse = employeeService.uploadEmployees(employeeUploadDtoList, organization, adminuser, file, uploadType);
         return responseObj.render(responseObj.formSuccessResponse(Constants.SUCCESS, employeeUploadResponse));
+    }
+    catch (OrganizationAccessDeniedException e) {
+        logger.warn("[correlationId:{}] Organization access denied for organizationId: {}", MDC.get("correlationId"), organizationId);
+        return responseObj.render(responseObj.formErrorResponse(403, e.getMessage()));
     }
     catch (Exception e) {
         logger.error("[correlationId:{}] Exception in uploadEmployees: {}", MDC.get("correlationId"), e.getMessage(), e);
@@ -1440,6 +1466,7 @@ public class OrganizationServiceImpl implements IOrganizationService {
             MDC.get("correlationId"), bulkEmployeeDeletionRequestDtoList.size(), organizationId);
         BaseResponse<EmployeeUploadResponse> responseObj = new BaseResponse<>();
         try {
+            jwtUserExtractor.validateOrganizationAccess(organizationId);
             Organization organization = organizationRepository.findByOrganizationId(organizationId).orElseThrow(() -> new RuntimeException("Organization not found"));
             AdminUser adminuser = null;
             if(EnvironmentUtil.isProductionEnvironment(environment)) {
@@ -1448,6 +1475,10 @@ public class OrganizationServiceImpl implements IOrganizationService {
             }
             EmployeeUploadResponse employeeUploadResponse = employeeService.deleteEmployee(bulkEmployeeDeletionRequestDtoList, organization, adminuser, file, uploadType);
             return responseObj.render(responseObj.formSuccessResponse(Constants.SUCCESS, employeeUploadResponse));
+        }
+        catch (OrganizationAccessDeniedException e) {
+            logger.warn("[correlationId:{}] Organization access denied for organizationId: {}", MDC.get("correlationId"), organizationId);
+            return responseObj.render(responseObj.formErrorResponse(403, e.getMessage()));
         }
         catch (Exception e) {
             logger.error("[correlationId:{}] Exception in delete: {}", MDC.get("correlationId"), e.getMessage(), e);

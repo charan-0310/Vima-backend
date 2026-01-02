@@ -3,9 +3,11 @@ package com.vimainsurance.vimaadmin.service;
 import java.util.List;
 import java.util.UUID;
 
+import org.springframework.core.io.Resource;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.multipart.MultipartFile;
 
+import com.vimainsurance.vimaadmin.dto.DocumentResponseDto;
 import com.vimainsurance.vimaadmin.dto.EndorsementRequestDto;
 import com.vimainsurance.vimaadmin.dto.EndorsementResponseDto;
 import com.vimainsurance.vimaadmin.dto.ResponseDto;
@@ -51,6 +53,10 @@ public interface IEndorsementService {
     ResponseEntity<ResponseDto<String>> confirm(UUID endorsementId);
 
     ResponseEntity<ResponseDto<String>> confirmSchedule();
+
+    ResponseEntity<ResponseDto<List<DocumentResponseDto>>> getDocuments(String endorsementId, int page, int rec);
+
+    ResponseEntity<Resource> downloadDocument(UUID endorsementId,String documentId);
 
 }
 

@@ -139,18 +139,18 @@ public class OrganizationController {
         return organizationService.uploadDocument(requestDto, organizationId);
     }
 
-    @GetMapping("/organization/documents/{documentId}/download")
+    @GetMapping("/organization/{organizationId}/documents/{documentId}/download")
     @PreAuthorize("hasAnyAuthority('SUPER_ADMIN', 'ADMIN', 'VIMA_ADMIN', 'SALES_MANAGER')")
-    public ResponseEntity<Resource> downloadDocument(@PathVariable String documentId) {
-        logger.info("[correlationId:{}] /organization/documents/{}/download (GET) endpoint called", MDC.get("correlationId"), documentId);
-        return organizationService.downloadDocument(documentId);
+    public ResponseEntity<Resource> downloadDocument(@PathVariable UUID organizationId, @PathVariable String documentId) {
+        logger.info("[correlationId:{}] /organization/{}/documents/{}/download (GET) endpoint called", MDC.get("correlationId"), organizationId, documentId);
+        return organizationService.downloadDocument(organizationId, documentId);
     }
 
     @DeleteMapping("/organization/{organizationId}/documents/{documentId}")
     @PreAuthorize("hasAnyAuthority('SUPER_ADMIN', 'ADMIN', 'VIMA_ADMIN')")
     public ResponseEntity<ResponseDto<String>> deleteDocument(@PathVariable UUID organizationId, @PathVariable String documentId) {
         logger.info("[correlationId:{}] /organization/{}/documents/{} (DELETE) endpoint called", MDC.get("correlationId"), organizationId, documentId);
-        return organizationService.deleteDocument(documentId);
+        return organizationService.deleteDocument(organizationId, documentId);
     }
 
     @GetMapping("/organization/{organizationId}/employees")
