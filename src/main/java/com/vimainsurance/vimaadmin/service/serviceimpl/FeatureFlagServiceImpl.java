@@ -16,10 +16,12 @@ import com.vimainsurance.vimaadmin.repository.IFeatureFlagRepository;
 import com.vimainsurance.vimaadmin.service.FeatureFlagService;
 import com.vimainsurance.vimaadmin.specification.FeatureFlagSpecification;
 import com.vimainsurance.vimaadmin.util.TenantContext;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+@Slf4j
 @Service
 public class FeatureFlagServiceImpl implements FeatureFlagService {
 
@@ -39,8 +41,9 @@ public class FeatureFlagServiceImpl implements FeatureFlagService {
         final List<String> rolesFromContext = new ArrayList<>();
         if (currentTenant != null) {
             rolesFromContext.addAll(currentTenant.getOrDefault("ROLES", List.of()));
-            rolesFromContext.addAll(currentTenant.getOrDefault("roles", List.of()));
+            rolesFromContext.addAll(currentTenant.getOrDefault("Roles", List.of()));
         }
+        log.info("############  ROLES from TenantContext: {}", rolesFromContext);
         final Set<String> normalizedRoles = rolesFromContext.stream()
                 .filter(r -> r != null && !r.isBlank())
                 .map(String::toUpperCase)
@@ -49,17 +52,19 @@ public class FeatureFlagServiceImpl implements FeatureFlagService {
         final List<String> organizationIds = (currentTenant != null) ? currentTenant.getOrDefault("organizationIds", List.of()) : List.of();
         final Set<String> orgIdSet = organizationIds.stream().filter(id -> id != null && !id.isBlank()).collect(Collectors.toCollection(LinkedHashSet::new));
 
+        log.info("############  Organization IDs from TenantContext: {}", organizationIds);
         List<FeatureFlagResponseDto> responseDtos = new ArrayList<>();
 
         for (FeatureFlag flag : featureFlags) {
             if (flag == null) continue;
             // skip inactive flags
-           // if (flag.getIsActive() != null && !flag.getIsActive()) continue;
+            // if (flag.getIsActive() != null && !flag.getIsActive()) continue;
 
             // Collect matching roles
             List<FeatureFlagRole> matchedRoles = new ArrayList<>();
-            if (flag.getRoles() != null) {
-                for (FeatureFlagRole role : flag.getRoles()) {
+            List<FeatureFlagRole> flagRoles = flag.getRoles();
+            if (flagRoles != null) {
+                for (FeatureFlagRole role : flagRoles) {
                     if (role == null || role.getRoleName() == null) continue;
                     if (normalizedRoles.contains(role.getRoleName())) {
                         matchedRoles.add(role);
@@ -69,9 +74,11 @@ public class FeatureFlagServiceImpl implements FeatureFlagService {
 
             // Collect matching companies by organization id
             List<FeatureFlagCompany> matchedCompanies = new ArrayList<>();
-            if (flag.getCompanies() != null) {
-                for (FeatureFlagCompany comp : flag.getCompanies()) {
-                    if (comp == null || comp.getOrganization() == null || comp.getOrganization().getOrganizationId() == null) continue;
+            List<FeatureFlagCompany> companies = flag.getCompanies();
+            if (companies != null) {
+                for (FeatureFlagCompany comp : companies) {
+                    if (comp == null) continue;
+                    if (comp.getOrganization() == null || comp.getOrganization().getOrganizationId() == null) continue;
                     String orgId = comp.getOrganization().getOrganizationId().toString();
                     if (orgIdSet.contains(orgId)) {
                         matchedCompanies.add(comp);
@@ -80,14 +87,14 @@ public class FeatureFlagServiceImpl implements FeatureFlagService {
             }
 
             // Decide inclusion: include if any matched role or company OR user is SUPER_ADMIN
-            boolean isSuperAdmin = normalizedRoles.stream().anyMatch(r -> r.equalsIgnoreCase("ROLE_SUPER_ADMIN"));
-            if (!isSuperAdmin && matchedRoles.isEmpty() && matchedCompanies.isEmpty()) {
-                continue; // not accessible to this tenant
-            }
+            boolean isSuperAdmin = normalizedRoles.stream().anyMatch(r -> r.equalsIgnoreCase("ROLE_SUPER_ADMIN") || r.equalsIgnoreCase("SUPER_ADMIN"));
+//            if (!isSuperAdmin && matchedRoles.isEmpty() && matchedCompanies.isEmpty()) {
+//                continue; // not accessible to this tenant
+//            }
 
             /// Build DTO
-                FeatureFlagResponseDto dto = createDto(flag, matchedRoles, matchedCompanies, isSuperAdmin);
-                responseDtos.add(dto);
+            FeatureFlagResponseDto dto = createDto(flag, matchedRoles, matchedCompanies, isSuperAdmin);
+            responseDtos.add(dto);
         }
 
         return responseDtos;
@@ -101,52 +108,63 @@ public class FeatureFlagServiceImpl implements FeatureFlagService {
         dto.setFlagId(flag.getFlagId() != null ? flag.getFlagId().toString() : null);
         dto.setFlagKey(flag.getFlagKey());
         dto.setDescription(flag.getDescription());
-        dto.setIsActive(Boolean.TRUE);
+        // Active if there is at least one matched role
+        dto.setIsActive( !matchedRoles.isEmpty() || isSuperAdmin);
 
-        Set<String> actionsUnion = new LinkedHashSet<>();
-        if (matchedRoles != null) {
-            for (FeatureFlagRole r : matchedRoles) {
-                if (r.getActions() != null) {
-                    actionsUnion.addAll(Arrays.asList(r.getActions()));
-                }
-            }
-        }
-        if (matchedCompanies != null) {
-            for (FeatureFlagCompany c : matchedCompanies) {
-                if (c.getActions() != null) {
-                    actionsUnion.addAll(Arrays.asList(c.getActions()));
-                }
+        Set<String> actions = new LinkedHashSet<>();
+        for (FeatureFlagRole r : matchedRoles) {
+            if (r.getActions() != null) {
+                actions.addAll(Arrays.asList(r.getActions()));
             }
         }
 
-        if (isSuperAdmin && actionsUnion.isEmpty()) {
-            if (flag.getRoles() != null) {
-                for (FeatureFlagRole r : flag.getRoles()) {
-                    if (r.getActions() != null) actionsUnion.addAll(Arrays.asList(r.getActions()));
-                }
-            }
-            if (flag.getCompanies() != null) {
-                for (FeatureFlagCompany c : flag.getCompanies()) {
-                    if (c.getActions() != null) actionsUnion.addAll(Arrays.asList(c.getActions()));
-                }
+        for (FeatureFlagCompany c : matchedCompanies) {
+            if (c.getActions() != null) {
+                actions.addAll(Arrays.asList(c.getActions()));
             }
         }
-        dto.setActions(new ArrayList<>(actionsUnion));
+
+        if (isSuperAdmin && actions.isEmpty()) {
+            for (FeatureFlagRole r : flag.getRoles()) {
+                if (r.getActions() != null) actions.addAll(Arrays.asList(r.getActions()));
+            }
+            for (FeatureFlagCompany c : flag.getCompanies()) {
+                if (c.getActions() != null) actions.addAll(Arrays.asList(c.getActions()));
+            }
+        }
+
+        dto.setActions(new ArrayList<>(actions));
 
         List<FeatureFlagResponseDto.CompanyDto> companyDtos = new ArrayList<>();
-        if (matchedCompanies != null) {
-            for (FeatureFlagCompany c : matchedCompanies) {
-                FeatureFlagResponseDto.CompanyDto cd = new FeatureFlagResponseDto.CompanyDto();
-                cd.setId(c.getId() != null ? c.getId().toString() : null);
-                cd.setFlagId(flag.getFlagId() != null ? flag.getFlagId().toString() : null);
-                cd.setOrganizationId(c.getOrganization() != null && c.getOrganization().getOrganizationId() != null ? c.getOrganization().getOrganizationId().toString() : null);
-                cd.setActions(c.getActions() != null ? Arrays.asList(c.getActions()) : List.of());
-                companyDtos.add(cd);
-            }
+        for (FeatureFlagCompany c : matchedCompanies) {
+            FeatureFlagResponseDto.CompanyDto cd = getCompanyDto(flag, c);
+            companyDtos.add(cd);
         }
         dto.setCompanies(companyDtos);
 
         return dto;
+    }
+
+    private static FeatureFlagResponseDto.CompanyDto getCompanyDto(FeatureFlag flag, FeatureFlagCompany c) {
+        FeatureFlagResponseDto.CompanyDto cd = new FeatureFlagResponseDto.CompanyDto();
+        cd.setId(c.getId() != null ? c.getId().toString() : null);
+        cd.setFlagId(flag.getFlagId() != null ? flag.getFlagId().toString() : null);
+        try {
+            if (c.getOrganization() != null) {
+                var org = c.getOrganization();
+                cd.setOrganizationId(org.getOrganizationId() != null ? org.getOrganizationId().toString() : null);
+                cd.setOrganizationName(org.getOrganizationName() != null ? org.getOrganizationName() : null);
+            } else {
+                cd.setOrganizationId(null);
+                cd.setOrganizationName(null);
+            }
+        } catch (jakarta.persistence.EntityNotFoundException ex) {
+            // referenced organization not present — treat as absent
+            cd.setOrganizationId(null);
+            cd.setOrganizationName(null);
+        }
+        cd.setActions(c.getActions() != null ? Arrays.asList(c.getActions()) : List.of());
+        return cd;
     }
 }
 

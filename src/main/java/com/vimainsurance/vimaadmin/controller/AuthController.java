@@ -86,7 +86,7 @@ public class AuthController {
     }
 
     @GetMapping("/auth/me")
-    @PreAuthorize("hasAnyAuthority('SUPER_ADMIN', 'ADMIN', 'VIMA_ADMIN', 'SALES_MANAGER', 'SALES_AGENT', 'HR_ADMIN')")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'VIMA_ADMIN', 'SALES_MANAGER', 'SALES_AGENT', 'HR_ADMIN')")
     public ResponseEntity<ResponseDto<List<FeatureFlagResponseDto>>> getFeatureFalgs() {
         List<FeatureFlagResponseDto> response = featureFlagService.findAllMatchedFeatureFlags();
         ResponseDto<List<FeatureFlagResponseDto>> dto = new ResponseDto<>();

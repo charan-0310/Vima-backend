@@ -18,3 +18,14 @@ VALUES  ('9999aaaa-bbbb-cccc-dddd-eeeeffff0000', 'group-insurance.claims','Claim
 
 INSERT INTO admin.feature_flags (flag_id, flag_key, description, is_active)
 VALUES  ('f0e1d2c3-b4a5-9607-1827-374657485960', 'endorsement','Enable endorsement functionality', FALSE);
+
+INSERT INTO admin.feature_flags (flag_id, flag_key, description, is_active)
+VALUES  ('123e4567-e89b-12d3-a456-426614174000', 'user-management','User management features', FALSE);
+
+INSERT INTO admin.feature_flags (flag_id, flag_key, description, is_active)
+VALUES  ('abcdef12-3456-7890-abcd-ef1234567890', 'feature-management','Feature management tools', FALSE);
+
+INSERT INTO admin.feature_flags (flag_id, flag_key, description, is_active)
+VALUES  ('0a1b2c3d-4e5f-6789-0a1b-2c3d4e5f6789', 'system-config','System configuration options', FALSE);
+
+

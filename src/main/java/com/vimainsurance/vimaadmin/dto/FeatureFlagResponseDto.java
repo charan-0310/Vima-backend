@@ -40,6 +40,9 @@ public class FeatureFlagResponseDto {
         @JsonProperty("organization_id")
         private String organizationId;
 
+        @JsonProperty("organization_name")
+        private String organizationName;
+
         private List<String> actions;
     }
 }
