@@ -72,7 +72,7 @@ public class TenantFilter extends OncePerRequestFilter {
                 if (jwtUserExtractor != null) {
                     try {
                         List<String> groups = jwtUserExtractor.getCurrentGroups();
-                        tenantMap.putIfAbsent("ROLES", groups.stream().filter(group -> group.startsWith("ROLE_")).toList());
+                        tenantMap.putIfAbsent("Roles", groups.stream().filter(group -> group.startsWith("ROLE_")).toList());
 
                         List<String> orgsFromJwt = jwtUserExtractor.getCurrentOrganizations();
                         if (orgsFromJwt != null && !orgsFromJwt.isEmpty()) {

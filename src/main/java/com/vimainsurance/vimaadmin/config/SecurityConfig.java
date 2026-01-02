@@ -103,7 +103,7 @@ public class SecurityConfig {
                         new SimpleGrantedAuthority("VIMA_ADMIN"),
                         new SimpleGrantedAuthority("SALES_MANAGER"),
                         new SimpleGrantedAuthority("SALES_AGENT"),
-                        new SimpleGrantedAuthority("HR_MANAGER")
+                        new SimpleGrantedAuthority("HR_ADMIN")
                     )
                 );
                 SecurityContextHolder.getContext().setAuthentication(auth);

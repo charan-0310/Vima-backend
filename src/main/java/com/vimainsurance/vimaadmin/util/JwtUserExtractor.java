@@ -15,6 +15,7 @@ import org.springframework.stereotype.Component;
 
 import com.vimainsurance.vimaadmin.entity.AdminUser;
 import com.vimainsurance.vimaadmin.enums.UserRole;
+import com.vimainsurance.vimaadmin.exception.OrganizationAccessDeniedException;
 import com.vimainsurance.vimaadmin.repository.IAdminUserRepository;
 
 /**
@@ -381,6 +382,21 @@ public class JwtUserExtractor {
         return getCurrentJwt()
                 .map(this::getOrganizations)
                 .orElse(new ArrayList<>());
+    }
+
+    /**
+     * Validates that the current user has access to the specified organization.
+     * If the user has organization restrictions and the organization is not in their allowed list,
+     * throws OrganizationAccessDeniedException.
+     * 
+     * @param organizationId The organization ID to validate access for
+     * @throws OrganizationAccessDeniedException if the user is not authorized to access the organization
+     */
+    public void validateOrganizationAccess(UUID organizationId) {
+        List<String> allowedOrganizations = getCurrentOrganizations();
+        if (!allowedOrganizations.isEmpty() && !allowedOrganizations.contains(organizationId.toString())) {
+            throw new OrganizationAccessDeniedException("You are not authorized to access this organization");
+        }
     }
 }
 

@@ -29,6 +29,7 @@ import org.springframework.web.multipart.MultipartFile;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.core.io.InputStreamResource;
+
 import java.io.InputStream;
 
 import java.time.LocalDateTime;
@@ -44,6 +45,7 @@ import org.springframework.data.domain.PageRequest;
 import org.springframework.http.HttpStatus;
 
 import com.vimainsurance.vimaadmin.dto.DocumentResponseDto;
+import com.vimainsurance.vimaadmin.util.TenantContext;
 
 /**
  * Service implementation for Document management
@@ -749,7 +751,7 @@ public class DocumentServiceImpl implements IDocumentService {
         return mimeType != null && mimeType.startsWith("image/");
     }
     
-   private static String formatFileSize(long fileSize) {
+    static String formatFileSize(long fileSize) {
     if(fileSize < 1024) {
         return fileSize + " B";
     }
