@@ -83,7 +83,7 @@ public class EndorsementController {
      * Get endorsement by ID
      */
     @GetMapping("/{endorsementId}")
-    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'VIMA_ADMIN', 'SALES_MANAGER')")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'VIMA_ADMIN', 'SALES_MANAGER', 'HR_ADMIN')")
     public ResponseEntity<ResponseDto<EndorsementResponseDto>> getById(@PathVariable UUID endorsementId) {
         logger.info("[correlationId:{}] /endorsements/{} (GET) endpoint called", MDC.get("correlationId"), endorsementId);
         return endorsementService.getById(endorsementId);
@@ -145,7 +145,7 @@ public class EndorsementController {
      * - sortDirection: Sort direction - asc or desc (default: desc)
      */
     @GetMapping("/filtered")
-   // @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'VIMA_ADMIN', 'SALES_MANAGER', 'HR_ADMIN')")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'VIMA_ADMIN', 'SALES_MANAGER', 'HR_ADMIN')")
     public ResponseEntity<ResponseDto<List<EndorsementResponseDto>>> getAllWithFilters(
             @RequestParam(required = false) UUID organizationId,
             @RequestParam(required = false) String organizationName,
@@ -186,7 +186,7 @@ public class EndorsementController {
      * Get pending count
      */
     @GetMapping("/pending-count")
-    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'VIMA_ADMIN', 'SALES_MANAGER')")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'VIMA_ADMIN', 'SALES_MANAGER', 'HR_ADMIN')")
     public ResponseEntity<ResponseDto<String>> getPendingCount() {
         logger.info("[correlationId:{}] /endorsements/pending-count (GET) endpoint called", MDC.get("correlationId"));
         return endorsementService.getPendingCount();
@@ -196,7 +196,7 @@ public class EndorsementController {
     * Get employees by endorsement id with pagination
      */
     @GetMapping("/{endorsementId}/employees")
-    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'VIMA_ADMIN', 'SALES_MANAGER')")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'VIMA_ADMIN', 'SALES_MANAGER', 'HR_ADMIN')")
     public ResponseEntity<ResponseDto<List<OrganizationEmployeeDto>>> getEmployeesByEndorsementId(@PathVariable UUID endorsementId, @RequestParam (defaultValue = "-1", required = false) int page, @RequestParam (defaultValue = "-1", required = false) int rec) {
         logger.info("[correlationId:{}] /endorsements/{}/employees (GET) endpoint called", MDC.get("correlationId"), endorsementId);
         return organizationService.getEmployeesByEndorsementId(endorsementId, page, rec);
@@ -217,7 +217,7 @@ public class EndorsementController {
     * Get documents by endorsement id
     */
     @GetMapping("/{endorsementId}/documents")
-    @PreAuthorize("hasAnyAuthority('SUPER_ADMIN', 'ADMIN', 'VIMA_ADMIN', 'SALES_MANAGER')")
+    @PreAuthorize("hasAnyAuthority('SUPER_ADMIN', 'ADMIN', 'VIMA_ADMIN', 'SALES_MANAGER', 'HR_ADMIN')")
     public ResponseEntity<ResponseDto<List<DocumentResponseDto>>> getDocuments(@PathVariable UUID endorsementId, @RequestParam (defaultValue = "-1", required = false) int page, @RequestParam (defaultValue = "-1", required = false) int rec) {
         logger.info("[correlationId:{}] /endorsements/{}/documents (GET) endpoint called", MDC.get("correlationId"), endorsementId);
         return endorsementService.getDocuments(endorsementId.toString(), page, rec);
@@ -227,7 +227,7 @@ public class EndorsementController {
     * Download document by endorsement id and document id
     */
     @GetMapping("/{endorsementId}/documents/{documentId}/download")
-    @PreAuthorize("hasAnyAuthority('SUPER_ADMIN', 'ADMIN', 'VIMA_ADMIN', 'SALES_MANAGER')")
+    @PreAuthorize("hasAnyAuthority('SUPER_ADMIN', 'ADMIN', 'VIMA_ADMIN', 'SALES_MANAGER', 'HR_ADMIN')")
     public ResponseEntity<Resource> downloadDocument(@PathVariable UUID endorsementId, @PathVariable String documentId) {
         logger.info("[correlationId:{}] /endorsements/{}/documents/{}/download (GET) endpoint called", MDC.get("correlationId"), endorsementId, documentId);
         return endorsementService.downloadDocument(endorsementId, documentId);
