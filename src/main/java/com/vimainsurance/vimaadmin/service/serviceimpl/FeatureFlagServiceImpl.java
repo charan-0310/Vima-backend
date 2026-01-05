@@ -1,14 +1,10 @@
 package com.vimainsurance.vimaadmin.service.serviceimpl;
 
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.LinkedHashSet;
-import java.util.List;
-import java.util.Map;
-import java.util.Set;
+import java.util.*;
 import java.util.stream.Collectors;
 
 import com.vimainsurance.vimaadmin.dto.FeatureFlagResponseDto;
+import com.vimainsurance.vimaadmin.dto.FeatureFlagsManagementResponse;
 import com.vimainsurance.vimaadmin.entity.FeatureFlag;
 import com.vimainsurance.vimaadmin.entity.FeatureFlagCompany;
 import com.vimainsurance.vimaadmin.entity.FeatureFlagRole;
@@ -32,6 +28,7 @@ public class FeatureFlagServiceImpl implements FeatureFlagService {
     @Override
     @Transactional(readOnly = true)
     public List<FeatureFlagResponseDto> findAllMatchedFeatureFlags() {
+
 
         // Fetch flags with roles and companies to avoid N+1
         List<FeatureFlag> featureFlags = featureFlagRepository.findAll();
@@ -88,16 +85,38 @@ public class FeatureFlagServiceImpl implements FeatureFlagService {
 
             // Decide inclusion: include if any matched role or company OR user is SUPER_ADMIN
             boolean isSuperAdmin = normalizedRoles.stream().anyMatch(r -> r.equalsIgnoreCase("ROLE_SUPER_ADMIN") || r.equalsIgnoreCase("SUPER_ADMIN"));
-//            if (!isSuperAdmin && matchedRoles.isEmpty() && matchedCompanies.isEmpty()) {
-//                continue; // not accessible to this tenant
-//            }
-
-            /// Build DTO
             FeatureFlagResponseDto dto = createDto(flag, matchedRoles, matchedCompanies, isSuperAdmin);
             responseDtos.add(dto);
         }
 
         return responseDtos;
+    }
+
+    @Override
+    public List<FeatureFlagsManagementResponse> getFeatureFlagsGroupedByType() {
+
+        List<FeatureFlag> flags = featureFlagRepository.findAllWithRoles();
+        Map<String, List<FeatureFlagResponseDto>> grouped = new HashMap<>();
+        for (FeatureFlag flag : flags) {
+            List<FeatureFlagRole> roles = flag.getRoles();
+            if (roles != null) {
+                for (FeatureFlagRole role : roles) {
+                    String roleName = role.getRoleName();
+                    FeatureFlagResponseDto dto = createDto(flag, List.of(role), List.of(), false);
+                    grouped.computeIfAbsent(roleName, k -> new ArrayList<>()).add(dto);
+                }
+            }
+        }
+
+        List<FeatureFlagsManagementResponse> result = new ArrayList<>();
+        for (Map.Entry<String, List<FeatureFlagResponseDto>> e : grouped.entrySet()) {
+            FeatureFlagsManagementResponse m = new FeatureFlagsManagementResponse();
+            m.setType("role");
+            m.setIdentifier(e.getKey());
+            m.setFeatures(e.getValue());
+            result.add(m);
+        }
+        return result;
     }
 
     private FeatureFlagResponseDto createDto(FeatureFlag flag,
@@ -110,6 +129,7 @@ public class FeatureFlagServiceImpl implements FeatureFlagService {
         dto.setDescription(flag.getDescription());
         // Active if there is at least one matched role
         dto.setIsActive( !matchedRoles.isEmpty() || isSuperAdmin);
+        dto.setIsEnabled(!matchedRoles.isEmpty() || isSuperAdmin);
 
         Set<String> actions = new LinkedHashSet<>();
         for (FeatureFlagRole r : matchedRoles) {
