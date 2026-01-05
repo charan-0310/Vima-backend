@@ -186,7 +186,7 @@ public class EndorsementController {
      * Get pending count
      */
     @GetMapping("/pending-count")
-    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'VIMA_ADMIN', 'SALES_MANAGER')")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'VIMA_ADMIN', 'SALES_MANAGER', 'HR_ADMIN')")
     public ResponseEntity<ResponseDto<String>> getPendingCount() {
         logger.info("[correlationId:{}] /endorsements/pending-count (GET) endpoint called", MDC.get("correlationId"));
         return endorsementService.getPendingCount();
