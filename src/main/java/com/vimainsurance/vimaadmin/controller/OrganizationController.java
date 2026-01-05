@@ -140,7 +140,7 @@ public class OrganizationController {
     }
 
     @GetMapping("/organization/{organizationId}/documents/{documentId}/download")
-    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'VIMA_ADMIN', 'SALES_MANAGER')")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'VIMA_ADMIN', 'SALES_MANAGER', 'HR_ADMIN')")
     public ResponseEntity<Resource> downloadDocument(@PathVariable UUID organizationId, @PathVariable String documentId) {
         logger.info("[correlationId:{}] /organization/{}/documents/{}/download (GET) endpoint called", MDC.get("correlationId"), organizationId, documentId);
         return organizationService.downloadDocument(organizationId, documentId);
@@ -215,7 +215,7 @@ public class OrganizationController {
     @PostMapping(value = "/organization/{organizationId}/upload",
         consumes = MediaType.MULTIPART_FORM_DATA_VALUE,
         produces = MediaType.APPLICATION_JSON_VALUE)
-    @PreAuthorize("hasAnyRole('VIMA_ADMIN', 'SALES_MANAGER', 'SUPER_ADMIN', 'ADMIN')")
+    @PreAuthorize("hasAnyRole('VIMA_ADMIN', 'SALES_MANAGER', 'SUPER_ADMIN', 'ADMIN', 'HR_ADMIN')")
     public ResponseEntity<ResponseDto<EmployeeUploadResponse>> uploadEmployees(
             @PathVariable UUID organizationId,
             @RequestParam("file") MultipartFile file,

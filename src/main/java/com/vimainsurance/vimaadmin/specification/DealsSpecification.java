@@ -40,5 +40,49 @@ public class DealsSpecification {
             
             return predicate;
         };
-    } 
+    }
+
+    /**
+     * Count employees for a given organization
+     * Employees are deals that belong to an organization and are primary members
+     * @param organizationId The organization ID
+     * @return Specification for counting employees by organization ID
+     */
+    public static Specification<Deals> countEmployeesByOrganizationId(UUID organizationId) {
+        return (root, query, criteriaBuilder) -> {
+            if (organizationId == null) {
+                return criteriaBuilder.conjunction();
+            }
+            return criteriaBuilder.and(
+                criteriaBuilder.equal(root.get("organization").get("organizationId"), organizationId),
+                criteriaBuilder.equal(root.get("isPrimaryMember"), true)
+            );
+        };
+    }
+
+    /**
+     * Count dependents for a given organization
+     * Dependents are deals that have a primaryIndividual belonging to the organization
+     * and relationship is not "SELF"
+     * @param organizationId The organization ID
+     * @return Specification for counting dependents by organization ID
+     */
+    public static Specification<Deals> countDependentsByOrganizationId(UUID organizationId) {
+        return (root, query, criteriaBuilder) -> {
+            if (organizationId == null) {
+                return criteriaBuilder.conjunction();
+            }
+            return criteriaBuilder.and(
+                criteriaBuilder.isNotNull(root.get("primaryIndividual")),
+                criteriaBuilder.equal(
+                    root.get("primaryIndividual").get("organization").get("organizationId"), 
+                    organizationId
+                ),
+                criteriaBuilder.or(
+                    criteriaBuilder.notEqual(root.get("relationship"), "SELF"),
+                    criteriaBuilder.isNull(root.get("relationship"))
+                )
+            );
+        };
+    }
 }
