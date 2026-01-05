@@ -1,5 +1,6 @@
 package com.vimainsurance.vimaadmin.service.serviceimpl;
 
+import java.io.InputStream;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
@@ -7,52 +8,59 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.stream.Collectors;
 
-import com.vimainsurance.vimaadmin.util.TenantContext;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.slf4j.MDC;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.core.env.Environment;
+import org.springframework.core.io.Resource;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
+import org.springframework.data.jpa.domain.Specification;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.multipart.MultipartFile;
 
 import com.vimainsurance.vimaadmin.dto.BaseResponse;
+import com.vimainsurance.vimaadmin.dto.DocumentResponseDto;
 import com.vimainsurance.vimaadmin.dto.EndorsementRequestDto;
 import com.vimainsurance.vimaadmin.dto.EndorsementResponseDto;
 import com.vimainsurance.vimaadmin.dto.ResponseDto;
 import com.vimainsurance.vimaadmin.entity.AdminUser;
+import com.vimainsurance.vimaadmin.entity.Deals;
 import com.vimainsurance.vimaadmin.entity.Document;
 import com.vimainsurance.vimaadmin.entity.Endorsement;
 import com.vimainsurance.vimaadmin.entity.Organization;
 import com.vimainsurance.vimaadmin.enums.AccountStatus;
-import com.vimainsurance.vimaadmin.enums.EndorsementType;
-import com.vimainsurance.vimaadmin.mapper.EndorsementMapper;
-import com.vimainsurance.vimaadmin.repository.IAdminUserRepository;
-import com.vimainsurance.vimaadmin.repository.IDocumentRepository;
-import com.vimainsurance.vimaadmin.repository.IEndorsementRepository;
-import com.vimainsurance.vimaadmin.repository.IOrganizationRepository;
-import com.vimainsurance.vimaadmin.repository.IDealsRepository;
-import com.vimainsurance.vimaadmin.service.IEndorsementService;
-import com.vimainsurance.vimaadmin.service.IDocumentService;
-import com.vimainsurance.vimaadmin.specification.EndorsementSpecification;
-import com.vimainsurance.vimaadmin.util.Constants;
-
-import org.springframework.core.env.Environment;
-
-import com.vimainsurance.vimaadmin.entity.Deals;
-
-import org.springframework.data.jpa.domain.Specification;
-import org.springframework.web.multipart.MultipartFile;
-
 import com.vimainsurance.vimaadmin.enums.DocumentCategory;
 import com.vimainsurance.vimaadmin.enums.DocumentEntityType;
 import com.vimainsurance.vimaadmin.enums.DocumentType;
+import com.vimainsurance.vimaadmin.enums.EndorsementType;
+import com.vimainsurance.vimaadmin.exception.OrganizationAccessDeniedException;
+import com.vimainsurance.vimaadmin.mapper.EndorsementMapper;
+import com.vimainsurance.vimaadmin.repository.IAdminUserRepository;
+import com.vimainsurance.vimaadmin.repository.IDealsRepository;
+import com.vimainsurance.vimaadmin.repository.IDocumentRepository;
+import com.vimainsurance.vimaadmin.repository.IEndorsementRepository;
+import com.vimainsurance.vimaadmin.repository.IOrganizationRepository;
+import com.vimainsurance.vimaadmin.service.IDocumentService;
+import com.vimainsurance.vimaadmin.service.IEndorsementService;
+import com.vimainsurance.vimaadmin.specification.EndorsementSpecification;
+import com.vimainsurance.vimaadmin.util.Constants;
 import com.vimainsurance.vimaadmin.util.EnvironmentUtil;
 import com.vimainsurance.vimaadmin.util.JwtUserExtractor;
+import com.vimainsurance.vimaadmin.util.TenantContext;
+
+import org.springframework.http.HttpStatus;
+import org.springframework.http.HttpHeaders;
+import org.springframework.core.io.InputStreamResource;
+
+import com.vimainsurance.vimaadmin.service.IS3Service;
 
 @Service
 public class EndorsementServiceImpl implements IEndorsementService {
@@ -82,6 +90,9 @@ public class EndorsementServiceImpl implements IEndorsementService {
 
     @Autowired
     private JwtUserExtractor jwtUserExtractor;
+
+    @Autowired
+    private IS3Service s3Service;
 
     @Override
     @Transactional
@@ -145,7 +156,7 @@ public class EndorsementServiceImpl implements IEndorsementService {
             if (opt.isEmpty()) {
                 return responseObj.render(responseObj.formErrorResponse(Constants.RECORD_NOT_FOUND_MESSAGE));
             }
-
+            jwtUserExtractor.validateOrganizationAccess(opt.get().getOrganization().getOrganizationId());
             Endorsement endorsement = opt.get();
 
             // Validate organization if provided
@@ -227,9 +238,12 @@ public class EndorsementServiceImpl implements IEndorsementService {
             if (opt.isEmpty()) {
                 return responseObj.render(responseObj.formErrorResponse(Constants.RECORD_NOT_FOUND_MESSAGE));
             }
-
+            jwtUserExtractor.validateOrganizationAccess(opt.get().getOrganization().getOrganizationId());
             EndorsementResponseDto dto = EndorsementMapper.mapToResponseDto(opt.get(), dealsRepository.countByEndorsementIdAndRelationshipSelf(opt.get().getEndorsementId()), dealsRepository.countByEndorsementIdAndRelationshipNonSelf(opt.get().getEndorsementId()));
             return responseObj.render(responseObj.formSuccessResponse(Constants.SUCCESS, dto));
+        } catch (OrganizationAccessDeniedException e) {
+            logger.warn("[correlationId:{}] Organization access denied: {}", MDC.get("correlationId"));
+            return responseObj.render(responseObj.formErrorResponse(403, e.getMessage()));
         } catch (Exception e) {
             logger.error("[correlationId:{}] Exception in Endorsement getById: {}", MDC.get("correlationId"), e.getMessage(), e);
             return responseObj.render(responseObj.formErrorResponse(Constants.RECORD_NOT_FOUND_MESSAGE));
@@ -411,6 +425,7 @@ public class EndorsementServiceImpl implements IEndorsementService {
             if (orgOpt.isEmpty()) {
                 return responseObj.render(responseObj.formErrorResponse("Organization not found"));
             }
+            jwtUserExtractor.validateOrganizationAccess(orgOpt.get().getOrganizationId());
 
             Organization organization = orgOpt.get();
             AdminUser uploadedBy = null;
@@ -428,7 +443,7 @@ public class EndorsementServiceImpl implements IEndorsementService {
             }
             if(files != null && files.length > 0) {
             for(MultipartFile file : files) {
-                ResponseEntity<ResponseDto<String>> documentResponse = documentService.uploadDocument(file, DocumentType.OTHER.toString(), DocumentCategory.ENDORSEMENT_DOCUMENTS.toString(), DocumentEntityType.ORGANIZATION.toString(), endorsement.getEndorsementId().toString(), "Supporting Documents");
+                ResponseEntity<ResponseDto<String>> documentResponse = documentService.uploadDocument(file, DocumentType.ENDORSEMENT.toString(), DocumentCategory.ENDORSEMENT_DOCUMENTS.toString(), DocumentEntityType.ORGANIZATION.toString(), endorsement.getEndorsementId().toString(), "Supporting Documents");
                 if(documentResponse.getBody() != null && documentResponse.getBody().getErrorCode() != null){
                     return responseObj.render(responseObj.formErrorResponse(documentResponse.getBody().getMessage()));
                 }
@@ -460,6 +475,9 @@ public class EndorsementServiceImpl implements IEndorsementService {
             endorsementRepository.save(endorsement);
 
             return responseObj.render(responseObj.formSuccessResponse(Constants.SUCCESS, "Endorsement approved successfully"));
+        } catch (OrganizationAccessDeniedException e) {
+            logger.warn("[correlationId:{}] Organization access denied: {}", MDC.get("correlationId"));
+            return responseObj.render(responseObj.formErrorResponse(403, e.getMessage()));
         } catch (IllegalArgumentException e) {
             logger.error("[correlationId:{}] Invalid confirmation method value: {}", MDC.get("correlationId"), requestDto.getConfirmationMethod());
             return responseObj.render(responseObj.formErrorResponse("Invalid confirmation method value: " + requestDto.getConfirmationMethod()));
@@ -497,8 +515,19 @@ public class EndorsementServiceImpl implements IEndorsementService {
         logger.info("[correlationId:{}] Endorsement getPendingCount called", MDC.get("correlationId"));
         BaseResponse<String> responseObj = new BaseResponse<>();
         try {
-            Long count = endorsementRepository.getPendingCount();
-            return responseObj.render(responseObj.formSuccessResponse(Constants.SUCCESS, "Pending count: " + count));
+            Map<String, List<String>> tenantMap = TenantContext.getCurrentTenant();
+            List<String> orgIds = (tenantMap != null) ? tenantMap.get("organizationIds") : null;
+            List<UUID> organizationIds = new ArrayList<>();
+            for (String orgIdStr : orgIds) {
+                try {
+                    organizationIds.add(UUID.fromString(orgIdStr));
+                } catch (IllegalArgumentException iae) {
+                    logger.warn("[correlationId:{}] Skipping invalid organizationId from tenant context: {}", MDC.get("correlationId"), orgIdStr);
+                }
+            }
+            Specification<Endorsement> spec = EndorsementSpecification.countPendingByOrganizationIds(organizationIds);
+            Page<Endorsement> endorsementPage = endorsementRepository.findAll(spec, PageRequest.of(0, 10));
+            return responseObj.render(responseObj.formSuccessResponse(Constants.SUCCESS, "Pending count: " + endorsementPage.getTotalElements()));
         } catch (Exception e) {
             logger.error("[correlationId:{}] Exception in Endorsement getPendingCount: {}", MDC.get("correlationId"), e.getMessage(), e);
             return responseObj.render(responseObj.formErrorResponse(Constants.RECORD_NOT_FOUND_MESSAGE));
@@ -511,6 +540,15 @@ public class EndorsementServiceImpl implements IEndorsementService {
         logger.info("[correlationId:{}] Endorsement confirm called for {}", MDC.get("correlationId"), endorsementId);
         BaseResponse<String> responseObj = new BaseResponse<>();
         try {
+            Optional<Endorsement> opt = endorsementRepository.findById(endorsementId);
+            if (opt.isEmpty()) {
+                return responseObj.render(responseObj.formErrorResponse(Constants.RECORD_NOT_FOUND_MESSAGE));
+            }
+            Optional<Organization> orgOpt = organizationRepository.findById(opt.get().getOrganization().getOrganizationId());
+            if (orgOpt.isEmpty()) {
+                return responseObj.render(responseObj.formErrorResponse("Organization not found"));
+            }
+            jwtUserExtractor.validateOrganizationAccess(orgOpt.get().getOrganizationId());
             // Check if there are any deals that need confirmation
             List<Deals> deals = dealsRepository.findByEndorsementId(endorsementId);
             if(deals.isEmpty()) {
@@ -551,7 +589,7 @@ public class EndorsementServiceImpl implements IEndorsementService {
             Optional<Endorsement> endorsementOpt = endorsementRepository.findById(endorsementId);
             if (endorsementOpt.isPresent()) {
                 Endorsement endorsement = endorsementOpt.get();
-                endorsement.setStatus(AccountStatus.COMPLETED);
+                endorsement.setStatus(AccountStatus.APPROVED);
                 endorsement.setUpdatedAt(updatedAt);
                 endorsementRepository.save(endorsement);
             }
@@ -563,6 +601,9 @@ public class EndorsementServiceImpl implements IEndorsementService {
             
             return responseObj.render(responseObj.formSuccessResponse(Constants.SUCCESS, 
                 "Endorsement confirmed successfully. Activated: " + activatedCount + ", Deactivated: " + deactivatedCount));
+        } catch (OrganizationAccessDeniedException e) {
+            logger.warn("[correlationId:{}] Organization access denied: {}", MDC.get("correlationId"));
+            return responseObj.render(responseObj.formErrorResponse(403, e.getMessage()));
         } catch (Exception e) {
             logger.error("[correlationId:{}] Exception in Endorsement confirm: {}", MDC.get("correlationId"), e.getMessage(), e);
             return responseObj.render(responseObj.formErrorResponse("Failed to confirm endorsement!"));
@@ -610,6 +651,73 @@ public class EndorsementServiceImpl implements IEndorsementService {
             return responseObj.render(responseObj.formErrorResponse("Failed to confirm schedule endorsement!"));
         }
     }
+    
+
+
+    @Override
+    public ResponseEntity<ResponseDto<List<DocumentResponseDto>>> getDocuments(String endorsementId, int page, int rec) {
+        BaseResponse<List<DocumentResponseDto>> responseObj = new BaseResponse<>();
+        try {
+            Optional<Endorsement> opt = endorsementRepository.findById(UUID.fromString(endorsementId));
+            if (opt.isEmpty()) {
+                return responseObj.render(responseObj.formErrorResponse(Constants.RECORD_NOT_FOUND_MESSAGE));
+            }
+            jwtUserExtractor.validateOrganizationAccess(opt.get().getOrganization().getOrganizationId());
+            if(page == -1 && rec == -1) {
+                logger.info("[correlationId:{}] Getting all documents for entity: {}", MDC.get("correlationId"), endorsementId);
+                List<Document> documents = documentRepository.findByEntityId(endorsementId);
+                List<DocumentResponseDto> documentResponseDtos = documents.stream()
+                    .map(document -> new DocumentResponseDto(document.getDocumentId().toString(), document.getDocumentType(), document.getUploadedAt(), document.getMimeType(), document.getNotes(), document.getOriginalFilename(), document.getDocumentCategory().toString(), DocumentServiceImpl.formatFileSize(document.getFileSize())))
+                    .collect(Collectors.toList());
+                return responseObj.render(responseObj.formSuccessResponse(Constants.SUCCESS, documentResponseDtos, documents.size()));
+            }
+            Page<Document> documents = documentRepository.findByEntityId(endorsementId, PageRequest.of(page, rec));
+            List<DocumentResponseDto> documentResponseDtos = documents.getContent().stream()
+                .map(document -> new DocumentResponseDto(document.getDocumentId().toString(), document.getDocumentType(), document.getUploadedAt(), document.getMimeType(), document.getNotes(), document.getOriginalFilename(), document.getDocumentCategory().toString(), DocumentServiceImpl.formatFileSize(document.getFileSize())))
+                .collect(Collectors.toList());
+            return responseObj.render(responseObj.formSuccessResponse(Constants.SUCCESS, documentResponseDtos, documents.getTotalElements()));
+        } catch(OrganizationAccessDeniedException e) {
+            logger.warn("[correlationId:{}] Organization access denied: {}", MDC.get("correlationId"));
+            return responseObj.render(responseObj.formErrorResponse(403, e.getMessage()));
+        } catch(Exception e){
+            logger.error("[correlationId:{}] Error getting documents: {}", MDC.get("correlationId"), e.getMessage());
+            return responseObj.render(responseObj.formErrorResponse("Error getting documents: " + e.getMessage()));
+        }
+    }
+
+    @Override
+    public ResponseEntity<Resource> downloadDocument(UUID endorsementId,String documentId) {
+        try {
+            Optional<Endorsement> opt = endorsementRepository.findById(endorsementId);
+            if (opt.isEmpty()) {
+                return ResponseEntity.status(HttpStatus.NOT_FOUND).build();
+            }
+            Optional<Organization> orgOpt = organizationRepository.findById(opt.get().getOrganization().getOrganizationId());
+            if (orgOpt.isEmpty()) {
+                return ResponseEntity.status(HttpStatus.NOT_FOUND).build();
+            }
+            jwtUserExtractor.validateOrganizationAccess(orgOpt.get().getOrganizationId());
+            Optional<Document> documentOpt = documentRepository.findByDocumentId(UUID.fromString(documentId));
+            if(documentOpt.isEmpty()){
+                return ResponseEntity.status(HttpStatus.NOT_FOUND).build();
+            }
+            Document document = documentOpt.get();
+            InputStream downloadUrl = s3Service.downloadFile(document.getS3Key());
+            return ResponseEntity.ok()
+                .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=\"" + document.getOriginalFilename() + "\"")
+                .header("Access-Control-Expose-Headers", "content-disposition")
+                .contentType(MediaType.parseMediaType(document.getMimeType()))
+                .body(new InputStreamResource(downloadUrl));
+        } catch(OrganizationAccessDeniedException e) {
+            logger.warn("[correlationId:{}] Organization access denied: {}", MDC.get("correlationId"));
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
+        } catch(Exception e){
+            logger.error("[correlationId:{}] Error downloading document: {}", MDC.get("correlationId"), e.getMessage());
+            return ResponseEntity.status(HttpStatus.NOT_FOUND).build();
+        }
+    }
+
+    
     /**
      * Helper method to create Sort object
      */

@@ -25,7 +25,7 @@ import org.slf4j.MDC;
 
 @RestController
 @RequestMapping("/api/v1/manager")
-@PreAuthorize("hasAnyAuthority('SALES_MANAGER', 'VIMA_ADMIN', 'SUPER_ADMIN', 'ADMIN')")
+@PreAuthorize("hasAnyRole('SALES_MANAGER', 'VIMA_ADMIN', 'SUPER_ADMIN', 'ADMIN')")
 public class ManagerController {
 
     private static final Logger logger = LoggerFactory.getLogger(ManagerController.class);

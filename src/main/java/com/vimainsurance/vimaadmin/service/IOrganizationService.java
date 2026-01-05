@@ -27,8 +27,8 @@ public interface IOrganizationService {
     ResponseEntity<ResponseDto<List<OrganizationResponseDto>>> getAllWithFilters(String search, String status, int page, int rec, String sortBy, String sortDirection);
     ResponseEntity<ResponseDto<String>> uploadLogo(MultipartFile file, UUID organizationId);
     ResponseEntity<ResponseDto<String>> uploadDocument(DocumentRequestDto requestDto, UUID organizationId);
-    ResponseEntity<Resource> downloadDocument(String documentId);
-    ResponseEntity<ResponseDto<String>> deleteDocument(String documentId);
+    ResponseEntity<Resource> downloadDocument(UUID organizationId, String documentId);
+    ResponseEntity<ResponseDto<String>> deleteDocument(UUID organizationId, String documentId);
     ResponseEntity<ResponseDto<List<DocumentResponseDto>>> getDocuments(UUID organizationId);
     ResponseEntity<ResponseDto<List<OrganizationEmployeeDto>>> getEmployees(UUID organizationId);
     ResponseEntity<ResponseDto<OrganizationEmployeeDto>> getEmployee(UUID individualId, UUID organizationId);

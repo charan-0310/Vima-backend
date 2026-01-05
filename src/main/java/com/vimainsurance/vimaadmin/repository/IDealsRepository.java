@@ -409,4 +409,32 @@ public interface IDealsRepository extends JpaRepository<Deals, UUID> , JpaSpecif
         @Param("currentDate") LocalDate currentDate,
         @Param("updatedAt") LocalDateTime updatedAt
     );
+
+    /**
+     * Find deals that will be activated (for extracting endorsement IDs)
+     */
+    @Query("""
+        SELECT d FROM Deals d
+        WHERE d.status = :status 
+        AND d.dateOfJoining <= :currentDate
+        AND d.dateOfJoining IS NOT NULL
+        """)
+    List<Deals> findByStatusAndDateOfJoining(
+        @Param("status") AccountStatus status,
+        @Param("currentDate") LocalDate currentDate
+    );
+
+    /**
+     * Find deals that will be deactivated (for extracting endorsement IDs)
+     */
+    @Query("""
+        SELECT d FROM Deals d
+        WHERE d.status = :status 
+        AND d.dateOfExit <= :currentDate
+        AND d.dateOfExit IS NOT NULL
+        """)
+    List<Deals> findByStatusAndDateOfExit(
+        @Param("status") AccountStatus status,
+        @Param("currentDate") LocalDate currentDate
+    );
 }
