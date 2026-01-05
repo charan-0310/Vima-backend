@@ -121,5 +121,182 @@ public class EndorsementSpecification {
             return predicate;
         };
     }
+
+    /**
+     * Count all endorsements for a given organization
+     * 
+     * @param organizationId The organization ID
+     * @return Specification for counting all endorsements by organization ID
+     */
+    public static Specification<Endorsement> countByOrganizationId(UUID organizationId) {
+        return (root, query, criteriaBuilder) -> {
+            if (organizationId == null) {
+                return criteriaBuilder.conjunction();
+            }
+            return criteriaBuilder.equal(root.get("organization").get("organizationId"), organizationId);
+        };
+    }
+
+    /**
+     * Count completed endorsements for a given organization
+     * Completed endorsements are those with status ACTIVE or INACTIVE
+     * 
+     * @param organizationId The organization ID
+     * @return Specification for counting completed endorsements by organization ID
+     */
+    public static Specification<Endorsement> countCompletedByOrganizationId(UUID organizationId) {
+        return (root, query, criteriaBuilder) -> {
+            if (organizationId == null) {
+                return criteriaBuilder.conjunction();
+            }
+            return criteriaBuilder.and(
+                criteriaBuilder.equal(root.get("organization").get("organizationId"), organizationId),
+                criteriaBuilder.or(
+                    criteriaBuilder.equal(root.get("status"), AccountStatus.APPROVED),
+                    criteriaBuilder.equal(root.get("status"), AccountStatus.LEAVING)                )
+            );
+        };
+    }
+
+    /**
+     * Count pending endorsements for a given organization
+     * Pending endorsements are those with status PENDING_APPROVAL or PENDING_EXIT
+     * 
+     * @param organizationId The organization ID
+     * @return Specification for counting pending endorsements by organization ID
+     */
+    public static Specification<Endorsement> countPendingByOrganizationId(UUID organizationId) {
+        return (root, query, criteriaBuilder) -> {
+            if (organizationId == null) {
+                return criteriaBuilder.conjunction();
+            }
+            return criteriaBuilder.and(
+                criteriaBuilder.equal(root.get("organization").get("organizationId"), organizationId),
+                criteriaBuilder.or(
+                    criteriaBuilder.equal(root.get("status"), AccountStatus.PENDING_APPROVAL),
+                    criteriaBuilder.equal(root.get("status"), AccountStatus.PENDING_EXIT)
+                )
+            );
+        };
+    }
+
+    /**
+     * Builds a Specification for filtering endorsements by organization IDs
+     * 
+     * @param organizationIds List of organization IDs to filter by
+     * @return Specification for filtering by organization IDs
+     */
+    public static Specification<Endorsement> byOrganizationIds(List<UUID> organizationIds) {
+        return (root, query, criteriaBuilder) -> {
+            if (organizationIds == null || organizationIds.isEmpty()) {
+                return criteriaBuilder.conjunction();
+            }
+            if (organizationIds.size() == 1) {
+                return criteriaBuilder.equal(root.get("organization").get("organizationId"), organizationIds.get(0));
+            }
+            return root.get("organization").get("organizationId").in(organizationIds);
+        };
+    }
+
+    /**
+     * Builds a Specification for filtering endorsements by date range on createdAt field
+     * 
+     * @param startDate Start date (inclusive), null means no lower bound
+     * @param endDate End date (inclusive), null means no upper bound
+     * @return Specification for filtering by createdAt date range
+     */
+    public static Specification<Endorsement> byCreatedAtDateRange(LocalDateTime startDate, LocalDateTime endDate) {
+        return (root, query, criteriaBuilder) -> {
+            Predicate predicate = criteriaBuilder.conjunction();
+            if (startDate != null) {
+                predicate = criteriaBuilder.and(
+                    predicate,
+                    criteriaBuilder.greaterThanOrEqualTo(root.get("createdAt"), startDate)
+                );
+            }
+            if (endDate != null) {
+                predicate = criteriaBuilder.and(
+                    predicate,
+                    criteriaBuilder.lessThanOrEqualTo(root.get("createdAt"), endDate)
+                );
+            }
+            return predicate;
+        };
+    }
+
+    /**
+     * Builds a Specification for filtering endorsements by date range on updatedAt field
+     * 
+     * @param startDate Start date (inclusive), null means no lower bound
+     * @param endDate End date (inclusive), null means no upper bound
+     * @return Specification for filtering by updatedAt date range
+     */
+    public static Specification<Endorsement> byUpdatedAtDateRange(LocalDateTime startDate, LocalDateTime endDate) {
+        return (root, query, criteriaBuilder) -> {
+            Predicate predicate = criteriaBuilder.conjunction();
+            if (startDate != null) {
+                predicate = criteriaBuilder.and(
+                    predicate,
+                    criteriaBuilder.greaterThanOrEqualTo(root.get("updatedAt"), startDate)
+                );
+            }
+            if (endDate != null) {
+                predicate = criteriaBuilder.and(
+                    predicate,
+                    criteriaBuilder.lessThanOrEqualTo(root.get("updatedAt"), endDate)
+                );
+            }
+            return predicate;
+        };
+    }
+
+    /**
+     * Builds a Specification for filtering endorsements by status
+     * 
+     * @param status The status to filter by
+     * @return Specification for filtering by status
+     */
+    public static Specification<Endorsement> byStatus(AccountStatus status) {
+        return (root, query, criteriaBuilder) -> {
+            if (status == null) {
+                return criteriaBuilder.conjunction();
+            }
+            return criteriaBuilder.equal(root.get("status"), status);
+        };
+    }
+
+    /* 
+     * Count pending endorsements for given organizations
+     * Pending endorsements are those with status PENDING_APPROVAL or PENDING_EXIT
+     * 
+     * @param organizationIds List of organization IDs
+     * @return Specification for counting pending endorsements by organization IDs
+     */
+    public static Specification<Endorsement> countPendingByOrganizationIds(List<UUID> organizationIds) {
+        return (root, query, criteriaBuilder) -> {
+            
+            if(organizationIds == null || organizationIds.isEmpty()) {
+                return criteriaBuilder.conjunction();
+            }
+            
+            // Filter by organization IDs
+            Predicate orgPredicate;
+            if(organizationIds.size() == 1) {
+                orgPredicate = criteriaBuilder.equal(root.get("organization").get("organizationId"), organizationIds.get(0));
+            } else {
+                orgPredicate = root.get("organization").get("organizationId").in(organizationIds);
+            }
+            
+            // Filter by pending status (PENDING_APPROVAL or PENDING_EXIT)
+            Predicate pendingStatusPredicate = criteriaBuilder.or(
+                criteriaBuilder.equal(root.get("status"), AccountStatus.PENDING_APPROVAL),
+                criteriaBuilder.equal(root.get("status"), AccountStatus.PENDING_EXIT)
+            );
+            
+            // Combine both predicates
+            return criteriaBuilder.and(orgPredicate, pendingStatusPredicate);
+            
+        };
+    }
 }
 

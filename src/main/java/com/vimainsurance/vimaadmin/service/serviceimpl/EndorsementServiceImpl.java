@@ -515,8 +515,19 @@ public class EndorsementServiceImpl implements IEndorsementService {
         logger.info("[correlationId:{}] Endorsement getPendingCount called", MDC.get("correlationId"));
         BaseResponse<String> responseObj = new BaseResponse<>();
         try {
-            Long count = endorsementRepository.getPendingCount();
-            return responseObj.render(responseObj.formSuccessResponse(Constants.SUCCESS, "Pending count: " + count));
+            Map<String, List<String>> tenantMap = TenantContext.getCurrentTenant();
+            List<String> orgIds = (tenantMap != null) ? tenantMap.get("organizationIds") : null;
+            List<UUID> organizationIds = new ArrayList<>();
+            for (String orgIdStr : orgIds) {
+                try {
+                    organizationIds.add(UUID.fromString(orgIdStr));
+                } catch (IllegalArgumentException iae) {
+                    logger.warn("[correlationId:{}] Skipping invalid organizationId from tenant context: {}", MDC.get("correlationId"), orgIdStr);
+                }
+            }
+            Specification<Endorsement> spec = EndorsementSpecification.countPendingByOrganizationIds(organizationIds);
+            Page<Endorsement> endorsementPage = endorsementRepository.findAll(spec, PageRequest.of(0, 10));
+            return responseObj.render(responseObj.formSuccessResponse(Constants.SUCCESS, "Pending count: " + endorsementPage.getTotalElements()));
         } catch (Exception e) {
             logger.error("[correlationId:{}] Exception in Endorsement getPendingCount: {}", MDC.get("correlationId"), e.getMessage(), e);
             return responseObj.render(responseObj.formErrorResponse(Constants.RECORD_NOT_FOUND_MESSAGE));
@@ -578,7 +589,7 @@ public class EndorsementServiceImpl implements IEndorsementService {
             Optional<Endorsement> endorsementOpt = endorsementRepository.findById(endorsementId);
             if (endorsementOpt.isPresent()) {
                 Endorsement endorsement = endorsementOpt.get();
-                endorsement.setStatus(AccountStatus.COMPLETED);
+                endorsement.setStatus(AccountStatus.APPROVED);
                 endorsement.setUpdatedAt(updatedAt);
                 endorsementRepository.save(endorsement);
             }
