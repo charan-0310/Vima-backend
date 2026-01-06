@@ -2,17 +2,12 @@ package com.vimainsurance.vimaadmin.entity;
 
 import java.util.UUID;
 
-import jakarta.persistence.Column;
-import jakarta.persistence.Entity;
-import jakarta.persistence.FetchType;
-import jakarta.persistence.Id;
-import jakarta.persistence.JoinColumn;
-import jakarta.persistence.ManyToOne;
-import jakarta.persistence.Table;
+import jakarta.persistence.*;
 
 import lombok.AllArgsConstructor;
 import lombok.Data;
 import lombok.NoArgsConstructor;
+import org.hibernate.annotations.ColumnTransformer;
 
 /**
  * JPA entity for admin.feature_flag_companies
@@ -36,8 +31,11 @@ public class FeatureFlagCompany {
     @JoinColumn(name = "organization_id", columnDefinition = "UUID", nullable = false)
     private Organization organization;
 
-    @Column(name = "actions", columnDefinition = "permission_action[]")
-    private String[] actions;
+    @Column(name = "is_active")
+    private Boolean isActive = false;
 
+    @Column(name = "actions", columnDefinition = "permission_action[]")
+    @ColumnTransformer(write = "?::permission_action[]")
+    private String[] actions;
 }
 

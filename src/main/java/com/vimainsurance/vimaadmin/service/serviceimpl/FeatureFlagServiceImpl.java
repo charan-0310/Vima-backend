@@ -5,12 +5,14 @@ import java.util.stream.Collectors;
 
 import com.vimainsurance.vimaadmin.dto.FeatureFlagResponseDto;
 import com.vimainsurance.vimaadmin.dto.FeatureFlagsManagementResponse;
+import com.vimainsurance.vimaadmin.dto.FeatureFlagUpdateDto;
+import com.vimainsurance.vimaadmin.dto.FeatureFlagUpdateItemDto;
 import com.vimainsurance.vimaadmin.entity.FeatureFlag;
 import com.vimainsurance.vimaadmin.entity.FeatureFlagCompany;
 import com.vimainsurance.vimaadmin.entity.FeatureFlagRole;
 import com.vimainsurance.vimaadmin.repository.IFeatureFlagRepository;
+import com.vimainsurance.vimaadmin.repository.FeatureFlagRoleRepository;
 import com.vimainsurance.vimaadmin.service.FeatureFlagService;
-import com.vimainsurance.vimaadmin.specification.FeatureFlagSpecification;
 import com.vimainsurance.vimaadmin.util.TenantContext;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -23,6 +25,9 @@ public class FeatureFlagServiceImpl implements FeatureFlagService {
 
     @Autowired
     private IFeatureFlagRepository featureFlagRepository;
+
+    @Autowired
+    private FeatureFlagRoleRepository featureFlagRoleRepository;
 
 
     @Override
@@ -131,29 +136,31 @@ public class FeatureFlagServiceImpl implements FeatureFlagService {
         dto.setIsActive( !matchedRoles.isEmpty() || isSuperAdmin);
         dto.setIsEnabled(!matchedRoles.isEmpty() || isSuperAdmin);
 
-        Set<String> actions = new LinkedHashSet<>();
+        List<String> actions = new ArrayList<>();
         for (FeatureFlagRole r : matchedRoles) {
             if (r.getActions() != null) {
-                actions.addAll(Arrays.asList(r.getActions()));
+                actions.addAll(List.of(r.getActions()));
             }
         }
 
         for (FeatureFlagCompany c : matchedCompanies) {
             if (c.getActions() != null) {
-                actions.addAll(Arrays.asList(c.getActions()));
+
+               actions.addAll(Arrays.asList(c.getActions()));
             }
         }
 
         if (isSuperAdmin && actions.isEmpty()) {
             for (FeatureFlagRole r : flag.getRoles()) {
-                if (r.getActions() != null) actions.addAll(Arrays.asList(r.getActions()));
+                if (r.getActions() != null) actions.addAll(List.of(r.getActions()));
             }
             for (FeatureFlagCompany c : flag.getCompanies()) {
-                if (c.getActions() != null) actions.addAll(Arrays.asList(c.getActions()));
+                if (c.getActions() != null) {
+                    actions.addAll(Arrays.asList(c.getActions()));
+                }
             }
         }
-
-        dto.setActions(new ArrayList<>(actions));
+        dto.setActions(actions);
 
         List<FeatureFlagResponseDto.CompanyDto> companyDtos = new ArrayList<>();
         for (FeatureFlagCompany c : matchedCompanies) {
@@ -183,8 +190,73 @@ public class FeatureFlagServiceImpl implements FeatureFlagService {
             cd.setOrganizationId(null);
             cd.setOrganizationName(null);
         }
-        cd.setActions(c.getActions() != null ? Arrays.asList(c.getActions()) : List.of());
+        cd.setActions(c.getActions() != null ? List.of(c.getActions()) : List.of());
         return cd;
     }
-}
 
+    @Override
+    @Transactional
+    public void updateFeatureFlagRoles(FeatureFlagUpdateDto updateDto) {
+        log.info("Updating feature flag roles for identifier: {} with {} updates",
+                updateDto.getIdentifier(), updateDto.getUpdates().size());
+
+        String roleName = updateDto.getIdentifier();
+        List<UUID> flagIds = updateDto.getUpdates().stream()
+                .map(FeatureFlagUpdateItemDto::getId)
+                .collect(Collectors.toList());
+
+        // Find existing feature flag roles for this role and the provided flag IDs
+        List<FeatureFlagRole> existingRoles = featureFlagRoleRepository
+                .findByFeatureFlagIdsAndRoleName(flagIds, roleName);
+
+        // Create a map for quick lookup: flagId -> FeatureFlagRole
+        Map<UUID, FeatureFlagRole> existingRolesMap = existingRoles.stream()
+                .collect(Collectors.toMap(
+                        role -> role.getFeatureFlag().getFlagId(),
+                        role -> role
+                ));
+
+        List<FeatureFlagRole> rolesToUpdate = new ArrayList<>();
+
+        for (FeatureFlagUpdateItemDto updateItem : updateDto.getUpdates()) {
+            UUID flagId = updateItem.getId();
+            Boolean enabled = updateItem.getEnabled();
+            List<String> actions = updateItem.getActions();
+
+            FeatureFlagRole roleToUpdate = existingRolesMap.get(flagId);
+
+            if (roleToUpdate != null) {
+                // Update existing role
+                roleToUpdate.setIsActive(enabled);
+                roleToUpdate.setActions(actions.isEmpty() ? null : actions.toArray(String[]::new));
+                rolesToUpdate.add(roleToUpdate);
+                log.debug("Updated existing role for flag ID: {}, enabled: {}, actions: {}",
+                        flagId, enabled, actions);
+            } else {
+                // Create new role entry if it doesn't exist
+                Optional<FeatureFlag> featureFlagOpt = featureFlagRepository.findById(flagId);
+                if (featureFlagOpt.isPresent()) {
+                    FeatureFlagRole newRole = new FeatureFlagRole();
+                    newRole.setId(UUID.randomUUID());
+                    newRole.setFeatureFlag(featureFlagOpt.get());
+                    newRole.setRoleName(roleName);
+                    newRole.setIsActive(enabled);
+
+                    if (actions != null) {
+                        newRole.setActions(actions.isEmpty() ? null : actions.toArray(String[]::new));
+                    }
+                    rolesToUpdate.add(newRole);
+                    log.debug("Created new role for flag ID: {}, enabled: {}, actions: {}",
+                            flagId, enabled, actions);
+                } else {
+                    log.warn("Feature flag with ID {} not found, skipping update", flagId);
+                }
+            }
+        }
+
+        if (!rolesToUpdate.isEmpty()) {
+            featureFlagRoleRepository.saveAll(rolesToUpdate);
+            log.info("Successfully updated {} feature flag roles", rolesToUpdate.size());
+        }
+    }
+}
