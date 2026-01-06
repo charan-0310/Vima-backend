@@ -33,6 +33,9 @@ public class FeatureFlagResponseDto {
     @JsonProperty("actions")
     private List<String> actions;
 
+    @JsonProperty("sub_features")
+    private List<FeatureFlagResponseDto> subFeatures;
+
     @JsonProperty("companies")
     @JsonInclude(JsonInclude.Include.NON_EMPTY)
     private List<CompanyDto> companies;

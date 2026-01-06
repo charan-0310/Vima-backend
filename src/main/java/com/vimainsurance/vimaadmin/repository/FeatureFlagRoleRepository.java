@@ -12,6 +12,6 @@ import org.springframework.stereotype.Repository;
 @Repository
 public interface FeatureFlagRoleRepository extends JpaRepository<FeatureFlagRole, UUID> {
 
-    @Query("SELECT ffr FROM FeatureFlagRole ffr WHERE ffr.featureFlag.flagId IN :flagIds AND ffr.roleName = :roleName")
+   @Query("SELECT ffr FROM FeatureFlagRole ffr WHERE ffr.featureFlag.flagId IN :flagIds AND UPPER(ffr.roleName) = UPPER(:roleName)")
     List<FeatureFlagRole> findByFeatureFlagIdsAndRoleName(@Param("flagIds") List<UUID> flagIds, @Param("roleName") String roleName);
 }

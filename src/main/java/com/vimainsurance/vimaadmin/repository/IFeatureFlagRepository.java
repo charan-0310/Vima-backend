@@ -14,7 +14,14 @@ import org.springframework.stereotype.Repository;
 @Repository
 public interface IFeatureFlagRepository extends JpaRepository<FeatureFlag, UUID>, JpaSpecificationExecutor<FeatureFlag> {
 
-    @Query("select distinct f from FeatureFlag f left join fetch f.roles r")
+
+    @Query("select distinct f from FeatureFlag f left join fetch f.roles r where f.parentFeatureFlag is null")
     List<FeatureFlag> findAllWithRoles();
+
+    @Query("select featureFlag from FeatureFlag featureFlag where featureFlag.parentFeatureFlag.id = :parentId")
+    List<FeatureFlag> findSubFeatureFlagsByParentId(@Param("parentId") UUID parentId);
+
+    @Query("select f from FeatureFlag f where f.flagId in :flagIds")
+    List<FeatureFlag> findAllByFlagIds(@Param("flagIds") List<UUID> flagIds);
 }
 

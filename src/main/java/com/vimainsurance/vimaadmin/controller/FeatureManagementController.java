@@ -3,6 +3,7 @@ package com.vimainsurance.vimaadmin.controller;
 import com.vimainsurance.vimaadmin.dto.*;
 import com.vimainsurance.vimaadmin.service.FeatureFlagService;
 import jakarta.validation.Valid;
+import jakarta.validation.constraints.NotNull;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -39,12 +40,13 @@ public class FeatureManagementController {
         }
     }
 
-    @PostMapping("/features")
+    @PostMapping("/features/roles")
     @PreAuthorize("hasRole('VIMA_ADMIN')")
-    public ResponseEntity<String> updateFeatureFlagRoles(@Valid @RequestBody FeatureFlagUpdateDto updateDto) {
+    public ResponseEntity<String> updateFeatureFlagRoles( @RequestParam(value ="roleName", required = true) String roleName,
+                                                          @Valid @NotNull  @RequestBody FeatureFlagUpdateDto updateDto) {
         logger.info("Request received: update feature flag roles for identifier: {}", updateDto.getIdentifier());
         try {
-            featureFlagService.updateFeatureFlagRoles(updateDto);
+            featureFlagService.updateFeatureFlagRoles(roleName, updateDto);
             logger.info("Successfully updated feature flag roles for identifier: {}", updateDto.getIdentifier());
             return ResponseEntity.ok("Feature flag roles updated successfully");
         } catch (Exception e) {
@@ -74,7 +76,7 @@ public class FeatureManagementController {
     @PostMapping("/features/organizations")
     @PreAuthorize("hasRole('VIMA_ADMIN')")
     public ResponseEntity<String> updateFeatureFlagCompanies(
-            @RequestParam("organizationId") String organizationId,
+            @RequestParam(value ="organizationId", required = true) String organizationId,
             @Valid @RequestBody FeatureFlagUpdateDto updateDto) {
         logger.info("Request received: update feature flag companies for organizationId: {}", organizationId);
         try {

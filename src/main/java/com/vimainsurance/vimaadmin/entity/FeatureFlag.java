@@ -1,16 +1,9 @@
 package com.vimainsurance.vimaadmin.entity;
 
 import java.time.LocalDateTime;
-import java.util.ArrayList;
-import java.util.List;
-import java.util.UUID;
+import java.util.*;
 
-import jakarta.persistence.CascadeType;
-import jakarta.persistence.Column;
-import jakarta.persistence.Entity;
-import jakarta.persistence.Id;
-import jakarta.persistence.OneToMany;
-import jakarta.persistence.Table;
+import jakarta.persistence.*;
 
 import lombok.AllArgsConstructor;
 import lombok.Data;
@@ -35,6 +28,10 @@ public class FeatureFlag {
 
     @Column(name = "description")
     private String description;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "parent_flag_id", referencedColumnName = "flag_id", columnDefinition = "UUID")
+    private FeatureFlag parentFeatureFlag;
 
     @Column(name = "is_active")
     private Boolean isActive = true;

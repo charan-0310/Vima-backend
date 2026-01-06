@@ -6,6 +6,7 @@ CREATE TABLE IF NOT EXISTS admin.feature_flags (
     flag_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     flag_key VARCHAR(150) UNIQUE NOT NULL, -- e.g. 'group-insurance.company'
     description TEXT,
+    parent_flag_id UUID REFERENCES admin.feature_flags(flag_id) ON DELETE SET NULL,
     is_active BOOLEAN DEFAULT FALSE,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );

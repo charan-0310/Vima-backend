@@ -33,4 +33,7 @@ public class FeatureFlagsOrganizationDto {
     @JsonProperty("actions")
     private List<String> actions;
 
+    @JsonProperty("sub_features")
+    private List<FeatureFlagsOrganizationDto> subFeatures;
+
 }

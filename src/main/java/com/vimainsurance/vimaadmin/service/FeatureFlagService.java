@@ -14,7 +14,7 @@ public interface FeatureFlagService {
 
     List<FeatureFlagsManagementResponse> getFeatureFlagsGroupedByType();
 
-    void updateFeatureFlagRoles(FeatureFlagUpdateDto updateDto);
+    void updateFeatureFlagRoles(String roleName, FeatureFlagUpdateDto updateDto);
 
     List<FeatureFlagsOrganizationResponse> getFeatureFlagsGroupedByOrganization();
 

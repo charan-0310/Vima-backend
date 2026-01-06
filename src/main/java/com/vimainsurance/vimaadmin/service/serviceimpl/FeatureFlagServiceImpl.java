@@ -113,8 +113,24 @@ public class FeatureFlagServiceImpl implements FeatureFlagService {
             if (roles != null) {
                 for (FeatureFlagRole role : roles) {
                     String roleName = role.getRoleName();
-                    FeatureFlagResponseDto dto = createDto(flag, List.of(role), List.of(), false);
-                    grouped.computeIfAbsent(roleName, k -> new ArrayList<>()).add(dto);
+
+                    // Include parent feature flag
+                    FeatureFlagResponseDto parentDto = createDto(flag, List.of(role), List.of(), false);
+                    // Include subfeatures explicitly
+                    List<FeatureFlagResponseDto> subFeatures = new ArrayList<>();
+
+                    // Create a defensive copy to avoid ConcurrentModificationException during lazy loading
+                    List<FeatureFlag> subFeatureFlags = featureFlagRepository.findSubFeatureFlagsByParentId(flag.getFlagId());
+                    List<FeatureFlag> subFlags = (subFeatureFlags != null)
+                            ? new ArrayList<>(subFeatureFlags).stream().filter(Objects::nonNull).toList()
+                            : Collections.emptyList();
+
+                    for (FeatureFlag sub : subFlags) {
+                        FeatureFlagResponseDto subDto = createDto(sub, List.of(role), List.of(), false);
+                        subFeatures.add(subDto);
+                    }
+                    parentDto.setSubFeatures(subFeatures);
+                    grouped.computeIfAbsent(roleName, k -> new ArrayList<>()).add(parentDto);
                 }
             }
         }
@@ -191,6 +207,33 @@ public class FeatureFlagServiceImpl implements FeatureFlagService {
                 dto.setIsActive(true);
                 dto.setIsEnabled(ffc.getIsActive());
                 dto.setActions(ffc.getActions() != null ? Arrays.asList(ffc.getActions()) : List.of());
+                List<FeatureFlag> subFeatureFlags = featureFlagRepository.findSubFeatureFlagsByParentId(flag.getFlagId());
+                List<FeatureFlagsOrganizationDto> subFeatures = new ArrayList<>();
+                if (subFeatureFlags != null) {
+                    for (FeatureFlag sub : subFeatureFlags) {
+                        FeatureFlagsOrganizationDto subDto = new FeatureFlagsOrganizationDto();
+                        subDto.setFlagId(sub.getFlagId() != null ? sub.getFlagId().toString() : null);
+                        subDto.setFlagKey(sub.getFlagKey());
+                        subDto.setDescription(sub.getDescription());
+                        subDto.setIsActive(true);
+//                        // Find corresponding FeatureFlagCompany for subfeature
+//                        Optional<FeatureFlagCompany> subFfcOpt = matchedCompanies.stream()
+//                                .filter(c -> c.getFeatureFlag() != null && c.getFeatureFlag().getFlagId().equals(sub.getFlagId())
+//                                        && c.getOrganization() != null
+//                                        && c.getOrganization().getOrganizationId().toString().equals(organizationId))
+//                                .findFirst();
+//                        if (subFfcOpt.isPresent()) {
+//                            FeatureFlagCompany subFfc = subFfcOpt.get();
+//                            subDto.setIsEnabled(subFfc.getIsActive());
+//                            subDto.setActions(subFfc.getActions() != null ? Arrays.asList(subFfc.getActions()) : List.of());
+//                        } else {
+                            subDto.setIsEnabled(false);
+                            subDto.setActions(ffc.getActions() != null ? Arrays.asList(ffc.getActions()) : List.of());
+//                        }
+                        subFeatures.add(subDto);
+                    }
+                }
+                dto.setSubFeatures(subFeatures);
                 features.add(dto);
             }
 
@@ -278,67 +321,108 @@ public class FeatureFlagServiceImpl implements FeatureFlagService {
 
     @Override
     @Transactional
-    public void updateFeatureFlagRoles(FeatureFlagUpdateDto updateDto) {
-        log.info("Updating feature flag roles for identifier: {} with {} updates",
-                updateDto.getIdentifier(), updateDto.getUpdates().size());
+    public void updateFeatureFlagRoles(String roleName, FeatureFlagUpdateDto updateDto) {
+        log.info("Updating feature flag roles for roleName: {} with {} updates",
+                roleName, updateDto.getUpdates().size());
 
-        String roleName = updateDto.getIdentifier();
+        if (updateDto.getUpdates() == null || updateDto.getUpdates().isEmpty()) {
+            log.warn("No updates provided in the request");
+            return;
+        }
+
+        String normalizedRoleName = roleName.toUpperCase();
+        log.info("Normalized role name: {}", normalizedRoleName);
+
         List<UUID> flagIds = updateDto.getUpdates().stream()
                 .map(FeatureFlagUpdateItemDto::getId)
+                .filter(Objects::nonNull)
                 .collect(Collectors.toList());
+
+         if (flagIds.isEmpty()) {
+            log.warn("No valid flag IDs provided in the request");
+            return;
+        }
 
         // Find existing feature flag roles for this role and the provided flag IDs
         List<FeatureFlagRole> existingRoles = featureFlagRoleRepository
-                .findByFeatureFlagIdsAndRoleName(flagIds, roleName);
+                .findByFeatureFlagIdsAndRoleName(flagIds, normalizedRoleName);
+
+        log.info("Found {} existing FeatureFlagRole entries for role: {}", existingRoles.size(), normalizedRoleName);
 
         // Create a map for quick lookup: flagId -> FeatureFlagRole
-        Map<UUID, FeatureFlagRole> existingRolesMap = existingRoles.stream()
-                .collect(Collectors.toMap(
-                        role -> role.getFeatureFlag().getFlagId(),
-                        role -> role
-                ));
+        Map<UUID, FeatureFlagRole> existingRolesMap = new HashMap<>();
+        for (FeatureFlagRole role : existingRoles) {
+            if (role.getFeatureFlag() != null && role.getFeatureFlag().getFlagId() != null) {
+                existingRolesMap.put(role.getFeatureFlag().getFlagId(), role);
+            }
+        }
 
-        List<FeatureFlagRole> rolesToUpdate = new ArrayList<>();
+        log.info("Existing roles map keys: {}", existingRolesMap.keySet());
+
+        List<FeatureFlagRole> rolesToSave = new ArrayList<>();
 
         for (FeatureFlagUpdateItemDto updateItem : updateDto.getUpdates()) {
             UUID flagId = updateItem.getId();
-            Boolean enabled = updateItem.getEnabled();
-            List<String> actions = updateItem.getActions();
+
+            Boolean enabled = updateItem.getEnabled() != null ? updateItem.getEnabled() : false;
+            List<String> actions = updateItem.getActions() != null ? updateItem.getActions() : Collections.emptyList();
+
+            log.info("Processing update for flagId: {}, enabled: {}, actions: {}", flagId, enabled, actions);
 
             FeatureFlagRole roleToUpdate = existingRolesMap.get(flagId);
 
             if (roleToUpdate != null) {
                 // Update existing role
+                log.info("Found existing FeatureFlagRole with id: {} for flagId: {}, updating...",
+                        roleToUpdate.getId(), flagId);
                 roleToUpdate.setIsActive(enabled);
-                roleToUpdate.setActions(actions.isEmpty() ? null : actions.toArray(String[]::new));
-                rolesToUpdate.add(roleToUpdate);
-                log.debug("Updated existing role for flag ID: {}, enabled: {}, actions: {}",
+                roleToUpdate.setActions(actions.isEmpty() ? null : actions.toArray(new String[0]));
+                rolesToSave.add(roleToUpdate);
+                log.info("Prepared update for existing role - flag ID: {}, enabled: {}, actions: {}",
                         flagId, enabled, actions);
             } else {
                 // Create new role entry if it doesn't exist
+                log.info("No existing FeatureFlagRole for flagId: {}, checking if FeatureFlag exists...", flagId);
+
+                // Try to find the FeatureFlag
                 Optional<FeatureFlag> featureFlagOpt = featureFlagRepository.findById(flagId);
+
                 if (featureFlagOpt.isPresent()) {
+                    FeatureFlag featureFlag = featureFlagOpt.get();
+                    log.info("FeatureFlag found - flagId: {}, flagKey: {}, creating new FeatureFlagRole...",
+                            featureFlag.getFlagId(), featureFlag.getFlagKey());
+
                     FeatureFlagRole newRole = new FeatureFlagRole();
                     newRole.setId(UUID.randomUUID());
-                    newRole.setFeatureFlag(featureFlagOpt.get());
-                    newRole.setRoleName(roleName);
+                    newRole.setFeatureFlag(featureFlag);
+                    newRole.setRoleName(normalizedRoleName);
                     newRole.setIsActive(enabled);
+                    newRole.setActions(actions.isEmpty() ? null : actions.toArray(String[]::new));
 
-                    if (actions != null) {
-                        newRole.setActions(actions.isEmpty() ? null : actions.toArray(String[]::new));
-                    }
-                    rolesToUpdate.add(newRole);
-                    log.debug("Created new role for flag ID: {}, enabled: {}, actions: {}",
-                            flagId, enabled, actions);
+                    rolesToSave.add(newRole);
+                    log.info("Created new FeatureFlagRole - id: {}, flagId: {}, roleName: {}, enabled: {}, actions: {}",
+                            newRole.getId(), flagId, normalizedRoleName, enabled, actions);
                 } else {
-                    log.warn("Feature flag with ID {} not found, skipping update", flagId);
+                    log.warn("FeatureFlag with ID {} not found in feature_flags table, skipping. " +
+                            "Please verify this flag_id exists in admin.feature_flags table.", flagId);
                 }
             }
         }
 
-        if (!rolesToUpdate.isEmpty()) {
-            featureFlagRoleRepository.saveAll(rolesToUpdate);
-            log.info("Successfully updated {} feature flag roles", rolesToUpdate.size());
+        if (!rolesToSave.isEmpty()) {
+            log.info("Saving {} feature flag roles...", rolesToSave.size());
+            try {
+                List<FeatureFlagRole> savedRoles = featureFlagRoleRepository.saveAll(rolesToSave);
+                featureFlagRoleRepository.flush(); // Force immediate write to database
+                log.info("Successfully saved {} feature flag roles to database", savedRoles.size());
+
+            } catch (Exception e) {
+                log.error("Failed to save feature flag roles: {}", e.getMessage(), e);
+                throw new RuntimeException("Failed to save feature flag roles: " + e.getMessage(), e);
+            }
+        } else {
+            log.warn("No feature flag roles to save - check if the flag IDs exist in the database. " +
+                    "Provided flagIds: {}", flagIds);
         }
     }
 
