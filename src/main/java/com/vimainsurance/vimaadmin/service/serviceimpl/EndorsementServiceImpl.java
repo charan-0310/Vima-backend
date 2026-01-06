@@ -15,11 +15,14 @@ import org.slf4j.LoggerFactory;
 import org.slf4j.MDC;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.core.env.Environment;
+import org.springframework.core.io.InputStreamResource;
 import org.springframework.core.io.Resource;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
 import org.springframework.data.jpa.domain.Specification;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Service;
@@ -50,17 +53,12 @@ import com.vimainsurance.vimaadmin.repository.IEndorsementRepository;
 import com.vimainsurance.vimaadmin.repository.IOrganizationRepository;
 import com.vimainsurance.vimaadmin.service.IDocumentService;
 import com.vimainsurance.vimaadmin.service.IEndorsementService;
+import com.vimainsurance.vimaadmin.service.IS3Service;
 import com.vimainsurance.vimaadmin.specification.EndorsementSpecification;
 import com.vimainsurance.vimaadmin.util.Constants;
 import com.vimainsurance.vimaadmin.util.EnvironmentUtil;
 import com.vimainsurance.vimaadmin.util.JwtUserExtractor;
 import com.vimainsurance.vimaadmin.util.TenantContext;
-
-import org.springframework.http.HttpStatus;
-import org.springframework.http.HttpHeaders;
-import org.springframework.core.io.InputStreamResource;
-
-import com.vimainsurance.vimaadmin.service.IS3Service;
 
 @Service
 public class EndorsementServiceImpl implements IEndorsementService {
@@ -526,8 +524,8 @@ public class EndorsementServiceImpl implements IEndorsementService {
                 }
             }
             Specification<Endorsement> spec = EndorsementSpecification.countPendingByOrganizationIds(organizationIds);
-            Page<Endorsement> endorsementPage = endorsementRepository.findAll(spec, PageRequest.of(0, 10));
-            return responseObj.render(responseObj.formSuccessResponse(Constants.SUCCESS, "Pending count: " + endorsementPage.getTotalElements()));
+            List<Endorsement> endorsementList = endorsementRepository.findAll(spec);
+            return responseObj.render(responseObj.formSuccessResponse(Constants.SUCCESS, "Pending count: " + endorsementList.size()));
         } catch (Exception e) {
             logger.error("[correlationId:{}] Exception in Endorsement getPendingCount: {}", MDC.get("correlationId"), e.getMessage(), e);
             return responseObj.render(responseObj.formErrorResponse(Constants.RECORD_NOT_FOUND_MESSAGE));
@@ -621,6 +619,7 @@ public class EndorsementServiceImpl implements IEndorsementService {
             // WHERE status='APPROVED' AND date_of_joining <= CURRENT_DATE
             LocalDate currentDate = LocalDate.now();
             LocalDateTime updatedAt = LocalDateTime.now();
+            logger.info("[correlationId:{}] Updated at: {}", MDC.get("correlationId"), updatedAt);
             
             int activatedCount = dealsRepository.activateAllApprovedDealsByDate(
                 AccountStatus.APPROVED,

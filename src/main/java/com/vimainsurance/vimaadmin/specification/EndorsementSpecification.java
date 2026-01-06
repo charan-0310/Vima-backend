@@ -268,15 +268,24 @@ public class EndorsementSpecification {
     /* 
      * Count pending endorsements for given organizations
      * Pending endorsements are those with status PENDING_APPROVAL or PENDING_EXIT
+     * If organizationIds is provided, filters by those organizations and pending status
+     * If organizationIds is null/empty, returns all pending endorsements (no organization filter)
      * 
-     * @param organizationIds List of organization IDs
-     * @return Specification for counting pending endorsements by organization IDs
+     * @param organizationIds List of organization IDs (can be null or empty)
+     * @return Specification for counting pending endorsements
      */
     public static Specification<Endorsement> countPendingByOrganizationIds(List<UUID> organizationIds) {
         return (root, query, criteriaBuilder) -> {
             
+            // Filter by pending status (PENDING_APPROVAL or PENDING_EXIT)
+            Predicate pendingStatusPredicate = criteriaBuilder.or(
+                criteriaBuilder.equal(root.get("status"), AccountStatus.PENDING_APPROVAL),
+                criteriaBuilder.equal(root.get("status"), AccountStatus.PENDING_EXIT)
+            );
+            
+            // If no organization IDs provided, return only pending status filter
             if(organizationIds == null || organizationIds.isEmpty()) {
-                return criteriaBuilder.conjunction();
+                return pendingStatusPredicate;
             }
             
             // Filter by organization IDs
@@ -287,13 +296,7 @@ public class EndorsementSpecification {
                 orgPredicate = root.get("organization").get("organizationId").in(organizationIds);
             }
             
-            // Filter by pending status (PENDING_APPROVAL or PENDING_EXIT)
-            Predicate pendingStatusPredicate = criteriaBuilder.or(
-                criteriaBuilder.equal(root.get("status"), AccountStatus.PENDING_APPROVAL),
-                criteriaBuilder.equal(root.get("status"), AccountStatus.PENDING_EXIT)
-            );
-            
-            // Combine both predicates
+            // Combine organization filter with pending status filter
             return criteriaBuilder.and(orgPredicate, pendingStatusPredicate);
             
         };

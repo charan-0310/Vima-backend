@@ -217,7 +217,7 @@ public class EndorsementController {
     * Get documents by endorsement id
     */
     @GetMapping("/{endorsementId}/documents")
-    @PreAuthorize("hasAnyAuthority('SUPER_ADMIN', 'ADMIN', 'VIMA_ADMIN', 'SALES_MANAGER', 'HR_ADMIN')")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'VIMA_ADMIN', 'SALES_MANAGER', 'HR_ADMIN')")
     public ResponseEntity<ResponseDto<List<DocumentResponseDto>>> getDocuments(@PathVariable UUID endorsementId, @RequestParam (defaultValue = "-1", required = false) int page, @RequestParam (defaultValue = "-1", required = false) int rec) {
         logger.info("[correlationId:{}] /endorsements/{}/documents (GET) endpoint called", MDC.get("correlationId"), endorsementId);
         return endorsementService.getDocuments(endorsementId.toString(), page, rec);
@@ -227,7 +227,7 @@ public class EndorsementController {
     * Download document by endorsement id and document id
     */
     @GetMapping("/{endorsementId}/documents/{documentId}/download")
-    @PreAuthorize("hasAnyAuthority('SUPER_ADMIN', 'ADMIN', 'VIMA_ADMIN', 'SALES_MANAGER', 'HR_ADMIN')")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'VIMA_ADMIN', 'SALES_MANAGER', 'HR_ADMIN')")
     public ResponseEntity<Resource> downloadDocument(@PathVariable UUID endorsementId, @PathVariable String documentId) {
         logger.info("[correlationId:{}] /endorsements/{}/documents/{}/download (GET) endpoint called", MDC.get("correlationId"), endorsementId, documentId);
         return endorsementService.downloadDocument(endorsementId, documentId);

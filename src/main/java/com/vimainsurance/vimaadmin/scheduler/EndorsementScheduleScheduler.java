@@ -1,5 +1,7 @@
 package com.vimainsurance.vimaadmin.scheduler;
 
+import java.util.UUID;
+
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.slf4j.MDC;
@@ -7,8 +9,6 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
-
-import java.util.UUID;
 
 import com.vimainsurance.vimaadmin.config.EndorsementSchedulerConfig;
 import com.vimainsurance.vimaadmin.service.IEndorsementService;
@@ -49,7 +49,7 @@ public class EndorsementScheduleScheduler {
      * Default: Every minute (0 * * * * ?)
      * Note: initialDelay is not supported with cron expressions in Spring
      */
-    @Scheduled(cron = "${endorsement.scheduler.cron-expression:0 * * * * ?}")
+    @Scheduled(cron = "${endorsement.scheduler.cron-expression:0 * * * * ?}", zone="UTC")
     public void confirmEndorsementSchedule() {
         String correlationId = UUID.randomUUID().toString();
         MDC.put("correlationId", correlationId);

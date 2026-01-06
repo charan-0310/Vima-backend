@@ -26,6 +26,7 @@ import java.time.LocalDateTime;
 import java.time.YearMonth;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -36,8 +37,9 @@ import java.util.TreeMap;
 
 import com.vimainsurance.vimaadmin.entity.Organization;
 import com.vimainsurance.vimaadmin.dto.OrganizationActivityDto.MonthlyEndorsementActivityDto;
-import com.vimainsurance.vimaadmin.enums.AccountStatus;
+import com.vimainsurance.vimaadmin.dto.ClaimsActivityDto;
 import com.vimainsurance.vimaadmin.enums.EndorsementType;
+import java.math.BigDecimal;
 
 @Service
 @Slf4j
@@ -136,6 +138,22 @@ public class HRServiceImpl implements IHRService {
            
            HRDashBoardResponseDto hrDashboardResponse = new HRDashBoardResponseDto();
            hrDashboardResponse.setOrganizationActivityDto(organizationActivityDto);
+           
+           // TODO: Implement claims activity service logic
+           // This will be implemented later to fetch:
+           // - Total claims count and amount
+           // - Monthly claims data (count and amount per month)
+           // - Filter by organization IDs from tenant context
+           // - Filter by date range (startDate, endDate)
+           // Example implementation:
+           // ClaimsActivityDto claimsActivityDto = getClaimsActivity(validOrgIds, startDate, endDate);
+           
+           // For now, return empty claims data
+           ClaimsActivityDto claimsActivityDto = new ClaimsActivityDto();
+           claimsActivityDto.setMonthlyClaimsActivity(new ArrayList<ClaimsActivityDto.MonthlyClaimsActivityDto>(Arrays.asList(new ClaimsActivityDto.MonthlyClaimsActivityDto("Jan 2026", 0L, BigDecimal.ZERO))));
+           
+           hrDashboardResponse.setClaimsActivityDto(claimsActivityDto);
+           
            return responseObj.render(responseObj.formSuccessResponse("HR Dashboard", hrDashboardResponse));
         } catch (Exception e) {
             log.error("[correlationId:{}] Exception in getOrganizationActivity: {}", MDC.get("correlationId"), e.getMessage(), e);
@@ -203,5 +221,29 @@ public class HRServiceImpl implements IHRService {
             })
             .collect(Collectors.toList());
     }
+
+    /**
+     * Get claims activity for given organizations and date range
+     * TODO: Implement this method to fetch claims data from repository
+     * This method should:
+     * 1. Query claims repository/specification for total counts and amounts
+     * 2. Get monthly aggregated claims data (count and amount per month)
+     * 3. Filter by organization IDs and date range
+     * 4. Return ClaimsActivityDto with monthly breakdown
+     * 
+     * @param organizationIds List of organization UUIDs
+     * @param startDate Start date for filtering (optional)
+     * @param endDate End date for filtering (optional)
+     * @return ClaimsActivityDto containing total and monthly claims data
+     */
+    // private ClaimsActivityDto getClaimsActivity(List<UUID> organizationIds, LocalDateTime startDate, LocalDateTime endDate) {
+    //     // Implementation will be added later
+    //     // Example structure:
+    //     // - Get total claims count: claimsRepository.count(...)
+    //     // - Get total amount: claimsRepository.sumAmount(...)
+    //     // - Get monthly data: claimsRepository.getMonthlyClaimsData(...)
+    //     // - Build ClaimsActivityDto with monthly breakdown
+    //     return new ClaimsActivityDto();
+    // }
 }
 
