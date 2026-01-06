@@ -53,5 +53,47 @@ public class FeatureManagementController {
         }
     }
 
+    @GetMapping("/features/organizations")
+    @PreAuthorize("hasRole('VIMA_ADMIN')")
+    public ResponseEntity<List<FeatureFlagsOrganizationResponse>> getFeatureFlagsByOrganization() {
+        logger.info("Request received: get feature flags by organizations");
+        try {
+            List<FeatureFlagsOrganizationResponse> flags = featureFlagService.getFeatureFlagsGroupedByOrganization();
+            if (flags == null || flags.isEmpty()) {
+                logger.info("No feature flags found for organizations");
+                return ResponseEntity.noContent().build();
+            }
+            logger.debug("Returning {} feature flag groups for organizations", flags.size());
+            return ResponseEntity.ok(flags);
+        } catch (Exception e) {
+            logger.error("Error while fetching feature flags for organizations", e);
+            return ResponseEntity.status(500).build();
+        }
+    }
+
+    @PostMapping("/features/organizations")
+    @PreAuthorize("hasRole('VIMA_ADMIN')")
+    public ResponseEntity<String> updateFeatureFlagCompanies(
+            @RequestParam("organizationId") String organizationId,
+            @Valid @RequestBody FeatureFlagUpdateDto updateDto) {
+        logger.info("Request received: update feature flag companies for organizationId: {}", organizationId);
+        try {
+            if (organizationId == null || organizationId.isBlank()) {
+                logger.warn("organizationId is required but was not provided");
+                return ResponseEntity.badRequest().body("organizationId is required");
+            }
+            featureFlagService.updateFeatureFlagCompanies(organizationId, updateDto);
+            logger.info("Successfully updated feature flag companies for organizationId: {}", organizationId);
+            return ResponseEntity.ok("Feature flag companies updated successfully");
+        } catch (IllegalArgumentException e) {
+            logger.error("Invalid request for organizationId: {}", organizationId, e);
+            return ResponseEntity.badRequest().body(e.getMessage());
+        } catch (Exception e) {
+            logger.error("Error while updating feature flag companies for organizationId: {}", organizationId, e);
+            return ResponseEntity.status(500).body("Failed to update feature flag companies: " + e.getMessage());
+        }
+    }
+
+
 
 }
