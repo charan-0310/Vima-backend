@@ -103,8 +103,7 @@ public class EndorsementSpecification {
                     predicate = criteriaBuilder.and(
                         predicate,
                         criteriaBuilder.or(
-                            criteriaBuilder.equal(root.get("status"), AccountStatus.ACTIVE),
-                            criteriaBuilder.equal(root.get("status"), AccountStatus.INACTIVE)
+                            criteriaBuilder.equal(root.get("status"), AccountStatus.COMPLETED)
                         )
                     );
                 }
