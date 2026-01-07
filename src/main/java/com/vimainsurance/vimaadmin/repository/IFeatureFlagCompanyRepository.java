@@ -1,6 +1,7 @@
 package com.vimainsurance.vimaadmin.repository;
 
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 
 import com.vimainsurance.vimaadmin.entity.FeatureFlagCompany;
@@ -17,10 +18,11 @@ public interface IFeatureFlagCompanyRepository extends JpaRepository<FeatureFlag
      * with the given role name in FeatureFlagRole table
      */
     @Query("SELECT DISTINCT ffc FROM FeatureFlagCompany ffc " +
-           "JOIN FETCH ffc.featureFlag ff " +
-           "JOIN FETCH ffc.organization org " +
-           "WHERE ffc.featureFlag.flagId IN " +
-           "(SELECT ffr.featureFlag.flagId FROM FeatureFlagRole ffr WHERE ffr.roleName = :roleName)")
+            "JOIN FETCH ffc.featureFlag ff " +
+            "JOIN FETCH ffc.organization org " +
+            "WHERE ff.parentFeatureFlag IS NULL AND " +
+            "ffc.featureFlag.flagId IN " +
+            "(SELECT ffr.featureFlag.flagId FROM FeatureFlagRole ffr WHERE ffr.roleName = :roleName)")
     List<FeatureFlagCompany> findByRoleName(@Param("roleName") String roleName);
 
     /**
@@ -41,5 +43,17 @@ public interface IFeatureFlagCompanyRepository extends JpaRepository<FeatureFlag
            "JOIN FETCH ffc.featureFlag ff " +
            "WHERE ffc.organization.organizationId = :organizationId")
     List<FeatureFlagCompany> findByOrganizationId(@Param("organizationId") UUID organizationId);
+
+    /**
+     * Find FeatureFlagCompany by flag ID and organization ID
+     */
+    @Query("SELECT ffc FROM FeatureFlagCompany ffc " +
+            "JOIN FETCH ffc.featureFlag ff " +
+            "JOIN FETCH ffc.organization org " +
+            "WHERE ffc.featureFlag.flagId = :flagId " +
+            "AND ffc.organization.organizationId = :organizationId")
+    Optional<FeatureFlagCompany> findByFlagIdAndOrganizationId(
+            @Param("flagId") UUID flagId,
+            @Param("organizationId") UUID organizationId);
 }
 
