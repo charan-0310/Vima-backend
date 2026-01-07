@@ -3,10 +3,14 @@ package com.vimainsurance.vimaadmin.service.serviceimpl;
 import java.io.InputStream;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.ZoneId;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
@@ -15,11 +19,14 @@ import org.slf4j.LoggerFactory;
 import org.slf4j.MDC;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.core.env.Environment;
+import org.springframework.core.io.InputStreamResource;
 import org.springframework.core.io.Resource;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
 import org.springframework.data.jpa.domain.Specification;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Service;
@@ -50,17 +57,12 @@ import com.vimainsurance.vimaadmin.repository.IEndorsementRepository;
 import com.vimainsurance.vimaadmin.repository.IOrganizationRepository;
 import com.vimainsurance.vimaadmin.service.IDocumentService;
 import com.vimainsurance.vimaadmin.service.IEndorsementService;
+import com.vimainsurance.vimaadmin.service.IS3Service;
 import com.vimainsurance.vimaadmin.specification.EndorsementSpecification;
 import com.vimainsurance.vimaadmin.util.Constants;
 import com.vimainsurance.vimaadmin.util.EnvironmentUtil;
 import com.vimainsurance.vimaadmin.util.JwtUserExtractor;
 import com.vimainsurance.vimaadmin.util.TenantContext;
-
-import org.springframework.http.HttpStatus;
-import org.springframework.http.HttpHeaders;
-import org.springframework.core.io.InputStreamResource;
-
-import com.vimainsurance.vimaadmin.service.IS3Service;
 
 @Service
 public class EndorsementServiceImpl implements IEndorsementService {
@@ -526,8 +528,8 @@ public class EndorsementServiceImpl implements IEndorsementService {
                 }
             }
             Specification<Endorsement> spec = EndorsementSpecification.countPendingByOrganizationIds(organizationIds);
-            Page<Endorsement> endorsementPage = endorsementRepository.findAll(spec, PageRequest.of(0, 10));
-            return responseObj.render(responseObj.formSuccessResponse(Constants.SUCCESS, "Pending count: " + endorsementPage.getTotalElements()));
+            List<Endorsement> endorsementList = endorsementRepository.findAll(spec);
+            return responseObj.render(responseObj.formSuccessResponse(Constants.SUCCESS, "Pending count: " + endorsementList.size()));
         } catch (Exception e) {
             logger.error("[correlationId:{}] Exception in Endorsement getPendingCount: {}", MDC.get("correlationId"), e.getMessage(), e);
             return responseObj.render(responseObj.formErrorResponse(Constants.RECORD_NOT_FOUND_MESSAGE));
@@ -589,7 +591,7 @@ public class EndorsementServiceImpl implements IEndorsementService {
             Optional<Endorsement> endorsementOpt = endorsementRepository.findById(endorsementId);
             if (endorsementOpt.isPresent()) {
                 Endorsement endorsement = endorsementOpt.get();
-                endorsement.setStatus(AccountStatus.APPROVED);
+                endorsement.setStatus(AccountStatus.COMPLETED);
                 endorsement.setUpdatedAt(updatedAt);
                 endorsementRepository.save(endorsement);
             }
@@ -616,12 +618,37 @@ public class EndorsementServiceImpl implements IEndorsementService {
         logger.info("[correlationId:{}] Endorsement confirmSchedule called for all deals", MDC.get("correlationId"));
         BaseResponse<String> responseObj = new BaseResponse<>();
         try {
+            LocalDate currentDate = LocalDate.now(ZoneId.of("Asia/Kolkata"));
+            LocalDateTime updatedAt = LocalDateTime.now();
+            
+            // First, get the deals that will be activated (before updating)
+            List<Deals> dealsToActivate = dealsRepository.findByStatusAndDateOfJoining(
+                AccountStatus.APPROVED, 
+                currentDate
+            );
+            
+            // Get the deals that will be deactivated (before updating)
+            List<Deals> dealsToDeactivate = dealsRepository.findByStatusAndDateOfExit(
+                AccountStatus.LEAVING, 
+                currentDate
+            );
+            
+            // Extract unique endorsement IDs from deals that will be activated
+            Set<UUID> activationEndorsementIds = dealsToActivate.stream()
+                .map(Deals::getEndorsementId)
+                .filter(Objects::nonNull)
+                .collect(Collectors.toSet());
+            
+            // Extract unique endorsement IDs from deals that will be deactivated
+            Set<UUID> deactivationEndorsementIds = dealsToDeactivate.stream()
+                .map(Deals::getEndorsementId)
+                .filter(Objects::nonNull)
+                .collect(Collectors.toSet());
+            
+            // Perform the actual activation/deactivation
             // Activation Logic: SQL Update
             // UPDATE customers SET status='ACTIVE', updated_at=CURRENT_TIMESTAMP 
             // WHERE status='APPROVED' AND date_of_joining <= CURRENT_DATE
-            LocalDate currentDate = LocalDate.now();
-            LocalDateTime updatedAt = LocalDateTime.now();
-            
             int activatedCount = dealsRepository.activateAllApprovedDealsByDate(
                 AccountStatus.APPROVED,
                 AccountStatus.ACTIVE,
@@ -639,13 +666,37 @@ public class EndorsementServiceImpl implements IEndorsementService {
                 updatedAt
             );
             
+            // Combine all unique endorsement IDs that need to be updated
+            Set<UUID> allEndorsementIds = new HashSet<>();
+            allEndorsementIds.addAll(activationEndorsementIds);
+            allEndorsementIds.addAll(deactivationEndorsementIds);
+            
+            // Update each endorsement to COMPLETED (similar to lines 578-584)
+            int completedEndorsementsCount = 0;
+            for (UUID endorsementId : allEndorsementIds) {
+                Optional<Endorsement> endorsementOpt = endorsementRepository.findById(endorsementId);
+                if (endorsementOpt.isPresent()) {
+                    Endorsement endorsement = endorsementOpt.get();
+                    // Only update if status is APPROVED (to avoid updating already completed ones)
+                    if (endorsement.getStatus() == AccountStatus.APPROVED) {
+                        endorsement.setStatus(AccountStatus.COMPLETED);
+                        endorsement.setUpdatedAt(updatedAt);
+                        endorsementRepository.save(endorsement);
+                        completedEndorsementsCount++;
+                    }
+                }
+            }
+            
             if (activatedCount > 0 || deactivatedCount > 0) {
-                logger.info("[correlationId:{}] Activated {} deals and deactivated {} deals based on schedule", 
-                    MDC.get("correlationId"), activatedCount, deactivatedCount);
+                logger.info("[correlationId:{}] Activated {} deals and deactivated {} deals based on schedule. " +
+                    "Completed {} endorsements", 
+                    MDC.get("correlationId"), activatedCount, deactivatedCount, completedEndorsementsCount);
             }
             
             return responseObj.render(responseObj.formSuccessResponse(Constants.SUCCESS, 
-                "Schedule confirmed successfully. Activated: " + activatedCount + ", Deactivated: " + deactivatedCount));
+                "Schedule confirmed successfully. Activated: " + activatedCount + 
+                ", Deactivated: " + deactivatedCount + 
+                ", Completed endorsements: " + completedEndorsementsCount));
         } catch (Exception e) {
             logger.error("[correlationId:{}] Exception in Endorsement confirmSchedule: {}", MDC.get("correlationId"), e.getMessage(), e);
             return responseObj.render(responseObj.formErrorResponse("Failed to confirm schedule endorsement!"));

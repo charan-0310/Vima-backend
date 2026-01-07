@@ -3,7 +3,6 @@ package com.vimainsurance.vimaadmin.dto;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 import lombok.AllArgsConstructor;
-import com.vimainsurance.vimaadmin.dto.OrganizationActivityDto;
 
 @Data
 @NoArgsConstructor
@@ -11,5 +10,6 @@ import com.vimainsurance.vimaadmin.dto.OrganizationActivityDto;
 public class HRDashBoardResponseDto {
 
     private OrganizationActivityDto organizationActivityDto;
+    private ClaimsActivityDto claimsActivityDto;
     
 }
