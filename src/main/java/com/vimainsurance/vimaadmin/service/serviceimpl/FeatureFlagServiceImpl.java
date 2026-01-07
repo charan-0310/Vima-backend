@@ -215,28 +215,26 @@ public class FeatureFlagServiceImpl implements FeatureFlagService {
                 List<FeatureFlagsOrganizationDto> subFeatures = new ArrayList<>();
                 if (subFeatureFlags != null) {
                     for (FeatureFlag sub : subFeatureFlags) {
+
                         FeatureFlagsOrganizationDto subDto = new FeatureFlagsOrganizationDto();
                         subDto.setFlagId(sub.getFlagId() != null ? sub.getFlagId().toString() : null);
                         subDto.setFlagKey(sub.getFlagKey());
                         subDto.setDescription(sub.getDescription());
-                        subDto.setIsActive(true);
-//                        // Find corresponding FeatureFlagCompany for subfeature
-//                        Optional<FeatureFlagCompany> subFfcOpt = matchedCompanies.stream()
-//                                .filter(c -> c.getFeatureFlag() != null && c.getFeatureFlag().getFlagId().equals(sub.getFlagId())
-//                                        && c.getOrganization() != null
-//                                        && c.getOrganization().getOrganizationId().toString().equals(organizationId))
-//                                .findFirst();
-//                        if (subFfcOpt.isPresent()) {
-//                            FeatureFlagCompany subFfc = subFfcOpt.get();
-//                            subDto.setIsEnabled(subFfc.getIsActive());
-//                            subDto.setActions(subFfc.getActions() != null ? Arrays.asList(subFfc.getActions()) : List.of());
-//                        } else {
+                        Optional<FeatureFlagCompany> featureFlagCompanyOptional = featureFlagCompanyRepository.findByFlagIdAndOrganizationId(sub.getFlagId(),
+                                ffc.getOrganization().getOrganizationId());
+                        if (featureFlagCompanyOptional.isPresent()) {
+                            FeatureFlagCompany subFfc = featureFlagCompanyOptional.get();
+                            subDto.setIsActive(true);
+                            subDto.setIsEnabled(subFfc.getIsActive());
+                            subDto.setActions(subFfc.getActions() != null ? Arrays.asList(subFfc.getActions()) : List.of());
+                        } else {
+                            subDto.setIsActive(true);
                             subDto.setIsEnabled(false);
-                            subDto.setActions(ffc.getActions() != null ? Arrays.asList(ffc.getActions()) : List.of());
-//                        }
+                            subDto.setActions(List.of());
+                        }
                         subFeatures.add(subDto);
                     }
-                }
+                 }
                 dto.setSubFeatures(subFeatures);
                 features.add(dto);
             }
