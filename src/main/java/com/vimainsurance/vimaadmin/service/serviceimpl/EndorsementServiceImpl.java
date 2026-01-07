@@ -5,9 +5,12 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
@@ -588,7 +591,7 @@ public class EndorsementServiceImpl implements IEndorsementService {
             Optional<Endorsement> endorsementOpt = endorsementRepository.findById(endorsementId);
             if (endorsementOpt.isPresent()) {
                 Endorsement endorsement = endorsementOpt.get();
-                endorsement.setStatus(AccountStatus.APPROVED);
+                endorsement.setStatus(AccountStatus.COMPLETED);
                 endorsement.setUpdatedAt(updatedAt);
                 endorsementRepository.save(endorsement);
             }
@@ -615,16 +618,37 @@ public class EndorsementServiceImpl implements IEndorsementService {
         logger.info("[correlationId:{}] Endorsement confirmSchedule called for all deals", MDC.get("correlationId"));
         BaseResponse<String> responseObj = new BaseResponse<>();
         try {
+            LocalDate currentDate = LocalDate.now(ZoneId.of("Asia/Kolkata"));
+            LocalDateTime updatedAt = LocalDateTime.now();
+            
+            // First, get the deals that will be activated (before updating)
+            List<Deals> dealsToActivate = dealsRepository.findByStatusAndDateOfJoining(
+                AccountStatus.APPROVED, 
+                currentDate
+            );
+            
+            // Get the deals that will be deactivated (before updating)
+            List<Deals> dealsToDeactivate = dealsRepository.findByStatusAndDateOfExit(
+                AccountStatus.LEAVING, 
+                currentDate
+            );
+            
+            // Extract unique endorsement IDs from deals that will be activated
+            Set<UUID> activationEndorsementIds = dealsToActivate.stream()
+                .map(Deals::getEndorsementId)
+                .filter(Objects::nonNull)
+                .collect(Collectors.toSet());
+            
+            // Extract unique endorsement IDs from deals that will be deactivated
+            Set<UUID> deactivationEndorsementIds = dealsToDeactivate.stream()
+                .map(Deals::getEndorsementId)
+                .filter(Objects::nonNull)
+                .collect(Collectors.toSet());
+            
+            // Perform the actual activation/deactivation
             // Activation Logic: SQL Update
             // UPDATE customers SET status='ACTIVE', updated_at=CURRENT_TIMESTAMP 
             // WHERE status='APPROVED' AND date_of_joining <= CURRENT_DATE
-            // Use IST timezone for date comparison to match business logic (scheduler runs at 12:45 AM IST)
-            
-            LocalDate currentDate = LocalDate.now(ZoneId.of("Asia/Kolkata"));
-            LocalDateTime updatedAt = LocalDateTime.now(ZoneId.of("UTC"));
-            logger.info("[correlationId:{}] Current date: {}", MDC.get("correlationId"), currentDate);
-            logger.info("[correlationId:{}] Updated at: {}", MDC.get("correlationId"), updatedAt);
-            
             int activatedCount = dealsRepository.activateAllApprovedDealsByDate(
                 AccountStatus.APPROVED,
                 AccountStatus.ACTIVE,
@@ -642,13 +666,37 @@ public class EndorsementServiceImpl implements IEndorsementService {
                 updatedAt
             );
             
+            // Combine all unique endorsement IDs that need to be updated
+            Set<UUID> allEndorsementIds = new HashSet<>();
+            allEndorsementIds.addAll(activationEndorsementIds);
+            allEndorsementIds.addAll(deactivationEndorsementIds);
+            
+            // Update each endorsement to COMPLETED (similar to lines 578-584)
+            int completedEndorsementsCount = 0;
+            for (UUID endorsementId : allEndorsementIds) {
+                Optional<Endorsement> endorsementOpt = endorsementRepository.findById(endorsementId);
+                if (endorsementOpt.isPresent()) {
+                    Endorsement endorsement = endorsementOpt.get();
+                    // Only update if status is APPROVED (to avoid updating already completed ones)
+                    if (endorsement.getStatus() == AccountStatus.APPROVED) {
+                        endorsement.setStatus(AccountStatus.COMPLETED);
+                        endorsement.setUpdatedAt(updatedAt);
+                        endorsementRepository.save(endorsement);
+                        completedEndorsementsCount++;
+                    }
+                }
+            }
+            
             if (activatedCount > 0 || deactivatedCount > 0) {
-                logger.info("[correlationId:{}] Activated {} deals and deactivated {} deals based on schedule", 
-                    MDC.get("correlationId"), activatedCount, deactivatedCount);
+                logger.info("[correlationId:{}] Activated {} deals and deactivated {} deals based on schedule. " +
+                    "Completed {} endorsements", 
+                    MDC.get("correlationId"), activatedCount, deactivatedCount, completedEndorsementsCount);
             }
             
             return responseObj.render(responseObj.formSuccessResponse(Constants.SUCCESS, 
-                "Schedule confirmed successfully. Activated: " + activatedCount + ", Deactivated: " + deactivatedCount));
+                "Schedule confirmed successfully. Activated: " + activatedCount + 
+                ", Deactivated: " + deactivatedCount + 
+                ", Completed endorsements: " + completedEndorsementsCount));
         } catch (Exception e) {
             logger.error("[correlationId:{}] Exception in Endorsement confirmSchedule: {}", MDC.get("correlationId"), e.getMessage(), e);
             return responseObj.render(responseObj.formErrorResponse("Failed to confirm schedule endorsement!"));
