@@ -3,6 +3,7 @@ package com.vimainsurance.vimaadmin.service.serviceimpl;
 import java.io.InputStream;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -617,8 +618,11 @@ public class EndorsementServiceImpl implements IEndorsementService {
             // Activation Logic: SQL Update
             // UPDATE customers SET status='ACTIVE', updated_at=CURRENT_TIMESTAMP 
             // WHERE status='APPROVED' AND date_of_joining <= CURRENT_DATE
-            LocalDate currentDate = LocalDate.now();
-            LocalDateTime updatedAt = LocalDateTime.now();
+            // Use IST timezone for date comparison to match business logic (scheduler runs at 12:45 AM IST)
+            
+            LocalDate currentDate = LocalDate.now(ZoneId.of("Asia/Kolkata"));
+            LocalDateTime updatedAt = LocalDateTime.now(ZoneId.of("UTC"));
+            logger.info("[correlationId:{}] Current date: {}", MDC.get("correlationId"), currentDate);
             logger.info("[correlationId:{}] Updated at: {}", MDC.get("correlationId"), updatedAt);
             
             int activatedCount = dealsRepository.activateAllApprovedDealsByDate(
