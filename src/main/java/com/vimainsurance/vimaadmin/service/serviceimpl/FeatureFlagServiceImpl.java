@@ -115,7 +115,7 @@ public class FeatureFlagServiceImpl implements FeatureFlagService {
                     String roleName = role.getRoleName();
 
                     // Include parent feature flag
-                    FeatureFlagResponseDto parentDto = createDto(flag, List.of(role), List.of(), false);
+                    FeatureFlagResponseDto parentDto = createDto(flag, role);
                     // Include subfeatures explicitly
                     List<FeatureFlagResponseDto> subFeatures = new ArrayList<>();
 
@@ -126,7 +126,11 @@ public class FeatureFlagServiceImpl implements FeatureFlagService {
                             : Collections.emptyList();
 
                     for (FeatureFlag sub : subFlags) {
-                        FeatureFlagResponseDto subDto = createDto(sub, List.of(role), List.of(), false);
+                        Optional<FeatureFlagRole> featureFlagRoleOptional= featureFlagRoleRepository.findByFlagIdAndRoleName(sub.getFlagId(), role.getRoleName());
+                        if (featureFlagRoleOptional.isEmpty()) {
+                            continue;
+                        }
+                        FeatureFlagResponseDto subDto = createDto(sub, featureFlagRoleOptional.get());
                         subFeatures.add(subDto);
                     }
                     parentDto.setSubFeatures(subFeatures);
@@ -294,6 +298,18 @@ public class FeatureFlagServiceImpl implements FeatureFlagService {
         }
         dto.setCompanies(companyDtos);
 
+        return dto;
+    }
+
+    private FeatureFlagResponseDto createDto(FeatureFlag flag, FeatureFlagRole matchedRole) {
+        FeatureFlagResponseDto dto = new FeatureFlagResponseDto();
+        dto.setFlagId(flag.getFlagId() != null ? flag.getFlagId().toString() : null);
+        dto.setFlagKey(flag.getFlagKey());
+        dto.setDescription(flag.getDescription());
+        // Active if there is at least one matched role
+        dto.setIsActive(matchedRole.getIsActive());
+        dto.setIsEnabled(matchedRole.getIsActive());
+        dto.setActions(matchedRole.getActions() != null ? Arrays.asList(matchedRole.getActions()) : List.of());
         return dto;
     }
 
