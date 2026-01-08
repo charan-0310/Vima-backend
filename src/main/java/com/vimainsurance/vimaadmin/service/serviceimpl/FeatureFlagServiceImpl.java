@@ -260,8 +260,9 @@ public class FeatureFlagServiceImpl implements FeatureFlagService {
         dto.setFlagKey(flag.getFlagKey());
         dto.setDescription(flag.getDescription());
         // Active if there is at least one matched role
-        dto.setIsActive( !matchedRoles.isEmpty() || isSuperAdmin);
-        dto.setIsEnabled(!matchedRoles.isEmpty() || isSuperAdmin);
+        boolean isActiveOrSuperAdmin = matchedRoles.stream().anyMatch(FeatureFlagRole::getIsActive) || isSuperAdmin;
+        dto.setIsActive(isActiveOrSuperAdmin);
+        dto.setIsEnabled(isActiveOrSuperAdmin);
 
         List<String> actions = new ArrayList<>();
         for (FeatureFlagRole r : matchedRoles) {
