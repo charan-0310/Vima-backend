@@ -28,11 +28,8 @@ public class EmployeeUploadDto {
     public String email;
     @Pattern(regexp = "^[0-9]{10}$", message = "Invalid mobile number")
     public String mobile;
-    @NotBlank(message = "Date of Joining is required")
     public String dateOfJoining;
-    @NotBlank(message = "Designation is required")
     public String designation;
-    @NotBlank(message = "Department is required")
     public String department;
     public String maritalStatus;
     public String sumInsured;
