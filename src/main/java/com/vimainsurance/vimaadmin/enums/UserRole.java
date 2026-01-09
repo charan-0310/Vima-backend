@@ -21,7 +21,8 @@ public enum UserRole {
     CLAIMS_PROCESSOR("CLAIMS_PROCESSOR"),
     SUPPORT_AGENT("SUPPORT_AGENT"),
     SALES_ADMIN("SALES_ADMIN"),
-    SALES_MANAGER("SALES_MANAGER");
+    SALES_MANAGER("SALES_MANAGER"),
+    HR_ADMIN("HR_ADMIN");
 
     private final String value;
 
