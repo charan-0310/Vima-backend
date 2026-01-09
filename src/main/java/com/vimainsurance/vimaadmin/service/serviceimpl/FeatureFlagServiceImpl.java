@@ -12,9 +12,11 @@ import com.vimainsurance.vimaadmin.dto.FeatureFlagUpdateItemDto;
 import com.vimainsurance.vimaadmin.entity.FeatureFlag;
 import com.vimainsurance.vimaadmin.entity.FeatureFlagCompany;
 import com.vimainsurance.vimaadmin.entity.FeatureFlagRole;
+import com.vimainsurance.vimaadmin.entity.Organization;
 import com.vimainsurance.vimaadmin.repository.IFeatureFlagRepository;
 import com.vimainsurance.vimaadmin.repository.IFeatureFlagCompanyRepository;
 import com.vimainsurance.vimaadmin.repository.FeatureFlagRoleRepository;
+import com.vimainsurance.vimaadmin.repository.IOrganizationRepository;
 import com.vimainsurance.vimaadmin.service.FeatureFlagService;
 import com.vimainsurance.vimaadmin.util.TenantContext;
 import lombok.extern.slf4j.Slf4j;
@@ -34,6 +36,9 @@ public class FeatureFlagServiceImpl implements FeatureFlagService {
 
     @Autowired
     private IFeatureFlagCompanyRepository featureFlagCompanyRepository;
+
+    @Autowired
+    private IOrganizationRepository iOrganizationRepository;
 
 
     @Override
@@ -487,9 +492,30 @@ public class FeatureFlagServiceImpl implements FeatureFlagService {
                 log.debug("Updated existing company for flag ID: {}, enabled: {}, actions: {}",
                         flagId, enabled, actions);
             } else {
-                log.warn("FeatureFlagCompany with flag ID {} and organization ID {} not found, skipping update",
-                        flagId, organizationId);
+
+                // Create new FeatureFlagCompany if none exists
+                Optional<FeatureFlag> featureFlagOpt = featureFlagRepository.findById(flagId);
+                if (featureFlagOpt.isPresent()) {
+                    FeatureFlagCompany newCompany = new FeatureFlagCompany();
+                    newCompany.setId(UUID.randomUUID());
+                    newCompany.setFeatureFlag(featureFlagOpt.get());
+
+                    Optional<Organization> organizationOptional = iOrganizationRepository.findByOrganizationId( orgId);
+                    if(organizationOptional.isEmpty()) {
+                         log.warn("Organization with ID {} not found, skipping creation for feature flag {}", organizationId, flagId);
+                         continue;
+                    }
+                    newCompany.setOrganization(organizationOptional.get());
+                    newCompany.setIsActive(enabled != null ? enabled : false);
+                    newCompany.setActions(actions == null || actions.isEmpty() ? null : actions.toArray(String[]::new));
+                    companiesToUpdate.add(newCompany);
+                    log.debug("Created new FeatureFlagCompany for flag ID: {}, org ID: {}, enabled: {}, actions: {}",
+                            flagId, organizationId, enabled, actions);
+                } else {
+                    log.warn("FeatureFlag with ID {} not found, skipping creation for organization {}", flagId, organizationId);
+                }
             }
+
         }
 
         if (!companiesToUpdate.isEmpty()) {
