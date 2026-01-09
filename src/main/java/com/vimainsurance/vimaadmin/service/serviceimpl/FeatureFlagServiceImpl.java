@@ -116,6 +116,7 @@ public class FeatureFlagServiceImpl implements FeatureFlagService {
         for (FeatureFlag flag : flags) {
             List<FeatureFlagRole> roles = flag.getRoles();
             if (roles != null) {
+
                 for (FeatureFlagRole role : roles) {
                     String roleName = role.getRoleName();
 
@@ -141,8 +142,53 @@ public class FeatureFlagServiceImpl implements FeatureFlagService {
                     parentDto.setSubFeatures(subFeatures);
                     grouped.computeIfAbsent(roleName, k -> new ArrayList<>()).add(parentDto);
                 }
+            } else {
+                log.warn("Feature flag with ID {} has no associated roles, adding to UNMAPPED group...", flag.getFlagId());
+
+           }
+
+        }
+
+        // Fill missing flags per role with disabled DTOs
+        // Build universe of role names from existing map and flags
+        Set<String> allRoleNames = new LinkedHashSet<>(grouped.keySet());
+        for (FeatureFlag f : flags) {
+            if (f.getRoles() != null) {
+                for (FeatureFlagRole r : f.getRoles()) {
+                    if (r.getRoleName() != null) {
+                        allRoleNames.add(r.getRoleName());
+                    }
+                }
             }
         }
+
+        // For each role, ensure every flag has an entry; if missing, add disabled parent and subfeatures
+        for (String roleName : allRoleNames) {
+            List<FeatureFlagResponseDto> roleList = grouped.computeIfAbsent(roleName, k -> new ArrayList<>());
+            Set<String> presentFlagIds = roleList.stream()
+                    .map(FeatureFlagResponseDto::getFlagId)
+                    .filter(Objects::nonNull)
+                    .collect(Collectors.toCollection(LinkedHashSet::new));
+
+            for (FeatureFlag f : flags) {
+                String fid = f.getFlagId() != null ? f.getFlagId().toString() : null;
+                if (fid == null || presentFlagIds.contains(fid)) {
+                    continue;
+                }
+                FeatureFlagResponseDto disabledParent = createDisabledDto(f);
+
+                List<FeatureFlag> subFeatureFlags = featureFlagRepository.findSubFeatureFlagsByParentId(f.getFlagId());
+                List<FeatureFlagResponseDto> disabledSubs = new ArrayList<>();
+                if (subFeatureFlags != null) {
+                    for (FeatureFlag sub : subFeatureFlags) {
+                        disabledSubs.add(createDisabledDto(sub));
+                    }
+                }
+                disabledParent.setSubFeatures(disabledSubs);
+                grouped.computeIfAbsent(roleName, k -> new ArrayList<>()).add(disabledParent);
+            }
+        }
+
 
         List<FeatureFlagsManagementResponse> result = new ArrayList<>();
         for (Map.Entry<String, List<FeatureFlagResponseDto>> e : grouped.entrySet()) {
@@ -314,6 +360,19 @@ public class FeatureFlagServiceImpl implements FeatureFlagService {
         dto.setIsActive(matchedRole.getIsActive());
         dto.setIsEnabled(matchedRole.getIsActive());
         dto.setActions(matchedRole.getActions() != null ? Arrays.asList(matchedRole.getActions()) : List.of());
+        return dto;
+    }
+
+
+    private FeatureFlagResponseDto createDisabledDto(FeatureFlag flag) {
+        FeatureFlagResponseDto dto = new FeatureFlagResponseDto();
+        dto.setFlagId(flag.getFlagId() != null ? flag.getFlagId().toString() : null);
+        dto.setFlagKey(flag.getFlagKey());
+        dto.setDescription(flag.getDescription());
+        dto.setIsActive(false);
+        dto.setIsEnabled(false);
+        dto.setActions(List.of());
+        dto.setSubFeatures(List.of());
         return dto;
     }
 
@@ -500,7 +559,7 @@ public class FeatureFlagServiceImpl implements FeatureFlagService {
                     newCompany.setId(UUID.randomUUID());
                     newCompany.setFeatureFlag(featureFlagOpt.get());
 
-                    Optional<Organization> organizationOptional = iOrganizationRepository.findByOrganizationId( orgId);
+                    Optional<Organization> organizationOptional = iOrganizationRepository.findByOrganizationId(orgId);
                     if(organizationOptional.isEmpty()) {
                          log.warn("Organization with ID {} not found, skipping creation for feature flag {}", organizationId, flagId);
                          continue;
