@@ -96,7 +96,7 @@ public class EmployeeToDeals {
      */
     private static LocalDate parseDate(String dateStr) {
         if (dateStr == null || dateStr.trim().isEmpty()) {
-            return null;
+            return LocalDate.now();
         }
         try {
             return LocalDate.parse(dateStr.trim(), DATE_FORMATTER);

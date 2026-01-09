@@ -833,7 +833,7 @@ public class EmployeeService {
 
     private LocalDate parseDate(String dateStr) {
         if (dateStr == null || dateStr.trim().isEmpty()) {
-            return null;
+            return LocalDate.now();
         }
         try {
             return LocalDate.parse(dateStr.trim(), java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd"));
