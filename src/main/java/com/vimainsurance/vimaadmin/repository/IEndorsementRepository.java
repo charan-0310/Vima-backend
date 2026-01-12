@@ -100,5 +100,22 @@ public interface IEndorsementRepository extends JpaRepository<Endorsement, UUID>
         @Param("startDate") LocalDateTime startDate,
         @Param("endDate") LocalDateTime endDate
     );
+
+    /**
+     * Find endorsements by organization, status, and date range (for enrollment report export)
+     */
+    @Query("""
+        SELECT e FROM Endorsement e
+        WHERE e.organization.organizationId = :organizationId
+        AND e.status = :status
+        AND e.approvedAt >= :startDate
+        AND e.approvedAt <= :endDate
+        """)
+    List<Endorsement> findByOrganizationAndDateRange(
+        @Param("organizationId") UUID organizationId,
+        @Param("status") AccountStatus status,
+        @Param("startDate") LocalDateTime startDate,
+        @Param("endDate") LocalDateTime endDate
+    );
 }
 
