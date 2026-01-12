@@ -36,7 +36,7 @@ import com.vimainsurance.vimaadmin.service.IPolicyService;
  */
 @RestController
 @RequestMapping("/api/v1/policies")
-@PreAuthorize("hasAnyRole('VIMA_ADMIN',  'SALES_MANAGER', 'SUPER_ADMIN', 'ADMIN')")
+@PreAuthorize("hasAnyRole('VIMA_ADMIN',  'SALES_MANAGER', 'SUPER_ADMIN', 'ADMIN', 'HR_ADMIN')")
 public class PolicyController {
 
     private static final Logger logger = LoggerFactory.getLogger(PolicyController.class);
