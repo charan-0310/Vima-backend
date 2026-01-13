@@ -571,7 +571,7 @@ public class ReportExportServiceImpl implements IReportExportService {
                 row.createCell(col++).setCellValue(nullSafe(data.getNotes()));                         // Notes
                 break;
            case PAYROLL:
-                row.createCell(col++).setCellValue(nullSafe(data.getEmployeeNumber()));
+                 row.createCell(col++).setCellValue(nullSafe(data.getEmployeeNumber()));
                 row.createCell(col++).setCellValue(nullSafe(data.getFullName()));
                 row.createCell(col++).setCellValue(nullSafe(data.getFirstName()));
                 row.createCell(col++).setCellValue(nullSafe(data.getLastName()));
