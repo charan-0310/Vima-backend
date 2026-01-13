@@ -151,8 +151,7 @@ public class EndorsementSpecification {
             return criteriaBuilder.and(
                 criteriaBuilder.equal(root.get("organization").get("organizationId"), organizationId),
                 criteriaBuilder.or(
-                    criteriaBuilder.equal(root.get("status"), AccountStatus.APPROVED),
-                    criteriaBuilder.equal(root.get("status"), AccountStatus.LEAVING)                )
+                    criteriaBuilder.equal(root.get("status"), AccountStatus.COMPLETED)                )
             );
         };
     }
