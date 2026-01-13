@@ -28,11 +28,13 @@ import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 
 import com.vimainsurance.vimaadmin.dto.AdminUserRequestDto;
 import com.vimainsurance.vimaadmin.dto.AdminUserResponseDto;
+import com.vimainsurance.vimaadmin.dto.AuthentikPaginatedResponse;
 import com.vimainsurance.vimaadmin.dto.PasswordChangeRequestDto;
 import com.vimainsurance.vimaadmin.dto.ResponseDto;
 import com.vimainsurance.vimaadmin.entity.AdminUser;
 import com.vimainsurance.vimaadmin.repository.IAdminUserRepository;
 import com.vimainsurance.vimaadmin.service.IEmailService;
+import com.vimainsurance.vimaadmin.util.AuthentikUtil;
 import com.vimainsurance.vimaadmin.util.Constants;
 import com.vimainsurance.vimaadmin.util.IdGenerator;
 
@@ -51,6 +53,9 @@ class AdminUserServiceImplTest {
 
     @Mock
     private BCryptPasswordEncoder passwordEncoder;
+
+    @Mock
+    private AuthentikUtil authentikUtil;
 
     @InjectMocks
     private AdminUserServiceImpl adminUserService;
@@ -303,36 +308,88 @@ class AdminUserServiceImplTest {
     // ========== GET ALL ADMIN USERS TESTS ==========
 
     @Test
-    void testGetAllAdminUsers_Success() {
-        List<AdminUser> users = Collections.singletonList(adminUser);
-        when(adminUserRepository.findAll()).thenReturn(users);
+    void testGetAllAdminUsers_GetAll_Success() {
+        AdminUserResponseDto dto = new AdminUserResponseDto();
+        dto.setUsername("testuser");
+        dto.setEmail("test@example.com");
+        List<AdminUserResponseDto> users = Collections.singletonList(dto);
         
-        ResponseEntity<ResponseDto<List<AdminUserResponseDto>>> response = adminUserService.getAllAdminUsers();
+        when(authentikUtil.getAllUsers()).thenReturn(users);
+        
+        ResponseEntity<ResponseDto<List<AdminUserResponseDto>>> response = adminUserService.getAllAdminUsers(-1, -1);
         
         assertEquals(HttpStatus.OK, response.getStatusCode());
         assertEquals(Constants.SUCCESS, response.getBody().getMessage());
-        assertEquals(0, response.getBody().getPayload().size());
+        assertEquals(1, response.getBody().getPayload().size());
+        assertEquals(1L, response.getBody().getTotalRecords());
+        verify(authentikUtil, times(1)).getAllUsers();
     }
 
     @Test
-    void testGetAllAdminUsers_EmptyList() {
-        when(adminUserRepository.findAll()).thenReturn(Collections.emptyList());
+    void testGetAllAdminUsers_GetAll_EmptyList() {
+        when(authentikUtil.getAllUsers()).thenReturn(Collections.emptyList());
         
-        ResponseEntity<ResponseDto<List<AdminUserResponseDto>>> response = adminUserService.getAllAdminUsers();
+        ResponseEntity<ResponseDto<List<AdminUserResponseDto>>> response = adminUserService.getAllAdminUsers(-1, -1);
         
         assertEquals(HttpStatus.OK, response.getStatusCode());
         assertEquals(Constants.SUCCESS, response.getBody().getMessage());
         assertEquals(0, response.getBody().getPayload().size());
+        assertEquals(0L, response.getBody().getTotalRecords());
+        verify(authentikUtil, times(1)).getAllUsers();
+    }
+
+    @Test
+    void testGetAllAdminUsers_Paginated_Success() {
+        AdminUserResponseDto dto = new AdminUserResponseDto();
+        dto.setUsername("testuser");
+        dto.setEmail("test@example.com");
+        List<AdminUserResponseDto> users = Collections.singletonList(dto);
+        
+        AuthentikPaginatedResponse<AdminUserResponseDto> paginatedResponse = new AuthentikPaginatedResponse<>();
+        paginatedResponse.setResults(users);
+        AuthentikPaginatedResponse.PaginationInfo paginationInfo = new AuthentikPaginatedResponse.PaginationInfo();
+        paginationInfo.setCount(10);
+        paginationInfo.setCurrent(1);
+        paginationInfo.setTotalPages(1);
+        paginatedResponse.setPagination(paginationInfo);
+        
+        when(authentikUtil.getUsers(1, 10)).thenReturn(paginatedResponse);
+        
+        ResponseEntity<ResponseDto<List<AdminUserResponseDto>>> response = adminUserService.getAllAdminUsers(0, 10);
+        
+        assertEquals(HttpStatus.OK, response.getStatusCode());
+        assertEquals(Constants.SUCCESS, response.getBody().getMessage());
+        assertEquals(1, response.getBody().getPayload().size());
+        assertEquals(10L, response.getBody().getTotalRecords());
+        verify(authentikUtil, times(1)).getUsers(1, 10);
+    }
+
+    @Test
+    void testGetAllAdminUsers_Paginated_EmptyList() {
+        AuthentikPaginatedResponse<AdminUserResponseDto> paginatedResponse = new AuthentikPaginatedResponse<>();
+        paginatedResponse.setResults(Collections.emptyList());
+        AuthentikPaginatedResponse.PaginationInfo paginationInfo = new AuthentikPaginatedResponse.PaginationInfo();
+        paginationInfo.setCount(0);
+        paginatedResponse.setPagination(paginationInfo);
+        
+        when(authentikUtil.getUsers(1, 10)).thenReturn(paginatedResponse);
+        
+        ResponseEntity<ResponseDto<List<AdminUserResponseDto>>> response = adminUserService.getAllAdminUsers(0, 10);
+        
+        assertEquals(HttpStatus.OK, response.getStatusCode());
+        assertEquals(Constants.SUCCESS, response.getBody().getMessage());
+        assertEquals(0, response.getBody().getPayload().size());
+        assertEquals(0L, response.getBody().getTotalRecords());
     }
 
     @Test
     void testGetAllAdminUsers_Exception() {
-        when(adminUserRepository.findAll()).thenThrow(new RuntimeException("Database error"));
+        when(authentikUtil.getAllUsers()).thenThrow(new RuntimeException("Authentik error"));
         
-        ResponseEntity<ResponseDto<List<AdminUserResponseDto>>> response = adminUserService.getAllAdminUsers();
+        ResponseEntity<ResponseDto<List<AdminUserResponseDto>>> response = adminUserService.getAllAdminUsers(-1, -1);
         
-        assertEquals(HttpStatus.OK, response.getStatusCode());
-        assertEquals(Constants.SUCCESS, response.getBody().getMessage());
+        assertEquals(HttpStatus.BAD_REQUEST, response.getStatusCode());
+        assertEquals("Authentik error", response.getBody().getMessage());
     }
 
     // ========== CHANGE PASSWORD TESTS ==========
