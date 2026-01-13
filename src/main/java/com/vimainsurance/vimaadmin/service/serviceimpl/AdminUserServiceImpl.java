@@ -17,13 +17,18 @@ import org.springframework.web.multipart.MultipartFile;
 
 import com.vimainsurance.vimaadmin.dto.AdminUserRequestDto;
 import com.vimainsurance.vimaadmin.dto.AdminUserResponseDto;
+import com.vimainsurance.vimaadmin.dto.AuthentikGroupsResponseDto;
+import com.vimainsurance.vimaadmin.dto.AuthentikPaginatedResponse;
 import com.vimainsurance.vimaadmin.dto.BaseResponse;
+import com.vimainsurance.vimaadmin.dto.OrganizationDto;
 import com.vimainsurance.vimaadmin.dto.PasswordChangeRequestDto;
 import com.vimainsurance.vimaadmin.dto.ResponseDto;
+import com.vimainsurance.vimaadmin.dto.RoleDto;
 import com.vimainsurance.vimaadmin.entity.AdminUser;
 import com.vimainsurance.vimaadmin.repository.IAdminUserRepository;
 import com.vimainsurance.vimaadmin.service.IAdminUserService;
 import com.vimainsurance.vimaadmin.service.IEmailService;
+import com.vimainsurance.vimaadmin.util.AuthentikUtil;
 import com.vimainsurance.vimaadmin.util.Constants;
 import com.vimainsurance.vimaadmin.util.PasswordEncoder;
 import com.vimainsurance.vimaadmin.util.PasswordGenerator;
@@ -44,6 +49,9 @@ public class AdminUserServiceImpl implements IAdminUserService {
 
     @Autowired
     private IEmailService emailService;
+
+    @Autowired
+    private AuthentikUtil authentikUtil;
 
     private AdminUserResponseDto mapToResponseDto(AdminUser user) {
         AdminUserResponseDto dto = new AdminUserResponseDto();
@@ -174,20 +182,198 @@ public class AdminUserServiceImpl implements IAdminUserService {
     }
 
     @Override
-    public ResponseEntity<ResponseDto<List<AdminUserResponseDto>>> getAllAdminUsers() {
-        logger.info("getAllAdminUsers called");
+    public ResponseEntity<ResponseDto<List<AdminUserResponseDto>>> getAllAdminUsers(int page, int rec) {
+        logger.info("getAllAdminUsers called with page={}, rec={}", page, rec);
         BaseResponse<List<AdminUserResponseDto>> responseObj = new BaseResponse<>();
         try {
-            List<AdminUser> users = adminUserRepository.findByIsActiveTrue();
-            List<AdminUserResponseDto> dtos = new ArrayList<>();
-            for (AdminUser user : users) {
-                dtos.add(mapToResponseDto(user));
+            List<AdminUserResponseDto> dtos;
+            long totalRecords;
+            
+            if (page == -1 && rec == -1) {
+                // Get all users
+                dtos = authentikUtil.getAllUsers();
+                totalRecords = dtos.size();
+            } else {
+                // Get paginated users (convert 0-based page to 1-based for Authentik API)
+                AuthentikPaginatedResponse<AdminUserResponseDto> paginatedResponse = authentikUtil.getUsers(page + 1, rec);
+                dtos = paginatedResponse.getResults();
+                if (paginatedResponse.getPagination() != null && paginatedResponse.getPagination().getCount() != null) {
+                    totalRecords = paginatedResponse.getPagination().getCount();
+                } else {
+                    totalRecords = dtos != null ? dtos.size() : 0;
+                }
             }
-            return responseObj.render(responseObj.formSuccessResponse(Constants.SUCCESS, dtos, dtos.size()));
+            
+            return responseObj.render(responseObj.formSuccessResponse(Constants.SUCCESS, dtos, totalRecords));
         } catch (Exception e) {
             logger.error("Error fetching all admin users", e);
             return responseObj.render(responseObj.formErrorResponse(e.getMessage()));
         }
+    }
+
+    @Override
+    public ResponseEntity<ResponseDto<List<AdminUserResponseDto>>> getAllAdminUsersWithFilters(
+            String search, String role, String organization, Boolean isActive, int page, int rec, String sortBy, String sortDirection) {
+        logger.info("getAllAdminUsersWithFilters called with search={}, role={}, organization={}, isActive={}, page={}, rec={}, sortBy={}, sortDirection={}", 
+                search, role, organization, isActive, page, rec, sortBy, sortDirection);
+        BaseResponse<List<AdminUserResponseDto>> responseObj = new BaseResponse<>();
+        try {
+            // Map sortBy to Authentik ordering field name
+            String ordering = mapSortByToAuthentikOrdering(sortBy, sortDirection);
+            
+            // Prepare groups_by_name list for Authentik (supports both role and organization)
+            List<String> groupsByName = new ArrayList<>();
+            if (role != null && !role.trim().isEmpty()) {
+                String roleName = role.trim();
+                // If role doesn't start with ROLE_, add it
+                if (!roleName.startsWith("ROLE_")) {
+                    groupsByName.add("ROLE_" + roleName);
+                } else {
+                    groupsByName.add(roleName);
+                }
+            }
+            if (organization != null && !organization.trim().isEmpty()) {
+                String orgName = organization.trim();
+                // If organization doesn't start with ORG_, add it
+                if (!orgName.startsWith("ORG_")) {
+                    groupsByName.add("ORG_" + orgName);
+                } else {
+                    groupsByName.add(orgName);
+                }
+            }
+            
+            // Use Authentik search for username/email/name
+            // Organization names will be searched in-memory since Authentik's search doesn't include groups
+            String authenticSearch = search;
+            
+            List<AdminUserResponseDto> dtos;
+            long totalRecords;
+            
+            if (page == -1 && rec == -1) {
+                // Get all users with filters from Authentik (fetch all pages)
+                dtos = getAllUsersWithFiltersFromAuthentik(authenticSearch, isActive, ordering, groupsByName, search);
+                totalRecords = dtos.size();
+            } else {
+                // Get paginated users with filters from Authentik (convert 0-based page to 1-based)
+                AuthentikPaginatedResponse<AdminUserResponseDto> paginatedResponse = 
+                    authentikUtil.getUsersWithFilters(authenticSearch, isActive, ordering, groupsByName, page + 1, rec);
+                dtos = paginatedResponse.getResults();
+                
+                // Apply organization search filter in-memory (for partial matches)
+                // This ensures we catch users whose organization names contain the search term
+                if (search != null && !search.trim().isEmpty()) {
+                    dtos = dtos.stream()
+                            .filter(user -> matchesSearchInAllFields(user, search))
+                            .collect(Collectors.toList());
+                }
+                
+                if (paginatedResponse.getPagination() != null && paginatedResponse.getPagination().getCount() != null) {
+                    totalRecords = paginatedResponse.getPagination().getCount();
+                } else {
+                    totalRecords = dtos != null ? dtos.size() : 0;
+                }
+            }
+            
+            return responseObj.render(responseObj.formSuccessResponse(Constants.SUCCESS, dtos, totalRecords));
+        } catch (Exception e) {
+            logger.error("Error fetching admin users with filters", e);
+            return responseObj.render(responseObj.formErrorResponse(e.getMessage()));
+        }
+    }
+
+    /**
+     * Check if user matches search term in all searchable fields including organization names
+     */
+    private boolean matchesSearchInAllFields(AdminUserResponseDto user, String search) {
+        if (search == null || search.trim().isEmpty()) {
+            return true;
+        }
+        
+        String searchLower = search.toLowerCase();
+        
+        // Check standard fields (username, email, fullName, agentId) - these are already searched by Authentik
+        // But we also check here to ensure consistency
+        boolean matchesStandardFields = 
+            (user.getUsername() != null && user.getUsername().toLowerCase().contains(searchLower)) ||
+            (user.getEmail() != null && user.getEmail().toLowerCase().contains(searchLower)) ||
+            (user.getFullName() != null && user.getFullName().toLowerCase().contains(searchLower)) ||
+            (user.getAgentId() != null && user.getAgentId().toLowerCase().contains(searchLower));
+        
+        // Check organization names (not searched by Authentik, so we do it here)
+        boolean matchesOrganization = false;
+        if (user.getOrganizations() != null && !user.getOrganizations().isEmpty()) {
+            matchesOrganization = user.getOrganizations().stream()
+                    .anyMatch(org -> org != null && org.toLowerCase().contains(searchLower));
+        }
+        
+        // Return true if matches any field (standard fields OR organization)
+        return matchesStandardFields || matchesOrganization;
+    }
+
+    /**
+     * Get all users with filters from Authentik by fetching all pages
+     */
+    private List<AdminUserResponseDto> getAllUsersWithFiltersFromAuthentik(
+            String search, Boolean isActive, String ordering, List<String> groupsByName, String originalSearch) {
+        List<AdminUserResponseDto> allUsers = new ArrayList<>();
+        int currentPage = 1;
+        int pageSize = 100; // Use a reasonable page size for fetching all
+        
+        while (true) {
+            AuthentikPaginatedResponse<AdminUserResponseDto> response = 
+                authentikUtil.getUsersWithFilters(search, isActive, ordering, groupsByName, currentPage, pageSize);
+            if (response.getResults() == null || response.getResults().isEmpty()) {
+                break;
+            }
+            
+            // Apply in-memory filters
+            List<AdminUserResponseDto> filteredResults = response.getResults();
+            
+            // Apply organization search filter in-memory (for partial matches)
+            // This ensures we catch users whose organization names contain the search term
+            if (originalSearch != null && !originalSearch.trim().isEmpty()) {
+                filteredResults = filteredResults.stream()
+                        .filter(user -> matchesSearchInAllFields(user, originalSearch))
+                        .collect(Collectors.toList());
+            }
+            
+            allUsers.addAll(filteredResults);
+            
+            // Check if there's a next page
+            if (response.getPagination() != null && response.getPagination().getNext() != null && response.getPagination().getNext() > 0) {
+                currentPage = response.getPagination().getNext();
+            } else {
+                break;
+            }
+        }
+        
+        return allUsers;
+    }
+
+    /**
+     * Map sortBy field to Authentik ordering parameter
+     * Authentik uses field names like "username", "email", "name", "is_active", "date_joined", "last_login"
+     * Prefix with "-" for descending order
+     */
+    private String mapSortByToAuthentikOrdering(String sortBy, String sortDirection) {
+        if (sortBy == null || sortBy.trim().isEmpty()) {
+            sortBy = "date_joined"; // Default sort field
+        }
+        
+        String authenticField = switch (sortBy.toLowerCase()) {
+            case "username" -> "username";
+            case "email" -> "email";
+            case "fullname", "full_name", "name" -> "name";
+            case "isactive", "is_active" -> "is_active";
+            case "lastlogin", "last_login" -> "last_login";
+            case "createdat", "created_at", "created" -> "date_joined";
+            case "agentid", "agent_id" -> "username"; // Fallback to username if agentId not available in Authentik
+            default -> "date_joined"; // Default fallback
+        };
+        
+        // Authentik uses "-" prefix for descending order
+        boolean isDesc = "desc".equalsIgnoreCase(sortDirection);
+        return isDesc ? "-" + authenticField : authenticField;
     }
 
     @Override
@@ -229,6 +415,52 @@ public class AdminUserServiceImpl implements IAdminUserService {
             return responseObj.render(responseObj.formSuccessResponse(Constants.SUCCESS, "Password changed successfully"));
         } catch (Exception e) {
             logger.error("Error changing password for user: {}", username, e);
+            return responseObj.render(responseObj.formErrorResponse(e.getMessage()));
+        }
+    }
+
+    @Override
+    public ResponseEntity<ResponseDto<AuthentikGroupsResponseDto>> getRolesAndOrganizations() {
+        logger.info("getRolesAndOrganizations called");
+        BaseResponse<AuthentikGroupsResponseDto> responseObj = new BaseResponse<>();
+        try {
+            // Fetch roles and organizations separately and combine them
+            List<RoleDto> roles = authentikUtil.getRoles();
+            List<OrganizationDto> organizations = authentikUtil.getOrganizations();
+            
+            AuthentikGroupsResponseDto groups = new AuthentikGroupsResponseDto();
+            groups.setRoles(roles);
+            groups.setOrganizations(organizations);
+            
+            return responseObj.render(responseObj.formSuccessResponse(Constants.SUCCESS, groups));
+        } catch (Exception e) {
+            logger.error("Error fetching roles and organizations from Authentik", e);
+            return responseObj.render(responseObj.formErrorResponse("Error Occured while fetching roles and organizations from Authentik"));
+        }
+    }
+
+    @Override
+    public ResponseEntity<ResponseDto<List<RoleDto>>> getRoles() {
+        logger.info("getRoles called");
+        BaseResponse<List<RoleDto>> responseObj = new BaseResponse<>();
+        try {
+            List<RoleDto> roles = authentikUtil.getRoles();
+            return responseObj.render(responseObj.formSuccessResponse(Constants.SUCCESS, roles));
+        } catch (Exception e) {
+            logger.error("Error fetching roles from Authentik", e);
+            return responseObj.render(responseObj.formErrorResponse(e.getMessage()));
+        }
+    }
+
+    @Override
+    public ResponseEntity<ResponseDto<List<OrganizationDto>>> getOrganizations() {
+        logger.info("getOrganizations called");
+        BaseResponse<List<OrganizationDto>> responseObj = new BaseResponse<>();
+        try {
+            List<OrganizationDto> organizations = authentikUtil.getOrganizations();
+            return responseObj.render(responseObj.formSuccessResponse(Constants.SUCCESS, organizations));
+        } catch (Exception e) {
+            logger.error("Error fetching organizations from Authentik", e);
             return responseObj.render(responseObj.formErrorResponse(e.getMessage()));
         }
     }
