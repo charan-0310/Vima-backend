@@ -17,7 +17,7 @@ INSERT INTO admin.feature_flags (flag_id, flag_key, description, parent_flag_id,
 VALUES  ('9999aaaa-bbbb-cccc-dddd-eeeeffff0000', 'group-insurance.claims','Claims management functionality','11112222-3333-4444-5555-666677778888', FALSE);
 
 INSERT INTO admin.feature_flags(flag_key, description, parent_flag_id, is_active)
-VALUES ( 'group-insurance.overview', 'Overview insurance functionality', '11112222-3333-4444-5555-666677778888', true);
+VALUES ( 'group-insurance.overview', 'Overview insurance functionality', '11112222-3333-4444-5555-666677778888', FALSE);
 
 INSERT INTO admin.feature_flags (flag_id, flag_key, description, is_active)
 VALUES  ('f0e1d2c3-b4a5-9607-1827-374657485960', 'endorsement','Enable endorsement functionality', FALSE);
@@ -30,5 +30,8 @@ VALUES  ('abcdef12-3456-7890-abcd-ef1234567890', 'feature-management','Feature m
 
 INSERT INTO admin.feature_flags (flag_id, flag_key, description, is_active)
 VALUES  ('0a1b2c3d-4e5f-6789-0a1b-2c3d4e5f6789', 'system-config','System configuration options', FALSE);
+
+INSERT INTO admin.feature_flags(flag_id, flag_key, description, parent_flag_id, is_active)
+	VALUES ('955a1543-1098-40e4-a0be-53b767a03815','reports', 'Enable reports functionality', null, FALSE);
 
 

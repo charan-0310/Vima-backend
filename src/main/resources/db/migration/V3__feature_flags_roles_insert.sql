@@ -40,3 +40,9 @@ VALUES ('2f3a4b5c-6d7e-8f90-1234-56789abcdef0', 'abcdef12-3456-7890-abcd-ef12345
 
 INSERT INTO admin.feature_flag_roles (id, flag_id, role_name, is_active, actions)
 VALUES ('3a4b5c6d-7e8f-9012-3456-789abcdef012', '0a1b2c3d-4e5f-6789-0a1b-2c3d4e5f6789', 'ROLE_VIMA_ADMIN', TRUE, ARRAY['READ','WRITE','APPROVE']::permission_action[]);
+
+INSERT INTO admin.feature_flag_roles (flag_id, role_name, is_active, actions)
+VALUES ('955a1543-1098-40e4-a0be-53b767a03815', 'ROLE_VIMA_ADMIN', TRUE, ARRAY['READ','WRITE','APPROVE']::permission_action[]);
+
+INSERT INTO admin.feature_flag_roles (flag_id, role_name, is_active, actions)
+VALUES ( '955a1543-1098-40e4-a0be-53b767a03815', 'ROLE_HR_ADMIN', TRUE, ARRAY['READ','WRITE','APPROVE']::permission_action[]);
