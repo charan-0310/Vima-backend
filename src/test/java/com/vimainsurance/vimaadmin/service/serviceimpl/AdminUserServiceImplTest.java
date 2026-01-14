@@ -105,12 +105,12 @@ class AdminUserServiceImplTest {
         when(idGenerator.generateVimaId()).thenReturn("AGENT001");
         when(emailService.sendWelcomeEmail(anyString(), anyString(), anyString())).thenReturn(null);
         
-        ResponseEntity<ResponseDto<AdminUserResponseDto>> response = adminUserService.createAdminUser(requestDto);
+        ResponseEntity<ResponseDto<String>> response = adminUserService.createAdminUser(requestDto);
         
         assertEquals(HttpStatus.OK, response.getStatusCode());
         assertEquals(Constants.SUCCESS, response.getBody().getMessage());
         assertNotNull(response.getBody().getPayload());
-        assertEquals("admin1", response.getBody().getPayload().getUsername());
+        assertEquals("User created successfully", response.getBody().getPayload());
         verify(adminUserRepository, times(1)).save(any());
         verify(emailService, times(1)).sendWelcomeEmail(anyString(), anyString(), anyString());
     }
@@ -119,7 +119,7 @@ class AdminUserServiceImplTest {
     void testCreateAdminUser_UsernameExists() {
         when(adminUserRepository.findByUsername(requestDto.getUsername())).thenReturn(Optional.of(adminUser));
         
-        ResponseEntity<ResponseDto<AdminUserResponseDto>> response = adminUserService.createAdminUser(requestDto);
+        ResponseEntity<ResponseDto<String>> response = adminUserService.createAdminUser(requestDto);
         
         assertEquals(HttpStatus.BAD_REQUEST, response.getStatusCode());
         assertEquals("Username already exists", response.getBody().getMessage());
@@ -131,7 +131,7 @@ class AdminUserServiceImplTest {
         when(adminUserRepository.findByUsername(requestDto.getUsername())).thenReturn(Optional.empty());
         when(adminUserRepository.findByEmail(requestDto.getEmail())).thenReturn(Optional.of(adminUser));
 
-        ResponseEntity<ResponseDto<AdminUserResponseDto>> response = adminUserService.createAdminUser(requestDto);
+        ResponseEntity<ResponseDto<String>> response = adminUserService.createAdminUser(requestDto);
         
         assertEquals(HttpStatus.BAD_REQUEST, response.getStatusCode());
         assertEquals("Email already exists", response.getBody().getMessage());
@@ -144,7 +144,7 @@ class AdminUserServiceImplTest {
         when(adminUserRepository.findByEmail(requestDto.getEmail())).thenReturn(Optional.empty());
         when(adminUserRepository.save(any())).thenThrow(new RuntimeException("Database error"));
 
-        ResponseEntity<ResponseDto<AdminUserResponseDto>> response = adminUserService.createAdminUser(requestDto);
+        ResponseEntity<ResponseDto<String>> response = adminUserService.createAdminUser(requestDto);
         
         assertEquals(HttpStatus.BAD_REQUEST, response.getStatusCode());
         assertEquals("Database error", response.getBody().getMessage());

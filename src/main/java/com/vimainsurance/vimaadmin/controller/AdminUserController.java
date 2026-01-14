@@ -16,6 +16,7 @@ import org.springframework.web.bind.annotation.RestController;
 
 import com.vimainsurance.vimaadmin.dto.AdminUserRequestDto;
 import com.vimainsurance.vimaadmin.dto.AdminUserResponseDto;
+import com.vimainsurance.vimaadmin.dto.AdminUsersFilteredResponseDto;
 import com.vimainsurance.vimaadmin.dto.AuthentikGroupsResponseDto;
 import com.vimainsurance.vimaadmin.dto.OrganizationDto;
 import com.vimainsurance.vimaadmin.dto.PasswordChangeRequestDto;
@@ -31,7 +32,7 @@ public class AdminUserController {
     private IAdminUserService adminUserService;
 
     @PostMapping
-    public ResponseEntity<ResponseDto<AdminUserResponseDto>> create(@RequestBody AdminUserRequestDto requestDto) {
+    public ResponseEntity<ResponseDto<String>> create(@RequestBody AdminUserRequestDto requestDto) {
         return adminUserService.createAdminUser(requestDto);
     }
 
@@ -79,7 +80,7 @@ public class AdminUserController {
      *          groups_by_name=ROLE_VIMA_ADMIN&groups_by_name=ORG_OPENAI_INDIA
      */
     @GetMapping("/filtered")
-    public ResponseEntity<ResponseDto<List<AdminUserResponseDto>>> getAllWithFilters(
+    public ResponseEntity<ResponseDto<AdminUsersFilteredResponseDto>> getAllWithFilters(
             @RequestParam(defaultValue = "0", required = false) int page,
             @RequestParam(defaultValue = "10", required = false) int rec,
             @RequestParam(defaultValue = "", required = false) String search,
