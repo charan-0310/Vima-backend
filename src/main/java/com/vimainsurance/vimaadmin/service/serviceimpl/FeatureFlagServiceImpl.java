@@ -247,7 +247,7 @@ public class FeatureFlagServiceImpl implements FeatureFlagService {
             if (companyFeatures.isEmpty()) continue;
 
             // Get organization name from first entry
-            String organizationName = companyFeatures.getFirst().getOrganization().getOrganizationName();
+            String organizationName = companyFeatures.get(0).getOrganization().getOrganizationName();
 
             // Build feature DTOs
             List<FeatureFlagsOrganizationDto> features = new ArrayList<>();
@@ -264,17 +264,25 @@ public class FeatureFlagServiceImpl implements FeatureFlagService {
                 dto.setActions(ffc.getActions() != null ? Arrays.asList(ffc.getActions()) : List.of());
                 List<FeatureFlag> subFeatureFlags = featureFlagRepository.findSubFeatureFlagsByParentId(flag.getFlagId());
                 List<FeatureFlagsOrganizationDto> subFeatures = new ArrayList<>();
-                if (subFeatureFlags != null) {
-                    for (FeatureFlag sub : subFeatureFlags) {
+                UUID currentOrgId = ffc.getOrganization().getOrganizationId();
 
+                if (subFeatureFlags != null) {
+                    // Build a map of subfeature company states for the current org to avoid repeated lookups
+                    Map<UUID, FeatureFlagCompany> subCompanyByFlagId = new HashMap<>();
+                    for (FeatureFlag sub : subFeatureFlags) {
+                        Optional<FeatureFlagCompany> subCompanyOpt =
+                                featureFlagCompanyRepository.findByFlagIdAndOrganizationId(sub.getFlagId(), currentOrgId);
+                        subCompanyOpt.ifPresent(sc -> subCompanyByFlagId.put(sub.getFlagId(), sc));
+                    }
+
+                    for (FeatureFlag sub : subFeatureFlags) {
                         FeatureFlagsOrganizationDto subDto = new FeatureFlagsOrganizationDto();
                         subDto.setFlagId(sub.getFlagId() != null ? sub.getFlagId().toString() : null);
                         subDto.setFlagKey(sub.getFlagKey());
                         subDto.setDescription(sub.getDescription());
-                        Optional<FeatureFlagCompany> featureFlagCompanyOptional = featureFlagCompanyRepository.findByFlagIdAndOrganizationId(sub.getFlagId(),
-                                ffc.getOrganization().getOrganizationId());
-                        if (featureFlagCompanyOptional.isPresent()) {
-                            FeatureFlagCompany subFfc = featureFlagCompanyOptional.get();
+
+                        FeatureFlagCompany subFfc = subCompanyByFlagId.get(sub.getFlagId());
+                        if (subFfc != null) {
                             subDto.setIsActive(true);
                             subDto.setIsEnabled(subFfc.getIsActive());
                             subDto.setActions(subFfc.getActions() != null ? Arrays.asList(subFfc.getActions()) : List.of());
@@ -285,7 +293,7 @@ public class FeatureFlagServiceImpl implements FeatureFlagService {
                         }
                         subFeatures.add(subDto);
                     }
-                 }
+                }
                 dto.setSubFeatures(subFeatures);
                 features.add(dto);
             }
