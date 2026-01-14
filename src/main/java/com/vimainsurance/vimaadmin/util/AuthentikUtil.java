@@ -22,6 +22,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.vimainsurance.vimaadmin.dto.AdminUserResponseDto;
 import com.vimainsurance.vimaadmin.dto.AuthentikGroupCreationDto;
 import com.vimainsurance.vimaadmin.dto.AuthentikPaginatedResponse;
+import com.vimainsurance.vimaadmin.dto.AuthentikUserCreationDto;
 import com.vimainsurance.vimaadmin.dto.OrganizationDto;
 import com.vimainsurance.vimaadmin.dto.RoleDto;
 
@@ -384,5 +385,89 @@ public class AuthentikUtil {
         }
         
         return organizations;
+    }
+
+    /**
+     * Get group UUID by group name
+     * @param groupName Name of the group (e.g., "ROLE_VIMA_ADMIN" or "ORG_MAIN")
+     * @return UUID of the group, or null if not found
+     */
+    private String getGroupIdByName(String groupName) {
+        if (groupName == null || groupName.trim().isEmpty()) {
+            return null;
+        }
+        
+        List<Map<String, Object>> allGroups = getAllGroups();
+        for (Map<String, Object> groupMap : allGroups) {
+            String name = (String) groupMap.get("name");
+            String id = (String) groupMap.get("pk");
+            if (groupName.equals(name) && id != null) {
+                return id;
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Create user in Authentik
+     * @param name User's full name
+     * @param username Username
+     * @param email Email address
+     * @param role Role name (e.g., "VIMA_ADMIN" or "ROLE_VIMA_ADMIN")
+     * @param organizations List of organization names (e.g., ["OPENAI_INDIA", "ORG_MAIN"])
+     * @param isActive Whether the user is active (default: true)
+     */
+    public void createUser(String name, String username, String email, String role, List<String> organizations, Boolean isActive) {
+        String url = authentikUrl + "/core/users/";
+        HttpHeaders headers = new HttpHeaders();
+        headers.set("Authorization", "Bearer " + authentikToken);
+        headers.set("Content-Type", "application/json");
+        
+        // Build groups array from role and organizations
+        List<String> groups = new ArrayList<>();
+        
+        // Add role group if provided
+        if (role != null && !role.trim().isEmpty()) {
+            String roleName = role.trim();
+            if (!roleName.startsWith("ROLE_")) {
+                roleName = "ROLE_" + roleName;
+            }
+            String roleGroupId = getGroupIdByName(roleName);
+            if (roleGroupId != null) {
+                groups.add(roleGroupId);
+            }
+        }
+        
+        // Add organization groups if provided
+        if (organizations != null && !organizations.isEmpty()) {
+            for (String organization : organizations) {
+                if (organization != null && !organization.trim().isEmpty()) {
+                    String orgName = organization.trim();
+                    if (!orgName.startsWith("ORG_")) {
+                        orgName = "ORG_" + orgName;
+                    }
+                    String orgGroupId = getGroupIdByName(orgName);
+                    if (orgGroupId != null) {
+                        groups.add(orgGroupId);
+                    }
+                }
+            }
+        }
+        
+        // Create DTO for Authentik
+        AuthentikUserCreationDto userDto = new AuthentikUserCreationDto();
+        userDto.setName(name);
+        userDto.setUsername(username);
+        userDto.setEmail(email);
+        userDto.setType("external"); // Default user type
+        userDto.setIsActive(isActive != null ? isActive : true);
+        userDto.setGroups(groups);
+        
+        HttpEntity<AuthentikUserCreationDto> request = new HttpEntity<>(userDto, headers);
+        ResponseEntity<Object> response = restTemplate.postForEntity(url, request, Object.class);
+        
+        if (!response.getStatusCode().is2xxSuccessful()) {
+            throw new RuntimeException("Failed to create user in Authentik");
+        }
     }
 }

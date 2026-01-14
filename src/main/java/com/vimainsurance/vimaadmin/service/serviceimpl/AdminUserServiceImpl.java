@@ -17,6 +17,7 @@ import org.springframework.web.multipart.MultipartFile;
 
 import com.vimainsurance.vimaadmin.dto.AdminUserRequestDto;
 import com.vimainsurance.vimaadmin.dto.AdminUserResponseDto;
+import com.vimainsurance.vimaadmin.dto.AdminUsersFilteredResponseDto;
 import com.vimainsurance.vimaadmin.dto.AuthentikGroupsResponseDto;
 import com.vimainsurance.vimaadmin.dto.AuthentikPaginatedResponse;
 import com.vimainsurance.vimaadmin.dto.BaseResponse;
@@ -83,9 +84,9 @@ public class AdminUserServiceImpl implements IAdminUserService {
     }
 
     @Override
-    public ResponseEntity<ResponseDto<AdminUserResponseDto>> createAdminUser(AdminUserRequestDto requestDto) {
+    public ResponseEntity<ResponseDto<String>> createAdminUser(AdminUserRequestDto requestDto) {
         logger.info("createAdminUser called");
-        BaseResponse<AdminUserResponseDto> responseObj = new BaseResponse<>();
+        BaseResponse<String> responseObj = new BaseResponse<>();
         try {
             if (adminUserRepository.findByUsername(requestDto.getUsername()).isPresent()) {
                 return responseObj.render(responseObj.formErrorResponse("Username already exists"));
@@ -93,24 +94,43 @@ public class AdminUserServiceImpl implements IAdminUserService {
             if (adminUserRepository.findByEmail(requestDto.getEmail()).isPresent()) {
                 return responseObj.render(responseObj.formErrorResponse("Email already exists"));
             }
-            AdminUser user = new AdminUser();
-            mapRequestToEntity(requestDto, user);
-            user.setAgentId(idGenerator.generateVimaId());
-            BCryptPasswordEncoder encoder = new BCryptPasswordEncoder();
-            // if(requestDto.getPassword() != null){
-            //     user.setPasswordHash(encoder.encode(requestDto.getPassword()));
-            // }
-            // else if (user.getPasswordHash() == null || user.getPasswordHash().isEmpty()) {
-            //     user.setPasswordHash(encoder.encode(defaultPassword));
-            // }
-            String randomPassword = PasswordGenerator.generateRandomPassword();
-            user.setPasswordHash(PasswordEncoder.encodePassword(randomPassword));
-            user.setCreatedAt(LocalDateTime.now());
-            AdminUser saved = adminUserRepository.save(user);
-            if(adminUserRepository.findByUsername(requestDto.getUsername()).isPresent()){
-                emailService.sendWelcomeEmail(requestDto.getEmail(), requestDto.getUsername(), randomPassword);
+            if(requestDto.getRole() == null || requestDto.getRole().trim().isEmpty()) {
+                return responseObj.render(responseObj.formErrorResponse("Role is required"));
             }
-            return responseObj.render(responseObj.formSuccessResponse(Constants.SUCCESS, mapToResponseDto(saved)));
+            if(requestDto.getRole().contains("HR_ADMIN") && requestDto.getOrganizations() == null || requestDto.getOrganizations().isEmpty()) {
+                return responseObj.render(responseObj.formErrorResponse("Organizations are required"));
+            }
+            if(requestDto.getRole().contains("HR_ADMIN") && requestDto.getOrganizations().size() > 1) {
+                return responseObj.render(responseObj.formErrorResponse("HR_ADMIN can only be assigned to one organization"));
+            }
+            // Create user in Authentik first
+            try {
+                authentikUtil.createUser(
+                    requestDto.getFullName(),
+                    requestDto.getUsername(),
+                    requestDto.getEmail(),
+                    requestDto.getRole(),
+                    requestDto.getOrganizations(),
+                    requestDto.getIsActive() != null ? requestDto.getIsActive() : true
+                );
+                logger.info("User created successfully in Authentik: {}", requestDto.getUsername());
+            } catch (Exception e) {
+                logger.error("Error creating user in Authentik", e);
+                return responseObj.render(responseObj.formErrorResponse("Failed to create user in Authentik: " + e.getMessage()));
+            }
+            
+            // // Create user in local database
+            // AdminUser user = new AdminUser();
+            // mapRequestToEntity(requestDto, user);
+            // user.setAgentId(idGenerator.generateVimaId());
+            // String randomPassword = PasswordGenerator.generateRandomPassword();
+            // user.setPasswordHash(PasswordEncoder.encodePassword(randomPassword));
+            // user.setCreatedAt(LocalDateTime.now());
+            // AdminUser saved = adminUserRepository.save(user);
+            // if(adminUserRepository.findByUsername(requestDto.getUsername()).isPresent()){
+            //     emailService.sendWelcomeEmail(requestDto.getEmail(), requestDto.getUsername(), randomPassword);
+            // }
+            return responseObj.render(responseObj.formSuccessResponse(Constants.SUCCESS, "User created successfully"));
         } catch (Exception e) {
             logger.error("Error creating admin user", e);
             return responseObj.render(responseObj.formErrorResponse(e.getMessage()));
@@ -212,11 +232,11 @@ public class AdminUserServiceImpl implements IAdminUserService {
     }
 
     @Override
-    public ResponseEntity<ResponseDto<List<AdminUserResponseDto>>> getAllAdminUsersWithFilters(
+    public ResponseEntity<ResponseDto<AdminUsersFilteredResponseDto>> getAllAdminUsersWithFilters(
             String search, String role, String organization, Boolean isActive, int page, int rec, String sortBy, String sortDirection) {
         logger.info("getAllAdminUsersWithFilters called with search={}, role={}, organization={}, isActive={}, page={}, rec={}, sortBy={}, sortDirection={}", 
                 search, role, organization, isActive, page, rec, sortBy, sortDirection);
-        BaseResponse<List<AdminUserResponseDto>> responseObj = new BaseResponse<>();
+        BaseResponse<AdminUsersFilteredResponseDto> responseObj = new BaseResponse<>();
         try {
             // Map sortBy to Authentik ordering field name
             String ordering = mapSortByToAuthentikOrdering(sortBy, sortDirection);
@@ -274,10 +294,73 @@ public class AdminUserServiceImpl implements IAdminUserService {
                 }
             }
             
-            return responseObj.render(responseObj.formSuccessResponse(Constants.SUCCESS, dtos, totalRecords));
+            // Get all filtered users for statistics calculation (without pagination)
+            List<AdminUserResponseDto> allFilteredUsers = getAllUsersWithFiltersFromAuthentik(authenticSearch, isActive, ordering, groupsByName, search);
+            
+            // Calculate statistics based on filtered results
+            Long totalUsers = (long) allFilteredUsers.size();
+            Long totalVimaAdmins = calculateTotalVimaAdmins(allFilteredUsers);
+            Long totalHRAdmins = calculateTotalHRAdmins(allFilteredUsers);
+            Long totalOrganizations = calculateTotalOrganizations(allFilteredUsers);
+            
+            // Create response DTO with users and statistics
+            AdminUsersFilteredResponseDto responseDto = new AdminUsersFilteredResponseDto();
+            responseDto.setUsers(dtos);
+            responseDto.setTotalUsers(totalUsers);
+            responseDto.setTotalVimaAdmins(totalVimaAdmins);
+            responseDto.setTotalOrganizations(totalOrganizations);
+            responseDto.setTotalHRAdmins(totalHRAdmins);
+            
+            return responseObj.render(responseObj.formSuccessResponse(Constants.SUCCESS, responseDto, totalRecords));
         } catch (Exception e) {
             logger.error("Error fetching admin users with filters", e);
             return responseObj.render(responseObj.formErrorResponse(e.getMessage()));
+        }
+    }
+
+    /**
+     * Calculate total VIMA_ADMIN users count from filtered users
+     */
+    private Long calculateTotalVimaAdmins(List<AdminUserResponseDto> users) {
+        try {
+            return users.stream()
+                    .filter(user -> user.getRoles() != null && 
+                            user.getRoles().stream().anyMatch(role -> role.equals("ROLE_VIMA_ADMIN")))
+                    .count();
+        } catch (Exception e) {
+            logger.error("Error calculating total VIMA_ADMIN users", e);
+            return 0L;
+        }
+    }
+
+    /**
+     * Calculate total HR_ADMIN users count from filtered users
+     */
+    private Long calculateTotalHRAdmins(List<AdminUserResponseDto> users) {
+        try {
+            return users.stream()
+                    .filter(user -> user.getRoles() != null && 
+                            user.getRoles().stream().anyMatch(role -> role.equals("ROLE_HR_ADMIN")))
+                    .count();
+        } catch (Exception e) {
+            logger.error("Error calculating total HR_ADMIN users", e);
+            return 0L;
+        }
+    }
+
+    /**
+     * Calculate total unique organizations count from filtered users
+     */
+    private Long calculateTotalOrganizations(List<AdminUserResponseDto> users) {
+        try {
+            return users.stream()
+                    .filter(user -> user.getOrganizations() != null && !user.getOrganizations().isEmpty())
+                    .flatMap(user -> user.getOrganizations().stream())
+                    .distinct()
+                    .count();
+        } catch (Exception e) {
+            logger.error("Error calculating total organizations", e);
+            return 0L;
         }
     }
 

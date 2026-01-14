@@ -1,6 +1,7 @@
 package com.vimainsurance.vimaadmin.dto;
 
 import java.time.LocalDateTime;
+import java.util.List;
 
 import lombok.Data;
 
@@ -10,6 +11,7 @@ public class AdminUserRequestDto {
     private String email;
     private String fullName;
     private String role;
+    private List<String> organizations;
     private Boolean isActive;
     private String oauthProvider;
     private String oauthProviderId;
