@@ -44,6 +44,7 @@ public class ReportExportRowDto {
 
     // Employment Information
     private String designation;
+    private String department;
     private LocalDate dateOfJoining;
     private LocalDate dateOfExit;
 
@@ -54,6 +55,10 @@ public class ReportExportRowDto {
     // Status Information
     private String status;
     private String accountType;
+
+    //
+    private String ecardStatus;
+    private String tpa;
 
     // Insurance/Premium Information (for payroll reports)
     private BigDecimal premiumAmount;
@@ -70,9 +75,17 @@ public class ReportExportRowDto {
     private String approvedBy;
     private Integer totalEmployees;
     private Integer totalDependents;
+    private Integer totalEmployeesRemoved;
+    private Integer totalDependentsRemoved;
+    private Integer totalLivesChanged;
+    private String  submissionDate;
     private String premiumChangeType;
     private String insurerRefNumber;
     private LocalDateTime createdAt;
+    private LocalDate completionDate;
+    private String submittedBy;
+    private String notes;
+
 
     // Marital Status
     private String maritalStatus;

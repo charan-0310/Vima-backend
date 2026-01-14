@@ -63,18 +63,17 @@ public class ReportExportServiceImpl implements IReportExportService {
 
     // Standard headers for master report
     private static final String[] MASTER_HEADERS = {
-        "Employee Number", "Full Name", "First Name", "Last Name", "Date of Birth", "Gender",
-        "Relationship", "Is Primary Member", "Email", "Phone", "Address", "City", "State", "Pincode",
-        "PAN Number", "Aadhaar Number", "Designation", "Date of Joining", "Date of Exit",
-        "Organization ID", "Organization Name", "Status", "Account Type", "Marital Status",
-        "Sum Insured", "Policy Number", "Policy Start Date", "Policy End Date"
+        "Employee ID", "Employee Name", "Relationship ", "Person Name", "Date of Birth", "Gender",
+        "Email", "Department", "Designation", "Join Date", "Coverage Start Date", "Policy number",
+        "insurer", "TPA", "Sum Insured", "Status", "E-card status"
     };
 
     // Standard headers for enrollment report
     private static final String[] ENROLLMENT_HEADERS = {
-        "Endorsement ID", "Endorsement Type", "Status", "Total Employees", "Total Dependents",
-        "Approved At", "Approved By", "Organization ID", "Organization Name",
-        "Premium Amount", "Premium Change Type", "Insurer Ref Number", "Created At"
+        "Endorsement ID", "Endorsement Date","Endorsement Type", "Status", "Employees Added", "Employees Removed",
+        "Dependents Added", "Dependents Removed", "Total Lives Changed", "Submission Date",
+        "Approval Date", "Completion Date", "Submitted By", "Approved By",
+        "Notes"
     };
 
     // Standard headers for payroll report
@@ -388,33 +387,23 @@ public class ReportExportServiceImpl implements IReportExportService {
 
         return ReportExportRowDto.builder()
             .employeeNumber(deal.getEmployeeNumber())
-            .fullName(deal.getFullName())
             .firstName(deal.getFirstName())
-            .lastName(deal.getLastName())
-            .dateOfBirth(deal.getDateOfBirth())
-            .gender(deal.getGender())
             .relationship(deal.getRelationship())
-            .isPrimaryMember(deal.getIsPrimaryMember())
+            .fullName(deal.getFullName())
+             .dateOfBirth(deal.getDateOfBirth())
+            .gender(deal.getGender())
             .email(deal.getEmail())
             .phone(deal.getPhone())
-            .address(deal.getAddress())
-            .city(deal.getCity())
-            .state(deal.getState())
-            .pincode(deal.getPincode())
-            .panNumber(deal.getPanNumber())
-            .aadhaarNumber(deal.getAadhaarNumber())
+             .department("")
             .designation(deal.getDesignation())
             .dateOfJoining(deal.getDateOfJoining())
-            .dateOfExit(deal.getDateOfExit())
-            .organizationId(deal.getOrganization() != null ? deal.getOrganization().getOrganizationId() : null)
-            .organizationName(organizationName)
-            .status(deal.getStatus() != null ? deal.getStatus().getValue() : null)
-            .accountType(deal.getAccountType() != null ? deal.getAccountType().getValue() : null)
-            .maritalStatus(deal.getMaritalStatus())
-            .sumInsured(deal.getSumInsured() != null ? new BigDecimal(deal.getSumInsured().replace(",", "")) : null)
-            .policyNumber(policy != null ? policy.getPolicyNumber() : null)
             .policyStartDate(policy != null ? policy.getStartDate() : null)
-            .policyEndDate(policy != null ? policy.getEndDate() : null)
+            .policyNumber(policy != null ? policy.getPolicyNumber() : null)
+            .insurerRefNumber("")
+            .tpa("")
+            .sumInsured(deal.getSumInsured() != null ? new BigDecimal(deal.getSumInsured().replace(",", "")) : null)
+            .status(deal.getStatus() != null ? deal.getStatus().getValue() : null)
+            .ecardStatus("")
             .build();
     }
 
@@ -451,20 +440,23 @@ public class ReportExportServiceImpl implements IReportExportService {
      * Map Endorsement entity to export row DTO
      */
     private ReportExportRowDto mapEndorsementToRow(Endorsement endorsement, String organizationName) {
+
         return ReportExportRowDto.builder()
             .endorsementId(endorsement.getEndorsementId())
+            .createdAt(endorsement.getCreatedAt() !=null ? endorsement.getCreatedAt(): null)
             .endorsementType(endorsement.getEndorsementType() != null ? endorsement.getEndorsementType().getValue() : null)
             .endorsementStatus(endorsement.getStatus() != null ? endorsement.getStatus().getValue() : null)
             .totalEmployees(endorsement.getTotalEmployees())
+            .totalEmployeesRemoved(0)
             .totalDependents(endorsement.getTotalDependents())
+            .totalDependentsRemoved(0)
+            .totalLivesChanged(endorsement.getTotalEmployees() + endorsement.getTotalDependents())
+            .submissionDate("")
             .approvedAt(endorsement.getApprovedAt() != null ? endorsement.getApprovedAt().toLocalDate() : null)
+            .completionDate(null)
+            .submittedBy(endorsement.getUploadedBy() != null ? endorsement.getUploadedBy().getUsername() : null)
             .approvedBy(endorsement.getApprovedBy())
-            .organizationId(endorsement.getOrganization() != null ? endorsement.getOrganization().getOrganizationId() : null)
-            .organizationName(organizationName)
-            .premiumAmount(endorsement.getPremiumAmount())
-            .premiumChangeType(endorsement.getPremiumChangeType() != null ? endorsement.getPremiumChangeType().getValue() : null)
-            .insurerRefNumber(endorsement.getInsurerRefNumber())
-            .createdAt(endorsement.getCreatedAt())
+            .notes(null)
             .build();
     }
 
@@ -538,57 +530,48 @@ public class ReportExportServiceImpl implements IReportExportService {
      */
     private void populateRow(Row row, ReportExportRowDto data, ReportType reportType, DateTimeFormatter dateFormatter) {
         int col = 0;
-
         switch (reportType) {
             case MASTER:
-                row.createCell(col++).setCellValue(nullSafe(data.getEmployeeNumber()));
-                row.createCell(col++).setCellValue(nullSafe(data.getFullName()));
-                row.createCell(col++).setCellValue(nullSafe(data.getFirstName()));
-                row.createCell(col++).setCellValue(nullSafe(data.getLastName()));
-                row.createCell(col++).setCellValue(formatDate(data.getDateOfBirth(), dateFormatter));
-                row.createCell(col++).setCellValue(nullSafe(data.getGender()));
-                row.createCell(col++).setCellValue(nullSafe(data.getRelationship()));
-                row.createCell(col++).setCellValue(data.getIsPrimaryMember() != null ? data.getIsPrimaryMember().toString() : "");
-                row.createCell(col++).setCellValue(nullSafe(data.getEmail()));
-                row.createCell(col++).setCellValue(nullSafe(data.getPhone()));
-                row.createCell(col++).setCellValue(nullSafe(data.getAddress()));
-                row.createCell(col++).setCellValue(nullSafe(data.getCity()));
-                row.createCell(col++).setCellValue(nullSafe(data.getState()));
-                row.createCell(col++).setCellValue(nullSafe(data.getPincode()));
-                row.createCell(col++).setCellValue(nullSafe(data.getPanNumber()));
-                row.createCell(col++).setCellValue(nullSafe(data.getAadhaarNumber()));
-                row.createCell(col++).setCellValue(nullSafe(data.getDesignation()));
-                row.createCell(col++).setCellValue(formatDate(data.getDateOfJoining(), dateFormatter));
-                row.createCell(col++).setCellValue(formatDate(data.getDateOfExit(), dateFormatter));
-                row.createCell(col++).setCellValue(data.getOrganizationId() != null ? data.getOrganizationId().toString() : "");
-                row.createCell(col++).setCellValue(nullSafe(data.getOrganizationName()));
-                row.createCell(col++).setCellValue(nullSafe(data.getStatus()));
-                row.createCell(col++).setCellValue(nullSafe(data.getAccountType()));
-                row.createCell(col++).setCellValue(nullSafe(data.getMaritalStatus()));
-                row.createCell(col++).setCellValue(data.getSumInsured() != null ? data.getSumInsured().toString() : "");
-                row.createCell(col++).setCellValue(nullSafe(data.getPolicyNumber()));
-                row.createCell(col++).setCellValue(formatDate(data.getPolicyStartDate(), dateFormatter));
-                row.createCell(col++).setCellValue(formatDate(data.getPolicyEndDate(), dateFormatter));
+                row.createCell(col++).setCellValue(nullSafe(data.getEmployeeNumber()));                 // Employee ID
+                row.createCell(col++).setCellValue(nullSafe(data.getFirstName()));                      // Employee Name
+                row.createCell(col++).setCellValue(nullSafe(data.getRelationship()));                  // Relationship
+                row.createCell(col++).setCellValue(nullSafe(data.getFullName()));                      // Person Name
+                row.createCell(col++).setCellValue(formatDate(data.getDateOfBirth(), dateFormatter));  // Date of Birth
+                row.createCell(col++).setCellValue(nullSafe(data.getGender()));                        // Gender
+                row.createCell(col++).setCellValue(nullSafe(data.getEmail()));                         // Email
+                row.createCell(col++).setCellValue(nullSafe(data.getDepartment()));                    // Department
+                row.createCell(col++).setCellValue(nullSafe(data.getDesignation()));                   // Designation
+                row.createCell(col++).setCellValue(formatDate(data.getDateOfJoining(), dateFormatter));// Join Date
+                row.createCell(col++).setCellValue(formatDate(data.getPolicyStartDate(), dateFormatter));// Coverage Start Date
+                row.createCell(col++).setCellValue(nullSafe(data.getPolicyNumber()));                  // Policy number
+                row.createCell(col++).setCellValue(nullSafe(data.getInsurerRefNumber()));              // insurer
+                row.createCell(col++).setCellValue(nullSafe(data.getTpa()));                           // TPA
+                row.createCell(col++).setCellValue(data.getSumInsured() != null ? data.getSumInsured().toString() : ""); // Sum Insured
+                row.createCell(col++).setCellValue(nullSafe(data.getStatus()));                        // Status
+                row.createCell(col++).setCellValue(nullSafe(data.getEcardStatus()));                   // E-card status
                 break;
+
 
             case ENROLLMENT:
+                // Follow ENROLLMENT_HEADERS order
                 row.createCell(col++).setCellValue(data.getEndorsementId() != null ? data.getEndorsementId().toString() : "");
-                row.createCell(col++).setCellValue(nullSafe(data.getEndorsementType()));
-                row.createCell(col++).setCellValue(nullSafe(data.getEndorsementStatus()));
-                row.createCell(col++).setCellValue(data.getTotalEmployees() != null ? data.getTotalEmployees() : 0);
-                row.createCell(col++).setCellValue(data.getTotalDependents() != null ? data.getTotalDependents() : 0);
-                row.createCell(col++).setCellValue(formatDate(data.getApprovedAt(), dateFormatter));
-                row.createCell(col++).setCellValue(nullSafe(data.getApprovedBy()));
-                row.createCell(col++).setCellValue(data.getOrganizationId() != null ? data.getOrganizationId().toString() : "");
-                row.createCell(col++).setCellValue(nullSafe(data.getOrganizationName()));
-                row.createCell(col++).setCellValue(data.getPremiumAmount() != null ? data.getPremiumAmount().doubleValue() : 0.0);
-                row.createCell(col++).setCellValue(nullSafe(data.getPremiumChangeType()));
-                row.createCell(col++).setCellValue(nullSafe(data.getInsurerRefNumber()));
-                row.createCell(col++).setCellValue(formatDateTime(data.getCreatedAt(), dateFormatter));
+                row.createCell(col++).setCellValue(formatDateTime(data.getCreatedAt(), dateFormatter)); // Endorsement Date
+                row.createCell(col++).setCellValue(nullSafe(data.getEndorsementType()));                // Endorsement Type
+                row.createCell(col++).setCellValue(nullSafe(data.getEndorsementStatus()));             // Status
+                row.createCell(col++).setCellValue(data.getTotalEmployees() != null ? data.getTotalEmployees() : 0); // Employees Added
+                row.createCell(col++).setCellValue(data.getTotalEmployeesRemoved() != null ? data.getTotalEmployeesRemoved() : 0); // Employees Removed
+                row.createCell(col++).setCellValue(data.getTotalDependents() != null ? data.getTotalDependents() : 0); // Dependents Added
+                row.createCell(col++).setCellValue(data.getTotalDependentsRemoved() != null ? data.getTotalDependentsRemoved() : 0); // Dependents Removed
+                row.createCell(col++).setCellValue(data.getTotalLivesChanged() != null ? data.getTotalLivesChanged() : 0); // Total Lives Changed
+                row.createCell(col++).setCellValue(nullSafe(data.getSubmissionDate()));                // Submission Date
+                row.createCell(col++).setCellValue(formatDate(data.getApprovedAt(), dateFormatter));   // Approval Date
+                row.createCell(col++).setCellValue(formatDate(data.getCompletionDate(), dateFormatter)); // Completion Date
+                row.createCell(col++).setCellValue(nullSafe(data.getSubmittedBy()));                   // Submitted By
+                row.createCell(col++).setCellValue(nullSafe(data.getApprovedBy()));                    // Approved By
+                row.createCell(col++).setCellValue(nullSafe(data.getNotes()));                         // Notes
                 break;
-
-            case PAYROLL:
-                row.createCell(col++).setCellValue(nullSafe(data.getEmployeeNumber()));
+           case PAYROLL:
+                 row.createCell(col++).setCellValue(nullSafe(data.getEmployeeNumber()));
                 row.createCell(col++).setCellValue(nullSafe(data.getFullName()));
                 row.createCell(col++).setCellValue(nullSafe(data.getFirstName()));
                 row.createCell(col++).setCellValue(nullSafe(data.getLastName()));
