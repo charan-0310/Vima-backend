@@ -91,8 +91,6 @@ public class PolicyServiceImpl implements IPolicyService {
     @Autowired
     private IDocumentService documentService;
 
-    @Autowired
-    private IDealsRepository dealsRepository;
 
     @Override
     public ResponseEntity<ResponseDto<String>> createPolicy(PolicyRequestDto requestDto) {
