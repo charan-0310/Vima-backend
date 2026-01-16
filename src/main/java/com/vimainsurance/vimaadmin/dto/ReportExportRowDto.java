@@ -29,6 +29,9 @@ public class ReportExportRowDto {
     private String gender;
     private String relationship;
     private Boolean isPrimaryMember;
+    private LocalDate exitDate;
+    private LocalDate coverageEndDate;
+    private Integer daysCovered;
 
     // Contact Information
     private String email;
@@ -85,9 +88,16 @@ public class ReportExportRowDto {
     private LocalDate completionDate;
     private String submittedBy;
     private String notes;
+    private String exitReason;
+    private String exitNotes;
 
 
     // Marital Status
     private String maritalStatus;
+
+    // Employees changes
+    private String changeDate;
+    private String changeType;
+    private String reason;
 }
 
