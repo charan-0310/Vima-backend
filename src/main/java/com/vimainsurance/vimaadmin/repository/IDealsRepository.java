@@ -437,4 +437,29 @@ public interface IDealsRepository extends JpaRepository<Deals, UUID> , JpaSpecif
         @Param("status") AccountStatus status,
         @Param("currentDate") LocalDate currentDate
     );
+
+    /**
+     * Find deals by organization ID and status list (for report export)
+     */
+    @Query("""
+        SELECT d FROM Deals d
+        WHERE d.organization.organizationId = :organizationId
+        AND d.status IN :statuses
+        """)
+    List<Deals> findByOrganizationIdAndStatusIn(
+        @Param("organizationId") UUID organizationId,
+        @Param("statuses") List<AccountStatus> statuses
+    );
+
+    @Query("""
+    SELECT d FROM Deals d
+    WHERE d.organization.organizationId = :organizationId
+    AND d.status IN :statuses
+    AND d.endorsementId IS NOT NULL
+    """)
+    List<Deals> findByOrganizationIdAndStatusInAndEndorsementNotNull(
+            @Param("organizationId") UUID organizationId,
+            @Param("statuses") List<AccountStatus> statuses
+    );
+
 }
