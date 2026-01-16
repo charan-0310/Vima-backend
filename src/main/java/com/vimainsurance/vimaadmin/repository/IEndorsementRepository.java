@@ -34,6 +34,8 @@ public interface IEndorsementRepository extends JpaRepository<Endorsement, UUID>
     
     Page<Endorsement> findByEndorsementType(EndorsementType endorsementType, Pageable pageable);
 
+    List<Endorsement> findByEndorsementIdIn(List<UUID> endorsementIds);
+
     @Query("""
         SELECT COUNT(e)
         FROM Endorsement e

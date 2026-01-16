@@ -1,8 +1,10 @@
 package com.vimainsurance.vimaadmin.enums;
 
 public enum ReportType {
-    MASTER("MASTER"),
-    ENROLLMENT("ENROLLMENT"),
+    EMPLOYEE_ACTIVE("EMPLOYEE_ACTIVE"),
+    EMPLOYEE_INACTIVE("EMPLOYEE_INACTIVE"),
+    EMPLOYEE_CHANGES("EMPLOYEE_CHANGES"),
+    ENDORSEMENT("ENDORSEMENT"),
     PAYROLL("PAYROLL");
 
     private final String value;

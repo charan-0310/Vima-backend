@@ -9,10 +9,7 @@ import java.time.LocalDateTime;
 import java.time.YearMonth;
 import java.time.format.DateTimeFormatter;
 import java.time.format.DateTimeParseException;
-import java.util.ArrayList;
-import java.util.List;
-import java.util.Map;
-import java.util.UUID;
+import java.util.*;
 import java.util.stream.Collectors;
 
 import org.apache.poi.ss.usermodel.BorderStyle;
@@ -62,27 +59,27 @@ public class ReportExportServiceImpl implements IReportExportService {
     private static final Logger logger = LoggerFactory.getLogger(ReportExportServiceImpl.class);
 
     // Standard headers for master report
-    private static final String[] MASTER_HEADERS = {
-        "Employee ID", "Employee Name", "Relationship ", "Person Name", "Date of Birth", "Gender",
-        "Email", "Department", "Designation", "Join Date", "Coverage Start Date", "Policy number",
-        "insurer", "TPA", "Sum Insured", "Status", "E-card status"
-    };
+    private static final String[] ACTIVE_EMPLOYEE_HEADERS = {"Employee ID", "Employee Name", "Relationship ", "Person Name",
+            "Date of Birth", "Gender", "Email", "Phone", "Department", "Designation", "Join Date", "Coverage Start Date",
+            "Policy number", "insurer", "TPA", "Sum Insured", "Status", "E-card status"};
+
+    private static final String[] INACTIVE_EMPLOYEE_HEADERS = {"Employee ID", "Employee Name", "Relationship ", "Person Name",
+            "Date of Birth", "Gender", "Email", "Phone", "Department", "Designation", "Join Date", "Coverage Start Date",
+            "Exit Date", "Coverage End Date", "Days Covered", "Exit Reason", "Endorsement Id", "Exit Notes"};
+
+    private static final String[] CHANGES_EMPLOYEE_HEADERS = {"Change Date", "Change Type", "Endorsement Id",
+            "Endorsement Status", "Employee ID", "Employee Name", "Relationship ", "Person Name", "Date of Birth", "Gender",
+            "Email", "Phone", "Department", "Reason"};
 
     // Standard headers for enrollment report
-    private static final String[] ENROLLMENT_HEADERS = {
-        "Endorsement ID", "Endorsement Date","Endorsement Type", "Status", "Employees Added", "Employees Removed",
-        "Dependents Added", "Dependents Removed", "Total Lives Changed", "Submission Date",
-        "Approval Date", "Completion Date", "Submitted By", "Approved By",
-        "Notes"
-    };
+    private static final String[] ENDROSEMENT_HEADERS = {"Endorsement ID", "Endorsement Date", "Endorsement Type", "Status",
+            "Employees Added", "Employees Removed", "Dependents Added", "Dependents Removed", "Total Lives Changed", "Submission Date",
+            "Approval Date", "Completion Date", "Submitted By", "Approved By", "Notes"};
 
     // Standard headers for payroll report
-    private static final String[] PAYROLL_HEADERS = {
-        "Employee Number", "Full Name", "First Name", "Last Name", "Date of Birth", "Gender",
-        "Relationship", "Email", "Phone", "Designation", "Date of Joining",
-        "Organization ID", "Organization Name", "Status",
-        "Premium Amount", "Sum Insured", "Policy Number", "Policy Start Date", "Policy End Date"
-    };
+    private static final String[] PAYROLL_HEADERS = {"Employee Number", "Full Name", "First Name", "Last Name", "Date of Birth",
+            "Gender", "Relationship", "Email", "Phone", "Designation", "Date of Joining", "Organization ID", "Organization Name",
+            "Status", "Premium Amount", "Sum Insured", "Policy Number", "Policy Start Date", "Policy End Date"};
 
     @Autowired
     private IDealsRepository dealsRepository;
@@ -98,8 +95,7 @@ public class ReportExportServiceImpl implements IReportExportService {
 
     @Override
     public ResponseEntity<Resource> exportToExcel(ReportExportRequestDto requestDto) {
-        logger.info("Starting report export - type: {}, companyId: {}, month: {}",
-            requestDto.getReportType(), requestDto.getCompanyId(), requestDto.getMonth());
+        logger.info("Starting report export - type: {}, companyId: {}, month: {}", requestDto.getReportType(), requestDto.getCompanyId(), requestDto.getMonth());
 
         validateRequest(requestDto);
 
@@ -110,17 +106,15 @@ public class ReportExportServiceImpl implements IReportExportService {
             String fileName;
 
             switch (reportType) {
-                case MASTER:
-                    excelStream = generateMasterReport(requestDto);
-                    fileName = generateFileName("master_report", requestDto);
+                case EMPLOYEE_ACTIVE:
+                case EMPLOYEE_INACTIVE:
+                case EMPLOYEE_CHANGES:
+                    excelStream = generateEmployeeReport(requestDto);
+                    fileName = generateFileName(reportType.getValue().toLowerCase().concat("_report"), requestDto);
                     break;
-                case ENROLLMENT:
+                case ENDORSEMENT:
                     excelStream = generateEnrollmentReport(requestDto);
-                    fileName = generateFileName("enrollment_report", requestDto);
-                    break;
-                case PAYROLL:
-                    excelStream = generatePayrollReport(requestDto);
-                    fileName = generateFileName("payroll_report", requestDto);
+                    fileName = generateFileName("Endorsement_report", requestDto);
                     break;
                 default:
                     throw new BadRequestException("Unsupported report type: " + reportType);
@@ -136,10 +130,7 @@ public class ReportExportServiceImpl implements IReportExportService {
 
             logger.info("Report export completed successfully - fileName: {}", fileName);
 
-            return ResponseEntity.ok()
-                .headers(headers)
-                .contentType(MediaType.parseMediaType("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"))
-                .body(resource);
+            return ResponseEntity.ok().headers(headers).contentType(MediaType.parseMediaType("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")).body(resource);
 
         } catch (IOException e) {
             logger.error("Error generating Excel report", e);
@@ -159,14 +150,13 @@ public class ReportExportServiceImpl implements IReportExportService {
         }
 
         // Validate organization exists
-        organizationRepository.findById(requestDto.getCompanyId())
-            .orElseThrow(() -> new BadRequestException("Organization not found with ID: " + requestDto.getCompanyId()));
+        organizationRepository.findById(requestDto.getCompanyId()).orElseThrow(() -> new BadRequestException("Organization not found with ID: " + requestDto.getCompanyId()));
     }
 
     /**
      * Generate master report - All members with status ACTIVE or INACTIVE
      */
-    private ByteArrayInputStream generateMasterReport(ReportExportRequestDto requestDto) throws IOException {
+    private ByteArrayInputStream generateEmployeeReport(ReportExportRequestDto requestDto) throws IOException {
         logger.info("Generating master report for companyId: {}", requestDto.getCompanyId());
 
         // Fetch members with ACTIVE and INACTIVE status
@@ -175,15 +165,21 @@ public class ReportExportServiceImpl implements IReportExportService {
             for (String status : requestDto.getStatusFilters()) {
                 statuses.add(AccountStatus.fromValue(status));
             }
-        } else {
+        }
+        if (ReportType.EMPLOYEE_ACTIVE.getValue().equalsIgnoreCase(requestDto.getReportType())) {
+            statuses.add(AccountStatus.ACTIVE);
+        } else if(ReportType.EMPLOYEE_INACTIVE.getValue().equalsIgnoreCase(requestDto.getReportType())) {
+            statuses.add(AccountStatus.INACTIVE);
+        }  else {
             statuses.add(AccountStatus.ACTIVE);
             statuses.add(AccountStatus.INACTIVE);
         }
-
-        List<Deals> members = dealsRepository.findByOrganizationIdAndStatusIn(
-            requestDto.getCompanyId(),
-            statuses
-        );
+        List<Deals> members = new ArrayList<>();
+        if (ReportType.EMPLOYEE_CHANGES.getValue().equalsIgnoreCase(requestDto.getReportType())) {
+            members = dealsRepository.findByOrganizationIdAndStatusInAndEndorsementNotNull(requestDto.getCompanyId(), statuses);
+        } else {
+            members = dealsRepository.findByOrganizationIdAndStatusIn(requestDto.getCompanyId(), statuses);
+        }
 
         // Apply timeline filter if provided
         members = applyTimelineFilter(members, requestDto.getFromDate(), requestDto.getToDate());
@@ -193,26 +189,46 @@ public class ReportExportServiceImpl implements IReportExportService {
         String organizationName = organization != null ? organization.getOrganizationName() : "";
 
         // Fetch policies for all members
-        List<UUID> memberIds = members.stream()
-            .map(Deals::getIndividualId)
-            .collect(Collectors.toList());
+        List<UUID> memberIds = members.stream().map(Deals::getIndividualId).collect(Collectors.toList());
         Map<UUID, Policy> policyMap = fetchPoliciesForMembers(memberIds);
 
+        List<UUID> endorsementIds = new ArrayList<>();
+        // Fetch endorsements for all members using their endorsementId
+        // Map endorsements
+        Map<UUID, Endorsement> endorsementMap;
+        if (ReportType.EMPLOYEE_CHANGES.getValue().equalsIgnoreCase(requestDto.getReportType())) {
+           endorsementIds = members.stream().map(Deals::getEndorsementId).filter(Objects::nonNull).distinct().collect(Collectors.toList());
+            // Map endorsements
+            endorsementMap = fetchEndorsementsByIds(endorsementIds);
+        } else {
+            endorsementMap = new HashMap<>();
+        }
+
+
         // Map to export DTOs
-        List<ReportExportRowDto> rows = members.stream()
-            .map(member -> mapDealToMasterRow(member, organizationName, policyMap))
-            .collect(Collectors.toList());
+        List<ReportExportRowDto> rows = members.stream().map(member ->
+                mapDealToEmployeeRow(member, organizationName, policyMap, endorsementMap)).collect(Collectors.toList());
 
         logger.info("Master report - Total records: {}", rows.size());
-        return createExcelWorkbook("Master Report", MASTER_HEADERS, rows, ReportType.MASTER);
+
+        ReportType reportType = ReportType.valueOf(requestDto.getReportType());
+
+        String[] headers = switch (reportType) {
+            case EMPLOYEE_ACTIVE -> ACTIVE_EMPLOYEE_HEADERS;
+            case EMPLOYEE_INACTIVE -> INACTIVE_EMPLOYEE_HEADERS;
+            case EMPLOYEE_CHANGES -> CHANGES_EMPLOYEE_HEADERS;
+            default -> ACTIVE_EMPLOYEE_HEADERS;
+        };
+
+        return createExcelWorkbook("Employee Report", headers, rows, reportType);
     }
+
 
     /**
      * Generate enrollment report - All approved endorsements for selected month
      */
     private ByteArrayInputStream generateEnrollmentReport(ReportExportRequestDto requestDto) throws IOException {
-        logger.info("Generating enrollment report for companyId: {}, month: {}",
-            requestDto.getCompanyId(), requestDto.getMonth());
+        logger.info("Generating enrollment report for companyId: {}, month: {}", requestDto.getCompanyId(), requestDto.getMonth());
 
         LocalDateTime startDate;
         LocalDateTime endDate;
@@ -232,21 +248,13 @@ public class ReportExportServiceImpl implements IReportExportService {
         }
 
         // Fetch approved endorsements for the organization and date range
-        List<Endorsement> endorsements = endorsementRepository.findByOrganizationAndDateRange(
-            requestDto.getCompanyId(),
-            AccountStatus.APPROVED,
-            startDate,
-            endDate
-        );
+        List<Endorsement> endorsements = endorsementRepository.findByOrganizationAndDateRange(requestDto.getCompanyId(),
+                AccountStatus.APPROVED, startDate, endDate);
 
         // Apply status filter if provided
         if (requestDto.getStatusFilters() != null && !requestDto.getStatusFilters().isEmpty()) {
-            List<AccountStatus> statuses = requestDto.getStatusFilters().stream()
-                .map(AccountStatus::fromValue)
-                .collect(Collectors.toList());
-            endorsements = endorsements.stream()
-                .filter(e -> statuses.contains(e.getStatus()))
-                .collect(Collectors.toList());
+            List<AccountStatus> statuses = requestDto.getStatusFilters().stream().map(AccountStatus::fromValue).collect(Collectors.toList());
+            endorsements = endorsements.stream().filter(e -> statuses.contains(e.getStatus())).collect(Collectors.toList());
         }
 
         // Fetch organization details
@@ -254,71 +262,11 @@ public class ReportExportServiceImpl implements IReportExportService {
         String organizationName = organization != null ? organization.getOrganizationName() : "";
 
         // Map to export rows
-        List<ReportExportRowDto> rows = endorsements.stream()
-            .map(endorsement -> mapEndorsementToRow(endorsement, organizationName))
-            .collect(Collectors.toList());
+        List<ReportExportRowDto> rows = endorsements.stream().map(endorsement -> mapEndorsementToRow(endorsement, organizationName)).collect(Collectors.toList());
 
         logger.info("Enrollment report - Total records: {}", rows.size());
-        return createExcelWorkbook("Enrollment Report", ENROLLMENT_HEADERS, rows, ReportType.ENROLLMENT);
+        return createExcelWorkbook("Endorsement Report", ENDROSEMENT_HEADERS, rows, ReportType.ENDORSEMENT);
     }
-
-    /**
-     * Generate payroll report - Active members with premium amount
-     */
-    private ByteArrayInputStream generatePayrollReport(ReportExportRequestDto requestDto) throws IOException {
-        logger.info("Generating payroll report for companyId: {}", requestDto.getCompanyId());
-
-        // Fetch active members
-        List<AccountStatus> statuses = new ArrayList<>();
-        if (requestDto.getStatusFilters() != null && !requestDto.getStatusFilters().isEmpty()) {
-            for (String status : requestDto.getStatusFilters()) {
-                statuses.add(AccountStatus.fromValue(status));
-            }
-        } else {
-            statuses.add(AccountStatus.ACTIVE);
-        }
-
-        List<Deals> members = dealsRepository.findByOrganizationIdAndStatusIn(
-            requestDto.getCompanyId(),
-            statuses
-        );
-
-        // Apply timeline filter if provided
-        members = applyTimelineFilter(members, requestDto.getFromDate(), requestDto.getToDate());
-
-        // Fetch organization details
-        Organization organization = organizationRepository.findById(requestDto.getCompanyId()).orElse(null);
-        String organizationName = organization != null ? organization.getOrganizationName() : "";
-
-        // Fetch policies for all members
-        List<UUID> memberIds = members.stream()
-            .map(Deals::getIndividualId)
-            .collect(Collectors.toList());
-        Map<UUID, Policy> policyMap = fetchPoliciesForMembers(memberIds);
-
-        // Apply premium type filter if provided
-        if (requestDto.getPremiumType() != null && !requestDto.getPremiumType().isBlank()) {
-            // Filter members who have policies with matching premium type
-            members = members.stream()
-                .filter(member -> {
-                    Policy policy = policyMap.get(member.getIndividualId());
-                    if (policy != null && policy.getPaymentFrequency() != null) {
-                        return policy.getPaymentFrequency().name().equalsIgnoreCase(requestDto.getPremiumType());
-                    }
-                    return false;
-                })
-                .collect(Collectors.toList());
-        }
-
-        // Map to export DTOs
-        List<ReportExportRowDto> rows = members.stream()
-            .map(member -> mapDealToPayrollRow(member, organizationName, policyMap))
-            .collect(Collectors.toList());
-
-        logger.info("Payroll report - Total records: {}", rows.size());
-        return createExcelWorkbook("Payroll Report", PAYROLL_HEADERS, rows, ReportType.PAYROLL);
-    }
-
     /**
      * Apply timeline filter to member list
      */
@@ -349,17 +297,15 @@ public class ReportExportServiceImpl implements IReportExportService {
         final LocalDateTime finalStartDateTime = startDateTime;
         final LocalDateTime finalEndDateTime = endDateTime;
 
-        return members.stream()
-            .filter(member -> {
-                LocalDateTime createdAt = member.getCreatedAt();
-                if (createdAt == null) return true;
+        return members.stream().filter(member -> {
+            LocalDateTime createdAt = member.getCreatedAt();
+            if (createdAt == null) return true;
 
-                boolean afterStart = finalStartDateTime == null || !createdAt.isBefore(finalStartDateTime);
-                boolean beforeEnd = finalEndDateTime == null || !createdAt.isAfter(finalEndDateTime);
+            boolean afterStart = finalStartDateTime == null || !createdAt.isBefore(finalStartDateTime);
+            boolean beforeEnd = finalEndDateTime == null || !createdAt.isAfter(finalEndDateTime);
 
-                return afterStart && beforeEnd;
-            })
-            .collect(Collectors.toList());
+            return afterStart && beforeEnd;
+        }).collect(Collectors.toList());
     }
 
     /**
@@ -371,40 +317,60 @@ public class ReportExportServiceImpl implements IReportExportService {
         }
 
         List<Policy> policies = policyRepository.findByPrimaryIndividualIdIn(memberIds);
-        return policies.stream()
-            .collect(Collectors.toMap(
-                Policy::getPrimaryIndividualId,
-                policy -> policy,
-                (existing, replacement) -> existing // Keep first in case of duplicates
-            ));
+        return policies.stream().collect(Collectors.toMap(Policy::getPrimaryIndividualId, policy -> policy, (existing, replacement) -> existing // Keep first in case of duplicates
+        ));
     }
+
+    private Map<UUID, Endorsement> fetchEndorsementsByIds(List<UUID> endorsementIds) {
+        if (endorsementIds == null || endorsementIds.isEmpty()) {
+            return Collections.emptyMap();
+        }
+        List<Endorsement> endorsements = endorsementRepository.findByEndorsementIdIn(endorsementIds);
+        return endorsements.stream().collect(Collectors.toMap(Endorsement::getEndorsementId, e -> e, (existing, replacement) -> existing));
+    }
+
 
     /**
      * Map Deals entity to Master report row DTO
      */
-    private ReportExportRowDto mapDealToMasterRow(Deals deal, String organizationName, Map<UUID, Policy> policyMap) {
+    private ReportExportRowDto mapDealToEmployeeRow(Deals deal, String organizationName, Map<UUID, Policy> policyMap, Map<UUID, Endorsement> endorsementMap) {
         Policy policy = policyMap.get(deal.getIndividualId());
+        Endorsement endorsement = endorsementMap.get(deal.getEndorsementId());
 
         return ReportExportRowDto.builder()
-            .employeeNumber(deal.getEmployeeNumber())
-            .firstName(deal.getFirstName())
-            .relationship(deal.getRelationship())
-            .fullName(deal.getFullName())
-             .dateOfBirth(deal.getDateOfBirth())
-            .gender(deal.getGender())
-            .email(deal.getEmail())
-            .phone(deal.getPhone())
-             .department("")
-            .designation(deal.getDesignation())
-            .dateOfJoining(deal.getDateOfJoining())
-            .policyStartDate(policy != null ? policy.getStartDate() : null)
-            .policyNumber(policy != null ? policy.getPolicyNumber() : null)
-            .insurerRefNumber("")
-            .tpa("")
-            .sumInsured(deal.getSumInsured() != null ? new BigDecimal(deal.getSumInsured().replace(",", "")) : null)
-            .status(deal.getStatus() != null ? deal.getStatus().getValue() : null)
-            .ecardStatus("")
-            .build();
+                .employeeNumber(deal.getEmployeeNumber())
+                .firstName(deal.getFirstName())
+                .relationship(deal.getRelationship())
+                .fullName(deal.getFullName())
+                .dateOfBirth(deal.getDateOfBirth())
+                .gender(deal.getGender())
+                .email(deal.getEmail())
+                .phone(deal.getPhone())
+                .department("")
+                .designation(deal.getDesignation())
+                .dateOfJoining(deal.getDateOfJoining())
+                .policyStartDate(policy != null ? policy.getStartDate() : null)
+                .policyNumber(policy != null ? policy.getPolicyNumber() : null)
+                .coverageEndDate(policy != null ? policy.getEndDate() : null)
+                .insurerRefNumber("")
+                .tpa("")
+                .sumInsured(deal.getSumInsured() != null ? new BigDecimal(deal.getSumInsured().replace(",", "")) : null)
+                .status(deal.getStatus() != null ? deal.getStatus().getValue() : null)
+                .ecardStatus("")
+                .exitDate(endorsement != null && endorsement.getUpdatedAt() != null ? endorsement.getUpdatedAt().toLocalDate() : null)
+                .daysCovered(
+                        policy != null && policy.getStartDate() != null && policy.getEndDate() != null
+                                ? (int) (java.time.temporal.ChronoUnit.DAYS.between(policy.getStartDate(), policy.getEndDate()) + 1)
+                                : null
+                )
+                .exitReason("")
+                .exitNotes("")
+                .changeDate(endorsement != null && endorsement.getUpdatedAt() != null ? endorsement.getUpdatedAt().toString() : "")
+                .changeType(endorsement != null && endorsement.getEndorsementType() != null ? endorsement.getEndorsementType().getValue() : null)
+                .endorsementId(endorsement != null ? endorsement.getEndorsementId() : null)
+                .endorsementStatus(endorsement != null && endorsement.getStatus() != null ? endorsement.getStatus().getValue() : null)
+                .reason("")
+                .build();
     }
 
     /**
@@ -413,27 +379,7 @@ public class ReportExportServiceImpl implements IReportExportService {
     private ReportExportRowDto mapDealToPayrollRow(Deals deal, String organizationName, Map<UUID, Policy> policyMap) {
         Policy policy = policyMap.get(deal.getIndividualId());
 
-        return ReportExportRowDto.builder()
-            .employeeNumber(deal.getEmployeeNumber())
-            .fullName(deal.getFullName())
-            .firstName(deal.getFirstName())
-            .lastName(deal.getLastName())
-            .dateOfBirth(deal.getDateOfBirth())
-            .gender(deal.getGender())
-            .relationship(deal.getRelationship())
-            .email(deal.getEmail())
-            .phone(deal.getPhone())
-            .designation(deal.getDesignation())
-            .dateOfJoining(deal.getDateOfJoining())
-            .organizationId(deal.getOrganization() != null ? deal.getOrganization().getOrganizationId() : null)
-            .organizationName(organizationName)
-            .status(deal.getStatus() != null ? deal.getStatus().getValue() : null)
-            .premiumAmount(policy != null ? policy.getPremiumAmount() : null)
-            .sumInsured(policy != null ? policy.getSumInsured() : null)
-            .policyNumber(policy != null ? policy.getPolicyNumber() : null)
-            .policyStartDate(policy != null ? policy.getStartDate() : null)
-            .policyEndDate(policy != null ? policy.getEndDate() : null)
-            .build();
+        return ReportExportRowDto.builder().employeeNumber(deal.getEmployeeNumber()).fullName(deal.getFullName()).firstName(deal.getFirstName()).lastName(deal.getLastName()).dateOfBirth(deal.getDateOfBirth()).gender(deal.getGender()).relationship(deal.getRelationship()).email(deal.getEmail()).phone(deal.getPhone()).designation(deal.getDesignation()).dateOfJoining(deal.getDateOfJoining()).organizationId(deal.getOrganization() != null ? deal.getOrganization().getOrganizationId() : null).organizationName(organizationName).status(deal.getStatus() != null ? deal.getStatus().getValue() : null).premiumAmount(policy != null ? policy.getPremiumAmount() : null).sumInsured(policy != null ? policy.getSumInsured() : null).policyNumber(policy != null ? policy.getPolicyNumber() : null).policyStartDate(policy != null ? policy.getStartDate() : null).policyEndDate(policy != null ? policy.getEndDate() : null).build();
     }
 
     /**
@@ -441,30 +387,13 @@ public class ReportExportServiceImpl implements IReportExportService {
      */
     private ReportExportRowDto mapEndorsementToRow(Endorsement endorsement, String organizationName) {
 
-        return ReportExportRowDto.builder()
-            .endorsementId(endorsement.getEndorsementId())
-            .createdAt(endorsement.getCreatedAt() !=null ? endorsement.getCreatedAt(): null)
-            .endorsementType(endorsement.getEndorsementType() != null ? endorsement.getEndorsementType().getValue() : null)
-            .endorsementStatus(endorsement.getStatus() != null ? endorsement.getStatus().getValue() : null)
-            .totalEmployees(endorsement.getTotalEmployees())
-            .totalEmployeesRemoved(0)
-            .totalDependents(endorsement.getTotalDependents())
-            .totalDependentsRemoved(0)
-            .totalLivesChanged(endorsement.getTotalEmployees() + endorsement.getTotalDependents())
-            .submissionDate("")
-            .approvedAt(endorsement.getApprovedAt() != null ? endorsement.getApprovedAt().toLocalDate() : null)
-            .completionDate(null)
-            .submittedBy(endorsement.getUploadedBy() != null ? endorsement.getUploadedBy().getUsername() : null)
-            .approvedBy(endorsement.getApprovedBy())
-            .notes(null)
-            .build();
+        return ReportExportRowDto.builder().endorsementId(endorsement.getEndorsementId()).createdAt(endorsement.getCreatedAt() != null ? endorsement.getCreatedAt() : null).endorsementType(endorsement.getEndorsementType() != null ? endorsement.getEndorsementType().getValue() : null).endorsementStatus(endorsement.getStatus() != null ? endorsement.getStatus().getValue() : null).totalEmployees(endorsement.getTotalEmployees()).totalEmployeesRemoved(0).totalDependents(endorsement.getTotalDependents()).totalDependentsRemoved(0).totalLivesChanged(endorsement.getTotalEmployees() + endorsement.getTotalDependents()).submissionDate("").approvedAt(endorsement.getApprovedAt() != null ? endorsement.getApprovedAt().toLocalDate() : null).completionDate(null).submittedBy(endorsement.getUploadedBy() != null ? endorsement.getUploadedBy().getUsername() : null).approvedBy(endorsement.getApprovedBy()).notes(null).build();
     }
 
     /**
      * Create Excel workbook with the given data
      */
-    private ByteArrayInputStream createExcelWorkbook(String sheetName, String[] headers,
-            List<ReportExportRowDto> rows, ReportType reportType) throws IOException {
+    private ByteArrayInputStream createExcelWorkbook(String sheetName, String[] headers, List<ReportExportRowDto> rows, ReportType reportType) throws IOException {
 
         // Use SXSSFWorkbook for streaming to handle large datasets
         try (SXSSFWorkbook workbook = new SXSSFWorkbook(100)) {
@@ -531,7 +460,7 @@ public class ReportExportServiceImpl implements IReportExportService {
     private void populateRow(Row row, ReportExportRowDto data, ReportType reportType, DateTimeFormatter dateFormatter) {
         int col = 0;
         switch (reportType) {
-            case MASTER:
+            case EMPLOYEE_ACTIVE:
                 row.createCell(col++).setCellValue(nullSafe(data.getEmployeeNumber()));                 // Employee ID
                 row.createCell(col++).setCellValue(nullSafe(data.getFirstName()));                      // Employee Name
                 row.createCell(col++).setCellValue(nullSafe(data.getRelationship()));                  // Relationship
@@ -539,6 +468,7 @@ public class ReportExportServiceImpl implements IReportExportService {
                 row.createCell(col++).setCellValue(formatDate(data.getDateOfBirth(), dateFormatter));  // Date of Birth
                 row.createCell(col++).setCellValue(nullSafe(data.getGender()));                        // Gender
                 row.createCell(col++).setCellValue(nullSafe(data.getEmail()));                         // Email
+                row.createCell(col++).setCellValue(nullSafe(data.getPhone()));                         // Phone
                 row.createCell(col++).setCellValue(nullSafe(data.getDepartment()));                    // Department
                 row.createCell(col++).setCellValue(nullSafe(data.getDesignation()));                   // Designation
                 row.createCell(col++).setCellValue(formatDate(data.getDateOfJoining(), dateFormatter));// Join Date
@@ -550,9 +480,45 @@ public class ReportExportServiceImpl implements IReportExportService {
                 row.createCell(col++).setCellValue(nullSafe(data.getStatus()));                        // Status
                 row.createCell(col++).setCellValue(nullSafe(data.getEcardStatus()));                   // E-card status
                 break;
+            case EMPLOYEE_INACTIVE:
 
+                row.createCell(col++).setCellValue(nullSafe(data.getEmployeeNumber()));                 // Employee ID
+                row.createCell(col++).setCellValue(nullSafe(data.getFirstName()));                      // Employee Name
+                row.createCell(col++).setCellValue(nullSafe(data.getRelationship()));                   // Relationship
+                row.createCell(col++).setCellValue(nullSafe(data.getFullName()));                       // Person Name
+                row.createCell(col++).setCellValue(formatDate(data.getDateOfBirth(), dateFormatter));   // Date of Birth
+                row.createCell(col++).setCellValue(nullSafe(data.getGender()));                         // Gender
+                row.createCell(col++).setCellValue(nullSafe(data.getEmail()));                          // Email
+                row.createCell(col++).setCellValue(nullSafe(data.getPhone()));                          // Phone
+                row.createCell(col++).setCellValue(nullSafe(data.getDepartment()));                     // Department
+                row.createCell(col++).setCellValue(nullSafe(data.getDesignation()));                    // Designation
+                row.createCell(col++).setCellValue(formatDate(data.getDateOfJoining(), dateFormatter)); // Join Date
+                row.createCell(col++).setCellValue(formatDate(data.getPolicyStartDate(), dateFormatter)); // Coverage Start Date
+                row.createCell(col++).setCellValue(formatDate(data.getExitDate(), dateFormatter));      // Exit Date
+                row.createCell(col++).setCellValue(formatDate(data.getCoverageEndDate(), dateFormatter)); // Coverage End Date
+                row.createCell(col++).setCellValue(data.getDaysCovered() != null ? data.getDaysCovered() : 0); // Days Covered
+                row.createCell(col++).setCellValue(nullSafe(data.getExitReason()));                     // Exit Reason
+                row.createCell(col++).setCellValue(data.getEndorsementId() != null ? data.getEndorsementId().toString() : ""); // Endorsement Id
+                row.createCell(col++).setCellValue(nullSafe(data.getExitNotes()));                      // Exit Notes
 
-            case ENROLLMENT:
+                break;
+            case EMPLOYEE_CHANGES:
+                row.createCell(col++).setCellValue(nullSafe(data.getChangeDate()));                       // Change Date
+                row.createCell(col++).setCellValue(nullSafe(data.getChangeType()));                       // Change Type
+                row.createCell(col++).setCellValue(data.getEndorsementId() != null ? data.getEndorsementId().toString() : ""); // Endorsement Id
+                row.createCell(col++).setCellValue(nullSafe(data.getEndorsementStatus()));                // Endorsement Status
+                row.createCell(col++).setCellValue(nullSafe(data.getEmployeeNumber()));                   // Employee ID
+                row.createCell(col++).setCellValue(nullSafe(data.getFirstName()));                        // Employee Name
+                row.createCell(col++).setCellValue(nullSafe(data.getRelationship()));                     // Relationship
+                row.createCell(col++).setCellValue(nullSafe(data.getFullName()));                         // Person Name
+                row.createCell(col++).setCellValue(formatDate(data.getDateOfBirth(), dateFormatter));     // Date of Birth
+                row.createCell(col++).setCellValue(nullSafe(data.getGender()));                           // Gender
+                row.createCell(col++).setCellValue(nullSafe(data.getEmail()));                            // Email
+                row.createCell(col++).setCellValue(nullSafe(data.getPhone()));                            // Phone
+                row.createCell(col++).setCellValue(nullSafe(data.getDepartment()));                       // Department
+                row.createCell(col++).setCellValue(nullSafe(data.getReason()));                           // Reason
+                break;
+            case ENDORSEMENT:
                 // Follow ENROLLMENT_HEADERS order
                 row.createCell(col++).setCellValue(data.getEndorsementId() != null ? data.getEndorsementId().toString() : "");
                 row.createCell(col++).setCellValue(formatDateTime(data.getCreatedAt(), dateFormatter)); // Endorsement Date
@@ -570,8 +536,8 @@ public class ReportExportServiceImpl implements IReportExportService {
                 row.createCell(col++).setCellValue(nullSafe(data.getApprovedBy()));                    // Approved By
                 row.createCell(col++).setCellValue(nullSafe(data.getNotes()));                         // Notes
                 break;
-           case PAYROLL:
-                 row.createCell(col++).setCellValue(nullSafe(data.getEmployeeNumber()));
+            case PAYROLL:
+                row.createCell(col++).setCellValue(nullSafe(data.getEmployeeNumber()));
                 row.createCell(col++).setCellValue(nullSafe(data.getFullName()));
                 row.createCell(col++).setCellValue(nullSafe(data.getFirstName()));
                 row.createCell(col++).setCellValue(nullSafe(data.getLastName()));
@@ -594,11 +560,12 @@ public class ReportExportServiceImpl implements IReportExportService {
         }
     }
 
+
     /**
      * Generate file name for the export
      */
     private String generateFileName(String prefix, ReportExportRequestDto requestDto) {
-        String timestamp = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyyMMdd_HHmmss"));
+        String timestamp = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyyMMdd"));
         String companyIdPart = requestDto.getCompanyId().toString().substring(0, 8);
         return String.format("%s_%s_%s.xlsx", prefix, companyIdPart, timestamp);
     }
@@ -624,4 +591,5 @@ public class ReportExportServiceImpl implements IReportExportService {
         return dateTime != null ? dateTime.format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")) : "";
     }
 }
+
 
