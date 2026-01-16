@@ -452,10 +452,24 @@ public interface IDealsRepository extends JpaRepository<Deals, UUID> , JpaSpecif
     );
 
     @Query("""
-    SELECT d FROM Deals d
-    WHERE d.organization.organizationId = :organizationId
-    AND d.status IN :statuses
-    AND d.endorsementId IS NOT NULL
+        SELECT COUNT(d) FROM Deals d
+        WHERE d.organization.organizationId = :organizationId
+        AND d.relationship = 'SELF'
+        """)
+    Long countByOrganizationIdAndRelationshipSelf(@Param("organizationId") UUID organizationId);
+
+    @Query("""
+        SELECT COUNT(d) FROM Deals d
+        WHERE d.organization.organizationId = :organizationId
+        AND (d.relationship != 'SELF' OR d.relationship IS NULL)
+        """)
+    Long countByOrganizationIdAndRelationshipNonSelf(@Param("organizationId") UUID organizationId);
+
+    @Query("""   
+        SELECT d FROM Deals d
+        WHERE d.organization.organizationId = :organizationId
+        AND d.status IN :statuses
+        AND d.endorsementId IS NOT NULL
     """)
     List<Deals> findByOrganizationIdAndStatusInAndEndorsementNotNull(
             @Param("organizationId") UUID organizationId,

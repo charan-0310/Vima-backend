@@ -91,8 +91,6 @@ public class PolicyServiceImpl implements IPolicyService {
     @Autowired
     private IDocumentService documentService;
 
-    @Autowired
-    private IDealsRepository dealsRepository;
 
     @Override
     public ResponseEntity<ResponseDto<String>> createPolicy(PolicyRequestDto requestDto) {
@@ -326,11 +324,13 @@ public class PolicyServiceImpl implements IPolicyService {
         try {
             jwtUserExtractor.validateOrganizationAccess(organizationId);
             List<Policy> policies = policyRepository.findByOrganizationId(organizationId);
-            Long totalLives = dealsRepository.findByOrganizationIdAndStatusIn(organizationId, List.of(AccountStatus.ACTIVE)).stream().count();
+            Long employeesCount = dealsRepository.countByOrganizationIdAndRelationshipSelf(organizationId);
+            Long dependentsCount = dealsRepository.countByOrganizationIdAndRelationshipNonSelf(organizationId);
             List<PolicyResponseDto> responseDtos = policies.stream()
                 .map(policy -> {
                     PolicyResponseDto responseDto = mapToResponseDto(policy);
-                    responseDto.setTotalLives(totalLives);
+                    responseDto.setEmployeesCount(employeesCount);
+                    responseDto.setDependentsCount(dependentsCount);
                     return responseDto;
                 })
                 .collect(Collectors.toList());
