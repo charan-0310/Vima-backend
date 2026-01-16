@@ -9,6 +9,7 @@ import java.time.LocalDateTime;
 import java.time.YearMonth;
 import java.time.format.DateTimeFormatter;
 import java.time.format.DateTimeParseException;
+import java.time.temporal.ChronoUnit;
 import java.util.*;
 import java.util.stream.Collectors;
 
@@ -95,7 +96,7 @@ public class ReportExportServiceImpl implements IReportExportService {
 
     @Override
     public ResponseEntity<Resource> exportToExcel(ReportExportRequestDto requestDto) {
-        logger.info("Starting report export - type: {}, companyId: {}, month: {}", requestDto.getReportType(), requestDto.getCompanyId(), requestDto.getMonth());
+        logger.info("Starting report export - type: {}, companyId: {}", requestDto.getReportType(), requestDto.getCompanyId());
 
         validateRequest(requestDto);
 
@@ -103,22 +104,17 @@ public class ReportExportServiceImpl implements IReportExportService {
 
         try {
             ByteArrayInputStream excelStream;
-            String fileName;
-
-            switch (reportType) {
-                case EMPLOYEE_ACTIVE:
-                case EMPLOYEE_INACTIVE:
-                case EMPLOYEE_CHANGES:
+            String fileName = switch (reportType) {
+                case EMPLOYEE_ACTIVE, EMPLOYEE_INACTIVE, EMPLOYEE_CHANGES -> {
                     excelStream = generateEmployeeReport(requestDto);
-                    fileName = generateFileName(reportType.getValue().toLowerCase().concat("_report"), requestDto);
-                    break;
-                case ENDORSEMENT:
-                    excelStream = generateEnrollmentReport(requestDto);
-                    fileName = generateFileName("Endorsement_report", requestDto);
-                    break;
-                default:
-                    throw new BadRequestException("Unsupported report type: " + reportType);
-            }
+                    yield generateFileName("Employee_report", requestDto);
+                }
+                case ENDORSEMENT -> {
+                    excelStream = generateEndorsementReport(requestDto);
+                    yield generateFileName("Endorsement_report", requestDto);
+                }
+                default -> throw new BadRequestException("Unsupported report type: " + reportType);
+            };
 
             InputStreamResource resource = new InputStreamResource(excelStream);
 
@@ -150,7 +146,8 @@ public class ReportExportServiceImpl implements IReportExportService {
         }
 
         // Validate organization exists
-        organizationRepository.findById(requestDto.getCompanyId()).orElseThrow(() -> new BadRequestException("Organization not found with ID: " + requestDto.getCompanyId()));
+        organizationRepository.findById(requestDto.getCompanyId()).orElseThrow(() ->
+                new BadRequestException("Organization not found with ID: " + requestDto.getCompanyId()));
     }
 
     /**
@@ -161,18 +158,17 @@ public class ReportExportServiceImpl implements IReportExportService {
 
         // Fetch members with ACTIVE and INACTIVE status
         List<AccountStatus> statuses = new ArrayList<>();
-        if (requestDto.getStatusFilters() != null && !requestDto.getStatusFilters().isEmpty()) {
-            for (String status : requestDto.getStatusFilters()) {
-                statuses.add(AccountStatus.fromValue(status));
-            }
-        }
-        if (ReportType.EMPLOYEE_ACTIVE.getValue().equalsIgnoreCase(requestDto.getReportType())) {
-            statuses.add(AccountStatus.ACTIVE);
-        } else if(ReportType.EMPLOYEE_INACTIVE.getValue().equalsIgnoreCase(requestDto.getReportType())) {
-            statuses.add(AccountStatus.INACTIVE);
-        }  else {
-            statuses.add(AccountStatus.ACTIVE);
-            statuses.add(AccountStatus.INACTIVE);
+        switch (ReportType.fromValue(requestDto.getReportType())) {
+            case EMPLOYEE_ACTIVE:
+                statuses.add(AccountStatus.ACTIVE);
+                break;
+            case EMPLOYEE_INACTIVE:
+                statuses.add(AccountStatus.INACTIVE);
+                break;
+            default:
+                statuses.add(AccountStatus.ACTIVE);
+                statuses.add(AccountStatus.INACTIVE);
+                break;
         }
         List<Deals> members = new ArrayList<>();
         if (ReportType.EMPLOYEE_CHANGES.getValue().equalsIgnoreCase(requestDto.getReportType())) {
@@ -227,42 +223,27 @@ public class ReportExportServiceImpl implements IReportExportService {
     /**
      * Generate enrollment report - All approved endorsements for selected month
      */
-    private ByteArrayInputStream generateEnrollmentReport(ReportExportRequestDto requestDto) throws IOException {
-        logger.info("Generating enrollment report for companyId: {}, month: {}", requestDto.getCompanyId(), requestDto.getMonth());
+    private ByteArrayInputStream generateEndorsementReport(ReportExportRequestDto requestDto) throws IOException {
+        logger.info("Generating enrollment report for companyId: {}", requestDto.getCompanyId());
 
-        LocalDateTime startDate;
-        LocalDateTime endDate;
-
-        if (requestDto.getMonth() != null && !requestDto.getMonth().isBlank()) {
-            YearMonth yearMonth = YearMonth.parse(requestDto.getMonth());
-            startDate = yearMonth.atDay(1).atStartOfDay();
-            endDate = yearMonth.atEndOfMonth().atTime(23, 59, 59);
-        } else if (requestDto.getFromDate() != null && requestDto.getToDate() != null) {
+        LocalDateTime startDate = null;
+        LocalDateTime endDate = null;
+       if (requestDto.getFromDate() != null && requestDto.getToDate() != null) {
             startDate = LocalDate.parse(requestDto.getFromDate()).atStartOfDay();
             endDate = LocalDate.parse(requestDto.getToDate()).atTime(23, 59, 59);
-        } else {
-            // Default to current month
-            YearMonth currentMonth = YearMonth.now();
-            startDate = currentMonth.atDay(1).atStartOfDay();
-            endDate = currentMonth.atEndOfMonth().atTime(23, 59, 59);
         }
 
         // Fetch approved endorsements for the organization and date range
         List<Endorsement> endorsements = endorsementRepository.findByOrganizationAndDateRange(requestDto.getCompanyId(),
                 AccountStatus.APPROVED, startDate, endDate);
 
-        // Apply status filter if provided
-        if (requestDto.getStatusFilters() != null && !requestDto.getStatusFilters().isEmpty()) {
-            List<AccountStatus> statuses = requestDto.getStatusFilters().stream().map(AccountStatus::fromValue).collect(Collectors.toList());
-            endorsements = endorsements.stream().filter(e -> statuses.contains(e.getStatus())).collect(Collectors.toList());
-        }
-
         // Fetch organization details
         Organization organization = organizationRepository.findById(requestDto.getCompanyId()).orElse(null);
         String organizationName = organization != null ? organization.getOrganizationName() : "";
 
         // Map to export rows
-        List<ReportExportRowDto> rows = endorsements.stream().map(endorsement -> mapEndorsementToRow(endorsement, organizationName)).collect(Collectors.toList());
+        List<ReportExportRowDto> rows = endorsements.stream().map(endorsement ->
+                mapEndorsementToRow(endorsement, organizationName)).collect(Collectors.toList());
 
         logger.info("Enrollment report - Total records: {}", rows.size());
         return createExcelWorkbook("Endorsement Report", ENDROSEMENT_HEADERS, rows, ReportType.ENDORSEMENT);
@@ -360,7 +341,7 @@ public class ReportExportServiceImpl implements IReportExportService {
                 .exitDate(endorsement != null && endorsement.getUpdatedAt() != null ? endorsement.getUpdatedAt().toLocalDate() : null)
                 .daysCovered(
                         policy != null && policy.getStartDate() != null && policy.getEndDate() != null
-                                ? (int) (java.time.temporal.ChronoUnit.DAYS.between(policy.getStartDate(), policy.getEndDate()) + 1)
+                                ? (int) (ChronoUnit.DAYS.between(policy.getStartDate(), policy.getEndDate()) + 1)
                                 : null
                 )
                 .exitReason("")
@@ -536,28 +517,7 @@ public class ReportExportServiceImpl implements IReportExportService {
                 row.createCell(col++).setCellValue(nullSafe(data.getApprovedBy()));                    // Approved By
                 row.createCell(col++).setCellValue(nullSafe(data.getNotes()));                         // Notes
                 break;
-            case PAYROLL:
-                row.createCell(col++).setCellValue(nullSafe(data.getEmployeeNumber()));
-                row.createCell(col++).setCellValue(nullSafe(data.getFullName()));
-                row.createCell(col++).setCellValue(nullSafe(data.getFirstName()));
-                row.createCell(col++).setCellValue(nullSafe(data.getLastName()));
-                row.createCell(col++).setCellValue(formatDate(data.getDateOfBirth(), dateFormatter));
-                row.createCell(col++).setCellValue(nullSafe(data.getGender()));
-                row.createCell(col++).setCellValue(nullSafe(data.getRelationship()));
-                row.createCell(col++).setCellValue(nullSafe(data.getEmail()));
-                row.createCell(col++).setCellValue(nullSafe(data.getPhone()));
-                row.createCell(col++).setCellValue(nullSafe(data.getDesignation()));
-                row.createCell(col++).setCellValue(formatDate(data.getDateOfJoining(), dateFormatter));
-                row.createCell(col++).setCellValue(data.getOrganizationId() != null ? data.getOrganizationId().toString() : "");
-                row.createCell(col++).setCellValue(nullSafe(data.getOrganizationName()));
-                row.createCell(col++).setCellValue(nullSafe(data.getStatus()));
-                row.createCell(col++).setCellValue(data.getPremiumAmount() != null ? data.getPremiumAmount().doubleValue() : 0.0);
-                row.createCell(col++).setCellValue(data.getSumInsured() != null ? data.getSumInsured().doubleValue() : 0.0);
-                row.createCell(col++).setCellValue(nullSafe(data.getPolicyNumber()));
-                row.createCell(col++).setCellValue(formatDate(data.getPolicyStartDate(), dateFormatter));
-                row.createCell(col++).setCellValue(formatDate(data.getPolicyEndDate(), dateFormatter));
-                break;
-        }
+              }
     }
 
 

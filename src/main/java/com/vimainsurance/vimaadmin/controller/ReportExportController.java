@@ -96,34 +96,23 @@ public class ReportExportController {
             @Parameter(description = "Type of report: master, enrollment, or payroll", required = true)
             @RequestParam String reportType,
 
-            @Parameter(description = "Month for filtering (format: YYYY-MM)")
-            @RequestParam(required = false) String month,
-
-            @Parameter(description = "Status filters (comma-separated): ACTIVE, INACTIVE, PENDING, etc.")
-            @RequestParam(required = false) List<String> statusFilters,
-
             @Parameter(description = "Start date for timeline filter (format: YYYY-MM-DD)")
             @RequestParam(required = false) String fromDate,
 
             @Parameter(description = "End date for timeline filter (format: YYYY-MM-DD)")
-            @RequestParam(required = false) String toDate,
+            @RequestParam(required = false) String toDate
 
-            @Parameter(description = "Premium type filter for payroll reports")
-            @RequestParam(required = false) String premiumType
     ) {
-        logger.info("[correlationId:{}] /reports/export (GET) endpoint called - companyId: {}, reportType: {}, month: {}",
-            MDC.get("correlationId"), companyId, reportType, month);
+        logger.info("[correlationId:{}] /reports/export (GET) endpoint called - companyId: {}, reportType: {}",
+            MDC.get("correlationId"), companyId, reportType);
 
         try {
             // Build request DTO from query parameters
             ReportExportRequestDto requestDto = new ReportExportRequestDto();
             requestDto.setCompanyId(companyId);
             requestDto.setReportType(reportType);
-            requestDto.setMonth(month);
-            requestDto.setStatusFilters(statusFilters);
             requestDto.setFromDate(fromDate);
             requestDto.setToDate(toDate);
-            requestDto.setPremiumType(premiumType);
 
             return reportExportService.exportToExcel(requestDto);
 
