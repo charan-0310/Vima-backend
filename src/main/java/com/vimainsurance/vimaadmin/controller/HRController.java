@@ -22,7 +22,8 @@ public class HRController {
     @GetMapping("/dashboard")
     public ResponseEntity<ResponseDto<HRDashBoardResponseDto>> getHrDashboard(
             @RequestParam(required = false) String startDate,
-            @RequestParam(required = false) String endDate) {
+            @RequestParam(required = false) String endDate,
+            @RequestParam(required = false) String companyId) {
         // Parse date strings to LocalDateTime, default to null (which means "all")
         LocalDateTime start = null;
         LocalDateTime end = null;
@@ -54,7 +55,7 @@ public class HRController {
             }
         }
         
-        return hrService.getHrDashboard(start, end);
+        return hrService.getHrDashboard(start, end, companyId);
     }
 
 }

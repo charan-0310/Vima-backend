@@ -476,4 +476,50 @@ public interface IDealsRepository extends JpaRepository<Deals, UUID> , JpaSpecif
             @Param("statuses") List<AccountStatus> statuses
     );
 
+    /**
+     * Count deals (employees + dependents) added through endorsement additions
+     * This counts actual deal records linked to endorsements, providing accurate addition counts
+     * Note: startDate and endDate can be null - if null, no date filtering is applied
+     */
+    @Query(value = """
+        SELECT COUNT(d.individual_id)
+        FROM cpc.customers d
+        INNER JOIN cpc.endorsements e ON d.endorsement_id = e.endorsement_id
+        WHERE d.organization_id IN :organizationIds
+          AND d.endorsement_id IS NOT NULL
+          AND d.status::text = 'ACTIVE'
+          AND e.status::text = 'COMPLETED'
+          AND e.created_at >= COALESCE(CAST(:startDate AS TIMESTAMP), '1970-01-01'::TIMESTAMP)
+          AND e.created_at <= COALESCE(CAST(:endDate AS TIMESTAMP), '9999-12-31 23:59:59'::TIMESTAMP)
+        """, nativeQuery = true)
+    Long countDealsForEndorsementAdditions(
+        @Param("organizationIds") List<UUID> organizationIds,
+        @Param("startDate") LocalDateTime startDate,
+        @Param("endDate") LocalDateTime endDate
+    );
+
+    /**
+     * Count deals (employees + dependents) deleted through endorsement deletions
+     * This counts actual deal records linked to deletion endorsements, providing accurate deletion counts
+     * Note: startDate and endDate can be null - if null, no date filtering is applied
+     */
+    @Query(value = """
+        SELECT COUNT(d.individual_id)
+        FROM cpc.customers d
+        INNER JOIN cpc.endorsements e ON d.endorsement_id = e.endorsement_id
+        WHERE d.organization_id IN :organizationIds
+          AND d.endorsement_id IS NOT NULL
+          AND d.status::text = 'INACTIVE'
+          AND e.endorsement_type::text = CAST(:endorsementType AS VARCHAR)
+          AND e.status::text = 'COMPLETED'
+          AND e.updated_at >= COALESCE(CAST(:startDate AS TIMESTAMP), '1970-01-01'::TIMESTAMP)
+          AND e.updated_at <= COALESCE(CAST(:endDate AS TIMESTAMP), '9999-12-31 23:59:59'::TIMESTAMP)
+        """, nativeQuery = true)
+    Long countDealsForEndorsementDeletions(
+        @Param("organizationIds") List<UUID> organizationIds,
+        @Param("endorsementType") String endorsementType,
+        @Param("startDate") LocalDateTime startDate,
+        @Param("endDate") LocalDateTime endDate
+    );
+
 }
