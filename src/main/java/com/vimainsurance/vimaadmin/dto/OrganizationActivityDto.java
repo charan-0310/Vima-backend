@@ -14,6 +14,9 @@ public class OrganizationActivityDto {
     private Long activeLives;
     private Long employees;
     private Long dependents;
+    private long totalAdditions;
+    private long totalDeletions;
+    private long totalInactives;
     private EndorsementActivityDto endorsementActivity;
     private List<MonthlyEndorsementActivityDto> monthlyEndorsementActivity;
     
