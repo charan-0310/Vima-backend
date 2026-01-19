@@ -110,9 +110,9 @@ public interface IEndorsementRepository extends JpaRepository<Endorsement, UUID>
     @Query("""
     SELECT e FROM Endorsement e
     WHERE e.organization.organizationId = :organizationId
-      AND (:status IS NULL OR e.status = :status)
-      AND (:startDate IS NULL OR e.approvedAt >= :startDate)
-      AND (:endDate IS NULL OR e.approvedAt <= :endDate)
+    AND e.status = COALESCE(:status, e.status)
+    AND e.approvedAt >= COALESCE(:startDate, e.approvedAt)
+    AND e.approvedAt <= COALESCE(:endDate, e.approvedAt)
     """)
     List<Endorsement> findByOrganizationAndDateRange(
             @Param("organizationId") UUID organizationId,
@@ -121,13 +121,13 @@ public interface IEndorsementRepository extends JpaRepository<Endorsement, UUID>
             @Param("endDate") LocalDateTime endDate
     );
 
-    
+
 
     @Query("""
     SELECT e FROM Endorsement e
     WHERE e.organization.organizationId = :organizationId
-      AND (:startDate IS NULL OR e.approvedAt >= :startDate)
-      AND (:endDate IS NULL OR e.approvedAt <= :endDate)
+    AND e.approvedAt >= COALESCE(:startDate, e.approvedAt)
+    AND e.approvedAt <= COALESCE(:endDate, e.approvedAt)
     """)
     List<Endorsement> findByOrganizationAndDateRange(
             @Param("organizationId") UUID organizationId,
@@ -136,12 +136,12 @@ public interface IEndorsementRepository extends JpaRepository<Endorsement, UUID>
     );
 
     @Query("""
-           select e
-           from Endorsement e
-           where e.organization.organizationId = :organizationId
-             and (:status is null or e.status = :status)
-           order by e.createdAt desc
-           """)
+       select e
+       from Endorsement e
+       where e.organization.organizationId = :organizationId
+         and e.status = :status
+       order by e.createdAt desc
+       """)
     List<Endorsement> findByOrganization(@Param("organizationId") UUID organizationId,
                                          @Param("status") AccountStatus status);
 
@@ -155,13 +155,13 @@ public interface IEndorsementRepository extends JpaRepository<Endorsement, UUID>
 
 
     @Query("""
-           select e
-           from Endorsement e
-           where e.organization.organizationId = :organizationId
-             and (:status is null or e.status = :status)
-             and e.createdAt >= :fromDate
-           order by e.createdAt desc
-           """)
+       select e
+       from Endorsement e
+       where e.organization.organizationId = :organizationId
+         and e.status = COALESCE(:status, e.status)
+         and e.createdAt >= :fromDate
+       order by e.createdAt desc
+       """)
     List<Endorsement> findByOrganizationAndFromDate(@Param("organizationId") UUID organizationId,
                                                     @Param("status") AccountStatus status,
                                                     @Param("fromDate") LocalDateTime fromDate);
@@ -177,24 +177,24 @@ public interface IEndorsementRepository extends JpaRepository<Endorsement, UUID>
                                                     @Param("fromDate") LocalDateTime fromDate);
 
     @Query("""
-           select e
-           from Endorsement e
-           where e.organization.organizationId = :organizationId
-             and (:status is null or e.status = :status)
-             and e.createdAt <= :toDate
-           order by e.createdAt desc
-           """)
+       select e
+       from Endorsement e
+       where e.organization.organizationId = :organizationId
+         and e.status = COALESCE(:status, e.status)
+         and e.createdAt <= :toDate
+       order by e.createdAt desc
+       """)
     List<Endorsement> findByOrganizationAndToDate(@Param("organizationId") UUID organizationId,
                                                   @Param("status") AccountStatus status,
                                                   @Param("toDate") LocalDateTime toDate);
 
     @Query("""
-           select e
-           from Endorsement e
-           where e.organization.organizationId = :organizationId
-            and e.createdAt <= :toDate
-           order by e.createdAt desc
-           """)
+       select e
+       from Endorsement e
+       where e.organization.organizationId = :organizationId
+         and e.createdAt <= COALESCE(:toDate, e.createdAt)
+       order by e.createdAt desc
+       """)
     List<Endorsement> findByOrganizationAndToDate(@Param("organizationId") UUID organizationId,
                                                   @Param("toDate") LocalDateTime toDate);
 
