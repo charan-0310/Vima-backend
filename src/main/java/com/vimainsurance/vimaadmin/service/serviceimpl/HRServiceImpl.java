@@ -38,6 +38,7 @@ import java.util.TreeMap;
 import com.vimainsurance.vimaadmin.entity.Organization;
 import com.vimainsurance.vimaadmin.dto.OrganizationActivityDto.MonthlyEndorsementActivityDto;
 import com.vimainsurance.vimaadmin.dto.ClaimsActivityDto;
+import com.vimainsurance.vimaadmin.enums.AccountStatus;
 import com.vimainsurance.vimaadmin.enums.EndorsementType;
 import java.math.BigDecimal;
 
@@ -56,14 +57,20 @@ public class HRServiceImpl implements IHRService {
     private IDealsRepository dealsRepository;
 
     @Override
-    public ResponseEntity<ResponseDto<HRDashBoardResponseDto>> getHrDashboard(LocalDateTime startDate, LocalDateTime endDate) {
+    public ResponseEntity<ResponseDto<HRDashBoardResponseDto>> getHrDashboard(LocalDateTime startDate, LocalDateTime endDate, String companyId) {
         log.info("[correlationId:{}] getOrganizationActivity called with startDate: {}, endDate: {}", 
                 MDC.get("correlationId"), startDate, endDate);
         BaseResponse<HRDashBoardResponseDto> responseObj = new BaseResponse<>();
         try {
             // Multi-tenant: restrict by organization IDs from JWT
-            Map<String, List<String>> tenantMap = TenantContext.getCurrentTenant();
-            List<String> orgIds = (tenantMap != null) ? tenantMap.get("organizationIds") : null;
+            List<String> orgIds = new ArrayList<>();
+            if(companyId != null && !companyId.isEmpty()){
+                orgIds.add(companyId);
+            }
+            else{
+                Map<String, List<String>> tenantMap = TenantContext.getCurrentTenant();
+                orgIds = (tenantMap != null) ? tenantMap.get("organizationIds") : null;
+            }
            if(orgIds == null || orgIds.isEmpty()){
             return responseObj.render(responseObj.formErrorResponse("No organization IDs found"));
            }
@@ -94,6 +101,9 @@ public class HRServiceImpl implements IHRService {
            AtomicLong totalEndorsementCount = new AtomicLong(0L);
            AtomicLong totalCompletedEndorsements = new AtomicLong(0L);
            AtomicLong totalPendingEndorsements = new AtomicLong(0L);
+           AtomicLong totalAdditions = new AtomicLong(0L);
+           AtomicLong totalDeletions = new AtomicLong(0L);
+           AtomicLong totalInactives = new AtomicLong(0L);
            
            if (!validOrgIds.isEmpty()) {
                // Process organizations in parallel - aggregate all counts
@@ -105,13 +115,18 @@ public class HRServiceImpl implements IHRService {
                        Long endorsementCount = endorsementRepository.count(EndorsementSpecification.countByOrganizationId(orgId));
                        Long completedEndorsements = endorsementRepository.count(EndorsementSpecification.countCompletedByOrganizationId(orgId));
                        Long pendingEndorsements = endorsementRepository.count(EndorsementSpecification.countPendingByOrganizationId(orgId));
-                       
+                       Long additions = dealsRepository.countDealsForEndorsementAdditions(List.of(orgId), null, null);
+                       Long deletions = dealsRepository.countDealsForEndorsementDeletions(List.of(orgId), EndorsementType.DELETION.name(), null, null);
+                       Long inactives = (long) dealsRepository.findByOrganizationIdAndStatusIn(orgId, List.of(AccountStatus.INACTIVE)).size();
                        // Aggregate counts thread-safely
                        totalEmployees.addAndGet(employees != null ? employees : 0L);
                        totalDependents.addAndGet(dependents != null ? dependents : 0L);
                        totalEndorsementCount.addAndGet(endorsementCount != null ? endorsementCount : 0L);
                        totalCompletedEndorsements.addAndGet(completedEndorsements != null ? completedEndorsements : 0L);
                        totalPendingEndorsements.addAndGet(pendingEndorsements != null ? pendingEndorsements : 0L);
+                       totalAdditions.addAndGet(additions != null ? additions : 0L);
+                       totalDeletions.addAndGet(deletions != null ? deletions : 0L);
+                       totalInactives.addAndGet(inactives != null ? inactives : 0L);
                    });
            }
            
@@ -131,11 +146,13 @@ public class HRServiceImpl implements IHRService {
            
            OrganizationActivityDto organizationActivityDto = new OrganizationActivityDto();
            organizationActivityDto.setActiveLives(totalActiveLives);
+           organizationActivityDto.setTotalInactives(totalInactives.get());
+           organizationActivityDto.setTotalAdditions(totalAdditions.get());
+           organizationActivityDto.setTotalDeletions(totalDeletions.get());
            organizationActivityDto.setEmployees(totalEmp);
            organizationActivityDto.setDependents(totalDep);
            organizationActivityDto.setEndorsementActivity(endorsementActivityDto);
            organizationActivityDto.setMonthlyEndorsementActivity(monthlyEndorsementActivity);
-           
            HRDashBoardResponseDto hrDashboardResponse = new HRDashBoardResponseDto();
            hrDashboardResponse.setOrganizationActivityDto(organizationActivityDto);
            

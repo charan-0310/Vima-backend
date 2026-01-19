@@ -50,20 +50,20 @@ public interface IEndorsementRepository extends JpaRepository<Endorsement, UUID>
     /**
      * Get monthly endorsement additions (created) grouped by month
      * Returns: [year, month, count] where year and month are integers, count is Long
-     * Note: startDate and endDate should not be null (use default dates in service layer)
+     * Note: startDate and endDate can be null - if null, no date filtering is applied
      */
-    @Query("""
+    @Query(value = """
         SELECT 
-            EXTRACT(YEAR FROM e.createdAt) AS year,
-            EXTRACT(MONTH FROM e.createdAt) AS month,
-            COUNT(e) AS count
-        FROM Endorsement e
-        WHERE e.organization.organizationId IN :organizationIds
-          AND e.createdAt >= :startDate
-          AND e.createdAt <= :endDate
+            EXTRACT(YEAR FROM e.created_at) AS year,
+            EXTRACT(MONTH FROM e.created_at) AS month,
+            COUNT(e.endorsement_id) AS count
+        FROM cpc.endorsements e
+        WHERE e.organization_id IN :organizationIds
+          AND e.created_at >= COALESCE(CAST(:startDate AS TIMESTAMP), '1970-01-01'::TIMESTAMP)
+          AND e.created_at <= COALESCE(CAST(:endDate AS TIMESTAMP), '9999-12-31 23:59:59'::TIMESTAMP)
         GROUP BY 
-            EXTRACT(YEAR FROM e.createdAt),
-            EXTRACT(MONTH FROM e.createdAt)
+            EXTRACT(YEAR FROM e.created_at),
+            EXTRACT(MONTH FROM e.created_at)
         ORDER BY 
             year ASC,
             month ASC
@@ -79,23 +79,23 @@ public interface IEndorsementRepository extends JpaRepository<Endorsement, UUID>
      * Returns: [year, month, count] where year and month are integers, count is Long
      * Note: startDate and endDate should not be null (use default dates in service layer)
      */
-    @Query("""
+    @Query(value = """
         SELECT 
-            EXTRACT(YEAR FROM e.updatedAt) AS year,
-            EXTRACT(MONTH FROM e.updatedAt) AS month,
-            COUNT(e) AS count
-        FROM Endorsement e
-        WHERE e.organization.organizationId IN :organizationIds
-          AND e.endorsementType = :endorsementType
-          AND e.updatedAt >= :startDate
-          AND e.updatedAt <= :endDate
+            EXTRACT(YEAR FROM e.updated_at) AS year,
+            EXTRACT(MONTH FROM e.updated_at) AS month,
+            COUNT(e.endorsement_id) AS count
+        FROM cpc.endorsements e
+        WHERE e.organization_id IN :organizationIds
+          AND e.endorsement_type::text = CAST(:endorsementType AS VARCHAR)
+          AND e.updated_at >= COALESCE(CAST(:startDate AS TIMESTAMP), '1970-01-01'::TIMESTAMP)
+          AND e.updated_at <= COALESCE(CAST(:endDate AS TIMESTAMP), '9999-12-31 23:59:59'::TIMESTAMP)
         GROUP BY 
-            EXTRACT(YEAR FROM e.updatedAt),
-            EXTRACT(MONTH FROM e.updatedAt)
+            EXTRACT(YEAR FROM e.updated_at),
+            EXTRACT(MONTH FROM e.updated_at)
         ORDER BY 
             year ASC,
             month ASC
-        """)
+        """, nativeQuery = true)
     List<Object[]> getMonthlyEndorsementDeletions(
         @Param("organizationIds") List<UUID> organizationIds,
         @Param("endorsementType") EndorsementType endorsementType,
@@ -119,6 +119,44 @@ public interface IEndorsementRepository extends JpaRepository<Endorsement, UUID>
             @Param("status") AccountStatus status,
             @Param("startDate") LocalDateTime startDate,
             @Param("endDate") LocalDateTime endDate
+    );
+
+    /**
+     * Sum total employees and dependents from endorsement additions (created)
+     * Note: startDate and endDate can be null - if null, no date filtering is applied
+     */
+    @Query(value = """
+        SELECT COALESCE(SUM(e.total_employees + e.total_dependents), 0)
+        FROM cpc.endorsements e
+        WHERE e.organization_id IN :organizationIds
+          AND e.created_at >= COALESCE(CAST(:startDate AS TIMESTAMP), '1970-01-01'::TIMESTAMP)
+          AND e.created_at <= COALESCE(CAST(:endDate AS TIMESTAMP), '9999-12-31 23:59:59'::TIMESTAMP)
+          AND e.status = 'COMPLETED'
+        """, nativeQuery = true)
+    Long sumTotalEmployeesAndDependentsForAdditions(
+        @Param("organizationIds") List<UUID> organizationIds,
+        @Param("startDate") LocalDateTime startDate,
+        @Param("endDate") LocalDateTime endDate
+    );
+
+    /**
+     * Sum total employees and dependents from endorsement deletions
+     * Note: startDate and endDate can be null - if null, no date filtering is applied
+     */
+    @Query(value = """
+        SELECT COALESCE(SUM(e.total_employees + e.total_dependents), 0)
+        FROM cpc.endorsements e
+        WHERE e.organization_id IN :organizationIds
+          AND e.endorsement_type::text = CAST(:endorsementType AS VARCHAR)
+          AND e.updated_at >= COALESCE(CAST(:startDate AS TIMESTAMP), '1970-01-01'::TIMESTAMP)
+          AND e.updated_at <= COALESCE(CAST(:endDate AS TIMESTAMP), '9999-12-31 23:59:59'::TIMESTAMP)
+          AND e.status = 'COMPLETED'
+        """, nativeQuery = true)
+    Long sumTotalEmployeesAndDependentsForDeletions(
+        @Param("organizationIds") List<UUID> organizationIds,
+        @Param("endorsementType") EndorsementType endorsementType,
+        @Param("startDate") LocalDateTime startDate,
+        @Param("endDate") LocalDateTime endDate
     );
 
     @Query("""
