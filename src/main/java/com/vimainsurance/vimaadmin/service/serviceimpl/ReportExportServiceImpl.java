@@ -173,6 +173,9 @@ public class ReportExportServiceImpl implements IReportExportService {
         List<Deals> members = new ArrayList<>();
         if (ReportType.EMPLOYEE_CHANGES.getValue().equalsIgnoreCase(requestDto.getReportType())) {
             members = dealsRepository.findByOrganizationIdAndStatusInAndEndorsementNotNull(requestDto.getCompanyId(), statuses);
+        } else if(ReportType.EMPLOYEE_ACTIVE.getValue().equalsIgnoreCase(requestDto.getReportType())
+                && Boolean.FALSE.equals(requestDto.getIncludeDependents())) {
+            members = dealsRepository.findByOrganizationIdAndStatusInAndPrimaryIndividualIsNull(requestDto.getCompanyId(), statuses);
         } else {
             members = dealsRepository.findByOrganizationIdAndStatusIn(requestDto.getCompanyId(), statuses);
         }
@@ -228,14 +231,48 @@ public class ReportExportServiceImpl implements IReportExportService {
 
         LocalDateTime startDate = null;
         LocalDateTime endDate = null;
-       if (requestDto.getFromDate() != null && requestDto.getToDate() != null) {
+        if (requestDto.getFromDate() != null && !requestDto.getFromDate().isBlank()) {
             startDate = LocalDate.parse(requestDto.getFromDate()).atStartOfDay();
+        }
+        if (requestDto.getToDate() != null && !requestDto.getToDate().isBlank()) {
             endDate = LocalDate.parse(requestDto.getToDate()).atTime(23, 59, 59);
         }
 
-        // Fetch approved endorsements for the organization and date range
-        List<Endorsement> endorsements = endorsementRepository.findByOrganizationAndDateRange(requestDto.getCompanyId(),
-                AccountStatus.APPROVED, startDate, endDate);
+        AccountStatus status = null;
+        if (requestDto.getStatus() != null && "all".equalsIgnoreCase(requestDto.getStatus())) {
+            status = null; // no status filter
+        } else if (requestDto.getStatus() != null && !requestDto.getStatus().isBlank()) {
+            try {
+                status = AccountStatus.valueOf(requestDto.getStatus().toUpperCase());
+            } catch (IllegalArgumentException e) {
+                throw new BadRequestException("Invalid status: " + requestDto.getStatus());
+            }
+        }
+
+        // Fetch endorsements for the organization with dynamic date filtering based on provided params
+        List<Endorsement> endorsements;
+        boolean ignoreStatusFilter = (status == null);
+        if (startDate == null && endDate == null) {
+            // No date filters
+            endorsements = ignoreStatusFilter
+                    ? endorsementRepository.findByOrganization(requestDto.getCompanyId())
+                    : endorsementRepository.findByOrganization(requestDto.getCompanyId(), status);
+        } else if (startDate != null && endDate == null) {
+            // Only from-date
+            endorsements = ignoreStatusFilter
+                    ? endorsementRepository.findByOrganizationAndFromDate(requestDto.getCompanyId(), startDate)
+                    : endorsementRepository.findByOrganizationAndFromDate(requestDto.getCompanyId(), status, startDate);
+        } else if (startDate == null && endDate != null) {
+            // Only to-date
+            endorsements = ignoreStatusFilter
+                    ? endorsementRepository.findByOrganizationAndToDate(requestDto.getCompanyId(), endDate)
+                    : endorsementRepository.findByOrganizationAndToDate(requestDto.getCompanyId(), status, endDate);
+        } else {
+            // Both from and to
+            endorsements = ignoreStatusFilter
+                    ? endorsementRepository.findByOrganizationAndDateRange(requestDto.getCompanyId(), startDate, endDate)
+                    : endorsementRepository.findByOrganizationAndDateRange(requestDto.getCompanyId(), status, startDate, endDate);
+        }
 
         // Fetch organization details
         Organization organization = organizationRepository.findById(requestDto.getCompanyId()).orElse(null);
@@ -354,21 +391,26 @@ public class ReportExportServiceImpl implements IReportExportService {
                 .build();
     }
 
-    /**
-     * Map Deals entity to Payroll report row DTO
-     */
-    private ReportExportRowDto mapDealToPayrollRow(Deals deal, String organizationName, Map<UUID, Policy> policyMap) {
-        Policy policy = policyMap.get(deal.getIndividualId());
-
-        return ReportExportRowDto.builder().employeeNumber(deal.getEmployeeNumber()).fullName(deal.getFullName()).firstName(deal.getFirstName()).lastName(deal.getLastName()).dateOfBirth(deal.getDateOfBirth()).gender(deal.getGender()).relationship(deal.getRelationship()).email(deal.getEmail()).phone(deal.getPhone()).designation(deal.getDesignation()).dateOfJoining(deal.getDateOfJoining()).organizationId(deal.getOrganization() != null ? deal.getOrganization().getOrganizationId() : null).organizationName(organizationName).status(deal.getStatus() != null ? deal.getStatus().getValue() : null).premiumAmount(policy != null ? policy.getPremiumAmount() : null).sumInsured(policy != null ? policy.getSumInsured() : null).policyNumber(policy != null ? policy.getPolicyNumber() : null).policyStartDate(policy != null ? policy.getStartDate() : null).policyEndDate(policy != null ? policy.getEndDate() : null).build();
-    }
 
     /**
      * Map Endorsement entity to export row DTO
      */
     private ReportExportRowDto mapEndorsementToRow(Endorsement endorsement, String organizationName) {
 
-        return ReportExportRowDto.builder().endorsementId(endorsement.getEndorsementId()).createdAt(endorsement.getCreatedAt() != null ? endorsement.getCreatedAt() : null).endorsementType(endorsement.getEndorsementType() != null ? endorsement.getEndorsementType().getValue() : null).endorsementStatus(endorsement.getStatus() != null ? endorsement.getStatus().getValue() : null).totalEmployees(endorsement.getTotalEmployees()).totalEmployeesRemoved(0).totalDependents(endorsement.getTotalDependents()).totalDependentsRemoved(0).totalLivesChanged(endorsement.getTotalEmployees() + endorsement.getTotalDependents()).submissionDate("").approvedAt(endorsement.getApprovedAt() != null ? endorsement.getApprovedAt().toLocalDate() : null).completionDate(null).submittedBy(endorsement.getUploadedBy() != null ? endorsement.getUploadedBy().getUsername() : null).approvedBy(endorsement.getApprovedBy()).notes(null).build();
+        return ReportExportRowDto.builder()
+                .endorsementId(endorsement.getEndorsementId())
+                .createdAt(endorsement.getCreatedAt() != null ? endorsement.getCreatedAt() : null)
+                .endorsementType(endorsement.getEndorsementType() != null ? endorsement.getEndorsementType().getValue() : null)
+                .endorsementStatus(endorsement.getStatus() != null ? endorsement.getStatus().getValue() : null)
+                .totalEmployees(endorsement.getTotalEmployees()).totalEmployeesRemoved(0)
+                .totalDependents(endorsement.getTotalDependents()).totalDependentsRemoved(0)
+                .totalLivesChanged(endorsement.getTotalEmployees() + endorsement.getTotalDependents())
+                .submissionDate("")
+                .approvedAt(endorsement.getApprovedAt() != null ? endorsement.getApprovedAt().toLocalDate() : null)
+                .completionDate(null)
+                .submittedBy(endorsement.getUploadedBy() != null ? endorsement.getUploadedBy().getUsername() : null)
+                .approvedBy(endorsement.getApprovedBy())
+                .notes("").build();
     }
 
     /**
@@ -376,7 +418,7 @@ public class ReportExportServiceImpl implements IReportExportService {
      */
     private ByteArrayInputStream createExcelWorkbook(String sheetName, String[] headers, List<ReportExportRowDto> rows, ReportType reportType) throws IOException {
 
-        // Use SXSSFWorkbook for streaming to handle large datasets
+        // Use SXWorkbook for streaming to handle large datasets
         try (SXSSFWorkbook workbook = new SXSSFWorkbook(100)) {
             Sheet sheet = workbook.createSheet(sheetName);
 
@@ -551,5 +593,4 @@ public class ReportExportServiceImpl implements IReportExportService {
         return dateTime != null ? dateTime.format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")) : "";
     }
 }
-
 

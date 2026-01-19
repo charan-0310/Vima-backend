@@ -93,14 +93,21 @@ public class ReportExportController {
             @Parameter(description = "Organization/Company ID", required = true)
             @RequestParam UUID companyId,
 
-            @Parameter(description = "Type of report: master, enrollment, or payroll", required = true)
+            @Parameter(description = "Type of report: Employees, Endorsement", required = true)
             @RequestParam String reportType,
 
             @Parameter(description = "Start date for timeline filter (format: YYYY-MM-DD)")
-            @RequestParam(required = false) String fromDate,
+            @RequestParam(required = false) String startDate,
 
             @Parameter(description = "End date for timeline filter (format: YYYY-MM-DD)")
-            @RequestParam(required = false) String toDate
+            @RequestParam(required = false) String toDate,
+
+            @Parameter(description = "Status filters (e.g., Pending, Approved, Active)")
+            @RequestParam(required = false) String status,
+
+            @Parameter(description = "Employee with includeDependents")
+            @RequestParam(required = false) Boolean includeDependents
+
 
     ) {
         logger.info("[correlationId:{}] /reports/export (GET) endpoint called - companyId: {}, reportType: {}",
@@ -111,8 +118,11 @@ public class ReportExportController {
             ReportExportRequestDto requestDto = new ReportExportRequestDto();
             requestDto.setCompanyId(companyId);
             requestDto.setReportType(reportType);
-            requestDto.setFromDate(fromDate);
+            requestDto.setFromDate(startDate);
             requestDto.setToDate(toDate);
+            requestDto.setStatus(status);
+            requestDto.setIncludeDependents(includeDependents);
+
 
             return reportExportService.exportToExcel(requestDto);
 

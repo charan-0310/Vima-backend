@@ -104,20 +104,98 @@ public interface IEndorsementRepository extends JpaRepository<Endorsement, UUID>
     );
 
     /**
-     * Find endorsements by organization, status, and date range (for enrollment report export)
+     * Find endorsements by organization, optionally filtering by status and approvedAt date range.
+     * If `status`, `startDate`, or `endDate` are null, those filters are ignored.
      */
     @Query("""
-        SELECT e FROM Endorsement e
-        WHERE e.organization.organizationId = :organizationId
-        AND e.status = :status
-        AND e.approvedAt >= :startDate
-        AND e.approvedAt <= :endDate
-        """)
+    SELECT e FROM Endorsement e
+    WHERE e.organization.organizationId = :organizationId
+      AND (:status IS NULL OR e.status = :status)
+      AND (:startDate IS NULL OR e.approvedAt >= :startDate)
+      AND (:endDate IS NULL OR e.approvedAt <= :endDate)
+    """)
     List<Endorsement> findByOrganizationAndDateRange(
-        @Param("organizationId") UUID organizationId,
-        @Param("status") AccountStatus status,
-        @Param("startDate") LocalDateTime startDate,
-        @Param("endDate") LocalDateTime endDate
+            @Param("organizationId") UUID organizationId,
+            @Param("status") AccountStatus status,
+            @Param("startDate") LocalDateTime startDate,
+            @Param("endDate") LocalDateTime endDate
     );
+
+    @Query("""
+    SELECT e FROM Endorsement e
+    WHERE e.organization.organizationId = :organizationId
+      AND (:startDate IS NULL OR e.approvedAt >= :startDate)
+      AND (:endDate IS NULL OR e.approvedAt <= :endDate)
+    """)
+    List<Endorsement> findByOrganizationAndDateRange(
+            @Param("organizationId") UUID organizationId,
+            @Param("startDate") LocalDateTime startDate,
+            @Param("endDate") LocalDateTime endDate
+    );
+
+    @Query("""
+           select e
+           from Endorsement e
+           where e.organization.organizationId = :organizationId
+             and (:status is null or e.status = :status)
+           order by e.createdAt desc
+           """)
+    List<Endorsement> findByOrganization(@Param("organizationId") UUID organizationId,
+                                         @Param("status") AccountStatus status);
+
+    @Query("""
+       select e
+       from Endorsement e
+       where e.organization.organizationId = :organizationId
+       order by e.createdAt desc
+       """)
+    List<Endorsement> findByOrganization(@Param("organizationId") UUID organizationId);
+
+
+    @Query("""
+           select e
+           from Endorsement e
+           where e.organization.organizationId = :organizationId
+             and (:status is null or e.status = :status)
+             and e.createdAt >= :fromDate
+           order by e.createdAt desc
+           """)
+    List<Endorsement> findByOrganizationAndFromDate(@Param("organizationId") UUID organizationId,
+                                                    @Param("status") AccountStatus status,
+                                                    @Param("fromDate") LocalDateTime fromDate);
+
+    @Query("""
+           select e
+           from Endorsement e
+           where e.organization.organizationId = :organizationId
+             and e.createdAt >= :fromDate
+           order by e.createdAt desc
+           """)
+    List<Endorsement> findByOrganizationAndFromDate(@Param("organizationId") UUID organizationId,
+                                                    @Param("fromDate") LocalDateTime fromDate);
+
+    @Query("""
+           select e
+           from Endorsement e
+           where e.organization.organizationId = :organizationId
+             and (:status is null or e.status = :status)
+             and e.createdAt <= :toDate
+           order by e.createdAt desc
+           """)
+    List<Endorsement> findByOrganizationAndToDate(@Param("organizationId") UUID organizationId,
+                                                  @Param("status") AccountStatus status,
+                                                  @Param("toDate") LocalDateTime toDate);
+
+    @Query("""
+           select e
+           from Endorsement e
+           where e.organization.organizationId = :organizationId
+            and e.createdAt <= :toDate
+           order by e.createdAt desc
+           """)
+    List<Endorsement> findByOrganizationAndToDate(@Param("organizationId") UUID organizationId,
+                                                  @Param("toDate") LocalDateTime toDate);
+
+
 }
 

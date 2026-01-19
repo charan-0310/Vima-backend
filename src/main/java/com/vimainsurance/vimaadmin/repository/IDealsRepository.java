@@ -476,4 +476,17 @@ public interface IDealsRepository extends JpaRepository<Deals, UUID> , JpaSpecif
             @Param("statuses") List<AccountStatus> statuses
     );
 
+    /**
+     * Find deals by organization ID and statuses where primaryIndividual is null.
+     */
+    @Query("""
+        SELECT d FROM Deals d
+        WHERE d.organization.organizationId = :organizationId
+        AND d.status IN :statuses
+        AND d.isPrimaryMember is true
+    """)
+    List<Deals> findByOrganizationIdAndStatusInAndPrimaryIndividualIsNull(
+            @Param("organizationId") UUID organizationId,
+            @Param("statuses") List<AccountStatus> statuses
+    );
 }

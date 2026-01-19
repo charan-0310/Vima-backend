@@ -36,5 +36,9 @@ public class ReportExportRequestDto {
      * Optional: End date for timeline filter (format: YYYY-MM-DD)
      */
     private String toDate;
+
+    private  String status;
+
+    private Boolean includeDependents;
 }
 
