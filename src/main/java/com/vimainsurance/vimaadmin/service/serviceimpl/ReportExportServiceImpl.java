@@ -346,7 +346,7 @@ public class ReportExportServiceImpl implements IReportExportService {
     /**
      * Map Deals entity to Master report row DTO
      */
-    private ReportExportRowDto mapDealToEmployeeRow(Deals deal, String organizationName, Map<UUID, Policy> policyMap, Map<UUID, Endorsement> endorsementMap) {
+    private ReportExportRowDto mapDealT oEmployeeRow(Deals deal, String organizationName, Map<UUID, Policy> policyMap, Map<UUID, Endorsement> endorsementMap) {
         Policy policy = policyMap.get(deal.getIndividualId());
         Endorsement endorsement = endorsementMap.get(deal.getEndorsementId());
 
@@ -376,13 +376,13 @@ public class ReportExportServiceImpl implements IReportExportService {
                                 ? (int) (ChronoUnit.DAYS.between(policy.getStartDate(), policy.getEndDate()) + 1)
                                 : null
                 )
-                .exitReason("")
-               // .exitNotes("")
+                .exitReason(deal.getReasonForExit())
+                .exitNotes("")
                 .changeDate(endorsement != null && endorsement.getUpdatedAt() != null ? endorsement.getUpdatedAt().toString() : "")
                 .changeType(endorsement != null && endorsement.getEndorsementType() != null ? endorsement.getEndorsementType().getValue() : null)
                 .endorsementId(endorsement != null ? endorsement.getEndorsementId() : null)
                 .endorsementStatus(endorsement != null && endorsement.getStatus() != null ? endorsement.getStatus().getValue() : null)
-                //.reason("")
+                .reason("")
                 .notes(policy != null && policy.getDocument() != null ? policy.getDocument().getNotes() : null)
                 .build();
     }
@@ -398,15 +398,19 @@ public class ReportExportServiceImpl implements IReportExportService {
                 .createdAt(endorsement.getCreatedAt() != null ? endorsement.getCreatedAt() : null)
                 .endorsementType(endorsement.getEndorsementType() != null ? endorsement.getEndorsementType().getValue() : null)
                 .endorsementStatus(endorsement.getStatus() != null ? endorsement.getStatus().getValue() : null)
-                .totalEmployees(endorsement.getTotalEmployees()).totalEmployeesRemoved(0)
-                .totalDependents(endorsement.getTotalDependents()).totalDependentsRemoved(0)
+                .totalEmployees(endorsement.getTotalEmployees())
+                .totalEmployeesRemoved(0)
+                .totalDependents(endorsement.getTotalDependents())
+                .totalDependentsRemoved(0)
                 .totalLivesChanged(endorsement.getTotalEmployees() + endorsement.getTotalDependents())
                 .submissionDate("")
                 .approvedAt(endorsement.getApprovedAt() != null ? endorsement.getApprovedAt().toLocalDate() : null)
-                .completionDate(null)
+                .completionDate(endorsement.getStatus() == AccountStatus.COMPLETED && endorsement.getUpdatedAt() != null
+                        ? endorsement.getUpdatedAt().toLocalDate() : null)
                 .submittedBy(endorsement.getUploadedBy() != null ? endorsement.getUploadedBy().getUsername() : null)
                 .approvedBy(endorsement.getApprovedBy())
-                .notes("").build();
+                .notes("")
+                .build();
     }
 
     /**
@@ -535,7 +539,8 @@ public class ReportExportServiceImpl implements IReportExportService {
                 row.createCell(col++).setCellValue(nullSafe(data.getEmail()));                            // Email
                 row.createCell(col++).setCellValue(nullSafe(data.getPhone()));                            // Phone
                 row.createCell(col++).setCellValue(nullSafe(data.getDepartment()));                       // Department
-                row.createCell(col++).setCellValue(nullSafe(data.getReason()));                           // Reason
+                row.createCell(col++).setCellValue(nullSafe(data.getExitReason()));                       // Reason
+                row.createCell(col++).setCellValue(nullSafe(data.getNotes()));                            // Notes
                 break;
             case ENDORSEMENT:
                 // Follow ENROLLMENT_HEADERS order
