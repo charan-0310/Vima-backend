@@ -77,11 +77,6 @@ public class ReportExportServiceImpl implements IReportExportService {
             "Employees Added", "Employees Removed", "Dependents Added", "Dependents Removed", "Total Lives Changed", "Submission Date",
             "Approval Date", "Completion Date", "Submitted By", "Approved By", "Notes"};
 
-    // Standard headers for payroll report
-    private static final String[] PAYROLL_HEADERS = {"Employee Number", "Full Name", "First Name", "Last Name", "Date of Birth",
-            "Gender", "Relationship", "Email", "Phone", "Designation", "Date of Joining", "Organization ID", "Organization Name",
-            "Status", "Premium Amount", "Sum Insured", "Policy Number", "Policy Start Date", "Policy End Date"};
-
     @Autowired
     private IDealsRepository dealsRepository;
 
@@ -107,7 +102,7 @@ public class ReportExportServiceImpl implements IReportExportService {
             String fileName = switch (reportType) {
                 case EMPLOYEE_ACTIVE, EMPLOYEE_INACTIVE, EMPLOYEE_CHANGES -> {
                     excelStream = generateEmployeeReport(requestDto);
-                    yield generateFileName("Employee_report", requestDto);
+                    yield generateFileName(reportType.getValue(), requestDto);
                 }
                 case ENDORSEMENT -> {
                     excelStream = generateEndorsementReport(requestDto);
@@ -364,13 +359,13 @@ public class ReportExportServiceImpl implements IReportExportService {
                 .gender(deal.getGender())
                 .email(deal.getEmail())
                 .phone(deal.getPhone())
-                .department("")
+                .department(deal.getDepartment())
                 .designation(deal.getDesignation())
                 .dateOfJoining(deal.getDateOfJoining())
                 .policyStartDate(policy != null ? policy.getStartDate() : null)
                 .policyNumber(policy != null ? policy.getPolicyNumber() : null)
                 .coverageEndDate(policy != null ? policy.getEndDate() : null)
-                .insurerRefNumber("")
+                .insurerRefNumber(policy != null ?  String.valueOf(policy.getInsuranceProviderId()) : null)
                 .tpa("")
                 .sumInsured(deal.getSumInsured() != null ? new BigDecimal(deal.getSumInsured().replace(",", "")) : null)
                 .status(deal.getStatus() != null ? deal.getStatus().getValue() : null)
@@ -388,6 +383,7 @@ public class ReportExportServiceImpl implements IReportExportService {
                 .endorsementId(endorsement != null ? endorsement.getEndorsementId() : null)
                 .endorsementStatus(endorsement != null && endorsement.getStatus() != null ? endorsement.getStatus().getValue() : null)
                 .reason("")
+                .notes(policy != null && policy.getDocument() != null ? policy.getDocument().getNotes() : null)
                 .build();
     }
 

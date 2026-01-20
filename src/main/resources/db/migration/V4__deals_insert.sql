@@ -1,0 +1,2 @@
+ALTER TABLE cpc.customers
+    ADD COLUMN IF NOT EXISTS department VARCHAR(100);
