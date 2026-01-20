@@ -55,6 +55,7 @@ import com.vimainsurance.vimaadmin.service.IDocumentService;
 import com.vimainsurance.vimaadmin.repository.IDocumentRepository;
 import com.vimainsurance.vimaadmin.exception.DocumentUploadException;
 import com.vimainsurance.vimaadmin.util.JwtUserExtractor;
+import com.vimainsurance.vimaadmin.util.SlackNotificationUtil;
 
 @Slf4j
 @Service
@@ -84,6 +85,9 @@ public class EmployeeService {
        
     @Autowired
     private Javers javers;
+
+    @Autowired
+    private SlackNotificationUtil slackNotificationUtil;
 
 
     public EmployeeUploadResponse validateEmployee(List<EmployeeUploadDto> employeeUploadDtoList, Organization organization) {
@@ -635,6 +639,7 @@ public class EmployeeService {
           if(createdCount == 0 && updatedCount == 0) {
             response.setMessage("No changes detected!");
           }
+          slackNotificationUtil.sendSlackMessage(slackNotificationUtil.buildEndorsementNotificationMessage(endorsement), false);
           return response;
         } catch (Exception e) {
           log.error("Error uploading employees: {}", e.getMessage(), e);
@@ -784,6 +789,7 @@ public class EmployeeService {
             dealsToDelete.forEach(deal -> deal.setEndorsementId(endorsementId));
             dealsRepository.saveAll(dealsToDelete);
             deletedCount = dealsToDelete.size();
+            slackNotificationUtil.sendSlackMessage(slackNotificationUtil.buildEndorsementNotificationMessage(endorsement), false);
         }
             return new EmployeeUploadResponse(deletedCount, deletedCount, 0, new ArrayList<>(), "Employees" + "(" + employeeCount + ")" + " and dependents" + "(" + dependentCount + ")" + " deleted successfully", employeeCount, dependentCount);
         }

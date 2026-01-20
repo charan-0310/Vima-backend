@@ -26,4 +26,6 @@ public class ConvertToDealRequestDto {
     private String paymentFrequency;
     private List<NomineeRequestDto> nominees;
     private MotorPolicyDetailsRequestDto motorDetails;
+    private BigDecimal netAmount;
+    private BigDecimal gst;
 }

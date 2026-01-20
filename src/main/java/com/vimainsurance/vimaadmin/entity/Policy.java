@@ -89,8 +89,14 @@ public class Policy {
     @Column(name = "sum_insured", precision = 15, scale = 2)
     private BigDecimal sumInsured;
 
-    @Column(name = "premium_amount", nullable = false, precision = 15, scale = 2)
+    @Column(name = "total_premium_amount", nullable = false, precision = 15, scale = 2)
     private BigDecimal premiumAmount;
+
+    @Column(name = "net_amount", nullable = false, precision = 15, scale = 2)
+    private BigDecimal netAmount;
+
+    @Column(name = "gst", nullable = false, precision = 15, scale = 2)
+    private BigDecimal gst;
 
     // Dates
     @Column(name = "start_date")
