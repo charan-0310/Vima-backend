@@ -377,12 +377,12 @@ public class ReportExportServiceImpl implements IReportExportService {
                                 : null
                 )
                 .exitReason("")
-                .exitNotes("")
+               // .exitNotes("")
                 .changeDate(endorsement != null && endorsement.getUpdatedAt() != null ? endorsement.getUpdatedAt().toString() : "")
                 .changeType(endorsement != null && endorsement.getEndorsementType() != null ? endorsement.getEndorsementType().getValue() : null)
                 .endorsementId(endorsement != null ? endorsement.getEndorsementId() : null)
                 .endorsementStatus(endorsement != null && endorsement.getStatus() != null ? endorsement.getStatus().getValue() : null)
-                .reason("")
+                //.reason("")
                 .notes(policy != null && policy.getDocument() != null ? policy.getDocument().getNotes() : null)
                 .build();
     }
