@@ -603,6 +603,8 @@ public class DealsServiceImpl implements IDealsService{
             policy.setStartDate(requestDto.getStartDate());
             policy.setEndDate(requestDto.getEndDate());
             policy.setRenewalDate(requestDto.getRenewalDate());
+            policy.setNetAmount(requestDto.getNetAmount());
+            policy.setGst(requestDto.getGst());
             policy.setLeadId(requestDto.getIndividualId()); // Use individualId as leadId
             if (requestDto.getPaymentFrequency() != null && !requestDto.getPaymentFrequency().isEmpty()) {
                 policy.setPaymentFrequency(PaymentFrequency.fromValue(requestDto.getPaymentFrequency()));
@@ -679,7 +681,7 @@ public class DealsServiceImpl implements IDealsService{
             if (EnvironmentUtil.isProductionEnvironment(environment)) {
                 try {
                     String slackMessage = buildSlackNotificationMessage(savedPolicy, primaryIndividual, agent);
-                    slackNotificationUtil.sendSlackMessage("New Policy Issued!", slackMessage);
+                    slackNotificationUtil.sendSlackMessage("New Policy Issued!", slackMessage, true);
                 } catch (Exception slackException) {
                     logger.warn("[correlationId:{}] Failed to send Slack notification: {}", MDC.get("correlationId"), slackException.getMessage());
                     // Don't fail the request if Slack notification fails

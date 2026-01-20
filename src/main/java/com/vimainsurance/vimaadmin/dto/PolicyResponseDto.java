@@ -28,6 +28,8 @@ public class PolicyResponseDto {
     private List<UUID> coveredIndividuals;
     private BigDecimal sumInsured;
     private BigDecimal premiumAmount;
+    private BigDecimal netAmount;
+    private BigDecimal gst;
     private Long employeesCount;
     private Long dependentsCount;
 

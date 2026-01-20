@@ -519,6 +519,8 @@ public class PolicyServiceImpl implements IPolicyService {
         responseDto.setPaymentFrequency(policy.getPaymentFrequency() != null ? policy.getPaymentFrequency().getValue() : null);
         responseDto.setCreatedAt(policy.getCreatedAt());
         responseDto.setUpdatedAt(policy.getUpdatedAt());
+        responseDto.setNetAmount(policy.getNetAmount());
+        responseDto.setGst(policy.getGst());
         List<Deals> dependents = dealsRepository.findByIndividualIdIn(policy.getCoveredIndividuals());
         responseDto.setDependents(dependents.stream()
             .map(this::mapToSimplifiedDependent)
@@ -587,6 +589,8 @@ public class PolicyServiceImpl implements IPolicyService {
             policy.setStartDate(requestDto.getStartDate());
             policy.setEndDate(requestDto.getEndDate());
             policy.setRenewalDate(requestDto.getRenewalDate());
+            policy.setNetAmount(requestDto.getNetAmount());
+            policy.setGst(requestDto.getGst());
             policy.setLeadId(organizationId); // Use organizationId as leadId
             if (requestDto.getPaymentFrequency() != null && !requestDto.getPaymentFrequency().isEmpty()) {
                 policy.setPaymentFrequency(PaymentFrequency.fromValue(requestDto.getPaymentFrequency()));
