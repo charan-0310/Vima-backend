@@ -346,7 +346,7 @@ public class ReportExportServiceImpl implements IReportExportService {
     /**
      * Map Deals entity to Master report row DTO
      */
-    private ReportExportRowDto mapDealT oEmployeeRow(Deals deal, String organizationName, Map<UUID, Policy> policyMap, Map<UUID, Endorsement> endorsementMap) {
+    private ReportExportRowDto mapDealToEmployeeRow(Deals deal, String organizationName, Map<UUID, Policy> policyMap, Map<UUID, Endorsement> endorsementMap) {
         Policy policy = policyMap.get(deal.getIndividualId());
         Endorsement endorsement = endorsementMap.get(deal.getEndorsementId());
 
