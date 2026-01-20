@@ -13,6 +13,7 @@ import java.time.temporal.ChronoUnit;
 import java.util.*;
 import java.util.stream.Collectors;
 
+import com.vimainsurance.vimaadmin.enums.EndorsementType;
 import org.apache.poi.ss.usermodel.BorderStyle;
 import org.apache.poi.ss.usermodel.Cell;
 import org.apache.poi.ss.usermodel.CellStyle;
@@ -398,10 +399,15 @@ public class ReportExportServiceImpl implements IReportExportService {
                 .createdAt(endorsement.getCreatedAt() != null ? endorsement.getCreatedAt() : null)
                 .endorsementType(endorsement.getEndorsementType() != null ? endorsement.getEndorsementType().getValue() : null)
                 .endorsementStatus(endorsement.getStatus() != null ? endorsement.getStatus().getValue() : null)
-                .totalEmployees(endorsement.getTotalEmployees())
-                .totalEmployeesRemoved(0)
-                .totalDependents(endorsement.getTotalDependents())
-                .totalDependentsRemoved(0)
+
+                .totalEmployees((endorsement.getEndorsementType() == EndorsementType.ADDITION ||
+                        endorsement.getEndorsementType() == EndorsementType.BULK_UPLOAD)  ?  endorsement.getTotalEmployees() : 0)
+                .totalEmployeesRemoved((endorsement.getEndorsementType() == EndorsementType.DELETION) ?  endorsement.getTotalEmployees() : 0)
+                .totalDependents((endorsement.getEndorsementType() == EndorsementType.ADDITION ||
+                                endorsement.getEndorsementType() == EndorsementType.BULK_UPLOAD)  ?  endorsement.getTotalDependents() : 0)
+                .totalDependentsRemoved((endorsement.getEndorsementType() == EndorsementType.DELETION) ?  endorsement.getTotalEmployees() : 0)
+
+
                 .totalLivesChanged(endorsement.getTotalEmployees() + endorsement.getTotalDependents())
                 .submissionDate("")
                 .approvedAt(endorsement.getApprovedAt() != null ? endorsement.getApprovedAt().toLocalDate() : null)
