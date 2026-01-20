@@ -120,6 +120,9 @@ public class Deals {
     @Column(name = "department", length = 100)
     private String department;
 
+    @Column(name = "reason_for_exit", length = 100)
+    private String reasonForExit;
+
     @Column(name = "date_of_joining")
     private LocalDate dateOfJoining;
 

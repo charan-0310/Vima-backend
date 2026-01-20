@@ -97,7 +97,7 @@ public class EmployeeToDeals {
      * Helper method to parse date string to LocalDate
      * Matches the parseDate method in CsvDealsReaderUtil
      */
-    private static LocalDate parseDate(String dateStr) {
+    public static LocalDate parseDate(String dateStr) {
         if (dateStr == null || dateStr.trim().isEmpty()) {
             return LocalDate.now();
         }
