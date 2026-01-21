@@ -97,10 +97,10 @@ public class AdminUserServiceImpl implements IAdminUserService {
             if(requestDto.getRole() == null || requestDto.getRole().trim().isEmpty()) {
                 return responseObj.render(responseObj.formErrorResponse("Role is required"));
             }
-            if(requestDto.getRole().contains("HR_ADMIN") && requestDto.getOrganizations() == null || requestDto.getOrganizations().isEmpty()) {
+            if(requestDto.getRole().contains("HR_ADMIN") && (requestDto.getOrganizations() == null || requestDto.getOrganizations().isEmpty())) {
                 return responseObj.render(responseObj.formErrorResponse("Organizations are required"));
             }
-            if(requestDto.getRole().contains("HR_ADMIN") && requestDto.getOrganizations().size() > 1) {
+            if(requestDto.getRole().contains("HR_ADMIN") && requestDto.getOrganizations() != null && requestDto.getOrganizations().size() > 1) {
                 return responseObj.render(responseObj.formErrorResponse("HR_ADMIN can only be assigned to one organization"));
             }
             // Create user in Authentik first

@@ -120,9 +120,9 @@ public class DocumentServiceImpl implements IDocumentService {
                 // Validate file
                 ResponseEntity<ResponseDto<String>> validationResult = validateFile(file, null);
                 if (validationResult.getBody() != null && validationResult.getBody().getErrorCode() != null) {
-                    return responseObj.render(responseObj.formErrorResponse("Error uploading KYC documents: " ));
+                    return responseObj.render(responseObj.formErrorResponse("Error uploading KYC documents: " + validationResult.getBody().getMessage()));
                 }
-                if(!documentType.equals(DocumentType.OTHER) && !documentType.equals(DocumentType.POLICY_CERTIFICATE) && documentRepository.findByEntityAndType(entityType, entityId, documentType).size() > 0){
+                if(!documentType.equals(DocumentType.OTHER) && !documentType.equals(DocumentType.POLICY_CERTIFICATE) && documentRepository.findByEntityAndType(entityType, entityId, documentType).size() > 3){
                     return responseObj.render(responseObj.formErrorResponse(documentType.getValue()+" already uploaded"));
                 }
                 if(documentType.equals(DocumentType.OTHER) && documentRepository.findByEntityAndType(entityType, entityId, documentType).size() > 4){
@@ -178,7 +178,7 @@ public class DocumentServiceImpl implements IDocumentService {
             
         } catch (Exception e) {
             logger.error("[correlationId:{}] Error uploading KYC documents", MDC.get("correlationId"), e);
-            return responseObj.render(responseObj.formErrorResponse("Error uploading KYC documents: " + e.getMessage()));
+            return responseObj.render(responseObj.formErrorResponse("Error uploading KYC documents"));
         }
     }
   

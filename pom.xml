@@ -143,8 +143,8 @@
 			<groupId>com.zoho.crm</groupId>
         	<artifactId>zohocrmsdk-5-0</artifactId>
 			<version>6.0.0</version>
-			<!-- <scope>system</scope>
-  			<systemPath>${project.basedir}/lib/zohocrmsdk-5-0-6.0.0.jar</systemPath> -->
+			<scope>system</scope>
+  			<systemPath>${project.basedir}/lib/zohocrmsdk-5-0-6.0.0.jar</systemPath>
 		</dependency>
 		<!-- https://mvnrepository.com/artifact/org.apache.commons/commons-lang3 -->
 	<!-- <dependency>
@@ -230,6 +230,7 @@
 				<artifactId>spring-boot-maven-plugin</artifactId>
 				<configuration>
 					<jvmArguments>-agentlib:jdwp=transport=dt_socket,server=y,suspend=n,address=*:5005</jvmArguments>
+					<includeSystemScope>true</includeSystemScope>
 				</configuration>
 			</plugin>
 			<plugin>

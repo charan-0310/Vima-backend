@@ -1,0 +1,1 @@
+ALTER TYPE cpc.industry_enum ADD VALUE 'BANKING';
