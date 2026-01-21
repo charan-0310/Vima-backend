@@ -16,6 +16,8 @@ import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyString;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
+import static org.mockito.Mockito.doNothing;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
@@ -103,7 +105,7 @@ class AdminUserServiceImplTest {
     void testCreateAdminUser_Success() {
         when(adminUserRepository.findByUsername(requestDto.getUsername())).thenReturn(Optional.empty());
         when(adminUserRepository.findByEmail(requestDto.getEmail())).thenReturn(Optional.empty());
-        when(authentikUtil.createUser(anyString(), anyString(), anyString(), anyString(), any(), anyBoolean())).thenReturn(null);
+        doNothing().when(authentikUtil).createUser(anyString(), anyString(), anyString(), anyString(), any(), anyBoolean());
         
         ResponseEntity<ResponseDto<String>> response = adminUserService.createAdminUser(requestDto);
         
@@ -141,8 +143,7 @@ class AdminUserServiceImplTest {
     void testCreateAdminUser_Exception() {
         when(adminUserRepository.findByUsername(requestDto.getUsername())).thenReturn(Optional.empty());
         when(adminUserRepository.findByEmail(requestDto.getEmail())).thenReturn(Optional.empty());
-        when(authentikUtil.createUser(anyString(), anyString(), anyString(), anyString(), any(), anyBoolean()))
-            .thenThrow(new RuntimeException("Database error"));
+        doThrow(new RuntimeException("Database error")).when(authentikUtil).createUser(anyString(), anyString(), anyString(), anyString(), any(), anyBoolean());
 
         ResponseEntity<ResponseDto<String>> response = adminUserService.createAdminUser(requestDto);
         
@@ -513,7 +514,7 @@ class AdminUserServiceImplTest {
     void testCreateAdminUser_VerifyRepositoryCalls() {
         when(adminUserRepository.findByUsername(requestDto.getUsername())).thenReturn(Optional.empty());
         when(adminUserRepository.findByEmail(requestDto.getEmail())).thenReturn(Optional.empty());
-        when(authentikUtil.createUser(anyString(), anyString(), anyString(), anyString(), any(), anyBoolean())).thenReturn(null);
+        doNothing().when(authentikUtil).createUser(anyString(), anyString(), anyString(), anyString(), any(), anyBoolean());
         
         adminUserService.createAdminUser(requestDto);
         
