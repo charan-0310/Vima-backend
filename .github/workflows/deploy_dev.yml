@@ -44,19 +44,11 @@ jobs:
           JAR_FILE=$(ls target/*.jar | head -n 1)
           echo "Jar built: $JAR_FILE"
           # Ensure dev directory structure exists
-          mkdir -p /home/ubuntu/vima-app-deployment/dev/api-dev/artifact
-          cp "$JAR_FILE" /home/ubuntu/vima-app-deployment/dev/api-dev/artifact/vimaadmin-0.0.1-SNAPSHOT.jar
-          echo "✅ JAR moved to ~/vima-app-deployment/dev/api-dev/artifact/vimaadmin-0.0.1-SNAPSHOT.jar"
-      - name: Restart Docker Compose services (Dev)
+          mkdir -p /home/ubuntu/vima-app-deployment/api-dev/artifact
+          cp "$JAR_FILE" /home/ubuntu/vima-app-deployment/api-dev/artifact/vimaadmin-0.0.1-SNAPSHOT.jar
+          echo "✅ JAR moved to ~/vima-app-deployment/api-dev/artifact/vimaadmin-0.0.1-SNAPSHOT.jar"
+      - name: Restart Docker Compose service (Dev)
         run: |
-          cd ~/vima-app-deployment/dev
-          if [ -f docker-compose.dev.yml ]; then
-            docker compose -f docker-compose.dev.yml down
-            docker compose -f docker-compose.dev.yml up --build -d
-            echo "✅ Docker Compose services restarted for DEV environment"
-          else
-            echo "⚠️  Warning: docker-compose.dev.yml not found. Using default docker-compose.yml"
-            docker compose down
-            docker compose up --build -d
-            echo "✅ Docker Compose services restarted for DEV environment (using default compose file)"
-          fi    
+          cd ~/vima-app-deployment
+          docker compose up -d --build vima-api-dev
+          echo "✅ Docker Compose service 'vima-api-dev' restarted for DEV environment"    
