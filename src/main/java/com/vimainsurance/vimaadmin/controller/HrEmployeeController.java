@@ -26,7 +26,7 @@ import java.util.UUID;
  */
 @RestController
 @CrossOrigin(allowedHeaders = "*")
-@RequestMapping("/api/v1/hr/employees")
+@RequestMapping("/api/v1/employees")
 @Tag(name = "HR Employees", description = "APIs to manage employee insurance details")
 public class HrEmployeeController {
 

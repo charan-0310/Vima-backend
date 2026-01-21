@@ -54,7 +54,7 @@ public class EmployeeInsuranceServiceImpl implements IEmployeeInsuranceService {
         logger.info("Found {} dependents for employee {}", dependents.size(), employeeId);
 
         // Fetch policies for the employee (primary individual)
-        List<Policy> policies = policyRepository.findByPrimaryIndividualId(employee.getIndividualId());
+        List<Policy> policies = policyRepository.findByPrimaryIndividualId(organizationId);
 
         // Use the first active policy or fallback to the first policy
         Policy primaryPolicy = policies.stream()
