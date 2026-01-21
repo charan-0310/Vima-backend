@@ -353,7 +353,7 @@ public class OrganizationServiceImpl implements IOrganizationService {
             );
             ResponseDto<List<Document>> responseBody = response.getBody();
             if(responseBody != null && responseBody.getErrorCode() != null){
-                return responseObj.render(responseObj.formErrorResponse("Error Occured while uploading document"));
+                return responseObj.render(responseObj.formErrorResponse("Error Occured while uploading document" + responseBody.getMessage()));
             }
             return responseObj.render(responseObj.formSuccessResponse(Constants.SUCCESS, "Document uploaded successfully"));
         } catch (OrganizationAccessDeniedException e) {
