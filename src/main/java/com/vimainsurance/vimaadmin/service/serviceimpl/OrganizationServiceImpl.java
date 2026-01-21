@@ -333,7 +333,7 @@ public class OrganizationServiceImpl implements IOrganizationService {
         BaseResponse<String> responseObj = new BaseResponse<>();
         try {
             jwtUserExtractor.validateOrganizationAccess(organizationId);
-            String uploadedBy = SecurityContextHolder.getContext().getAuthentication().getName();
+            String uploadedBy = jwtUserExtractor.getCurrentUsername();
             Optional<AdminUser> adminUser = adminUserRepository.findByUsername(uploadedBy);
             if(adminUser.isEmpty()){
                 return responseObj.render(responseObj.formErrorResponse("Agent not found"));
