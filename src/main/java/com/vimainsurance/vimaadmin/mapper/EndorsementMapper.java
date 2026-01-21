@@ -63,7 +63,7 @@ public class EndorsementMapper {
     /**
      * Maps Endorsement entity to EndorsementResponseDto
      */
-    public static EndorsementResponseDto mapToResponseDto(Endorsement endorsement, Long totalEmployees, Long totalDependents) {
+    public static EndorsementResponseDto mapToResponseDto(Endorsement endorsement) {
         EndorsementResponseDto dto = new EndorsementResponseDto();
         
         dto.setEndorsementId(endorsement.getEndorsementId());
@@ -85,8 +85,8 @@ public class EndorsementMapper {
             dto.setStatus(endorsement.getStatus().getValue());
         }
         
-        dto.setTotalEmployees(totalEmployees.intValue());
-        dto.setTotalDependents(totalDependents.intValue());
+        dto.setTotalEmployees(endorsement.getTotalEmployees());
+        dto.setTotalDependents(endorsement.getTotalDependents());
         dto.setApprovedAt(endorsement.getApprovedAt());
         
         if (endorsement.getApprovedBy() != null) {
