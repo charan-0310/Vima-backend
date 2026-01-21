@@ -2,7 +2,7 @@ name: Build & Deploy to EC2 UAT
 
 on:
   push:
-    branches: [ vima-dev ]
+    branches: [ develop ]
   workflow_dispatch:
 
 jobs:
