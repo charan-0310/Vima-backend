@@ -3,6 +3,7 @@ package com.vimainsurance.vimaadmin.service.serviceimpl;
 import java.io.InputStream;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
@@ -458,10 +459,35 @@ public class OrganizationServiceImpl implements IOrganizationService {
         try {
             jwtUserExtractor.validateOrganizationAccess(organizationId);
             List<Deals> dealsList = dealsRepository.findByOrganizationId(organizationId);
-            List<OrganizationEmployeeDto> responseDto = dealsList.stream()
+            List<Deals> employees = dealsList.stream()
                 .filter(deal -> Boolean.TRUE.equals(deal.getIsPrimaryMember()))
-                .map(this::mapToOrganizationEmployeeDto)
                 .collect(Collectors.toList());
+            
+            // Fetch all dependents for all employees in one query for better performance
+            List<UUID> employeeIds = employees.stream()
+                .map(Deals::getIndividualId)
+                .collect(Collectors.toList());
+            
+            Map<UUID, Integer> dependentCountMap = new HashMap<>();
+            if (!employeeIds.isEmpty()) {
+                List<Deals> allDependents = dealsRepository.findByPrimaryIndividualIdIn(employeeIds);
+                dependentCountMap = allDependents.stream()
+                    .filter(dependent -> dependent.getPrimaryIndividual() != null)
+                    .collect(Collectors.groupingBy(
+                        dependent -> dependent.getPrimaryIndividual().getIndividualId(),
+                        Collectors.collectingAndThen(Collectors.counting(), Long::intValue)
+                    ));
+            }
+            
+            final Map<UUID, Integer> finalDependentCountMap = dependentCountMap;
+            List<OrganizationEmployeeDto> responseDto = employees.stream()
+                .map(deal -> {
+                    OrganizationEmployeeDto dto = mapToOrganizationEmployeeDto(deal);
+                    dto.setDependentCount(finalDependentCountMap.getOrDefault(deal.getIndividualId(), 0));
+                    return dto;
+                })
+                .collect(Collectors.toList());
+            
             return responseObj.render(responseObj.formSuccessResponse(Constants.SUCCESS, responseDto, responseDto.size()));
         } catch (OrganizationAccessDeniedException e) {
             logger.warn("[correlationId:{}] Organization access denied for organizationId: {}", MDC.get("correlationId"), organizationId);
@@ -499,6 +525,9 @@ public class OrganizationServiceImpl implements IOrganizationService {
             }
             
             OrganizationEmployeeDto responseDto = mapToOrganizationEmployeeDto(employee);
+            // Count dependents for this employee
+            List<Deals> dependents = dealsRepository.findByPrimaryIndividual(employee);
+            responseDto.setDependentCount(dependents.size());
             return responseObj.render(responseObj.formSuccessResponse(Constants.SUCCESS, responseDto));
             
         } catch (Exception e) {
