@@ -12,6 +12,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyString;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
@@ -74,6 +75,7 @@ class AdminUserServiceImplTest {
         requestDto.setEmail("admin1@example.com");
         requestDto.setFullName("Admin One");
         requestDto.setRole("ADMIN");
+        requestDto.setOrganizations(Collections.emptyList());
         requestDto.setIsActive(true);
         requestDto.setOauthProvider("local");
         requestDto.setOauthProviderId("localid");
@@ -99,11 +101,9 @@ class AdminUserServiceImplTest {
 
     @Test
     void testCreateAdminUser_Success() {
-        when(adminUserRepository.findByUsername(requestDto.getUsername())).thenReturn(Optional.empty()).thenReturn(Optional.of(adminUser));
+        when(adminUserRepository.findByUsername(requestDto.getUsername())).thenReturn(Optional.empty());
         when(adminUserRepository.findByEmail(requestDto.getEmail())).thenReturn(Optional.empty());
-        when(adminUserRepository.save(any())).thenReturn(adminUser);
-        when(idGenerator.generateVimaId()).thenReturn("AGENT001");
-        when(emailService.sendWelcomeEmail(anyString(), anyString(), anyString())).thenReturn(null);
+        when(authentikUtil.createUser(anyString(), anyString(), anyString(), anyString(), any(), anyBoolean())).thenReturn(null);
         
         ResponseEntity<ResponseDto<String>> response = adminUserService.createAdminUser(requestDto);
         
@@ -111,8 +111,7 @@ class AdminUserServiceImplTest {
         assertEquals(Constants.SUCCESS, response.getBody().getMessage());
         assertNotNull(response.getBody().getPayload());
         assertEquals("User created successfully", response.getBody().getPayload());
-        verify(adminUserRepository, times(1)).save(any());
-        verify(emailService, times(1)).sendWelcomeEmail(anyString(), anyString(), anyString());
+        verify(authentikUtil, times(1)).createUser(anyString(), anyString(), anyString(), anyString(), any(), anyBoolean());
     }
 
     @Test
@@ -142,12 +141,13 @@ class AdminUserServiceImplTest {
     void testCreateAdminUser_Exception() {
         when(adminUserRepository.findByUsername(requestDto.getUsername())).thenReturn(Optional.empty());
         when(adminUserRepository.findByEmail(requestDto.getEmail())).thenReturn(Optional.empty());
-        when(adminUserRepository.save(any())).thenThrow(new RuntimeException("Database error"));
+        when(authentikUtil.createUser(anyString(), anyString(), anyString(), anyString(), any(), anyBoolean()))
+            .thenThrow(new RuntimeException("Database error"));
 
         ResponseEntity<ResponseDto<String>> response = adminUserService.createAdminUser(requestDto);
         
         assertEquals(HttpStatus.BAD_REQUEST, response.getStatusCode());
-        assertEquals("Database error", response.getBody().getMessage());
+        assertEquals("Failed to create user in Authentik: Database error", response.getBody().getMessage());
     }
 
     // ========== UPDATE ADMIN USER TESTS ==========
@@ -511,18 +511,15 @@ class AdminUserServiceImplTest {
 
     @Test
     void testCreateAdminUser_VerifyRepositoryCalls() {
-        when(adminUserRepository.findByUsername(requestDto.getUsername())).thenReturn(Optional.empty()).thenReturn(Optional.of(adminUser));
+        when(adminUserRepository.findByUsername(requestDto.getUsername())).thenReturn(Optional.empty());
         when(adminUserRepository.findByEmail(requestDto.getEmail())).thenReturn(Optional.empty());
-        when(adminUserRepository.save(any())).thenReturn(adminUser);
-        when(idGenerator.generateVimaId()).thenReturn("AGENT001");
-        when(emailService.sendWelcomeEmail(anyString(), anyString(), anyString())).thenReturn(null);
+        when(authentikUtil.createUser(anyString(), anyString(), anyString(), anyString(), any(), anyBoolean())).thenReturn(null);
         
         adminUserService.createAdminUser(requestDto);
         
-        verify(adminUserRepository, times(2)).findByUsername(requestDto.getUsername());
+        verify(adminUserRepository, times(1)).findByUsername(requestDto.getUsername());
         verify(adminUserRepository, times(1)).findByEmail(requestDto.getEmail());
-        verify(adminUserRepository, times(1)).save(any());
-        verify(emailService, times(1)).sendWelcomeEmail(anyString(), anyString(), anyString());
+        verify(authentikUtil, times(1)).createUser(anyString(), anyString(), anyString(), anyString(), any(), anyBoolean());
     }
 
     @Test
