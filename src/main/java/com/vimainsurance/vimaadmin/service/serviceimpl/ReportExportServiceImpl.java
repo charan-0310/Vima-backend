@@ -369,7 +369,7 @@ public class ReportExportServiceImpl implements IReportExportService {
                 .coverageEndDate(policy != null ? policy.getEndDate() : null)
                 .insurerRefNumber(policy != null ?  String.valueOf(policy.getInsuranceProviderId()) : null)
                 .tpa("")
-                .sumInsured(deal.getSumInsured() != null ? new BigDecimal(deal.getSumInsured().replace(",", "")) : null)
+                .sumInsured(deal.getSumInsured() != null && !deal.getSumInsured().isBlank() ? new BigDecimal(deal.getSumInsured().replace(",", "")) : null)
                 .status(deal.getStatus() != null ? deal.getStatus().getValue() : null)
                 .ecardStatus("")
                 .exitDate(endorsement != null && endorsement.getUpdatedAt() != null ? endorsement.getUpdatedAt().toLocalDate() : null)
