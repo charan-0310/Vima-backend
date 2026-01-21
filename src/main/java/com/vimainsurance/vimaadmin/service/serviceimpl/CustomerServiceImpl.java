@@ -885,6 +885,8 @@ public class CustomerServiceImpl implements ICustomerService{
             policyRequest.setStartDate(requestDto.getPolicyStartDate() != null ? requestDto.getPolicyStartDate() : LocalDate.now());
             policyRequest.setEndDate(requestDto.getRenewalDate() != null ? requestDto.getRenewalDate() : LocalDate.now().plusYears(1));
             policyRequest.setLeadId(customer.getId());
+            policyRequest.setNetAmount(requestDto.getNetAmount());
+            policyRequest.setGst(requestDto.getGst());
             policyRequest.setRenewalDate(requestDto.getRenewalDate() != null ? requestDto.getRenewalDate() : LocalDate.now().plusYears(1));
             // Payment frequency
             policyRequest.setPaymentFrequency(requestDto.getPaymentFrequency() != null ? requestDto.getPaymentFrequency() : "YEARLY");
@@ -964,7 +966,7 @@ public class CustomerServiceImpl implements ICustomerService{
             if (EnvironmentUtil.isProductionEnvironment(environment)) {
                 try {
                     String slackMessage = buildCustomerToDealSlackMessage(customer, savedDeals, policyRequest, adminUser);
-                    slackNotificationUtil.sendSlackMessage("New Policy Issued!", slackMessage);
+                    slackNotificationUtil.sendSlackMessage("New Policy Issued!", slackMessage, true);
                 } catch (Exception slackException) {
                     logger.warn("[correlationId:{}] Failed to send Slack notification: {}", MDC.get("correlationId"), slackException.getMessage());
                     // Don't fail the request if Slack notification fails

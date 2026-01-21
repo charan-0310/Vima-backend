@@ -8,6 +8,6 @@ import com.vimainsurance.vimaadmin.dto.HRDashBoardResponseDto;
 
 public interface IHRService {
 
-    ResponseEntity<ResponseDto<HRDashBoardResponseDto>> getHrDashboard(LocalDateTime startDate, LocalDateTime endDate);
+    ResponseEntity<ResponseDto<HRDashBoardResponseDto>> getHrDashboard(LocalDateTime startDate, LocalDateTime endDate, String companyId);
 
 }

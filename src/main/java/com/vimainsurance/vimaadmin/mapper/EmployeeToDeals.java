@@ -49,6 +49,9 @@ public class EmployeeToDeals {
         
         // Designation
         deals.setDesignation(employeeUploadDto.getDesignation() != null ? employeeUploadDto.getDesignation().trim() : null);
+
+        deals.setDepartment(employeeUploadDto.getDepartment() != null ? employeeUploadDto.getDepartment(): null);
+
         
         // Relationship - will be mapped to NomineeRelationship enum in EmployeeService
         // For now, keep the original relationship string (mapping happens in uploadEmployees)
@@ -94,7 +97,7 @@ public class EmployeeToDeals {
      * Helper method to parse date string to LocalDate
      * Matches the parseDate method in CsvDealsReaderUtil
      */
-    private static LocalDate parseDate(String dateStr) {
+    public static LocalDate parseDate(String dateStr) {
         if (dateStr == null || dateStr.trim().isEmpty()) {
             return LocalDate.now();
         }
@@ -144,7 +147,7 @@ public class EmployeeToDeals {
         existingDeal.setPhone(dto.getMobile() != null ? dto.getMobile().trim() : null);
         existingDeal.setDateOfJoining(parseDate(dto.getDateOfJoining()));
         existingDeal.setDesignation(dto.getDesignation() != null ? dto.getDesignation().trim() : null);
-        
+        existingDeal.setDepartment(dto.getDepartment() != null ? dto.getDepartment().trim() : null);
         // Marital Status
         existingDeal.setMaritalStatus(dto.getMaritalStatus() != null ? 
             dto.getMaritalStatus().trim() : null);

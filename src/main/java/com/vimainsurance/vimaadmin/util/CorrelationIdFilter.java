@@ -167,8 +167,8 @@ public class CorrelationIdFilter extends OncePerRequestFilter {
                 String preferredUsername = jwtUserExtractor.getPreferredUsername(jwt);
                 String subject = jwtUserExtractor.getSubject(jwt);
                 String name = jwt.getClaimAsString("name");
-                
-                if (email != null) {
+                List<String> roles = jwtUserExtractor.getRoles(jwt);
+                if (email != null && !roles.contains("ROLE_EMPLOYEE")) {
                     // Check if user exists by email or oauthProviderId
                     Optional<AdminUser> userByEmail = adminUserRepository.findByEmail(email);
                     Optional<AdminUser> userByOAuthId = subject != null 

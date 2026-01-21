@@ -117,6 +117,12 @@ public class Deals {
     @Column(name = "designation", length = 50)
     private String designation;
 
+    @Column(name = "department", length = 100)
+    private String department;
+
+    @Column(name = "reason_for_exit", length = 100)
+    private String reasonForExit;
+
     @Column(name = "date_of_joining")
     private LocalDate dateOfJoining;
 
@@ -155,5 +161,7 @@ public class Deals {
 
     @Column(name = "endorsement_id")
     private UUID endorsementId;
+
+
 
 }

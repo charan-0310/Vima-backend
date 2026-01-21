@@ -32,4 +32,6 @@ public class PolicyUploadRequestDto {
     private String paymentFrequency;
     private List<NomineeRequestDto> nominees;
     private MotorPolicyDetailsRequestDto motorDetails;
+    private BigDecimal netAmount;
+    private BigDecimal gst;
 }

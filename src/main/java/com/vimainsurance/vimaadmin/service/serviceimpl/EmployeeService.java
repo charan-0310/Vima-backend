@@ -55,6 +55,7 @@ import com.vimainsurance.vimaadmin.service.IDocumentService;
 import com.vimainsurance.vimaadmin.repository.IDocumentRepository;
 import com.vimainsurance.vimaadmin.exception.DocumentUploadException;
 import com.vimainsurance.vimaadmin.util.JwtUserExtractor;
+import com.vimainsurance.vimaadmin.util.SlackNotificationUtil;
 
 @Slf4j
 @Service
@@ -84,6 +85,9 @@ public class EmployeeService {
        
     @Autowired
     private Javers javers;
+
+    @Autowired
+    private SlackNotificationUtil slackNotificationUtil;
 
 
     public EmployeeUploadResponse validateEmployee(List<EmployeeUploadDto> employeeUploadDtoList, Organization organization) {
@@ -424,7 +428,7 @@ public class EmployeeService {
               }
               if (existingPrimary != null || existingPrimaryFromDb != null) {
                 primaryEmployee = new Deals();
-                updateDealFromDto(primaryEmployee, selfDto, organization);
+                EmployeeToDeals.updateDealFromDto(primaryEmployee, selfDto, organization);
                 primaryEmployee.setIndividualId(existingPrimaryFromDb.getIndividualId());
                 primaryEmployee.setCreatedAt(existingPrimaryFromDb.getCreatedAt());
                 primaryEmployee.setUpdatedAt(existingPrimaryFromDb.getUpdatedAt());
@@ -566,7 +570,7 @@ public class EmployeeService {
                         validateResponse.setMessage("Validation errors!!");
                         return validateResponse;
                     }
-                    updateDealFromDto(existingDependentToCompare, dependentDto, organization);
+                    EmployeeToDeals.updateDealFromDto(existingDependentToCompare, dependentDto, organization);
                     existingDependentToCompare.setIndividualId(existingDependent.getIndividualId());
                     existingDependentToCompare.setCreatedAt(existingDependent.getCreatedAt());
                     existingDependentToCompare.setPrimaryIndividual(existingDependent.getPrimaryIndividual());
@@ -635,6 +639,7 @@ public class EmployeeService {
           if(createdCount == 0 && updatedCount == 0) {
             response.setMessage("No changes detected!");
           }
+          slackNotificationUtil.sendSlackMessage(slackNotificationUtil.buildEndorsementNotificationMessage(endorsement), false);
           return response;
         } catch (Exception e) {
           log.error("Error uploading employees: {}", e.getMessage(), e);
@@ -696,8 +701,10 @@ public class EmployeeService {
         try{
             Set<UUID> individualIdsToDelete = new HashSet<>();
             HashMap<String, LocalDate> dateOfExitMap = new HashMap<>();
+            HashMap<String, String> reasonForExitMap = new HashMap<>();
             for (BulkEmployeeDeletionRequestDto bulkEmployeeDeletionRequestDto : bulkEmployeeDeletionRequestDtoList) {
-                    dateOfExitMap.put(bulkEmployeeDeletionRequestDto.getEmployeeId(),parseDate(bulkEmployeeDeletionRequestDto.getDateOfExit()));
+                    dateOfExitMap.put(bulkEmployeeDeletionRequestDto.getEmployeeId(),EmployeeToDeals.parseDate(bulkEmployeeDeletionRequestDto.getDateOfExit()));
+                    reasonForExitMap.put(bulkEmployeeDeletionRequestDto.getEmployeeId(),bulkEmployeeDeletionRequestDto.getDeletionReason());
             }
             List<String> errors = new ArrayList<>();
             int deletedCount = 0;
@@ -777,9 +784,12 @@ public class EmployeeService {
             List<Deals> dealsToDelete = dealsRepository.findByIndividualIdIn(new ArrayList<>(individualIdsToDelete));
             dealsToDelete.forEach(deal -> deal.setStatus(AccountStatus.PENDING_EXIT));
             dealsToDelete.forEach(deal -> deal.setDateOfExit(dateOfExitMap.get(deal.getEmployeeNumber())));
+            dealsToDelete.forEach(deal -> deal.setReasonForExit(reasonForExitMap.get(deal.getEmployeeNumber())));
+            dealsToDelete.forEach(deal -> deal.setUpdatedAt(LocalDateTime.now()));
             dealsToDelete.forEach(deal -> deal.setEndorsementId(endorsementId));
             dealsRepository.saveAll(dealsToDelete);
             deletedCount = dealsToDelete.size();
+            slackNotificationUtil.sendSlackMessage(slackNotificationUtil.buildEndorsementNotificationMessage(endorsement), false);
         }
             return new EmployeeUploadResponse(deletedCount, deletedCount, 0, new ArrayList<>(), "Employees" + "(" + employeeCount + ")" + " and dependents" + "(" + dependentCount + ")" + " deleted successfully", employeeCount, dependentCount);
         }
@@ -790,57 +800,6 @@ public class EmployeeService {
     }   
 
 
-
-    private void updateDealFromDto(Deals existingDeal, EmployeeUploadDto dto, Organization organization) {
-        // Parse name
-        String name = dto.getName() != null ? dto.getName().trim() : "";
-        String[] nameParts = name.split("\\s+", 2);
-        existingDeal.setFirstName(nameParts[0]);
-        if (nameParts.length > 1) {
-            existingDeal.setLastName(nameParts[1]);
-        } else {
-            existingDeal.setLastName(null);
-        }
-        
-        // Update fields
-        existingDeal.setDateOfBirth(parseDate(dto.getDateOfBirth()));
-        existingDeal.setGender(dto.getGender() != null ? dto.getGender().trim() : null);
-        existingDeal.setEmail(dto.getEmail() != null ? dto.getEmail().trim() : null);
-        existingDeal.setPhone(dto.getMobile() != null ? dto.getMobile().trim() : null);
-        existingDeal.setDateOfJoining(parseDate(dto.getDateOfJoining()));
-        existingDeal.setDesignation(dto.getDesignation() != null ? dto.getDesignation().trim() : null);
-        // Note: Relationship mapping is handled in uploadEmployees method
-        existingDeal.setOrganization(organization);
-        existingDeal.setUpdatedAt(LocalDateTime.now());
-        existingDeal.setFullName(dto.getName());
-        existingDeal.setMaritalStatus(dto.getMaritalStatus());
-        existingDeal.setSumInsured(dto.getSumInsured());
-        
-        // Update account type and primary member status based on relationship
-        String relationship = dto.getRelationship() != null ? dto.getRelationship().trim() : "";
-        if ("Self".equalsIgnoreCase(relationship)) {
-            existingDeal.setAccountType(AccountType.CORPORATE_EMPLOYEE);
-            existingDeal.setIsPrimaryMember(true);
-            // Only update employeeNumber for Self relationship
-            existingDeal.setEmployeeNumber(dto.getEmployeeId());
-        } else {
-            existingDeal.setAccountType(AccountType.CORPORATE_DEPENDENT);
-            existingDeal.setIsPrimaryMember(false);
-            // Dependents should NOT have employeeNumber
-            existingDeal.setEmployeeNumber(dto.getEmployeeId());
-        }
-    }
-
-    private LocalDate parseDate(String dateStr) {
-        if (dateStr == null || dateStr.trim().isEmpty()) {
-            return LocalDate.now();
-        }
-        try {
-            return LocalDate.parse(dateStr.trim(), java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd"));
-        } catch (Exception e) {
-            return null;
-        }
-    }
 
     /**
      * Extracts child index from relationship string

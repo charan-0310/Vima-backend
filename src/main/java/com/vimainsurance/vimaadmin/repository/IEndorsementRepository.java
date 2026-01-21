@@ -50,24 +50,24 @@ public interface IEndorsementRepository extends JpaRepository<Endorsement, UUID>
     /**
      * Get monthly endorsement additions (created) grouped by month
      * Returns: [year, month, count] where year and month are integers, count is Long
-     * Note: startDate and endDate should not be null (use default dates in service layer)
+     * Note: startDate and endDate can be null - if null, no date filtering is applied
      */
-    @Query("""
+    @Query(value = """
         SELECT 
-            EXTRACT(YEAR FROM e.createdAt) AS year,
-            EXTRACT(MONTH FROM e.createdAt) AS month,
-            COUNT(e) AS count
-        FROM Endorsement e
-        WHERE e.organization.organizationId IN :organizationIds
-          AND e.createdAt >= :startDate
-          AND e.createdAt <= :endDate
+            EXTRACT(YEAR FROM e.created_at) AS year,
+            EXTRACT(MONTH FROM e.created_at) AS month,
+            COUNT(e.endorsement_id) AS count
+        FROM cpc.endorsements e
+        WHERE e.organization_id IN :organizationIds
+          AND e.created_at >= :startDate
+          AND e.created_at <= :endDate
         GROUP BY 
-            EXTRACT(YEAR FROM e.createdAt),
-            EXTRACT(MONTH FROM e.createdAt)
+            EXTRACT(YEAR FROM e.created_at),
+            EXTRACT(MONTH FROM e.created_at)
         ORDER BY 
             year ASC,
             month ASC
-        """)
+        """, nativeQuery = true)
     List<Object[]> getMonthlyEndorsementAdditions(
         @Param("organizationIds") List<UUID> organizationIds,
         @Param("startDate") LocalDateTime startDate,
@@ -79,23 +79,23 @@ public interface IEndorsementRepository extends JpaRepository<Endorsement, UUID>
      * Returns: [year, month, count] where year and month are integers, count is Long
      * Note: startDate and endDate should not be null (use default dates in service layer)
      */
-    @Query("""
+    @Query(value = """
         SELECT 
-            EXTRACT(YEAR FROM e.updatedAt) AS year,
-            EXTRACT(MONTH FROM e.updatedAt) AS month,
-            COUNT(e) AS count
-        FROM Endorsement e
-        WHERE e.organization.organizationId IN :organizationIds
-          AND e.endorsementType = :endorsementType
-          AND e.updatedAt >= :startDate
-          AND e.updatedAt <= :endDate
+            EXTRACT(YEAR FROM e.updated_at) AS year,
+            EXTRACT(MONTH FROM e.updated_at) AS month,
+            COUNT(e.endorsement_id) AS count
+        FROM cpc.endorsements e
+        WHERE e.organization_id IN :organizationIds
+          AND e.endorsement_type::text = CAST(:endorsementType AS VARCHAR)
+          AND e.updated_at >= :startDate
+          AND e.updated_at <= :endDate
         GROUP BY 
-            EXTRACT(YEAR FROM e.updatedAt),
-            EXTRACT(MONTH FROM e.updatedAt)
+            EXTRACT(YEAR FROM e.updated_at),
+            EXTRACT(MONTH FROM e.updated_at)
         ORDER BY 
             year ASC,
             month ASC
-        """)
+        """, nativeQuery = true)
     List<Object[]> getMonthlyEndorsementDeletions(
         @Param("organizationIds") List<UUID> organizationIds,
         @Param("endorsementType") EndorsementType endorsementType,
@@ -104,20 +104,100 @@ public interface IEndorsementRepository extends JpaRepository<Endorsement, UUID>
     );
 
     /**
-     * Find endorsements by organization, status, and date range (for enrollment report export)
+     * Find endorsements by organization, optionally filtering by status and approvedAt date range.
+     * If `status`, `startDate`, or `endDate` are null, those filters are ignored.
      */
     @Query("""
-        SELECT e FROM Endorsement e
-        WHERE e.organization.organizationId = :organizationId
-        AND e.status = :status
-        AND e.approvedAt >= :startDate
-        AND e.approvedAt <= :endDate
-        """)
+    SELECT e FROM Endorsement e
+    WHERE e.organization.organizationId = :organizationId
+    AND e.status = COALESCE(:status, e.status)
+    AND e.approvedAt >= COALESCE(:startDate, e.approvedAt)
+    AND e.approvedAt <= COALESCE(:endDate, e.approvedAt)
+    """)
     List<Endorsement> findByOrganizationAndDateRange(
-        @Param("organizationId") UUID organizationId,
-        @Param("status") AccountStatus status,
-        @Param("startDate") LocalDateTime startDate,
-        @Param("endDate") LocalDateTime endDate
+            @Param("organizationId") UUID organizationId,
+            @Param("status") AccountStatus status,
+            @Param("startDate") LocalDateTime startDate,
+            @Param("endDate") LocalDateTime endDate
     );
+
+
+
+    @Query("""
+    SELECT e FROM Endorsement e
+    WHERE e.organization.organizationId = :organizationId
+    AND e.approvedAt >= COALESCE(:startDate, e.approvedAt)
+    AND e.approvedAt <= COALESCE(:endDate, e.approvedAt)
+    """)
+    List<Endorsement> findByOrganizationAndDateRange(
+            @Param("organizationId") UUID organizationId,
+            @Param("startDate") LocalDateTime startDate,
+            @Param("endDate") LocalDateTime endDate
+    );
+
+    @Query("""
+       select e
+       from Endorsement e
+       where e.organization.organizationId = :organizationId
+         and e.status = :status
+       order by e.createdAt desc
+       """)
+    List<Endorsement> findByOrganization(@Param("organizationId") UUID organizationId,
+                                         @Param("status") AccountStatus status);
+
+    @Query("""
+       select e
+       from Endorsement e
+       where e.organization.organizationId = :organizationId
+       order by e.createdAt desc
+       """)
+    List<Endorsement> findByOrganization(@Param("organizationId") UUID organizationId);
+
+
+    @Query("""
+       select e
+       from Endorsement e
+       where e.organization.organizationId = :organizationId
+         and e.status = COALESCE(:status, e.status)
+         and e.createdAt >= :fromDate
+       order by e.createdAt desc
+       """)
+    List<Endorsement> findByOrganizationAndFromDate(@Param("organizationId") UUID organizationId,
+                                                    @Param("status") AccountStatus status,
+                                                    @Param("fromDate") LocalDateTime fromDate);
+
+    @Query("""
+           select e
+           from Endorsement e
+           where e.organization.organizationId = :organizationId
+             and e.createdAt >= :fromDate
+           order by e.createdAt desc
+           """)
+    List<Endorsement> findByOrganizationAndFromDate(@Param("organizationId") UUID organizationId,
+                                                    @Param("fromDate") LocalDateTime fromDate);
+
+    @Query("""
+       select e
+       from Endorsement e
+       where e.organization.organizationId = :organizationId
+         and e.status = COALESCE(:status, e.status)
+         and e.createdAt <= :toDate
+       order by e.createdAt desc
+       """)
+    List<Endorsement> findByOrganizationAndToDate(@Param("organizationId") UUID organizationId,
+                                                  @Param("status") AccountStatus status,
+                                                  @Param("toDate") LocalDateTime toDate);
+
+    @Query("""
+       select e
+       from Endorsement e
+       where e.organization.organizationId = :organizationId
+         and e.createdAt <= COALESCE(:toDate, e.createdAt)
+       order by e.createdAt desc
+       """)
+    List<Endorsement> findByOrganizationAndToDate(@Param("organizationId") UUID organizationId,
+                                                  @Param("toDate") LocalDateTime toDate);
+
+
 }
 

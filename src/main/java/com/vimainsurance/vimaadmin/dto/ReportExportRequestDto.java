@@ -28,16 +28,6 @@ public class ReportExportRequestDto {
     private String reportType;
 
     /**
-     * Month for filtering (format: YYYY-MM)
-     */
-    private String month;
-
-    /**
-     * Optional: Filter by status (ACTIVE, INACTIVE, etc.)
-     */
-    private List<String> statusFilters;
-
-    /**
      * Optional: Start date for timeline filter (format: YYYY-MM-DD)
      */
     private String fromDate;
@@ -47,9 +37,8 @@ public class ReportExportRequestDto {
      */
     private String toDate;
 
-    /**
-     * Optional: Premium type filter for payroll reports
-     */
-    private String premiumType;
+    private  String status;
+
+    private Boolean includeDependents;
 }
 

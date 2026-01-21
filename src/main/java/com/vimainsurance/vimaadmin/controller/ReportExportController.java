@@ -3,6 +3,7 @@ package com.vimainsurance.vimaadmin.controller;
 import java.util.List;
 import java.util.UUID;
 
+import com.vimainsurance.vimaadmin.dto.*;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.slf4j.MDC;
@@ -16,8 +17,6 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
-import com.vimainsurance.vimaadmin.dto.ReportExportRequestDto;
-import com.vimainsurance.vimaadmin.dto.ResponseDto;
 import com.vimainsurance.vimaadmin.exception.BadRequestException;
 import com.vimainsurance.vimaadmin.service.IReportExportService;
 
@@ -46,84 +45,80 @@ public class ReportExportController {
     /**
      * Export report data to Excel format
      *
-     * @param companyId Organization/Company ID
+     * @param companyId  Organization/Company ID
      * @param reportType Type of report (master, enrollment, payroll)
-     * @param month Month for filtering (format: YYYY-MM)
-     * @param statusFilters Optional status filters (ACTIVE, INACTIVE, etc.)
-     * @param fromDate Optional start date for timeline filter (format: YYYY-MM-DD)
-     * @param toDate Optional end date for timeline filter (format: YYYY-MM-DD)
-     * @param premiumType Optional premium type filter for payroll reports
+     * @param startDate  Optional start date for timeline filter (format: YYYY-MM-DD)
+     * @param toDate     Optional end date for timeline filter (format: YYYY-MM-DD)
      * @return Excel file as a downloadable resource
      */
     @GetMapping("/export")
     @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'VIMA_ADMIN', 'SALES_MANAGER', 'HR_ADMIN')")
     @Operation(
-        summary = "Export report to Excel",
-        description = "Generates and exports member/endorsement data into a standard .xlsx format. " +
-            "Supports three report types: master (all members), enrollment (approved endorsements), and payroll (active members with premium)."
+            summary = "Export report to Excel",
+            description = "Generates and exports member/endorsement data into a standard .xlsx format. " +
+                    "Supports three report types: master (all members), enrollment (approved endorsements), and payroll (active members with premium)."
     )
     @ApiResponses(value = {
-        @ApiResponse(
-            responseCode = "200",
-            description = "Excel file generated successfully",
-            content = @Content(mediaType = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
-        ),
-        @ApiResponse(
-            responseCode = "400",
-            description = "Bad request - invalid parameters",
-            content = @Content(schema = @Schema(implementation = ResponseDto.class))
-        ),
-        @ApiResponse(
-            responseCode = "401",
-            description = "Unauthorized",
-            content = @Content(schema = @Schema(implementation = ResponseDto.class))
-        ),
-        @ApiResponse(
-            responseCode = "403",
-            description = "Forbidden - insufficient permissions",
-            content = @Content(schema = @Schema(implementation = ResponseDto.class))
-        ),
-        @ApiResponse(
-            responseCode = "500",
-            description = "Internal server error",
-            content = @Content(schema = @Schema(implementation = ResponseDto.class))
-        )
+            @ApiResponse(
+                    responseCode = "200",
+                    description = "Excel file generated successfully",
+                    content = @Content(mediaType = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+            ),
+            @ApiResponse(
+                    responseCode = "400",
+                    description = "Bad request - invalid parameters",
+                    content = @Content(schema = @Schema(implementation = ResponseDto.class))
+            ),
+            @ApiResponse(
+                    responseCode = "401",
+                    description = "Unauthorized",
+                    content = @Content(schema = @Schema(implementation = ResponseDto.class))
+            ),
+            @ApiResponse(
+                    responseCode = "403",
+                    description = "Forbidden - insufficient permissions",
+                    content = @Content(schema = @Schema(implementation = ResponseDto.class))
+            ),
+            @ApiResponse(
+                    responseCode = "500",
+                    description = "Internal server error",
+                    content = @Content(schema = @Schema(implementation = ResponseDto.class))
+            )
     })
     public ResponseEntity<Resource> exportReport(
             @Parameter(description = "Organization/Company ID", required = true)
             @RequestParam UUID companyId,
 
-            @Parameter(description = "Type of report: master, enrollment, or payroll", required = true)
+            @Parameter(description = "Type of report: Employees, Endorsement", required = true)
             @RequestParam String reportType,
 
-            @Parameter(description = "Month for filtering (format: YYYY-MM)")
-            @RequestParam(required = false) String month,
-
-            @Parameter(description = "Status filters (comma-separated): ACTIVE, INACTIVE, PENDING, etc.")
-            @RequestParam(required = false) List<String> statusFilters,
-
             @Parameter(description = "Start date for timeline filter (format: YYYY-MM-DD)")
-            @RequestParam(required = false) String fromDate,
+            @RequestParam(required = false) String startDate,
 
             @Parameter(description = "End date for timeline filter (format: YYYY-MM-DD)")
             @RequestParam(required = false) String toDate,
 
-            @Parameter(description = "Premium type filter for payroll reports")
-            @RequestParam(required = false) String premiumType
+            @Parameter(description = "Status filters (e.g., Pending, Approved, Active)")
+            @RequestParam(required = false) String status,
+
+            @Parameter(description = "Employee with includeDependents")
+            @RequestParam(required = false) Boolean includeDependents
+
+
     ) {
-        logger.info("[correlationId:{}] /reports/export (GET) endpoint called - companyId: {}, reportType: {}, month: {}",
-            MDC.get("correlationId"), companyId, reportType, month);
+        logger.info("[correlationId:{}] /reports/export (GET) endpoint called - companyId: {}, reportType: {}",
+                MDC.get("correlationId"), companyId, reportType);
 
         try {
             // Build request DTO from query parameters
             ReportExportRequestDto requestDto = new ReportExportRequestDto();
             requestDto.setCompanyId(companyId);
             requestDto.setReportType(reportType);
-            requestDto.setMonth(month);
-            requestDto.setStatusFilters(statusFilters);
-            requestDto.setFromDate(fromDate);
+            requestDto.setFromDate(startDate);
             requestDto.setToDate(toDate);
-            requestDto.setPremiumType(premiumType);
+            requestDto.setStatus(status);
+            requestDto.setIncludeDependents(includeDependents);
+
 
             return reportExportService.exportToExcel(requestDto);
 
@@ -135,5 +130,69 @@ public class ReportExportController {
             throw new RuntimeException("Failed to export report: " + e.getMessage(), e);
         }
     }
-}
 
+    /**
+     * Get report records as JSON
+     *
+     * @param companyId         Organization/Company ID
+     * @param reportType        Type of report (e.g., EMPLOYEE_ACTIVE, ENDORSEMENT)
+     * @param startDate         Optional start date for timeline filter (format: YYYY-MM-DD)
+     * @param toDate            Optional end date for timeline filter (format: YYYY-MM-DD)
+     * @param status            Optional status filters (e.g., PENDING_APPROVAL, COMPLETED)
+     * @param includeDependents Optional flag to include dependents (defaults to true for EMPLOYEE_ACTIVE)
+     * @return JSON response containing report records
+     */
+    @GetMapping("/data")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'VIMA_ADMIN', 'SALES_MANAGER', 'HR_ADMIN')")
+    @Operation(
+            summary = "Get report records as JSON",
+            description = "Returns employee records or endorsement records based on reportType."
+    )
+    @ApiResponses(value = {
+            @ApiResponse(responseCode = "200", description = "Records fetched successfully",
+                    content = @Content(schema = @Schema(implementation = ResponseDto.class))),
+            @ApiResponse(responseCode = "400", description = "Bad request - invalid parameters",
+                    content = @Content(schema = @Schema(implementation = ResponseDto.class))),
+            @ApiResponse(responseCode = "401", description = "Unauthorized",
+                    content = @Content(schema = @Schema(implementation = ResponseDto.class))),
+            @ApiResponse(responseCode = "403", description = "Forbidden - insufficient permissions",
+                    content = @Content(schema = @Schema(implementation = ResponseDto.class))),
+            @ApiResponse(responseCode = "500", description = "Internal server error",
+                    content = @Content(schema = @Schema(implementation = ResponseDto.class)))
+    })
+    public ResponseEntity<ReportTableDto> getReports(
+            @Parameter(description = "Organization/Company ID", required = true)
+            @RequestParam UUID companyId,
+            @Parameter(description = "Type of report: EMPLOYEE_ACTIVE, EMPLOYEE_INACTIVE, EMPLOYEE_CHANGES, ENDORSEMENT", required = true)
+            @RequestParam String reportType,
+            @Parameter(description = "Start date for timeline filter (format: YYYY-MM-DD)")
+            @RequestParam(required = false) String startDate,
+            @Parameter(description = "End date for timeline filter (format: YYYY-MM-DD)")
+            @RequestParam(required = false) String toDate,
+            @Parameter(description = "Status filters (e.g., PENDING_APPROVAL, COMPLETED, ACTIVE)")
+            @RequestParam(required = false) String status,
+            @Parameter(description = "Include dependents for EMPLOYEE_ACTIVE; defaults to true if omitted")
+            @RequestParam(required = false) Boolean includeDependents
+    ) {
+        logger.info("[correlationId:{}] /api/v1/reports (GET) - JSON records - companyId: {}, reportType: {}",
+                MDC.get("correlationId"), companyId, reportType);
+        try {
+            ReportExportRequestDto requestDto = new ReportExportRequestDto();
+            requestDto.setCompanyId(companyId);
+            requestDto.setReportType(reportType);
+            requestDto.setFromDate(startDate);
+            requestDto.setToDate(toDate);
+            requestDto.setStatus(status);
+            requestDto.setIncludeDependents(includeDependents);
+
+            ReportTableDto report = reportExportService.getReportTable(requestDto);
+            return ResponseEntity.ok(report);
+        } catch (BadRequestException e) {
+            logger.warn("[correlationId:{}] Bad request for /api/v1/reports: {}", MDC.get("correlationId"), e.getMessage());
+            return ResponseEntity.status(400).body(null);
+        } catch (Exception e) {
+            logger.error("[correlationId:{}] Error fetching report records", MDC.get("correlationId"), e);
+            return ResponseEntity.status(500).body(null);
+        }
+    }
+}
