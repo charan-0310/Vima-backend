@@ -440,8 +440,8 @@ public class EndorsementServiceImpl implements IEndorsementService {
             uploadedBy = uploadedByOpt.get();
             }
             Endorsement endorsement = opt.get();
-            if(endorsement.getStatus().equals(AccountStatus.APPROVED)) {
-                return responseObj.render(responseObj.formErrorResponse("Endorsement already approved"));
+            if(endorsement.getStatus().equals(AccountStatus.COMPLETED)) {
+                return responseObj.render(responseObj.formErrorResponse("Endorsement already completed"));
             }
             if(files != null && files.length > 0) {
             for(MultipartFile file : files) {
@@ -462,17 +462,17 @@ public class EndorsementServiceImpl implements IEndorsementService {
             }
          
             deals.stream().filter(deal -> deal.getStatus().equals(AccountStatus.PENDING_APPROVAL)).forEach(deal -> {
-                deal.setStatus(AccountStatus.APPROVED);
+                deal.setStatus(AccountStatus.ACTIVE);
                 deal.setUpdatedAt(LocalDateTime.now());
                 dealsRepository.save(deal);
             });
             deals.stream().filter(deal -> deal.getStatus().equals(AccountStatus.PENDING_EXIT)).forEach(deal -> {
-                deal.setStatus(AccountStatus.LEAVING);
+                deal.setStatus(AccountStatus.INACTIVE);
                 deal.setUpdatedAt(LocalDateTime.now());
                 dealsRepository.save(deal);
             });
             endorsement.setApprovedAt(LocalDateTime.now());
-            endorsement.setStatus(AccountStatus.APPROVED);
+            endorsement.setStatus(AccountStatus.COMPLETED);
             endorsement.setUpdatedAt(LocalDateTime.now());
             endorsementRepository.save(endorsement);
 

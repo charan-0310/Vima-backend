@@ -1026,12 +1026,12 @@ public class EmployeeService {
     }
 
     public static EndorsementType getEndorsementType(String uploadType) {
-        if(uploadType.equalsIgnoreCase("bulk-upload")) {
-            return EndorsementType.BULK_UPLOAD;
-        } else if(uploadType.equalsIgnoreCase("addition")) {
+        if(uploadType.equalsIgnoreCase("addition")) {
             return EndorsementType.ADDITION;
         } else if(uploadType.equalsIgnoreCase("deletion")) {
             return EndorsementType.DELETION;
+        } else if(uploadType.equalsIgnoreCase("initial-upload")) {
+            return EndorsementType.INITIAL_UPLOAD;
         }
         throw new IllegalArgumentException("Invalid upload type: " + uploadType);
     }
