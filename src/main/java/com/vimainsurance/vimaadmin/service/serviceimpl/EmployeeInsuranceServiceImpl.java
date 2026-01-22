@@ -2,10 +2,12 @@ package com.vimainsurance.vimaadmin.service.serviceimpl;
 
 import com.vimainsurance.vimaadmin.dto.EmployeeInsuranceResponseDto;
 import com.vimainsurance.vimaadmin.entity.Deals;
+import com.vimainsurance.vimaadmin.entity.InsuranceProvider;
 import com.vimainsurance.vimaadmin.entity.Policy;
 import com.vimainsurance.vimaadmin.enums.PolicyStatus;
 import com.vimainsurance.vimaadmin.exception.BadRequestException;
 import com.vimainsurance.vimaadmin.repository.IDealsRepository;
+import com.vimainsurance.vimaadmin.repository.IInsuranceProviderRepository;
 import com.vimainsurance.vimaadmin.repository.IPolicyRepository;
 import com.vimainsurance.vimaadmin.service.IEmployeeInsuranceService;
 import com.vimainsurance.vimaadmin.util.TenantContext;
@@ -33,6 +35,10 @@ public class EmployeeInsuranceServiceImpl implements IEmployeeInsuranceService {
 
     @Autowired
     private IPolicyRepository policyRepository;
+
+
+    @Autowired
+    private IInsuranceProviderRepository insuranceProviderRepository;
 
     @Override
     public EmployeeInsuranceResponseDto getEmployeeInsuranceDetails(UUID employeeId) {
@@ -76,6 +82,7 @@ public class EmployeeInsuranceServiceImpl implements IEmployeeInsuranceService {
         // Add all dependents to covered members
         dependents.forEach(dependent -> coveredMembers.add(mapToCoveredMember(dependent, policyId)));
 
+
         // Build and return the response DTO
         return EmployeeInsuranceResponseDto.builder()
                 .employeeId(employee.getIndividualId())
@@ -83,6 +90,11 @@ public class EmployeeInsuranceServiceImpl implements IEmployeeInsuranceService {
                 .employeeName(employee.getFullName())
                 .email(employee.getEmail())
                 .phone(employee.getPhone())
+                .cardType("")
+                .insuranceType(primaryPolicy != null  && primaryPolicy.getProductType() !=null ? primaryPolicy.getProductType().getValue() : null)
+                .coverageType(primaryPolicy != null && primaryPolicy.getCoverageType() !=null ? primaryPolicy.getCoverageType().getValue() : null)
+                .insuranceProviderLogo(primaryPolicy != null ?
+                        resolveInsuranceProviderName(primaryPolicy.getInsuranceProviderId()) : null)
                 .policyId(policyId)
                 .policyNumber(primaryPolicy != null ? primaryPolicy.getPolicyNumber() : null)
                 .validUntil(primaryPolicy != null ? primaryPolicy.getEndDate() : null)
@@ -92,6 +104,7 @@ public class EmployeeInsuranceServiceImpl implements IEmployeeInsuranceService {
                 .policyStartDate(primaryPolicy != null ? primaryPolicy.getStartDate() : null)
                 .coveredMembers(coveredMembers)
                 .build();
+
     }
 
     /**
@@ -120,6 +133,18 @@ public class EmployeeInsuranceServiceImpl implements IEmployeeInsuranceService {
                 .status(deal.getStatus() != null ? deal.getStatus().getValue() : null)
                 .sumInsured(sumInsured)
                 .build();
+    }
+
+    /**
+     * Resolve insurance provider name by ID
+     */
+    private String resolveInsuranceProviderName(UUID insuranceProviderId) {
+        if (insuranceProviderId == null) {
+            return null;
+        }
+        return insuranceProviderRepository.findById(insuranceProviderId)
+                .map(InsuranceProvider::getProviderName)
+                .orElse(null);
     }
 
     /**
