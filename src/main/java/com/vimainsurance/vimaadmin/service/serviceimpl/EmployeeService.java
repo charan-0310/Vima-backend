@@ -444,6 +444,7 @@ public class EmployeeService {
                 Diff diff = javers.compare(existingPrimaryFromDb, primaryEmployee);
                 if(diff.hasChanges()) {
                 primaryEmployee.setRelationship(mapRelationshipToNomineeRelationship("Self", 0));
+                primaryEmployee.setStatus(AccountStatus.PENDING_APPROVAL);
                 updatedCount++;
                 dealsToSave.add(primaryEmployee);
                 log.debug("Updating existing primary employee: {}", employeeId);
@@ -464,6 +465,7 @@ public class EmployeeService {
                 primaryEmployee = EmployeeToDeals.mapToDeals(selfDto, organization);
                 primaryEmployee.setRelationship(mapRelationshipToNomineeRelationship("Self", 0));
                 primaryEmployee.setCreatedAt(LocalDateTime.now());
+                primaryEmployee.setStatus(AccountStatus.PENDING_APPROVAL);
                 createdCount++;
                 dealsToSave.add(primaryEmployee);
                 log.debug("Creating new primary employee: {}", employeeId);
@@ -591,6 +593,7 @@ public class EmployeeService {
                     existingDependentToCompare.setRelationship(mappedRelationship);
                     existingDependentToCompare.setPrimaryIndividual(primaryEmployee);
                     existingDependentToCompare.setUpdatedAt(LocalDateTime.now());
+                    existingDependentToCompare.setStatus(AccountStatus.PENDING_APPROVAL);
                     dealsToSave.add(existingDependentToCompare);
                     updatedCount++;
                     log.debug("Updating existing dependent: {} - {} (mapped to {})", new Object[] { employeeId, inputRelationship, mappedRelationship });
@@ -602,6 +605,7 @@ public class EmployeeService {
                   newDependent.setPrimaryIndividual(primaryEmployee);
                   newDependent.setCreatedAt(LocalDateTime.now());
                   newDependent.setUpdatedAt(LocalDateTime.now());
+                  newDependent.setStatus(AccountStatus.PENDING_APPROVAL);
                   dealsToSave.add(newDependent);
                   createdCount++;
                   log.debug("Creating new dependent: {} - {} (mapped to {})", new Object[] { employeeId, inputRelationship, mappedRelationship });
