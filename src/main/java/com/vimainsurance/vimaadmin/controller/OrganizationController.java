@@ -170,7 +170,7 @@ public class OrganizationController {
     }
     
     @GetMapping("/organization/{organizationId}/employee/{individualId}/dependents")
-    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'VIMA_ADMIN', 'SALES_MANAGER')")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'VIMA_ADMIN', 'SALES_MANAGER', 'HR_ADMIN')")
     public ResponseEntity<ResponseDto<List<OrganizationEmployeeDto>>> getEmployeeDependents(
             @PathVariable UUID organizationId,
             @PathVariable UUID individualId) {
