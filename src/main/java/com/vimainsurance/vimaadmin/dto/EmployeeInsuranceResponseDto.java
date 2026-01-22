@@ -28,6 +28,10 @@ public class EmployeeInsuranceResponseDto {
     private String phone;
 
     // Policy summary
+    private String cardType;
+    private String insuranceType;
+    private String coverageType;
+    private String insuranceProviderLogo;
     private Long policyId;
     private String policyNumber;
     private LocalDate validUntil; // policy end date
