@@ -1,0 +1,1 @@
+ALTER TYPE cpc.endorsement_type_enum ADD VALUE 'INITIAL_UPLOAD';
