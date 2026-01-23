@@ -32,7 +32,7 @@ public class EmployeeInsuranceResponseDto {
     private String insuranceType;
     private String coverageType;
     private String insuranceProviderLogo;
-    private Long healthId;
+    private Long policyId;
     private String policyNumber;
     private LocalDate validUntil; // policy end date
     private PolicyStatus policyStatus;
@@ -51,7 +51,7 @@ public class EmployeeInsuranceResponseDto {
     @AllArgsConstructor
     @Builder
     public static class CoveredMemberDto {
-        private Long healthId;
+        private Long policyId;
         private UUID individualId;
         private String fullName;
         private String relationship;

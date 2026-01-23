@@ -94,7 +94,7 @@ public class EmployeeInsuranceServiceImpl implements IEmployeeInsuranceService {
                 .coverageType(primaryPolicy != null && primaryPolicy.getCoverageType() !=null ? primaryPolicy.getCoverageType().getValue() : null)
                 .insuranceProviderLogo(primaryPolicy != null ?
                         resolveInsuranceProviderName(primaryPolicy.getInsuranceProviderId()) : null)
-                .healthId(policyId)
+                .policyId(policyId)
                 .policyNumber(primaryPolicy != null ? primaryPolicy.getPolicyNumber() : null)
                 .validUntil(primaryPolicy != null ? primaryPolicy.getEndDate() : null)
                 .policyStatus(primaryPolicy != null ? primaryPolicy.getStatus() : null)
@@ -121,7 +121,7 @@ public class EmployeeInsuranceServiceImpl implements IEmployeeInsuranceService {
         }
 
         return EmployeeInsuranceResponseDto.CoveredMemberDto.builder()
-                .healthId(policyId)
+                .policyId(policyId)
                 .individualId(deal.getIndividualId())
                 .fullName(deal.getFullName())
                 .relationship(deal.getRelationship())
