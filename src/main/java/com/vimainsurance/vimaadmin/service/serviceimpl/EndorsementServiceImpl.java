@@ -14,6 +14,8 @@ import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
+import com.vimainsurance.vimaadmin.dto.*;
+import com.vimainsurance.vimaadmin.entity.*;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.slf4j.MDC;
@@ -33,16 +35,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
 
-import com.vimainsurance.vimaadmin.dto.BaseResponse;
-import com.vimainsurance.vimaadmin.dto.DocumentResponseDto;
-import com.vimainsurance.vimaadmin.dto.EndorsementRequestDto;
-import com.vimainsurance.vimaadmin.dto.EndorsementResponseDto;
-import com.vimainsurance.vimaadmin.dto.ResponseDto;
-import com.vimainsurance.vimaadmin.entity.AdminUser;
 import com.vimainsurance.vimaadmin.entity.Deals;
-import com.vimainsurance.vimaadmin.entity.Document;
-import com.vimainsurance.vimaadmin.entity.Endorsement;
-import com.vimainsurance.vimaadmin.entity.Organization;
 import com.vimainsurance.vimaadmin.enums.AccountStatus;
 import com.vimainsurance.vimaadmin.enums.DocumentCategory;
 import com.vimainsurance.vimaadmin.enums.DocumentEntityType;
@@ -789,6 +782,106 @@ public class EndorsementServiceImpl implements IEndorsementService {
 
         Sort.Direction direction = sortDirection.equalsIgnoreCase("ASC") ? Sort.Direction.ASC : Sort.Direction.DESC;
         return Sort.by(direction, sortBy);
+    }
+
+    @Override
+    @Transactional
+    public ResponseEntity<ResponseDto<List<HealthIdUploadDto>>> uploadHealthIds(UUID endorsementId, List<HealthIdUploadDto> healthIdList) {
+        logger.info("[correlationId:{}] Upload health IDs called for endorsement: {}", MDC.get("correlationId"), endorsementId);
+
+        try {
+            // Step 1: Check if endorsement exists and get organization
+            Endorsement endorsement = endorsementRepository.findByEndorsementId(endorsementId)
+                    .orElseThrow(() -> new IllegalArgumentException("Endorsement not found with ID: " + endorsementId));
+
+            if (endorsement.getOrganization() == null) {
+                logger.error("[correlationId:{}] Organization not found for endorsement: {}", MDC.get("correlationId"), endorsementId);
+                return ResponseEntity.badRequest()
+                        .body(new ResponseDto<>(400, "Organization not found for this endorsement"));
+            }
+
+            UUID organizationId = endorsement.getOrganization().getOrganizationId();
+            logger.info("[correlationId:{}] Processing {} health ID records for organization: {}",
+                    MDC.get("correlationId"), healthIdList.size(), organizationId);
+
+            int updatedCount = 0;
+            List<HealthIdUploadDto> invalidCustomers = new ArrayList<>();
+            List<Deals> validCustomers = new ArrayList<>();
+
+            // Validate all records first (no updates yet)
+            for (HealthIdUploadDto healthIdDto : healthIdList) {
+                try {
+                    Optional<Deals> customerOpt = dealsRepository.findByEmployeeNumberAndOrganizationId(
+                            healthIdDto.getEmployeeId(), organizationId);
+
+                    if (customerOpt.isPresent()) {
+                        Deals customer = customerOpt.get();
+
+                        boolean relationshipMatches = customer.getRelationship() != null &&
+                                customer.getRelationship().equalsIgnoreCase(healthIdDto.getRelationship());
+                        boolean nameMatches = customer.getFullName() != null &&
+                                customer.getFullName().equalsIgnoreCase(healthIdDto.getName());
+
+                        if (relationshipMatches && nameMatches) {
+                            validCustomers.add(customer);
+                        } else {
+                            invalidCustomers.add(healthIdDto);
+                            logger.warn("[correlationId:{}] Validation failed for employeeId:{}, relationship:{}, name:{}",
+                                    MDC.get("correlationId"),
+                                    healthIdDto.getEmployeeId(),
+                                    healthIdDto.getRelationship(),
+                                    healthIdDto.getName());
+                        }
+                    } else {
+                        invalidCustomers.add(healthIdDto);
+                        logger.warn("[correlationId:{}] Employee not found for employeeId:{}, relationship:{}, name:{}",
+                                MDC.get("correlationId"),
+                                healthIdDto.getEmployeeId(),
+                                healthIdDto.getRelationship(),
+                                healthIdDto.getName());
+                    }
+                } catch (Exception e) {
+                    invalidCustomers.add(healthIdDto);
+                    logger.error("[correlationId:{}] Error validating health ID for employeeId:{} - name:{}",
+                            MDC.get("correlationId"), healthIdDto.getEmployeeId(), healthIdDto.getName(), e);
+                }
+            }
+
+            // If any invalid, return without updating anyone
+            if (!invalidCustomers.isEmpty()) {
+                logger.info("[correlationId:{}] Health ID upload aborted due to invalid records. Count: {}",
+                        MDC.get("correlationId"), invalidCustomers.size());
+                return ResponseEntity.badRequest()
+                        .body(new ResponseDto<>("Health ID upload failed", invalidCustomers, invalidCustomers.size()));
+            }
+            // Step 3: All valid - proceed to update
+            // Perform updates only when all are valid
+            for (int i = 0; i < healthIdList.size(); i++) {
+                Deals customer = validCustomers.get(i);
+                HealthIdUploadDto healthIdDto = healthIdList.get(i);
+                customer.setHealthId(healthIdDto.getHealthId());
+                customer.setUpdatedAt(LocalDateTime.now());
+                dealsRepository.save(customer);
+                updatedCount++;
+            }
+
+            logger.info("[correlationId:{}] Health ID upload completed - Updated: {}",
+                    MDC.get("correlationId"), updatedCount);
+
+            return ResponseEntity.ok()
+                    .body(new ResponseDto<>("Health IDs uploaded successfully", null, updatedCount));
+
+
+        } catch (IllegalArgumentException e) {
+            logger.error("[correlationId:{}] Validation error: {}", MDC.get("correlationId"), e.getMessage());
+            return ResponseEntity.badRequest()
+                    .body(new ResponseDto<>(400, e.getMessage()));
+        } catch (Exception e) {
+            logger.error("[correlationId:{}] Error uploading health IDs for endorsement: {}",
+                    MDC.get("correlationId"), endorsementId, e);
+            return ResponseEntity.internalServerError()
+                    .body(new ResponseDto<>(500, "Failed to upload health IDs: " + e.getMessage()));
+        }
     }
 
 }

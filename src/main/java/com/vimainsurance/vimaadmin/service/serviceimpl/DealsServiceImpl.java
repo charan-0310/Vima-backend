@@ -144,6 +144,9 @@ public class DealsServiceImpl implements IDealsService{
             deals.setPreferredLanguage(dealsRequestDto.getPreferredLanguage());
             deals.setLeadId(dealsRequestDto.getLeadId());
             deals.setCustId(dealsRequestDto.getCustId());
+            if(dealsRequestDto.getHealthId() != null && !dealsRequestDto.getHealthId().isEmpty()){
+                deals.setHealthId(dealsRequestDto.getHealthId());
+            }
             deals.setCreatedAt(dealsRequestDto.getCreatedAt());
             deals.setUpdatedAt(dealsRequestDto.getUpdatedAt());
             deals.setPrimaryIndividual(dealsRepository.findById(dealsRequestDto.getPrimaryIndividualId()).orElseThrow(() -> new RuntimeException("Primary individual not found")));
@@ -189,6 +192,9 @@ public class DealsServiceImpl implements IDealsService{
             deals.setCustId(dealsRequestDto.getCustId());
             deals.setMaritalStatus(dealsRequestDto.getMaritalStatus());
             deals.setSumInsured(dealsRequestDto.getSumInsured());
+            if(dealsRequestDto.getHealthId() != null && !dealsRequestDto.getHealthId().isEmpty()){
+                deals.setHealthId(dealsRequestDto.getHealthId());
+            }
             deals.setCreatedAt(dealsRequestDto.getCreatedAt());
             deals.setUpdatedAt(dealsRequestDto.getUpdatedAt());
             dealsRepository.save(deals);
@@ -238,6 +244,7 @@ public class DealsServiceImpl implements IDealsService{
             dealsResponseDto.setSumInsured(deals.getSumInsured());
             dealsResponseDto.setCustId(deals.getCustId());
             dealsResponseDto.setUpdatedAt(deals.getUpdatedAt());
+            dealsResponseDto.setHealthId(deals.getHealthId());
             return responseObj.render(responseObj.formSuccessResponse(Constants.SUCCESS, dealsResponseDto));
         }catch(Exception e){
             logger.error("Exception in getDealsById", e);
@@ -479,6 +486,7 @@ public class DealsServiceImpl implements IDealsService{
         dealsResponseDto.setSumInsured(deal.getSumInsured());
         dealsResponseDto.setCreatedAt(deal.getCreatedAt());
         dealsResponseDto.setUpdatedAt(deal.getUpdatedAt());
+        dealsResponseDto.setHealthId(deal.getHealthId());
         return dealsResponseDto;
     }
     
@@ -579,6 +587,9 @@ public class DealsServiceImpl implements IDealsService{
                     dependent.setDateOfJoining(dependentDto.getDateOfJoining());
                     dependent.setIsPrimaryMember(false);
                     dependent.setPrimaryIndividual(primaryIndividual);
+                    if(dependentDto.getHealthId() != null && !dependentDto.getHealthId().isEmpty()){
+                        dependent.setHealthId(dependentDto.getHealthId());
+                    }
                     dependent.setCreatedAt(LocalDateTime.now());
                     dependent.setUpdatedAt(LocalDateTime.now());
                     // Save dependent
