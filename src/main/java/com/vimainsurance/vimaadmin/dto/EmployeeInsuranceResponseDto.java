@@ -39,6 +39,7 @@ public class EmployeeInsuranceResponseDto {
     private BigDecimal sumInsured;
     private BigDecimal premiumAmount;
     private LocalDate policyStartDate;
+    private String healthId;
 
     // Covered members (employee + dependents)
     private List<CoveredMemberDto> coveredMembers;
@@ -51,6 +52,7 @@ public class EmployeeInsuranceResponseDto {
     @AllArgsConstructor
     @Builder
     public static class CoveredMemberDto {
+        private String healthId;
         private Long policyId;
         private UUID individualId;
         private String fullName;

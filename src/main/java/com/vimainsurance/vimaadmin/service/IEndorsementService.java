@@ -10,6 +10,7 @@ import org.springframework.web.multipart.MultipartFile;
 import com.vimainsurance.vimaadmin.dto.DocumentResponseDto;
 import com.vimainsurance.vimaadmin.dto.EndorsementRequestDto;
 import com.vimainsurance.vimaadmin.dto.EndorsementResponseDto;
+import com.vimainsurance.vimaadmin.dto.HealthIdUploadDto;
 import com.vimainsurance.vimaadmin.dto.ResponseDto;
 
 public interface IEndorsementService {
@@ -58,5 +59,6 @@ public interface IEndorsementService {
 
     ResponseEntity<Resource> downloadDocument(UUID endorsementId,String documentId);
 
-}
+    ResponseEntity<ResponseDto<List<HealthIdUploadDto>>> uploadHealthIds(UUID endorsementId, List<HealthIdUploadDto> healthIdList);
 
+}

@@ -168,6 +168,9 @@ public class Deals {
     @Column(name = "endorsement_id")
     private UUID endorsementId;
 
+    @Column(name = "health_id", length = 100)
+    private String healthId;
+
     // Many-to-Many relationship with Endorsement through DealEndorsement join table
     // Note: No orphanRemoval to preserve endorsement history - relationships are managed manually
     @DiffIgnore

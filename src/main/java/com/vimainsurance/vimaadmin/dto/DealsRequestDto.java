@@ -43,6 +43,7 @@ private UUID leadId;
 private String custId;
 private String maritalStatus;
 private String sumInsured;
+private String healthId;
 private LocalDateTime createdAt;
 private LocalDateTime updatedAt;
 }
