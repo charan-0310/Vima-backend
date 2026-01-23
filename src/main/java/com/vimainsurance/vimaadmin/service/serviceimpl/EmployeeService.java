@@ -33,7 +33,6 @@ import com.vimainsurance.vimaadmin.entity.AdminUser;
 import org.javers.core.Javers;
 import org.javers.core.diff.Diff;
 
-
 import com.vimainsurance.vimaadmin.entity.Endorsement;
 import com.vimainsurance.vimaadmin.enums.ConfirmationMethod;
 import com.vimainsurance.vimaadmin.enums.DocumentCategory;
@@ -45,10 +44,12 @@ import jakarta.validation.Validator;
 import lombok.extern.slf4j.Slf4j;
 
 import com.vimainsurance.vimaadmin.repository.IEndorsementRepository;
+import com.vimainsurance.vimaadmin.repository.IDealEndorsementRepository;
 
 import org.springframework.core.env.Environment;
 import org.springframework.web.multipart.MultipartFile;
 
+import com.vimainsurance.vimaadmin.entity.DealEndorsement;
 import com.vimainsurance.vimaadmin.entity.Document;
 import com.vimainsurance.vimaadmin.enums.DocumentEntityType;
 import com.vimainsurance.vimaadmin.service.IDocumentService;
@@ -74,6 +75,9 @@ public class EmployeeService {
 
     @Autowired
     private IEndorsementRepository endorsementRepository;
+
+    @Autowired
+    private IDealEndorsementRepository dealEndorsementRepository;
 
     @Autowired
     private IDocumentRepository documentRepository;
@@ -436,10 +440,13 @@ public class EmployeeService {
                 primaryEmployee.setPrimaryIndividual(existingPrimaryFromDb.getPrimaryIndividual());
                 primaryEmployee.setRelationship(existingPrimaryFromDb.getRelationship());
                 primaryEmployee.setStatus(existingPrimaryFromDb.getStatus());
+                primaryEmployee.setEndorsementId(existingPrimaryFromDb.getEndorsementId());
                 Diff diff = javers.compare(existingPrimaryFromDb, primaryEmployee);
                 if(diff.hasChanges()) {
                 primaryEmployee.setRelationship(mapRelationshipToNomineeRelationship("Self", 0));
+                primaryEmployee.setStatus(AccountStatus.PENDING_APPROVAL);
                 updatedCount++;
+                dealsToSave.add(primaryEmployee);
                 log.debug("Updating existing primary employee: {}", employeeId);
                 }
               } else {
@@ -458,11 +465,12 @@ public class EmployeeService {
                 primaryEmployee = EmployeeToDeals.mapToDeals(selfDto, organization);
                 primaryEmployee.setRelationship(mapRelationshipToNomineeRelationship("Self", 0));
                 primaryEmployee.setCreatedAt(LocalDateTime.now());
+                primaryEmployee.setStatus(AccountStatus.PENDING_APPROVAL);
                 createdCount++;
+                dealsToSave.add(primaryEmployee);
                 log.debug("Creating new primary employee: {}", employeeId);
               } 
               primaryEmployee.setUpdatedAt(LocalDateTime.now());
-              dealsToSave.add(primaryEmployee);
               primaryEmployeesForDependents.add(primaryEmployee);
               continue;
             } 
@@ -578,12 +586,14 @@ public class EmployeeService {
                     existingDependentToCompare.setStatus(existingDependent.getStatus());
                     existingDependentToCompare.setUpdatedAt(existingDependent.getUpdatedAt());
                     existingDependentToCompare.setEndorsementId(existingDependent.getEndorsementId());
+                    existingDependentToCompare.setEmployeeNumber(existingDependent.getEmployeeNumber());
                     Diff diff = javers.compare(existingDependent,existingDependentToCompare);
                     if(diff.hasChanges()) {
                     log.info("Differences found in existing dependent: {}", diff.prettyPrint());
                     existingDependentToCompare.setRelationship(mappedRelationship);
                     existingDependentToCompare.setPrimaryIndividual(primaryEmployee);
                     existingDependentToCompare.setUpdatedAt(LocalDateTime.now());
+                    existingDependentToCompare.setStatus(AccountStatus.PENDING_APPROVAL);
                     dealsToSave.add(existingDependentToCompare);
                     updatedCount++;
                     log.debug("Updating existing dependent: {} - {} (mapped to {})", new Object[] { employeeId, inputRelationship, mappedRelationship });
@@ -595,6 +605,7 @@ public class EmployeeService {
                   newDependent.setPrimaryIndividual(primaryEmployee);
                   newDependent.setCreatedAt(LocalDateTime.now());
                   newDependent.setUpdatedAt(LocalDateTime.now());
+                  newDependent.setStatus(AccountStatus.PENDING_APPROVAL);
                   dealsToSave.add(newDependent);
                   createdCount++;
                   log.debug("Creating new dependent: {} - {} (mapped to {})", new Object[] { employeeId, inputRelationship, mappedRelationship });
@@ -607,25 +618,56 @@ public class EmployeeService {
           int totalSaved = 0;
           log.info("Saving {} deals ({} new, {} updated) in batches of {}", new Object[] { dealsToSave.size(), createdCount, updatedCount, batchSize });
           int i;
+          Endorsement savedEndorsement = null;
           if(updatedCount > 0 || createdCount > 0) {
-          endorsement.setTotalEmployees(selfCount(employeeUploadDtoList).intValue());
-          endorsement.setTotalDependents(dependentCount(employeeUploadDtoList).intValue());
-          endorsement = endorsementRepository.save(endorsement);
+          endorsement.setTotalEmployees((int)dealsToSave.stream().filter(deal -> deal.getRelationship().equalsIgnoreCase("Self")).count());
+          endorsement.setTotalDependents((int)dealsToSave.stream().filter(deal -> !deal.getRelationship().equalsIgnoreCase("Self")).count());
+          savedEndorsement = endorsementRepository.save(endorsement);
           try {
-              Document document = uploadDocuments(file, organization, adminUser, endorsement);
-              endorsement.setDocument(document);
-              endorsementRepository.save(endorsement);
+              Document document = uploadDocuments(file, organization, adminUser, savedEndorsement);
+              savedEndorsement.setDocument(document);
+              savedEndorsement = endorsementRepository.save(savedEndorsement);
+              // Fetch fresh entity to avoid Hibernate proxy issues
+              savedEndorsement = endorsementRepository.findByEndorsementId(savedEndorsement.getEndorsementId())
+                  .orElseThrow(() -> new RuntimeException("Endorsement not found after save"));
           } catch (DocumentUploadException e) {
-              log.error("Failed to upload document for endorsement {}: {}", endorsement.getEndorsementId(), e.getMessage(), e);
+              log.error("Failed to upload document for endorsement {}: {}", savedEndorsement.getEndorsementId(), e.getMessage(), e);
               return new EmployeeUploadResponse(0, 0, 0, new ArrayList<>(), "Failed to upload documents: " + e.getMessage(), 0, 0);
           }
-          UUID endorsementId = endorsement.getEndorsementId();
+          UUID endorsementId = savedEndorsement.getEndorsementId();
+
+          // Save deals first, then create DealEndorsement relationships
           for (i = 0; i < dealsToSave.size(); i += batchSize) {
             int end = Math.min(i + batchSize, dealsToSave.size());
             List<Deals> batch = dealsToSave.subList(i, end);
             batch.forEach(deal -> deal.setEndorsementId(endorsementId));
-            this.dealsRepository.saveAll(batch);
-            totalSaved += batch.size();
+            List<Deals> savedDeals = this.dealsRepository.saveAll(batch);
+            totalSaved += savedDeals.size();
+            
+            // Create and save DealEndorsement relationships after deals are saved
+            // Maintain endorsement history: preserve existing relationships, only create new ones
+            // A deal can have multiple endorsements, and all historical relationships must be preserved
+            List<DealEndorsement> dealEndorsementsBatch = new ArrayList<>();
+            for (Deals deal : savedDeals) {
+              // Only create if relationship doesn't already exist (to maintain history)
+              // This ensures the deal remains associated with all previous endorsements
+              boolean exists = dealEndorsementRepository.existsByDeal_IndividualIdAndEndorsement_EndorsementId(
+                  deal.getIndividualId(), endorsementId);
+              if (!exists) {
+                DealEndorsement dealEndorsement = new DealEndorsement();
+                dealEndorsement.setDeal(deal);
+                dealEndorsement.setEndorsement(savedEndorsement);
+                dealEndorsementsBatch.add(dealEndorsement);
+                log.debug("Creating new DealEndorsement relationship for deal {} and endorsement {}", 
+                    deal.getIndividualId(), endorsementId);
+              } else {
+                log.debug("DealEndorsement relationship already exists for deal {} and endorsement {}. Preserving history.", 
+                    deal.getIndividualId(), endorsementId);
+              }
+            }
+            if (!dealEndorsementsBatch.isEmpty()) {
+              dealEndorsementRepository.saveAll(dealEndorsementsBatch);
+            }
           } 
         }
           log.info("Successfully saved {} deals ({} new, {} updated)", new Object[] { totalSaved, createdCount, updatedCount });
@@ -639,7 +681,9 @@ public class EmployeeService {
           if(createdCount == 0 && updatedCount == 0) {
             response.setMessage("No changes detected!");
           }
-          slackNotificationUtil.sendSlackMessage(slackNotificationUtil.buildEndorsementNotificationMessage(endorsement), false);
+          if(savedEndorsement != null) {
+            slackNotificationUtil.sendSlackMessage(slackNotificationUtil.buildEndorsementNotificationMessage(savedEndorsement), false);
+          }
           return response;
         } catch (Exception e) {
           log.error("Error uploading employees: {}", e.getMessage(), e);
@@ -771,25 +815,54 @@ public class EmployeeService {
             endorsement.setUploadedBy(adminUser);
             endorsement.setTotalEmployees(employeeCount);
             endorsement.setTotalDependents(dependentCount);
-            endorsement = endorsementRepository.save(endorsement);
+            Endorsement savedEndorsement = endorsementRepository.save(endorsement);
             try {
-                Document document = uploadDocuments(file, organization, adminUser, endorsement);
-                endorsement.setDocument(document);
-                endorsementRepository.save(endorsement);
+                Document document = uploadDocuments(file, organization, adminUser, savedEndorsement);
+                savedEndorsement.setDocument(document);
+                savedEndorsement = endorsementRepository.save(savedEndorsement);
+                // Fetch fresh entity to avoid Hibernate proxy issues
+                savedEndorsement = endorsementRepository.findByEndorsementId(savedEndorsement.getEndorsementId())
+                    .orElseThrow(() -> new RuntimeException("Endorsement not found after save"));
             } catch (DocumentUploadException e) {
-                log.error("Failed to upload document for endorsement {}: {}", endorsement.getEndorsementId(), e.getMessage(), e);
+                log.error("Failed to upload document for endorsement {}: {}", savedEndorsement.getEndorsementId(), e.getMessage(), e);
                 return new EmployeeUploadResponse(0, 0, 0, new ArrayList<>(), "Failed to upload documents: " + e.getMessage(), 0, 0);
             }
-            UUID endorsementId = endorsement.getEndorsementId();
+            UUID endorsementId = savedEndorsement.getEndorsementId();
             List<Deals> dealsToDelete = dealsRepository.findByIndividualIdIn(new ArrayList<>(individualIdsToDelete));
             dealsToDelete.forEach(deal -> deal.setStatus(AccountStatus.PENDING_EXIT));
             dealsToDelete.forEach(deal -> deal.setDateOfExit(dateOfExitMap.get(deal.getEmployeeNumber())));
             dealsToDelete.forEach(deal -> deal.setReasonForExit(reasonForExitMap.get(deal.getEmployeeNumber())));
             dealsToDelete.forEach(deal -> deal.setUpdatedAt(LocalDateTime.now()));
             dealsToDelete.forEach(deal -> deal.setEndorsementId(endorsementId));
-            dealsRepository.saveAll(dealsToDelete);
+            
+            // Save deals first, then create DealEndorsement relationships
+            // Maintain endorsement history: preserve existing relationships, only create new ones
+            // A deal can have multiple endorsements, and all historical relationships must be preserved
+            List<Deals> savedDeals = dealsRepository.saveAll(dealsToDelete);
+            final Endorsement finalSavedEndorsement = savedEndorsement;
+            List<DealEndorsement> dealEndorsements = new ArrayList<>();
+            for (Deals deal : savedDeals) {
+              // Only create if relationship doesn't already exist (to maintain history)
+              // This ensures the deal remains associated with all previous endorsements
+              boolean exists = dealEndorsementRepository.existsByDeal_IndividualIdAndEndorsement_EndorsementId(
+                  deal.getIndividualId(), endorsementId);
+              if (!exists) {
+                DealEndorsement dealEndorsement = new DealEndorsement();
+                dealEndorsement.setDeal(deal);
+                dealEndorsement.setEndorsement(finalSavedEndorsement);
+                dealEndorsements.add(dealEndorsement);
+                log.debug("Creating new DealEndorsement relationship for deal {} and endorsement {}", 
+                    deal.getIndividualId(), endorsementId);
+              } else {
+                log.debug("DealEndorsement relationship already exists for deal {} and endorsement {}. Preserving history.", 
+                    deal.getIndividualId(), endorsementId);
+              }
+            }
+            if (!dealEndorsements.isEmpty()) {
+              dealEndorsementRepository.saveAll(dealEndorsements);
+            }
             deletedCount = dealsToDelete.size();
-            slackNotificationUtil.sendSlackMessage(slackNotificationUtil.buildEndorsementNotificationMessage(endorsement), false);
+            slackNotificationUtil.sendSlackMessage(slackNotificationUtil.buildEndorsementNotificationMessage(savedEndorsement), false);
         }
             return new EmployeeUploadResponse(deletedCount, deletedCount, 0, new ArrayList<>(), "Employees" + "(" + employeeCount + ")" + " and dependents" + "(" + dependentCount + ")" + " deleted successfully", employeeCount, dependentCount);
         }
@@ -953,12 +1026,12 @@ public class EmployeeService {
     }
 
     public static EndorsementType getEndorsementType(String uploadType) {
-        if(uploadType.equalsIgnoreCase("bulk-upload")) {
-            return EndorsementType.BULK_UPLOAD;
-        } else if(uploadType.equalsIgnoreCase("addition")) {
+        if(uploadType.equalsIgnoreCase("addition")) {
             return EndorsementType.ADDITION;
         } else if(uploadType.equalsIgnoreCase("deletion")) {
             return EndorsementType.DELETION;
+        } else if(uploadType.equalsIgnoreCase("bulk-upload")) {
+            return EndorsementType.BULK_UPLOAD;
         }
         throw new IllegalArgumentException("Invalid upload type: " + uploadType);
     }

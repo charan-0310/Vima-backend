@@ -241,7 +241,7 @@ public class EndorsementServiceImpl implements IEndorsementService {
                 return responseObj.render(responseObj.formErrorResponse(Constants.RECORD_NOT_FOUND_MESSAGE));
             }
             jwtUserExtractor.validateOrganizationAccess(opt.get().getOrganization().getOrganizationId());
-            EndorsementResponseDto dto = EndorsementMapper.mapToResponseDto(opt.get(), dealsRepository.countByEndorsementIdAndRelationshipSelf(opt.get().getEndorsementId()), dealsRepository.countByEndorsementIdAndRelationshipNonSelf(opt.get().getEndorsementId()));
+            EndorsementResponseDto dto = EndorsementMapper.mapToResponseDto(opt.get());
             return responseObj.render(responseObj.formSuccessResponse(Constants.SUCCESS, dto));
         } catch (OrganizationAccessDeniedException e) {
             logger.warn("[correlationId:{}] Organization access denied: {}", MDC.get("correlationId"));
@@ -260,7 +260,7 @@ public class EndorsementServiceImpl implements IEndorsementService {
             List<Endorsement> list = endorsementRepository.findAll();
             List<EndorsementResponseDto> out = new ArrayList<>();
             for (Endorsement endorsement : list) {
-                out.add(EndorsementMapper.mapToResponseDto(endorsement, dealsRepository.countByEndorsementIdAndRelationshipSelf(endorsement.getEndorsementId()), dealsRepository.countByEndorsementIdAndRelationshipNonSelf(endorsement.getEndorsementId())));
+                out.add(EndorsementMapper.mapToResponseDto(endorsement));
             }
             return responseObj.render(responseObj.formSuccessResponse(Constants.SUCCESS, out, out.size()));
         } catch (Exception e) {
@@ -277,7 +277,7 @@ public class EndorsementServiceImpl implements IEndorsementService {
             List<Endorsement> list = endorsementRepository.findByOrganization_OrganizationId(organizationId);
             List<EndorsementResponseDto> out = new ArrayList<>();
             for (Endorsement endorsement : list) {
-                out.add(EndorsementMapper.mapToResponseDto(endorsement, dealsRepository.countByEndorsementIdAndRelationshipSelf(endorsement.getEndorsementId()), dealsRepository.countByEndorsementIdAndRelationshipNonSelf(endorsement.getEndorsementId())));
+                out.add(EndorsementMapper.mapToResponseDto(endorsement));
             }
             return responseObj.render(responseObj.formSuccessResponse(Constants.SUCCESS, out, out.size()));
         } catch (Exception e) {
@@ -295,7 +295,7 @@ public class EndorsementServiceImpl implements IEndorsementService {
             List<Endorsement> list = endorsementRepository.findByStatus(accountStatus);
             List<EndorsementResponseDto> out = new ArrayList<>();
             for (Endorsement endorsement : list) {
-                out.add(EndorsementMapper.mapToResponseDto(endorsement, dealsRepository.countByEndorsementIdAndRelationshipSelf(endorsement.getEndorsementId()), dealsRepository.countByEndorsementIdAndRelationshipNonSelf(endorsement.getEndorsementId())));
+                out.add(EndorsementMapper.mapToResponseDto(endorsement));
             }
             return responseObj.render(responseObj.formSuccessResponse(Constants.SUCCESS, out, out.size()));
         } catch (IllegalArgumentException e) {
@@ -316,7 +316,7 @@ public class EndorsementServiceImpl implements IEndorsementService {
             List<Endorsement> list = endorsementRepository.findByEndorsementType(type);
             List<EndorsementResponseDto> out = new ArrayList<>();
             for (Endorsement endorsement : list) {
-                out.add(EndorsementMapper.mapToResponseDto(endorsement, dealsRepository.countByEndorsementIdAndRelationshipSelf(endorsement.getEndorsementId()), dealsRepository.countByEndorsementIdAndRelationshipNonSelf(endorsement.getEndorsementId())));
+                out.add(EndorsementMapper.mapToResponseDto(endorsement));
             }
             return responseObj.render(responseObj.formSuccessResponse(Constants.SUCCESS, out, out.size()));
         } catch (IllegalArgumentException e) {
@@ -397,7 +397,7 @@ public class EndorsementServiceImpl implements IEndorsementService {
             // Map to DTOs
             List<EndorsementResponseDto> out = new ArrayList<>();
             for (Endorsement endorsement : endorsementPage.getContent()) {
-                out.add(EndorsementMapper.mapToResponseDto(endorsement, dealsRepository.countByEndorsementIdAndRelationshipSelf(endorsement.getEndorsementId()), dealsRepository.countByEndorsementIdAndRelationshipNonSelf(endorsement.getEndorsementId())));
+                out.add(EndorsementMapper.mapToResponseDto(endorsement));
             }
 
             return responseObj.render(responseObj.formSuccessResponse(Constants.SUCCESS, out, endorsementPage.getTotalElements()));
@@ -440,8 +440,8 @@ public class EndorsementServiceImpl implements IEndorsementService {
             uploadedBy = uploadedByOpt.get();
             }
             Endorsement endorsement = opt.get();
-            if(endorsement.getStatus().equals(AccountStatus.APPROVED)) {
-                return responseObj.render(responseObj.formErrorResponse("Endorsement already approved"));
+            if(endorsement.getStatus().equals(AccountStatus.COMPLETED)) {
+                return responseObj.render(responseObj.formErrorResponse("Endorsement already completed"));
             }
             if(files != null && files.length > 0) {
             for(MultipartFile file : files) {
@@ -462,17 +462,17 @@ public class EndorsementServiceImpl implements IEndorsementService {
             }
          
             deals.stream().filter(deal -> deal.getStatus().equals(AccountStatus.PENDING_APPROVAL)).forEach(deal -> {
-                deal.setStatus(AccountStatus.APPROVED);
+                deal.setStatus(AccountStatus.ACTIVE);
                 deal.setUpdatedAt(LocalDateTime.now());
                 dealsRepository.save(deal);
             });
             deals.stream().filter(deal -> deal.getStatus().equals(AccountStatus.PENDING_EXIT)).forEach(deal -> {
-                deal.setStatus(AccountStatus.LEAVING);
+                deal.setStatus(AccountStatus.INACTIVE);
                 deal.setUpdatedAt(LocalDateTime.now());
                 dealsRepository.save(deal);
             });
             endorsement.setApprovedAt(LocalDateTime.now());
-            endorsement.setStatus(AccountStatus.APPROVED);
+            endorsement.setStatus(AccountStatus.COMPLETED);
             endorsement.setUpdatedAt(LocalDateTime.now());
             endorsementRepository.save(endorsement);
 

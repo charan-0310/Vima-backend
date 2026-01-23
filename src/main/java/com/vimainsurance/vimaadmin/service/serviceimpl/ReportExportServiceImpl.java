@@ -369,7 +369,7 @@ public class ReportExportServiceImpl implements IReportExportService {
                 .coverageEndDate(policy != null ? policy.getEndDate() : null)
                 .insurerRefNumber(policy != null ?  String.valueOf(policy.getInsuranceProviderId()) : null)
                 .tpa("")
-                .sumInsured(deal.getSumInsured() != null ? new BigDecimal(deal.getSumInsured().replace(",", "")) : null)
+                .sumInsured(deal.getSumInsured() != null && !deal.getSumInsured().isBlank() ? new BigDecimal(deal.getSumInsured().replace(",", "")) : null)
                 .status(deal.getStatus() != null ? deal.getStatus().getValue() : null)
                 .ecardStatus("")
                 .exitDate(endorsement != null && endorsement.getUpdatedAt() != null ? endorsement.getUpdatedAt().toLocalDate() : null)
@@ -402,10 +402,10 @@ public class ReportExportServiceImpl implements IReportExportService {
                 .endorsementStatus(endorsement.getStatus() != null ? endorsement.getStatus().getValue() : null)
 
                 .totalEmployees((endorsement.getEndorsementType() == EndorsementType.ADDITION ||
-                        endorsement.getEndorsementType() == EndorsementType.BULK_UPLOAD)  ?  endorsement.getTotalEmployees() : 0)
+                        endorsement.getEndorsementType() == EndorsementType.BULK_UPLOAD || endorsement.getEndorsementType() == EndorsementType.INITIAL_UPLOAD)  ?  endorsement.getTotalEmployees() : 0)
                 .totalEmployeesRemoved((endorsement.getEndorsementType() == EndorsementType.DELETION) ?  endorsement.getTotalEmployees() : 0)
                 .totalDependents((endorsement.getEndorsementType() == EndorsementType.ADDITION ||
-                                endorsement.getEndorsementType() == EndorsementType.BULK_UPLOAD)  ?  endorsement.getTotalDependents() : 0)
+                                endorsement.getEndorsementType() == EndorsementType.BULK_UPLOAD || endorsement.getEndorsementType() == EndorsementType.INITIAL_UPLOAD)  ?  endorsement.getTotalDependents() : 0)
                 .totalDependentsRemoved((endorsement.getEndorsementType() == EndorsementType.DELETION) ?  endorsement.getTotalEmployees() : 0)
 
 

@@ -43,12 +43,13 @@ jobs:
         run: |
           JAR_FILE=$(ls target/*.jar | head -n 1)
           echo "Jar built: $JAR_FILE"
+          # Ensure prod directory structure exists
+          mkdir -p /home/ubuntu/vima-app-deployment/api/artifact
           cp "$JAR_FILE" /home/ubuntu/vima-app-deployment/api/artifact/vimaadmin-0.0.1-SNAPSHOT.jar
           echo "✅ JAR moved to ~/vima-app-deployment/api/artifact/vimaadmin-0.0.1-SNAPSHOT.jar"
 
-      - name: Restart Docker Compose services
+      - name: Restart Docker Compose service (Prod)
         run: |
           cd ~/vima-app-deployment
-          docker compose down
-          docker compose up --build -d
-          echo "✅ Docker Compose services restarted"     
+          docker compose up -d --build vima-api
+          echo "✅ Docker Compose service 'vima-api' restarted for PROD environment"     

@@ -2,7 +2,7 @@ name: Build & Deploy to EC2 UAT
 
 on:
   push:
-    branches: [ vima-dev ]
+    branches: [ develop ]
   workflow_dispatch:
 
 jobs:
@@ -43,11 +43,12 @@ jobs:
         run: |
           JAR_FILE=$(ls target/*.jar | head -n 1)
           echo "Jar built: $JAR_FILE"
+          # Ensure dev directory structure exists
+          mkdir -p /home/ubuntu/vima-app-deployment/api-dev/artifact
           cp "$JAR_FILE" /home/ubuntu/vima-app-deployment/api-dev/artifact/vimaadmin-0.0.1-SNAPSHOT.jar
           echo "✅ JAR moved to ~/vima-app-deployment/api-dev/artifact/vimaadmin-0.0.1-SNAPSHOT.jar"
-      - name: Restart Docker Compose services
+      - name: Restart Docker Compose service (Dev)
         run: |
           cd ~/vima-app-deployment
-          docker compose down
-          docker compose up --build -d
-          echo "✅ Docker Compose services restarted"    
+          docker compose up -d --build vima-api-dev
+          echo "✅ Docker Compose service 'vima-api-dev' restarted for DEV environment"    
