@@ -87,7 +87,9 @@ public class EmployeeInsuranceServiceImpl implements IEmployeeInsuranceService {
         return EmployeeInsuranceResponseDto.builder()
                 .employeeId(employee.getIndividualId())
                 .employeeNumber(employee.getEmployeeNumber())
-                .employeeName(employee.getFullName())
+                .employeeName(employee.getFullName() != null && !employee.getFullName().isBlank() ?
+                        employee.getFullName() : ((employee.getFirstName() != null ? employee.getFirstName().trim() : "") +
+                        " " + (employee.getLastName() != null ? employee.getLastName().trim() : "")).trim())
                 .email(employee.getEmail())
                 .phone(employee.getPhone())
                 .cardType("")
@@ -127,7 +129,9 @@ public class EmployeeInsuranceServiceImpl implements IEmployeeInsuranceService {
                 .policyId(policyId)
                 .healthId(deal.getHealthId())
                 .individualId(deal.getIndividualId())
-                .fullName(deal.getFullName())
+                .fullName(deal.getFullName() != null && !deal.getFullName().isBlank() ?
+                        deal.getFullName() : ((deal.getFirstName() != null ? deal.getFirstName().trim() : "") +
+                        " " + (deal.getLastName() != null ? deal.getLastName().trim() : "")).trim())
                 .relationship(deal.getRelationship())
                 .dateOfBirth(deal.getDateOfBirth())
                 .gender(deal.getGender())
