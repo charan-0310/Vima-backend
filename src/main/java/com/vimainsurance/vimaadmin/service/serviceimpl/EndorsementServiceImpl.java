@@ -796,6 +796,9 @@ public class EndorsementServiceImpl implements IEndorsementService {
             }
             jwtUserExtractor.validateOrganizationAccess(orgOpt.get().getOrganizationId());
             List<Deals> deals = dealsRepository.findByEndorsementId(endorsementId);
+            if(!deals.stream().anyMatch(deal -> deal.getStatus().equals(AccountStatus.ACTIVE))) {
+                return responseObj.render(responseObj.formErrorResponse(200, "No deals found to onboard"));
+            }
             if(deals.isEmpty()) {
                 return responseObj.render(responseObj.formErrorResponse(200,"No deals found to onboard"));
             }
