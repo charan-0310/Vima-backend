@@ -247,7 +247,7 @@ public class OrganizationController {
 
     @PostMapping(value = "/organization/{organizationId}/delete", consumes = MediaType.MULTIPART_FORM_DATA_VALUE,
         produces = MediaType.APPLICATION_JSON_VALUE)
-    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'VIMA_ADMIN')")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'VIMA_ADMIN', 'HR_ADMIN')")
     public ResponseEntity<ResponseDto<EmployeeUploadResponse>> delete(
             @PathVariable UUID organizationId,
             @RequestParam("uploadType") String uploadType,
