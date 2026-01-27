@@ -19,7 +19,6 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 import java.util.*;
-import java.util.stream.Collectors;
 
 /**
  * Service implementation for employee insurance operations
@@ -91,6 +90,7 @@ public class EmployeeInsuranceServiceImpl implements IEmployeeInsuranceService {
                 .email(employee.getEmail())
                 .phone(employee.getPhone())
                 .cardType("")
+                .healthId(employee.getHealthId())
                 .insuranceType(primaryPolicy != null  && primaryPolicy.getProductType() !=null ? primaryPolicy.getProductType().getValue() : null)
                 .coverageType(primaryPolicy != null && primaryPolicy.getCoverageType() !=null ? primaryPolicy.getCoverageType().getValue() : null)
                 .insuranceProviderLogo(primaryPolicy != null ?
@@ -102,6 +102,7 @@ public class EmployeeInsuranceServiceImpl implements IEmployeeInsuranceService {
                 .sumInsured(primaryPolicy != null ? primaryPolicy.getSumInsured() : null)
                 .premiumAmount(primaryPolicy != null ? primaryPolicy.getPremiumAmount() : null)
                 .policyStartDate(primaryPolicy != null ? primaryPolicy.getStartDate() : null)
+
                 .coveredMembers(coveredMembers)
                 .build();
 
@@ -123,6 +124,7 @@ public class EmployeeInsuranceServiceImpl implements IEmployeeInsuranceService {
 
         return EmployeeInsuranceResponseDto.CoveredMemberDto.builder()
                 .policyId(policyId)
+                .healthId(deal.getHealthId())
                 .individualId(deal.getIndividualId())
                 .fullName(deal.getFullName())
                 .relationship(deal.getRelationship())

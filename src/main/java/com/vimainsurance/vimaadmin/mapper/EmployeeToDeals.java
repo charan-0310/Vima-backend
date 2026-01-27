@@ -89,7 +89,9 @@ public class EmployeeToDeals {
         // Default values
         deals.setStatus(AccountStatus.PENDING_APPROVAL);
         deals.setPreferredLanguage("en");
-        
+        if(employeeUploadDto.getHealthId() != null && !employeeUploadDto.getHealthId().isEmpty()) {
+            deals.setHealthId(employeeUploadDto.getHealthId().trim());
+        }
         return deals;
     }
 
