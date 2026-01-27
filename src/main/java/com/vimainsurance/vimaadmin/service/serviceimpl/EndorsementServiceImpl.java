@@ -827,6 +827,8 @@ public class EndorsementServiceImpl implements IEndorsementService {
             EmployeeOnboardingResponseDto employeeOnboardingResponseDto = new EmployeeOnboardingResponseDto();
             employeeOnboardingResponseDto.setSuccessUsers(successUsers);
             employeeOnboardingResponseDto.setFailedUsers(failedUsers);
+            employeeOnboardingResponseDto.setSuccessCount(successCount.get());
+            employeeOnboardingResponseDto.setFailedCount(failedCount.get());
             return responseObj.render(responseObj.formSuccessResponse(Constants.SUCCESS, employeeOnboardingResponseDto));
         } catch (OrganizationAccessDeniedException e) {
             logger.warn("[correlationId:{}] Organization access denied: {}", MDC.get("correlationId"));
