@@ -420,8 +420,10 @@ public class AuthentikUtil {
      * @return Generated temporary password
      */
     public String createUser(String name, String username, String email, String role, List<String> organizations, Boolean isActive) {
-        return createUser(name, username, email, role, organizations, isActive, null);
+        return createUser(name, username, email, role, organizations, isActive, null, null);
     }
+
+    
 
     /**
      * Create user in Authentik with optional temporary password
@@ -434,7 +436,7 @@ public class AuthentikUtil {
      * @param temporaryPassword Optional temporary password. If null, a random password will be generated
      * @return The temporary password that was set (either provided or auto-generated)
      */
-    public String createUser(String name, String username, String email, String role, List<String> organizations, Boolean isActive, String temporaryPassword) {
+    public String createUser(String name, String username, String email, String role, List<String> organizations, Boolean isActive, String temporaryPassword, String individualId) {
         String url = authentikUrl + "/core/users/";
         HttpHeaders headers = new HttpHeaders();
         headers.set("Authorization", "Bearer " + authentikToken);
@@ -479,6 +481,13 @@ public class AuthentikUtil {
         userDto.setType("external"); // Default user type
         userDto.setIsActive(isActive != null ? isActive : true);
         userDto.setGroups(groups);
+        
+        // Set employee_id in attributes if provided
+        if (individualId != null && !individualId.trim().isEmpty()) {
+            Map<String, Object> attributes = new HashMap<>();
+            attributes.put("employee_id", individualId);
+            userDto.setAttributes(attributes);
+        }
         
         HttpEntity<AuthentikUserCreationDto> request = new HttpEntity<>(userDto, headers);
         ResponseEntity<Object> response = restTemplate.postForEntity(url, request, Object.class);
