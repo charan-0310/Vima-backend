@@ -5,6 +5,7 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
@@ -12,6 +13,7 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Collectors;
 
 import com.vimainsurance.vimaadmin.dto.*;
@@ -56,6 +58,8 @@ import com.vimainsurance.vimaadmin.util.Constants;
 import com.vimainsurance.vimaadmin.util.EnvironmentUtil;
 import com.vimainsurance.vimaadmin.util.JwtUserExtractor;
 import com.vimainsurance.vimaadmin.util.TenantContext;
+import com.vimainsurance.vimaadmin.util.AuthentikUtil;
+import com.vimainsurance.vimaadmin.service.IEmailService;
 
 @Service
 public class EndorsementServiceImpl implements IEndorsementService {
@@ -88,6 +92,12 @@ public class EndorsementServiceImpl implements IEndorsementService {
 
     @Autowired
     private IS3Service s3Service;
+
+    @Autowired
+    private AuthentikUtil authentikUtil;
+
+    @Autowired
+    private IEmailService emailService;
 
     @Override
     @Transactional
@@ -758,6 +768,68 @@ public class EndorsementServiceImpl implements IEndorsementService {
         } catch(Exception e){
             logger.error("[correlationId:{}] Error downloading document: {}", MDC.get("correlationId"), e.getMessage());
             return ResponseEntity.status(HttpStatus.NOT_FOUND).build();
+        }
+    }
+    
+
+    @Override
+    public ResponseEntity<ResponseDto<String>> employeeOnboarding(UUID endorsementId) {
+        logger.info("[correlationId:{}] Endorsement employeeOnboarding called for {}", MDC.get("correlationId"), endorsementId);
+        BaseResponse<String> responseObj = new BaseResponse<>();
+        try {
+            AtomicInteger successCount = new AtomicInteger(0);
+            AtomicInteger failedCount = new AtomicInteger(0);
+            List<String> successUsers = new ArrayList<>();
+            List<String> failedUsers = new ArrayList<>();
+            Optional<Endorsement> opt = endorsementRepository.findById(endorsementId);
+            if (opt.isEmpty()) {
+                return responseObj.render(responseObj.formErrorResponse(Constants.RECORD_NOT_FOUND_MESSAGE));
+            }
+            jwtUserExtractor.validateOrganizationAccess(opt.get().getOrganization().getOrganizationId());
+            Optional<Organization> orgOpt = organizationRepository.findById(opt.get().getOrganization().getOrganizationId());
+            if (orgOpt.isEmpty()) {
+                return responseObj.render(responseObj.formErrorResponse("Organization not found"));
+            }
+            jwtUserExtractor.validateOrganizationAccess(orgOpt.get().getOrganizationId());
+            List<Deals> deals = dealsRepository.findByEndorsementId(endorsementId);
+            if(deals.isEmpty()) {
+                return responseObj.render(responseObj.formErrorResponse(200,"No deals found to onboard"));
+            }
+            if(deals.stream().anyMatch(deal -> deal.getStatus().equals(AccountStatus.ACTIVE))) {
+                return responseObj.render(responseObj.formErrorResponse(200,"Some deals are already active"));
+            }
+            if(deals.stream().anyMatch(deal -> deal.getStatus().equals(AccountStatus.INACTIVE))) {
+                return responseObj.render(responseObj.formErrorResponse(200, "Some deals are already inactive"));
+            }
+            if(!deals.stream().anyMatch(deal -> deal.getRelationship().equals("Self"))) {
+                return responseObj.render(responseObj.formErrorResponse(200, "Only self relationship is allowed for employee onboarding"));
+            }
+            String orgName = "ORG_" + orgOpt.get().getOrganizationName().trim().replace(" ", "_").toUpperCase();
+            String groupId = authentikUtil.getGroupIdByName(orgName);
+            if(groupId == null || groupId.isEmpty()) {
+                return responseObj.render(responseObj.formErrorResponse("No groups found"));
+            }
+            deals.stream().forEach(deal -> {
+                try {
+                authentikUtil.createUser(deal.getFullName(), deal.getEmail(), deal.getEmail(), "ROLE_EMPLOYEE", Arrays.asList(orgName), true, "test@123");
+                emailService.sendWelcomeEmail(deal.getEmail(), deal.getFullName(), "test@123");
+                successCount.incrementAndGet();
+            } catch (Exception e) {
+                failedCount.incrementAndGet();
+                logger.error("[correlationId:{}] Error creating user for deal: {}", MDC.get("correlationId"), e.getMessage());
+                failedUsers.add(deal.getEmail());
+            }
+            });
+            if(failedCount.get() > 0) {
+                return responseObj.render(responseObj.formErrorResponse("Employee onboarding failed for some users. Failed: " + failedCount.get() + ", Failed users: " + failedUsers.toString()));
+            }
+            return responseObj.render(responseObj.formSuccessResponse(Constants.SUCCESS, "Employee onboarding completed successfully. Success: " + successCount.get() + ", Failed: " + failedCount.get()));
+        } catch (OrganizationAccessDeniedException e) {
+            logger.warn("[correlationId:{}] Organization access denied: {}", MDC.get("correlationId"));
+            return responseObj.render(responseObj.formErrorResponse(403, e.getMessage()));
+        } catch (Exception e) {
+            logger.error("[correlationId:{}] Exception in Endorsement employeeOnboarding: {}", MDC.get("correlationId"), e.getMessage(), e);
+            return responseObj.render(responseObj.formErrorResponse("Failed to complete employee onboarding!"));
         }
     }
 

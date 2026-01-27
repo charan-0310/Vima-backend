@@ -4,6 +4,7 @@ import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -392,7 +393,7 @@ public class AuthentikUtil {
      * @param groupName Name of the group (e.g., "ROLE_VIMA_ADMIN" or "ORG_MAIN")
      * @return UUID of the group, or null if not found
      */
-    private String getGroupIdByName(String groupName) {
+    public String getGroupIdByName(String groupName) {
         if (groupName == null || groupName.trim().isEmpty()) {
             return null;
         }
@@ -409,15 +410,31 @@ public class AuthentikUtil {
     }
 
     /**
-     * Create user in Authentik
+     * Create user in Authentik with auto-generated temporary password
      * @param name User's full name
      * @param username Username
      * @param email Email address
      * @param role Role name (e.g., "VIMA_ADMIN" or "ROLE_VIMA_ADMIN")
      * @param organizations List of organization names (e.g., ["OPENAI_INDIA", "ORG_MAIN"])
      * @param isActive Whether the user is active (default: true)
+     * @return Generated temporary password
      */
-    public void createUser(String name, String username, String email, String role, List<String> organizations, Boolean isActive) {
+    public String createUser(String name, String username, String email, String role, List<String> organizations, Boolean isActive) {
+        return createUser(name, username, email, role, organizations, isActive, null);
+    }
+
+    /**
+     * Create user in Authentik with optional temporary password
+     * @param name User's full name
+     * @param username Username
+     * @param email Email address
+     * @param role Role name (e.g., "VIMA_ADMIN" or "ROLE_VIMA_ADMIN")
+     * @param organizations List of organization names (e.g., ["OPENAI_INDIA", "ORG_MAIN"])
+     * @param isActive Whether the user is active (default: true)
+     * @param temporaryPassword Optional temporary password. If null, a random password will be generated
+     * @return The temporary password that was set (either provided or auto-generated)
+     */
+    public String createUser(String name, String username, String email, String role, List<String> organizations, Boolean isActive, String temporaryPassword) {
         String url = authentikUrl + "/core/users/";
         HttpHeaders headers = new HttpHeaders();
         headers.set("Authorization", "Bearer " + authentikToken);
@@ -468,6 +485,75 @@ public class AuthentikUtil {
         
         if (!response.getStatusCode().is2xxSuccessful()) {
             throw new RuntimeException("Failed to create user in Authentik");
+        }
+        
+        // Extract user ID from response to set password
+        String userId = extractUserIdFromResponse(response.getBody());
+        if (userId == null) {
+            throw new RuntimeException("Failed to extract user ID from Authentik response");
+        }
+        
+        // Generate temporary password if not provided
+        String passwordToSet = temporaryPassword;
+        if (passwordToSet == null || passwordToSet.trim().isEmpty()) {
+            passwordToSet = PasswordGenerator.generateRandomPassword(10);
+        }
+        
+        // Set the password for the newly created user
+        setUserPassword(userId, passwordToSet);
+        
+        return passwordToSet;
+    }
+
+    /**
+     * Set password for an Authentik user
+     * @param userId Authentik user UUID
+     * @param password Plain text password to set
+     */
+    public void setUserPassword(String userId, String password) {
+        String url = authentikUrl + "/core/users/" + userId + "/set_password/";
+        HttpHeaders headers = new HttpHeaders();
+        headers.set("Authorization", "Bearer " + authentikToken);
+        headers.set("Content-Type", "application/json");
+        
+        // Authentik expects password in request body
+        Map<String, String> passwordRequest = new HashMap<>();
+        passwordRequest.put("password", password);
+        
+        HttpEntity<Map<String, String>> request = new HttpEntity<>(passwordRequest, headers);
+        ResponseEntity<Object> response = restTemplate.postForEntity(url, request, Object.class);
+        
+        if (!response.getStatusCode().is2xxSuccessful()) {
+            throw new RuntimeException("Failed to set password for user in Authentik");
+        }
+    }
+
+    /**
+     * Extract user ID (pk) from Authentik user creation response
+     * Handles both String (UUID) and Integer types for pk field
+     */
+    @SuppressWarnings("unchecked")
+    private String extractUserIdFromResponse(Object responseBody) {
+        try {
+            Map<String, Object> responseMap = objectMapper.convertValue(responseBody, Map.class);
+            Object pkValue = responseMap.get("pk");
+            
+            if (pkValue == null) {
+                throw new RuntimeException("pk field is null in Authentik response");
+            }
+            
+            // Authentik typically returns UUID as String, but handle Integer case as well
+            if (pkValue instanceof String) {
+                return (String) pkValue;
+            } else if (pkValue instanceof Integer) {
+                return Integer.toString((Integer) pkValue);
+            } else if (pkValue instanceof Number) {
+                return pkValue.toString();
+            } else {
+                return pkValue.toString();
+            }
+        } catch (Exception e) {
+            throw new RuntimeException("Error extracting user ID from Authentik response", e);
         }
     }
 }

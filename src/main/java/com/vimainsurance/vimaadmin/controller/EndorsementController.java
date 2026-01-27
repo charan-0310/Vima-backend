@@ -233,4 +233,14 @@ public class EndorsementController {
         return endorsementService.downloadDocument(endorsementId, documentId);
     }
 
+    /* 
+    * Employee onboarding by endorsement id
+    */
+    @PostMapping("/{endorsementId}/employee-onboarding")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'VIMA_ADMIN')")
+    public ResponseEntity<ResponseDto<String>> employeeOnboarding(@PathVariable UUID endorsementId) {
+        logger.info("[correlationId:{}] /endorsements/{}/employee-onboarding (POST) endpoint called", MDC.get("correlationId"), endorsementId);
+        return endorsementService.employeeOnboarding(endorsementId);
+    }
+
 }
