@@ -16,7 +16,6 @@ import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyString;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
-import static org.mockito.Mockito.doNothing;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
@@ -105,7 +104,7 @@ class AdminUserServiceImplTest {
     void testCreateAdminUser_Success() {
         when(adminUserRepository.findByUsername(requestDto.getUsername())).thenReturn(Optional.empty());
         when(adminUserRepository.findByEmail(requestDto.getEmail())).thenReturn(Optional.empty());
-        doNothing().when(authentikUtil).createUser(anyString(), anyString(), anyString(), anyString(), any(), anyBoolean());
+        when(authentikUtil.createUser(anyString(), anyString(), anyString(), anyString(), any(), anyBoolean())).thenReturn("TempPassword123");
         
         ResponseEntity<ResponseDto<String>> response = adminUserService.createAdminUser(requestDto);
         
@@ -514,7 +513,7 @@ class AdminUserServiceImplTest {
     void testCreateAdminUser_VerifyRepositoryCalls() {
         when(adminUserRepository.findByUsername(requestDto.getUsername())).thenReturn(Optional.empty());
         when(adminUserRepository.findByEmail(requestDto.getEmail())).thenReturn(Optional.empty());
-        doNothing().when(authentikUtil).createUser(anyString(), anyString(), anyString(), anyString(), any(), anyBoolean());
+        when(authentikUtil.createUser(anyString(), anyString(), anyString(), anyString(), any(), anyBoolean())).thenReturn("TempPassword123");
         
         adminUserService.createAdminUser(requestDto);
         
