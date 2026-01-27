@@ -29,6 +29,7 @@ import com.vimainsurance.vimaadmin.dto.DocumentResponseDto;
 import com.vimainsurance.vimaadmin.dto.EndorsementRequestDto;
 import com.vimainsurance.vimaadmin.dto.EndorsementResponseDto;
 import com.vimainsurance.vimaadmin.dto.OrganizationEmployeeDto;
+import com.vimainsurance.vimaadmin.dto.EmployeeOnboardingResponseDto;
 import com.vimainsurance.vimaadmin.dto.ResponseDto;
 import com.vimainsurance.vimaadmin.service.IEndorsementService;
 import com.vimainsurance.vimaadmin.service.IOrganizationService;
@@ -238,7 +239,7 @@ public class EndorsementController {
     */
     @PostMapping("/{endorsementId}/employee-onboarding")
     @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'VIMA_ADMIN')")
-    public ResponseEntity<ResponseDto<String>> employeeOnboarding(@PathVariable UUID endorsementId) {
+    public ResponseEntity<ResponseDto<EmployeeOnboardingResponseDto>> employeeOnboarding(@PathVariable UUID endorsementId) {
         logger.info("[correlationId:{}] /endorsements/{}/employee-onboarding (POST) endpoint called", MDC.get("correlationId"), endorsementId);
         return endorsementService.employeeOnboarding(endorsementId);
     }

@@ -60,6 +60,7 @@ import com.vimainsurance.vimaadmin.util.JwtUserExtractor;
 import com.vimainsurance.vimaadmin.util.TenantContext;
 import com.vimainsurance.vimaadmin.util.AuthentikUtil;
 import com.vimainsurance.vimaadmin.service.IEmailService;
+import com.vimainsurance.vimaadmin.dto.EmployeeOnboardingResponseDto;
 
 @Service
 public class EndorsementServiceImpl implements IEndorsementService {
@@ -773,9 +774,9 @@ public class EndorsementServiceImpl implements IEndorsementService {
     
 
     @Override
-    public ResponseEntity<ResponseDto<String>> employeeOnboarding(UUID endorsementId) {
+    public ResponseEntity<ResponseDto<EmployeeOnboardingResponseDto>> employeeOnboarding(UUID endorsementId) {
         logger.info("[correlationId:{}] Endorsement employeeOnboarding called for {}", MDC.get("correlationId"), endorsementId);
-        BaseResponse<String> responseObj = new BaseResponse<>();
+        BaseResponse<EmployeeOnboardingResponseDto> responseObj = new BaseResponse<>();
         try {
             AtomicInteger successCount = new AtomicInteger(0);
             AtomicInteger failedCount = new AtomicInteger(0);
@@ -794,12 +795,6 @@ public class EndorsementServiceImpl implements IEndorsementService {
             List<Deals> deals = dealsRepository.findByEndorsementId(endorsementId);
             if(deals.isEmpty()) {
                 return responseObj.render(responseObj.formErrorResponse(200,"No deals found to onboard"));
-            }
-            if(deals.stream().anyMatch(deal -> deal.getStatus().equals(AccountStatus.ACTIVE))) {
-                return responseObj.render(responseObj.formErrorResponse(200,"Some deals are already active"));
-            }
-            if(deals.stream().anyMatch(deal -> deal.getStatus().equals(AccountStatus.INACTIVE))) {
-                return responseObj.render(responseObj.formErrorResponse(200, "Some deals are already inactive"));
             }
             if(!deals.stream().anyMatch(deal -> deal.getRelationship().equals("Self"))) {
                 return responseObj.render(responseObj.formErrorResponse(200, "Only self relationship is allowed for employee onboarding"));
@@ -823,7 +818,10 @@ public class EndorsementServiceImpl implements IEndorsementService {
             if(failedCount.get() > 0) {
                 return responseObj.render(responseObj.formErrorResponse("Employee onboarding failed for some users. Failed: " + failedCount.get() + ", Failed users: " + failedUsers.toString()));
             }
-            return responseObj.render(responseObj.formSuccessResponse(Constants.SUCCESS, "Employee onboarding completed successfully. Success: " + successCount.get() + ", Failed: " + failedCount.get()));
+            EmployeeOnboardingResponseDto employeeOnboardingResponseDto = new EmployeeOnboardingResponseDto();
+            employeeOnboardingResponseDto.setSuccessUsers(successUsers);
+            employeeOnboardingResponseDto.setFailedUsers(failedUsers);
+            return responseObj.render(responseObj.formSuccessResponse(Constants.SUCCESS, employeeOnboardingResponseDto));
         } catch (OrganizationAccessDeniedException e) {
             logger.warn("[correlationId:{}] Organization access denied: {}", MDC.get("correlationId"));
             return responseObj.render(responseObj.formErrorResponse(403, e.getMessage()));
