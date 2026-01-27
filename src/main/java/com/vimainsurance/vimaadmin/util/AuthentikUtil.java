@@ -482,10 +482,10 @@ public class AuthentikUtil {
         userDto.setIsActive(isActive != null ? isActive : true);
         userDto.setGroups(groups);
         
-        // Set employee_id in attributes if provided
+        // Set user_id in attributes if provided
         if (individualId != null && !individualId.trim().isEmpty()) {
             Map<String, Object> attributes = new HashMap<>();
-            attributes.put("employee_id", individualId);
+            attributes.put("user_id", individualId);
             userDto.setAttributes(attributes);
         }
         
