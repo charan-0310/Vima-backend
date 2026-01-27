@@ -1,6 +1,7 @@
 package com.vimainsurance.vimaadmin.dto;
 
 import java.util.List;
+import java.util.Map;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import lombok.Data;
 
@@ -16,5 +17,7 @@ public class AuthentikUserCreationDto {
     private String type = "internal"; // Default user type
     
     private List<String> groups; // Array of group UUIDs
+    
+    private Map<String, Object> attributes; // Custom attributes for Authentik user
 }
 

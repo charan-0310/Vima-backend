@@ -786,6 +786,9 @@ public class EndorsementServiceImpl implements IEndorsementService {
             if (opt.isEmpty()) {
                 return responseObj.render(responseObj.formErrorResponse(Constants.RECORD_NOT_FOUND_MESSAGE));
             }
+            if(!opt.get().getStatus().equals(AccountStatus.COMPLETED)) {
+                return responseObj.render(responseObj.formErrorResponse(200, "Endorsement not completed yet"));
+            }
             jwtUserExtractor.validateOrganizationAccess(opt.get().getOrganization().getOrganizationId());
             Optional<Organization> orgOpt = organizationRepository.findById(opt.get().getOrganization().getOrganizationId());
             if (orgOpt.isEmpty()) {
@@ -796,9 +799,6 @@ public class EndorsementServiceImpl implements IEndorsementService {
             if(deals.isEmpty()) {
                 return responseObj.render(responseObj.formErrorResponse(200,"No deals found to onboard"));
             }
-            if(!deals.stream().anyMatch(deal -> deal.getRelationship().equals("Self"))) {
-                return responseObj.render(responseObj.formErrorResponse(200, "Only self relationship is allowed for employee onboarding"));
-            }
             String orgName = "ORG_" + orgOpt.get().getOrganizationName().trim().replace(" ", "_").toUpperCase();
             String groupId = authentikUtil.getGroupIdByName(orgName);
             if(groupId == null || groupId.isEmpty()) {
@@ -806,9 +806,12 @@ public class EndorsementServiceImpl implements IEndorsementService {
             }
             deals.stream().forEach(deal -> {
                 try {
-                authentikUtil.createUser(deal.getFullName(), deal.getEmail(), deal.getEmail(), "ROLE_EMPLOYEE", Arrays.asList(orgName), true, "test@123");
-                emailService.sendWelcomeEmail(deal.getEmail(), deal.getFullName(), "test@123");
-                successCount.incrementAndGet();
+                if(deal.getRelationship().equals("SELF")) {
+                    authentikUtil.createUser(deal.getFullName(), deal.getEmail(), deal.getEmail(), "ROLE_EMPLOYEE", Arrays.asList(orgName), true, "test@123", deal.getIndividualId().toString());
+                    emailService.sendWelcomeEmail(deal.getEmail(), deal.getFullName(), "test@123");
+                    successCount.incrementAndGet();
+                    successUsers.add(deal.getEmail());
+                } 
             } catch (Exception e) {
                 failedCount.incrementAndGet();
                 logger.error("[correlationId:{}] Error creating user for deal: {}", MDC.get("correlationId"), e.getMessage());
