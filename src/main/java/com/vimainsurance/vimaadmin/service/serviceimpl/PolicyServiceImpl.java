@@ -168,6 +168,10 @@ public class PolicyServiceImpl implements IPolicyService {
             }
             policy.setCoveredIndividuals(coveredIndividualIds);
 
+            // Set TPA details
+            policy.setTpaOrganizationName(requestDto.getTpaOrganizationName());
+            policy.setTpaContactInfo(requestDto.getTpaContactInfo());
+
             Policy savedPolicy = policyRepository.save(policy);
             logger.info("[correlationId:{}] Policy created successfully with ID: {}", 
                        MDC.get("correlationId"), savedPolicy.getPolicyId());
@@ -218,6 +222,10 @@ public class PolicyServiceImpl implements IPolicyService {
             if (requestDto.getPaymentFrequency() != null && !requestDto.getPaymentFrequency().isEmpty()) {
                 policy.setPaymentFrequency(PaymentFrequency.fromValue(requestDto.getPaymentFrequency()));
             }
+
+            // Update TPA details
+            policy.setTpaOrganizationName(requestDto.getTpaOrganizationName());
+            policy.setTpaContactInfo(requestDto.getTpaContactInfo());
 
             policyRepository.save(policy);
             logger.info("[correlationId:{}] Policy updated successfully", MDC.get("correlationId"));
@@ -521,6 +529,11 @@ public class PolicyServiceImpl implements IPolicyService {
         responseDto.setUpdatedAt(policy.getUpdatedAt());
         responseDto.setNetAmount(policy.getNetAmount());
         responseDto.setGst(policy.getGst());
+
+        // Map TPA details
+        responseDto.setTpaOrganizationName(policy.getTpaOrganizationName());
+        responseDto.setTpaContactInfo(policy.getTpaContactInfo());
+
         List<Deals> dependents = dealsRepository.findByIndividualIdIn(policy.getCoveredIndividuals());
         responseDto.setDependents(dependents.stream()
             .map(this::mapToSimplifiedDependent)
@@ -597,6 +610,11 @@ public class PolicyServiceImpl implements IPolicyService {
             } else {
                 policy.setPaymentFrequency(PaymentFrequency.YEARLY);
             }
+
+            // Set TPA details
+            policy.setTpaOrganizationName(requestDto.getTpaOrganizationName());
+            policy.setTpaContactInfo(requestDto.getTpaContactInfo());
+
             policy.setCreatedAt(LocalDateTime.now());
             policy.setUpdatedAt(LocalDateTime.now());
             

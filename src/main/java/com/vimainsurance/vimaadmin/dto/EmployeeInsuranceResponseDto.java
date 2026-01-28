@@ -41,6 +41,10 @@ public class EmployeeInsuranceResponseDto {
     private LocalDate policyStartDate;
     private String healthId;
 
+    // TPA Details
+    private String tpaOrganizationName;
+    private String tpaContactInfo;
+
     // Covered members (employee + dependents)
     private List<CoveredMemberDto> coveredMembers;
 
@@ -63,5 +67,8 @@ public class EmployeeInsuranceResponseDto {
         private String phone;
         private String status;
         private BigDecimal sumInsured;
+        // TPA Details
+        private String tpaOrganizationName;
+        private String tpaContactInfo;
     }
 }

@@ -76,10 +76,10 @@ public class EmployeeInsuranceServiceImpl implements IEmployeeInsuranceService {
         Long policyId = primaryPolicy != null ? primaryPolicy.getPolicyId() : null;
 
         // Add primary employee to covered members
-        coveredMembers.add(mapToCoveredMember(employee, policyId));
+        coveredMembers.add(mapToCoveredMember(employee, policyId, primaryPolicy));
 
         // Add all dependents to covered members
-        dependents.forEach(dependent -> coveredMembers.add(mapToCoveredMember(dependent, policyId)));
+        dependents.forEach(dependent -> coveredMembers.add(mapToCoveredMember(dependent, policyId, primaryPolicy)));
 
 
         // Build and return the response DTO
@@ -104,6 +104,9 @@ public class EmployeeInsuranceServiceImpl implements IEmployeeInsuranceService {
                 .sumInsured(primaryPolicy != null ? primaryPolicy.getSumInsured() : null)
                 .premiumAmount(primaryPolicy != null ? primaryPolicy.getPremiumAmount() : null)
                 .policyStartDate(primaryPolicy != null ? primaryPolicy.getStartDate() : null)
+                // TPA Details
+                .tpaOrganizationName(primaryPolicy != null ? primaryPolicy.getTpaOrganizationName() : null)
+                .tpaContactInfo(primaryPolicy != null ? primaryPolicy.getTpaContactInfo() : null)
 
                 .coveredMembers(coveredMembers)
                 .build();
@@ -113,7 +116,7 @@ public class EmployeeInsuranceServiceImpl implements IEmployeeInsuranceService {
     /**
      * Map Deals entity to CoveredMemberDto
      */
-    private EmployeeInsuranceResponseDto.CoveredMemberDto mapToCoveredMember(Deals deal, Long policyId) {
+    private EmployeeInsuranceResponseDto.CoveredMemberDto mapToCoveredMember(Deals deal, Long policyId, Policy primaryPolicy) {
         // Parse sum insured from string to BigDecimal
         BigDecimal sumInsured = null;
         if (deal.getSumInsured() != null && !deal.getSumInsured().isEmpty()) {
@@ -138,6 +141,9 @@ public class EmployeeInsuranceServiceImpl implements IEmployeeInsuranceService {
                 .phone(deal.getPhone())
                 .status(deal.getStatus() != null ? deal.getStatus().getValue() : null)
                 .sumInsured(sumInsured)
+                // TPA Details
+                .tpaOrganizationName(primaryPolicy != null ? primaryPolicy.getTpaOrganizationName() : null)
+                .tpaContactInfo(primaryPolicy != null ? primaryPolicy.getTpaContactInfo() : null)
                 .build();
     }
 

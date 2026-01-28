@@ -78,4 +78,12 @@ public class PolicyRequestDto {
     private BigDecimal netAmount;
 
     private BigDecimal gst;
+
+    // TPA Details
+    @NotBlank(message = "TPA Organization Name is required")
+    @Size(max = 255, message = "TPA Organization Name must not exceed 255 characters")
+    private String tpaOrganizationName;
+
+    @Size(max = 255, message = "TPA Contact Info must not exceed 255 characters")
+    private String tpaContactInfo;
 }
