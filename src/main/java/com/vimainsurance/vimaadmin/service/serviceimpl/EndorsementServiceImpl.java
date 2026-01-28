@@ -810,8 +810,12 @@ public class EndorsementServiceImpl implements IEndorsementService {
             deals.stream().forEach(deal -> {
                 try {
                 if(deal.getRelationship().equals("SELF")) {
-                    authentikUtil.createUser(deal.getFullName(), deal.getEmail(), deal.getEmail(), "ROLE_EMPLOYEE", Arrays.asList(orgName), true, "test@123", deal.getIndividualId().toString());
-                    emailService.sendWelcomeEmail(deal.getEmail(), deal.getFullName(), "test@123");
+                    String dateStr = deal.getDateOfBirth() != null 
+                    ? deal.getDateOfBirth().format(java.time.format.DateTimeFormatter.ofPattern("ddMM"))
+                    : "0101";
+                    String password = deal.getFullName().trim().toLowerCase() + "@" + dateStr;
+                    authentikUtil.createUser(deal.getFullName(), deal.getEmail().toLowerCase(), deal.getEmail().toLowerCase(), "ROLE_EMPLOYEE", Arrays.asList(orgName), true, password, deal.getIndividualId().toString());
+                    emailService.sendWelcomeEmail(deal.getEmail().toLowerCase(), deal.getEmail().toLowerCase(), password);
                     successCount.incrementAndGet();
                     successUsers.add(deal.getEmail());
                 } 
