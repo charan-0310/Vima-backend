@@ -5,11 +5,19 @@ import com.fasterxml.jackson.annotation.JsonValue;
 
 /**
  * Enum for coverage types in insurance policies
+ * Includes traditional coverage types and GMC-specific coverage types
  */
 public enum CoverageType {
+    // Traditional Coverage Types
     INDIVIDUAL("INDIVIDUAL"),
     FAMILY_FLOATER("FAMILY_FLOATER"),
-    GROUP("GROUP");
+    GROUP("GROUP"),
+
+    // GMC Coverage Types
+    E("E"),           // Employee only
+    ES("ES"),         // Employee + Spouse
+    ESC("ESC"),       // Employee + Spouse + Children
+    ESCP("ESCP");     // Employee + Spouse + Children + Parents
 
     private final String value;
 
@@ -35,5 +43,27 @@ public enum CoverageType {
     @Override
     public String toString() {
         return value;
+    }
+
+    /**
+     * Check if this is a GMC coverage type
+     */
+    public boolean isGMCCoverageType() {
+        return this == E || this == ES || this == ESC || this == ESCP;
+    }
+
+    /**
+     * Get description of coverage type
+     */
+    public String getDescription() {
+        return switch (this) {
+            case E -> "Employee Only";
+            case ES -> "Employee + Spouse";
+            case ESC -> "Employee + Spouse + Children";
+            case ESCP -> "Employee + Spouse + Children + Parents";
+            case INDIVIDUAL -> "Individual Coverage";
+            case FAMILY_FLOATER -> "Family Floater";
+            case GROUP -> "Group Coverage";
+        };
     }
 }
