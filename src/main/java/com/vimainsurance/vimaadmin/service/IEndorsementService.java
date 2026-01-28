@@ -12,6 +12,7 @@ import com.vimainsurance.vimaadmin.dto.EndorsementRequestDto;
 import com.vimainsurance.vimaadmin.dto.EndorsementResponseDto;
 import com.vimainsurance.vimaadmin.dto.HealthIdUploadDto;
 import com.vimainsurance.vimaadmin.dto.ResponseDto;
+import com.vimainsurance.vimaadmin.dto.EmployeeOnboardingRequestDto;
 import com.vimainsurance.vimaadmin.dto.EmployeeOnboardingResponseDto;
 
 public interface IEndorsementService {
@@ -61,6 +62,8 @@ public interface IEndorsementService {
     ResponseEntity<Resource> downloadDocument(UUID endorsementId,String documentId);
 
     ResponseEntity<ResponseDto<EmployeeOnboardingResponseDto>> employeeOnboarding(UUID endorsementId);
+    
+    ResponseEntity<ResponseDto<EmployeeOnboardingResponseDto>> employeeOnboarding(EmployeeOnboardingRequestDto requestDto);
 
     ResponseEntity<ResponseDto<List<HealthIdUploadDto>>> uploadHealthIds(UUID endorsementId, List<HealthIdUploadDto> healthIdList);
 

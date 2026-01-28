@@ -775,56 +775,92 @@ public class EndorsementServiceImpl implements IEndorsementService {
 
     @Override
     public ResponseEntity<ResponseDto<EmployeeOnboardingResponseDto>> employeeOnboarding(UUID endorsementId) {
-        logger.info("[correlationId:{}] Endorsement employeeOnboarding called for {}", MDC.get("correlationId"), endorsementId);
+        EmployeeOnboardingRequestDto requestDto = new EmployeeOnboardingRequestDto();
+        requestDto.setEndorsementId(endorsementId);
+        return employeeOnboarding(requestDto);
+    }
+
+    public ResponseEntity<ResponseDto<EmployeeOnboardingResponseDto>> employeeOnboarding(EmployeeOnboardingRequestDto requestDto) {
+        logger.info("[correlationId:{}] Endorsement employeeOnboarding called for endorsementId: {}, individualIds: {}", 
+            MDC.get("correlationId"), requestDto.getEndorsementId(), requestDto.getIndividualIds());
         BaseResponse<EmployeeOnboardingResponseDto> responseObj = new BaseResponse<>();
         try {
+            // Validate that at least one parameter is provided
+            if (requestDto.getEndorsementId() == null && 
+                (requestDto.getIndividualIds() == null || requestDto.getIndividualIds().isEmpty())) {
+                return responseObj.render(responseObj.formErrorResponse("Either endorsementId or individualIds must be provided"));
+            }
+
             AtomicInteger successCount = new AtomicInteger(0);
             AtomicInteger failedCount = new AtomicInteger(0);
             List<String> successUsers = new ArrayList<>();
             List<String> failedUsers = new ArrayList<>();
-            Optional<Endorsement> opt = endorsementRepository.findById(endorsementId);
-            if (opt.isEmpty()) {
-                return responseObj.render(responseObj.formErrorResponse(Constants.RECORD_NOT_FOUND_MESSAGE));
+            
+            List<Deals> deals;
+            Organization organization;
+            
+            // Handle endorsementId case
+            if (requestDto.getEndorsementId() != null) {
+                Optional<Endorsement> opt = endorsementRepository.findById(requestDto.getEndorsementId());
+                if (opt.isEmpty()) {
+                    return responseObj.render(responseObj.formErrorResponse(Constants.RECORD_NOT_FOUND_MESSAGE));
+                }
+                if(!opt.get().getStatus().equals(AccountStatus.COMPLETED)) {
+                    return responseObj.render(responseObj.formErrorResponse(200, "Endorsement not completed yet"));
+                }
+                jwtUserExtractor.validateOrganizationAccess(opt.get().getOrganization().getOrganizationId());
+                Optional<Organization> orgOpt = organizationRepository.findById(opt.get().getOrganization().getOrganizationId());
+                if (orgOpt.isEmpty()) {
+                    return responseObj.render(responseObj.formErrorResponse("Organization not found"));
+                }
+                organization = orgOpt.get();
+                jwtUserExtractor.validateOrganizationAccess(organization.getOrganizationId());
+                deals = dealsRepository.findByEndorsementId(requestDto.getEndorsementId());
+            } else {
+                // Handle individualIds case
+                deals = dealsRepository.findByIndividualIdIn(requestDto.getIndividualIds());
+                if (deals.isEmpty()) {
+                    return responseObj.render(responseObj.formErrorResponse(200, "No deals found for provided individualIds"));
+                }
+                // Get organization from the first deal (assuming all deals belong to same organization)
+                UUID organizationId = deals.get(0).getOrganization() != null 
+                    ? deals.get(0).getOrganization().getOrganizationId() 
+                    : null;
+                if (organizationId == null) {
+                    return responseObj.render(responseObj.formErrorResponse("Deals must belong to an organization"));
+                }
+                jwtUserExtractor.validateOrganizationAccess(organizationId);
+                Optional<Organization> orgOpt = organizationRepository.findById(organizationId);
+                if (orgOpt.isEmpty()) {
+                    return responseObj.render(responseObj.formErrorResponse("Organization not found"));
+                }
+                organization = orgOpt.get();
+                
+                // Validate all deals belong to the same organization
+                boolean allSameOrg = deals.stream()
+                    .allMatch(deal -> deal.getOrganization() != null && 
+                        deal.getOrganization().getOrganizationId().equals(organizationId));
+                if (!allSameOrg) {
+                    return responseObj.render(responseObj.formErrorResponse("All deals must belong to the same organization"));
+                }
             }
-            if(!opt.get().getStatus().equals(AccountStatus.COMPLETED)) {
-                return responseObj.render(responseObj.formErrorResponse(200, "Endorsement not completed yet"));
-            }
-            jwtUserExtractor.validateOrganizationAccess(opt.get().getOrganization().getOrganizationId());
-            Optional<Organization> orgOpt = organizationRepository.findById(opt.get().getOrganization().getOrganizationId());
-            if (orgOpt.isEmpty()) {
-                return responseObj.render(responseObj.formErrorResponse("Organization not found"));
-            }
-            jwtUserExtractor.validateOrganizationAccess(orgOpt.get().getOrganizationId());
-            List<Deals> deals = dealsRepository.findByEndorsementId(endorsementId);
+            
             if(!deals.stream().anyMatch(deal -> deal.getStatus().equals(AccountStatus.ACTIVE))) {
-                return responseObj.render(responseObj.formErrorResponse(200, "No deals found to onboard"));
+                return responseObj.render(responseObj.formErrorResponse(200, "No active deals found to onboard"));
             }
             if(deals.isEmpty()) {
                 return responseObj.render(responseObj.formErrorResponse(200,"No deals found to onboard"));
             }
-            String orgName = "ORG_" + orgOpt.get().getOrganizationName().trim().replace(" ", "_").toUpperCase();
+            
+            String orgName = "ORG_" + organization.getOrganizationName().trim().replace(" ", "_").toUpperCase();
             String groupId = authentikUtil.getGroupIdByName(orgName);
             if(groupId == null || groupId.isEmpty()) {
                 return responseObj.render(responseObj.formErrorResponse("No groups found"));
             }
-            deals.stream().forEach(deal -> {
-                try {
-                if(deal.getRelationship().equals("SELF")) {
-                    String dateStr = deal.getDateOfBirth() != null 
-                    ? deal.getDateOfBirth().format(java.time.format.DateTimeFormatter.ofPattern("ddMM"))
-                    : "0101";
-                    String password = deal.getFullName().trim().toLowerCase() + "@" + dateStr;
-                    authentikUtil.createUser(deal.getFullName(), deal.getEmail().toLowerCase(), deal.getEmail().toLowerCase(), "ROLE_EMPLOYEE", Arrays.asList(orgName), true, password, deal.getIndividualId().toString());
-                    emailService.sendWelcomeEmail(deal.getEmail().toLowerCase(), deal.getEmail().toLowerCase(), password);
-                    successCount.incrementAndGet();
-                    successUsers.add(deal.getEmail());
-                } 
-            } catch (Exception e) {
-                failedCount.incrementAndGet();
-                logger.error("[correlationId:{}] Error creating user for deal: {}", MDC.get("correlationId"), e.getMessage());
-                failedUsers.add(deal.getEmail());
-            }
-            });
+            
+            // Process deals for onboarding
+            processDealsForOnboarding(deals, orgName, successCount, failedCount, successUsers, failedUsers);
+            
             if(failedCount.get() > 0) {
                 return responseObj.render(responseObj.formErrorResponse("Employee onboarding failed for some users. Failed: " + failedCount.get() + ", Failed users: " + failedUsers.toString()));
             }
@@ -835,12 +871,39 @@ public class EndorsementServiceImpl implements IEndorsementService {
             employeeOnboardingResponseDto.setFailedCount(failedCount.get());
             return responseObj.render(responseObj.formSuccessResponse(Constants.SUCCESS, employeeOnboardingResponseDto));
         } catch (OrganizationAccessDeniedException e) {
-            logger.warn("[correlationId:{}] Organization access denied: {}", MDC.get("correlationId"));
+            logger.warn("[correlationId:{}] Organization access denied: {}", MDC.get("correlationId"), e.getMessage());
             return responseObj.render(responseObj.formErrorResponse(403, e.getMessage()));
         } catch (Exception e) {
             logger.error("[correlationId:{}] Exception in Endorsement employeeOnboarding: {}", MDC.get("correlationId"), e.getMessage(), e);
             return responseObj.render(responseObj.formErrorResponse("Failed to complete employee onboarding!"));
         }
+    }
+
+    /**
+     * Helper method to process deals for onboarding
+     */
+    private void processDealsForOnboarding(List<Deals> deals, String orgName, 
+            AtomicInteger successCount, AtomicInteger failedCount, 
+            List<String> successUsers, List<String> failedUsers) {
+        deals.stream().forEach(deal -> {
+            try {
+                if(deal.getRelationship().equals("SELF")) {
+                    String dateStr = deal.getDateOfBirth() != null 
+                        ? deal.getDateOfBirth().format(java.time.format.DateTimeFormatter.ofPattern("ddMM"))
+                        : "0101";
+                    String password = deal.getFullName().trim().toLowerCase().replaceAll("\\s+", "") + "@" + dateStr;
+                    authentikUtil.createUser(deal.getFullName(), deal.getEmail().toLowerCase(), deal.getEmail().toLowerCase(), 
+                        "ROLE_EMPLOYEE", Arrays.asList(orgName), true, password, deal.getIndividualId().toString());
+                    emailService.sendWelcomeEmail(deal.getEmail().toLowerCase(), deal.getEmail().toLowerCase(), password);
+                    successCount.incrementAndGet();
+                    successUsers.add(deal.getEmail());
+                } 
+            } catch (Exception e) {
+                failedCount.incrementAndGet();
+                logger.error("[correlationId:{}] Error creating user for deal: {}", MDC.get("correlationId"), e.getMessage());
+                failedUsers.add(deal.getEmail() != null ? deal.getEmail() : deal.getFullName() != null ? deal.getFullName() : "Unknown");
+            }
+        });
     }
 
     
