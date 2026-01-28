@@ -110,6 +110,11 @@ public class AdminUserServiceImpl implements IAdminUserService {
             mapRequestToEntity(requestDto, user);
             user.setCreatedAt(LocalDateTime.now());
             AdminUser saved = adminUserRepository.save(user);
+            String dateStr = saved.getCreatedAt() != null 
+            ? saved.getCreatedAt().format(java.time.format.DateTimeFormatter.ofPattern("ddMM"))
+            : "0101";
+            String password = saved.getFullName().trim().toLowerCase() + "@" + dateStr;
+            
 
             // Create user in Authentik first
             try {
@@ -120,7 +125,7 @@ public class AdminUserServiceImpl implements IAdminUserService {
                     requestDto.getRole(),
                     requestDto.getOrganizations(),
                     requestDto.getIsActive() != null ? requestDto.getIsActive() : true,
-                    null,
+                    password,
                     saved.getId().toString()
                 );
                 logger.info("[correlationId:{}] User created successfully in Authentik: {}", MDC.get("correlationId"), requestDto.getUsername());
