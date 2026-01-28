@@ -894,7 +894,7 @@ public class EndorsementServiceImpl implements IEndorsementService {
                     String password = deal.getFullName().trim().toLowerCase().replaceAll("\\s+", "") + "@" + dateStr;
                     authentikUtil.createUser(deal.getFullName(), deal.getEmail().toLowerCase(), deal.getEmail().toLowerCase(), 
                         "ROLE_EMPLOYEE", Arrays.asList(orgName), true, password, deal.getIndividualId().toString());
-                    // emailService.sendWelcomeEmail(deal.getEmail().toLowerCase(), deal.getEmail().toLowerCase(), password);
+                    emailService.sendWelcomeEmail(deal.getEmail().toLowerCase(), deal.getEmail().toLowerCase(), password);
                     successCount.incrementAndGet();
                     successUsers.add(deal.getEmail());
                 } 
