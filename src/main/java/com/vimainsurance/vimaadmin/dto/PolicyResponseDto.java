@@ -57,4 +57,8 @@ public class PolicyResponseDto {
     private MotorPolicyDetailsResponseDto motorPolicyDetails;
 
     private String paymentFrequency;
+
+    // TPA Details
+    private String tpaOrganizationName;
+    private String tpaContactInfo;
 }

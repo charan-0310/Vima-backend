@@ -60,6 +60,13 @@ public class Policy {
     @JoinColumn(name = "document_id")
     private Document document;
 
+    // TPA Details
+    @Column(name = "tpa_organization_name", nullable = false)
+    private String tpaOrganizationName;
+
+    @Column(name = "tpa_contact_info")
+    private String tpaContactInfo;
+
     // Policy Details
     @Enumerated(EnumType.STRING)
     @JdbcTypeCode(SqlTypes.NAMED_ENUM)
