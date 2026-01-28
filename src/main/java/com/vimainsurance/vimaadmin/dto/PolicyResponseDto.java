@@ -22,11 +22,18 @@ public class PolicyResponseDto {
     private UUID insuranceProductId;
     private UUID organizationId;
     private UUID documentId;
-    private String productType;
-    private String coverageType;
+
+    // Policy Type and Category
+    private String productType; // GMC, GPA, GTL
+    private String policyCategory; // EMPLOYEE, MOTOR, PROPERTY, LIABILITY
+    private Boolean appliesToEmployees;
+
+
+    private String coverageType; // E, ES, ESC, ESCP (for GMC) or INDIVIDUAL, FAMILY_FLOATER, GROUP (traditional)
     private String status;
     private List<UUID> coveredIndividuals;
     private BigDecimal sumInsured;
+    private Integer sumInsuredMultiplier; // For GPA/GTL
     private BigDecimal premiumAmount;
     private BigDecimal netAmount;
     private BigDecimal gst;

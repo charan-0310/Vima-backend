@@ -4,17 +4,27 @@ import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonValue;
 
 /**
- * Enum for product types in insurance policies
+ * Enum for product types and policy types in insurance policies
+ * Includes traditional product types and new policy types (GMC, GPA, GTL)
  */
 public enum ProductType {
+    // Traditional Product Types
     HEALTH("HEALTH"),
     MOTOR("MOTOR"),
     GENERAL("GENERAL"),
     TERM("TERM"),
     LIFE("LIFE"),
     GHI("GHI"),
-    GPA("GPA"),
-    GTI("GTI");
+    GTI("GTI"),
+
+    // Policy Types (Employee Benefits)
+    GMC("GMC"),    // Group Medical Coverage (Health Insurance with TPA)
+    GPA("GPA"),    // Group Personal Accident
+    GTL("GTL"),   // Group Term Life
+
+    EMPLOYEE("EMPLOYEE"),
+    PROPERTY("PROPERTY"),
+    LIABILITY("LIABILITY");
 
     private final String value;
 
@@ -40,5 +50,33 @@ public enum ProductType {
     @Override
     public String toString() {
         return value;
+    }
+
+    /**
+     * Check if this product type supports dependents
+     */
+    public boolean supportsDependents() {
+        return this == GMC || this == GHI || this == HEALTH;
+    }
+
+    /**
+     * Check if this product type requires TPA
+     */
+    public boolean requiresTPA() {
+        return this == GMC;
+    }
+
+    /**
+     * Check if this product type uses CTC multiplier
+     */
+    public boolean usesCTCMultiplier() {
+        return this == GPA || this == GTL;
+    }
+
+    /**
+     * Check if this is a policy type (not a product type)
+     */
+    public boolean isPolicyType() {
+        return this == GMC || this == GPA || this == GTL;
     }
 }

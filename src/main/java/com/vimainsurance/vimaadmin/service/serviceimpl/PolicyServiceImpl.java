@@ -11,7 +11,6 @@ import java.util.Optional;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
-import org.apache.http.HttpStatus;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.slf4j.MDC;
@@ -45,6 +44,7 @@ import com.vimainsurance.vimaadmin.enums.PolicyStatus;
 import com.vimainsurance.vimaadmin.enums.ProductType;
 import com.vimainsurance.vimaadmin.enums.UserRole;
 import com.vimainsurance.vimaadmin.exception.OrganizationAccessDeniedException;
+import com.vimainsurance.vimaadmin.exception.BadRequestException;
 import com.vimainsurance.vimaadmin.repository.IAdminUserRepository;
 import com.vimainsurance.vimaadmin.repository.IDealsRepository;
 import com.vimainsurance.vimaadmin.repository.IDocumentRepository;
@@ -56,6 +56,7 @@ import com.vimainsurance.vimaadmin.service.IDocumentService;
 import com.vimainsurance.vimaadmin.service.IPolicyService;
 import com.vimainsurance.vimaadmin.util.Constants;
 import com.vimainsurance.vimaadmin.util.JwtUserExtractor;
+import com.vimainsurance.vimaadmin.util.PolicyValidationUtil;
 /**
  * Service implementation for Policy operations
  */
@@ -98,6 +99,9 @@ public class PolicyServiceImpl implements IPolicyService {
         BaseResponse<String> responseObj = new BaseResponse<>();
         
         try {
+            // Validate policy request based on policy type
+            PolicyValidationUtil.validatePolicyRequest(requestDto);
+
             // Check if policy number already exists
             if (policyRepository.existsByPolicyNumber(requestDto.getPolicyNumber())) {
                 return responseObj.render(responseObj.formErrorResponse("Policy number already exists"));
@@ -109,9 +113,13 @@ public class PolicyServiceImpl implements IPolicyService {
             }
             AdminUser agent = adminUser.get();
             Deals primaryIndividual = dealsRepository.findById(requestDto.getPrimaryIndividualId()).orElseThrow(() -> new RuntimeException("Primary individual not found"));
-            // Create and save dependents first
+
+            // Get policy type
+            ProductType policyType = ProductType.fromValue(requestDto.getProductType());
+
+            // Create and save dependents first (only for GMC policies)
             List<UUID> coveredIndividualIds = new ArrayList<>();
-            if (requestDto.getDependents() != null && !requestDto.getDependents().isEmpty()) {
+            if (policyType == ProductType.GMC && requestDto.getDependents() != null && !requestDto.getDependents().isEmpty()) {
                 for (DealsRequestDto dependentDto : requestDto.getDependents()) {
                     // Create dependent as a new Deals entity
                     Deals dependent = new Deals();
@@ -142,6 +150,7 @@ public class PolicyServiceImpl implements IPolicyService {
                     logger.info("[correlationId:{}] Dependent saved with ID: {}", MDC.get("correlationId"), savedDependent.getIndividualId());
                 }
             }
+
             // Create policy entity
             Policy policy = new Policy();
             policy.setPolicyNumber(requestDto.getPolicyNumber());
@@ -151,9 +160,27 @@ public class PolicyServiceImpl implements IPolicyService {
             policy.setInsuranceProductId(requestDto.getInsuranceProductId());
             policy.setOrganizationId(requestDto.getOrganizationId());
             policy.setDocument(resolveDocument(requestDto.getDocumentId()));
-            policy.setProductType(ProductType.fromValue(requestDto.getProductType()));
-            policy.setCoverageType(CoverageType.fromValue(requestDto.getCoverageType()));
-            policy.setStatus(requestDto.getStatus() != null ? 
+
+            // Set product type (used for policy type: GMC, GPA, GTL, or traditional types)
+            policy.setProductType(policyType);
+
+            // Set policy category
+            policy.setProductType(requestDto.getProductType() != null ?
+                ProductType.fromValue(requestDto.getProductType()) : ProductType.EMPLOYEE);
+            policy.setAppliesToEmployees(requestDto.getAppliesToEmployees() != null ?
+                requestDto.getAppliesToEmployees() : true);
+
+            // Set coverage type (for GMC: E, ES, ESC, ESCP; for traditional: INDIVIDUAL, FAMILY_FLOATER, GROUP)
+            if (requestDto.getCoverageType() != null && !requestDto.getCoverageType().isEmpty()) {
+                policy.setCoverageType(CoverageType.fromValue(requestDto.getCoverageType()));
+            }
+
+            // Set sum insured multiplier (for GPA/GTL only)
+            if ((policyType == ProductType.GPA || policyType == ProductType.GTL) && requestDto.getSumInsuredMultiplier() != null) {
+                policy.setSumInsuredMultiplier(requestDto.getSumInsuredMultiplier());
+            }
+
+            policy.setStatus(requestDto.getStatus() != null ?
                 PolicyStatus.fromValue(requestDto.getStatus()) : PolicyStatus.ACTIVE);
             policy.setSumInsured(requestDto.getSumInsured());
             policy.setPremiumAmount(requestDto.getPremiumAmount());
@@ -168,15 +195,20 @@ public class PolicyServiceImpl implements IPolicyService {
             }
             policy.setCoveredIndividuals(coveredIndividualIds);
 
-            // Set TPA details
-            policy.setTpaOrganizationName(requestDto.getTpaOrganizationName());
-            policy.setTpaContactInfo(requestDto.getTpaContactInfo());
+            // Set TPA details (for GMC only)
+            if (policyType == ProductType.GMC) {
+                policy.setTpaOrganizationName(requestDto.getTpaOrganizationName());
+                policy.setTpaContactInfo(requestDto.getTpaContactInfo());
+            }
 
             Policy savedPolicy = policyRepository.save(policy);
             logger.info("[correlationId:{}] Policy created successfully with ID: {}", 
                        MDC.get("correlationId"), savedPolicy.getPolicyId());
             
             return responseObj.render(responseObj.formSuccessResponse(Constants.SUCCESS, Constants.SAVE_SUCCESS));
+        } catch (BadRequestException e) {
+            logger.error("[correlationId:{}] Validation error in createPolicy: {}", MDC.get("correlationId"), e.getMessage());
+            return responseObj.render(responseObj.formErrorResponse(e.getMessage()));
         } catch (Exception e) {
             logger.error("[correlationId:{}] Exception in createPolicy: {}", MDC.get("correlationId"), e.getMessage(), e);
             return responseObj.render(responseObj.formErrorResponse(e.getMessage()));
@@ -189,6 +221,9 @@ public class PolicyServiceImpl implements IPolicyService {
         BaseResponse<String> responseObj = new BaseResponse<>();
         
         try {
+            // Validate policy request based on policy type
+            PolicyValidationUtil.validatePolicyRequest(requestDto);
+
             Optional<Policy> policyOpt = policyRepository.findById(policyId);
             if (policyOpt.isEmpty()) {
                 return responseObj.render(responseObj.formErrorResponse(Constants.RECORD_NOT_FOUND_MESSAGE));
@@ -202,6 +237,9 @@ public class PolicyServiceImpl implements IPolicyService {
                 return responseObj.render(responseObj.formErrorResponse("Policy number already exists"));
             }
 
+            // Get policy type
+            ProductType policyType = ProductType.fromValue(requestDto.getProductType());
+
             // Update policy fields
             policy.setPolicyNumber(requestDto.getPolicyNumber());
             policy.setPrimaryIndividualId(requestDto.getPrimaryIndividualId());
@@ -209,11 +247,35 @@ public class PolicyServiceImpl implements IPolicyService {
             policy.setInsuranceProductId(requestDto.getInsuranceProductId());
             policy.setOrganizationId(requestDto.getOrganizationId());
             policy.setDocument(resolveDocument(requestDto.getDocumentId()));
-            policy.setProductType(ProductType.fromValue(requestDto.getProductType()));
-            policy.setCoverageType(CoverageType.fromValue(requestDto.getCoverageType()));
+
+            // Update product type (used for policy type: GMC, GPA, GTL, or traditional types)
+            policy.setProductType(policyType);
+
+            // Update policy category
+            policy.setProductType(requestDto.getProductType() != null ?
+                ProductType.fromValue(requestDto.getProductType()) : ProductType.EMPLOYEE);
+            policy.setAppliesToEmployees(requestDto.getAppliesToEmployees() != null ?
+                requestDto.getAppliesToEmployees() : true);
+
+            // Update coverage type (for GMC: E, ES, ESC, ESCP; for traditional: INDIVIDUAL, FAMILY_FLOATER, GROUP)
+            if (requestDto.getCoverageType() != null && !requestDto.getCoverageType().isEmpty()) {
+                policy.setCoverageType(CoverageType.fromValue(requestDto.getCoverageType()));
+            } else {
+                policy.setCoverageType(null);
+            }
+
+            // Update sum insured multiplier (for GPA/GTL only)
+            // Update sum insured multiplier (for GPA/GTL only)
+            if ((policyType == ProductType.GPA || policyType == ProductType.GTL) && requestDto.getSumInsuredMultiplier() != null) {
+                policy.setSumInsuredMultiplier(requestDto.getSumInsuredMultiplier());
+            } else {
+                policy.setSumInsuredMultiplier(null);
+            }
+
             if (requestDto.getStatus() != null) {
                 policy.setStatus(PolicyStatus.fromValue(requestDto.getStatus()));
             }
+            policy.setSumInsured(requestDto.getSumInsured());
             policy.setPremiumAmount(requestDto.getPremiumAmount());
             policy.setStartDate(requestDto.getStartDate());
             policy.setEndDate(requestDto.getEndDate());
@@ -223,14 +285,22 @@ public class PolicyServiceImpl implements IPolicyService {
                 policy.setPaymentFrequency(PaymentFrequency.fromValue(requestDto.getPaymentFrequency()));
             }
 
-            // Update TPA details
-            policy.setTpaOrganizationName(requestDto.getTpaOrganizationName());
-            policy.setTpaContactInfo(requestDto.getTpaContactInfo());
+            // Update TPA details (for GMC only)
+            if (policyType == ProductType.GMC) {
+                policy.setTpaOrganizationName(requestDto.getTpaOrganizationName());
+                policy.setTpaContactInfo(requestDto.getTpaContactInfo());
+            } else {
+                policy.setTpaOrganizationName(null);
+                policy.setTpaContactInfo(null);
+            }
 
             policyRepository.save(policy);
             logger.info("[correlationId:{}] Policy updated successfully", MDC.get("correlationId"));
             
             return responseObj.render(responseObj.formSuccessResponse(Constants.SUCCESS, Constants.UPDATE_SUCCESS));
+        } catch (BadRequestException e) {
+            logger.error("[correlationId:{}] Validation error in updatePolicy: {}", MDC.get("correlationId"), e.getMessage());
+            return responseObj.render(responseObj.formErrorResponse(e.getMessage()));
         } catch (Exception e) {
             logger.error("[correlationId:{}] Exception in updatePolicy: {}", MDC.get("correlationId"), e.getMessage(), e);
             return responseObj.render(responseObj.formErrorResponse(e.getMessage()));
@@ -515,10 +585,19 @@ public class PolicyServiceImpl implements IPolicyService {
         responseDto.setInsuranceProductId(policy.getInsuranceProductId());
         responseDto.setOrganizationId(policy.getOrganizationId());
         responseDto.setDocumentId(policy.getDocument() != null ? policy.getDocument().getDocumentId() : null);
+
+        // Map policy type (using productType field) and category
+        responseDto.setProductType(policy.getProductType() != null ? policy.getProductType().getValue() : null);
+        responseDto.setAppliesToEmployees(policy.getAppliesToEmployees());
+
         responseDto.setProductType(policy.getProductType().getValue());
-        responseDto.setCoverageType(policy.getCoverageType().getValue());
+
+        // Map coverage type (E, ES, ESC, ESCP for GMC or INDIVIDUAL, FAMILY_FLOATER, GROUP for traditional)
+        responseDto.setCoverageType(policy.getCoverageType() != null ? policy.getCoverageType().getValue() : null);
+
         responseDto.setStatus(policy.getStatus().getValue());
         responseDto.setSumInsured(policy.getSumInsured());
+        responseDto.setSumInsuredMultiplier(policy.getSumInsuredMultiplier());
         responseDto.setPremiumAmount(policy.getPremiumAmount());
         responseDto.setStartDate(policy.getStartDate());
         responseDto.setEndDate(policy.getEndDate());
@@ -530,7 +609,7 @@ public class PolicyServiceImpl implements IPolicyService {
         responseDto.setNetAmount(policy.getNetAmount());
         responseDto.setGst(policy.getGst());
 
-        // Map TPA details
+        // Map TPA details (for GMC only)
         responseDto.setTpaOrganizationName(policy.getTpaOrganizationName());
         responseDto.setTpaContactInfo(policy.getTpaContactInfo());
 
@@ -656,10 +735,4 @@ public class PolicyServiceImpl implements IPolicyService {
             return responseObj.render(responseObj.formErrorResponse(e.getMessage()));
         }
     }
-    
-    
-
- 
-
-    
-}
+ }
