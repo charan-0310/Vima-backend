@@ -14,9 +14,9 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.nullable;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
-import static org.mockito.Mockito.doNothing;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
@@ -105,7 +105,8 @@ class AdminUserServiceImplTest {
     void testCreateAdminUser_Success() {
         when(adminUserRepository.findByUsername(requestDto.getUsername())).thenReturn(Optional.empty());
         when(adminUserRepository.findByEmail(requestDto.getEmail())).thenReturn(Optional.empty());
-        doNothing().when(authentikUtil).createUser(anyString(), anyString(), anyString(), anyString(), any(), anyBoolean());
+        when(adminUserRepository.save(any(AdminUser.class))).thenReturn(adminUser);
+        when(authentikUtil.createUser(anyString(), anyString(), anyString(), anyString(), any(), anyBoolean(), nullable(String.class), anyString())).thenReturn("TempPassword123");
         
         ResponseEntity<ResponseDto<String>> response = adminUserService.createAdminUser(requestDto);
         
@@ -113,7 +114,7 @@ class AdminUserServiceImplTest {
         assertEquals(Constants.SUCCESS, response.getBody().getMessage());
         assertNotNull(response.getBody().getPayload());
         assertEquals("User created successfully", response.getBody().getPayload());
-        verify(authentikUtil, times(1)).createUser(anyString(), anyString(), anyString(), anyString(), any(), anyBoolean());
+        verify(authentikUtil, times(1)).createUser(anyString(), anyString(), anyString(), anyString(), any(), anyBoolean(), nullable(String.class), anyString());
     }
 
     @Test
@@ -143,7 +144,8 @@ class AdminUserServiceImplTest {
     void testCreateAdminUser_Exception() {
         when(adminUserRepository.findByUsername(requestDto.getUsername())).thenReturn(Optional.empty());
         when(adminUserRepository.findByEmail(requestDto.getEmail())).thenReturn(Optional.empty());
-        doThrow(new RuntimeException("Database error")).when(authentikUtil).createUser(anyString(), anyString(), anyString(), anyString(), any(), anyBoolean());
+        when(adminUserRepository.save(any(AdminUser.class))).thenReturn(adminUser);
+        doThrow(new RuntimeException("Database error")).when(authentikUtil).createUser(anyString(), anyString(), anyString(), anyString(), any(), anyBoolean(), nullable(String.class), anyString());
 
         ResponseEntity<ResponseDto<String>> response = adminUserService.createAdminUser(requestDto);
         
@@ -514,13 +516,15 @@ class AdminUserServiceImplTest {
     void testCreateAdminUser_VerifyRepositoryCalls() {
         when(adminUserRepository.findByUsername(requestDto.getUsername())).thenReturn(Optional.empty());
         when(adminUserRepository.findByEmail(requestDto.getEmail())).thenReturn(Optional.empty());
-        doNothing().when(authentikUtil).createUser(anyString(), anyString(), anyString(), anyString(), any(), anyBoolean());
+        when(adminUserRepository.save(any(AdminUser.class))).thenReturn(adminUser);
+        when(authentikUtil.createUser(anyString(), anyString(), anyString(), anyString(), any(), anyBoolean(), nullable(String.class), anyString())).thenReturn("TempPassword123");
         
         adminUserService.createAdminUser(requestDto);
         
         verify(adminUserRepository, times(1)).findByUsername(requestDto.getUsername());
         verify(adminUserRepository, times(1)).findByEmail(requestDto.getEmail());
-        verify(authentikUtil, times(1)).createUser(anyString(), anyString(), anyString(), anyString(), any(), anyBoolean());
+        verify(adminUserRepository, times(1)).save(any(AdminUser.class));
+        verify(authentikUtil, times(1)).createUser(anyString(), anyString(), anyString(), anyString(), any(), anyBoolean(), nullable(String.class), anyString());
     }
 
     @Test

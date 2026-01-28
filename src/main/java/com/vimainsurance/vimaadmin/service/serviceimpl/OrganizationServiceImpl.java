@@ -67,10 +67,12 @@ import com.vimainsurance.vimaadmin.util.CsvDealsReaderUtil;
 import com.vimainsurance.vimaadmin.util.EnvironmentUtil;
 import com.vimainsurance.vimaadmin.util.JwtUserExtractor;
 import com.vimainsurance.vimaadmin.exception.OrganizationAccessDeniedException;
+import com.vimainsurance.vimaadmin.repository.IDealEndorsementRepository;
 
 import org.springframework.core.env.Environment;
 
 import com.vimainsurance.vimaadmin.dto.AuthentikGroupCreationDto;
+import com.vimainsurance.vimaadmin.entity.DealEndorsement;
 import com.vimainsurance.vimaadmin.util.AuthentikUtil;
 
 @Service
@@ -107,6 +109,9 @@ public class OrganizationServiceImpl implements IOrganizationService {
 
     @Autowired
     private AuthentikUtil authentikUtil;
+
+    @Autowired
+    private IDealEndorsementRepository dealEndorsementRepository;
 
     @Override
     @Transactional(rollbackFor = Exception.class)
@@ -599,6 +604,7 @@ public class OrganizationServiceImpl implements IOrganizationService {
         dto.setOrganizationName(deal.getOrganization().getOrganizationName());
         dto.setFullName(deal.getFullName());
         dto.setSumInsured(deal.getSumInsured());
+        dto.setHealthId(deal.getHealthId());
         return dto;
     }
 
@@ -1522,17 +1528,23 @@ public class OrganizationServiceImpl implements IOrganizationService {
         BaseResponse<List<OrganizationEmployeeDto>> responseObj = new BaseResponse<>();
         try {
             if(page == -1 && rec == -1) {
-                List<Deals> employees = dealsRepository.findByEndorsementId(endorsementId);
+                List<DealEndorsement> dealEndorsements = dealEndorsementRepository.findByEndorsement_EndorsementId(endorsementId);
+                List<Deals> employees = dealEndorsements.stream()
+                    .map(DealEndorsement::getDeal)
+                    .collect(Collectors.toList());
                 List<OrganizationEmployeeDto> employeeDtos = employees.stream()
                     .map(this::mapToOrganizationEmployeeDto)
                     .collect(Collectors.toList());
                 return responseObj.render(responseObj.formSuccessResponse(Constants.SUCCESS, employeeDtos, employees.size()));
             }
-            Page<Deals> employees = dealsRepository.findByEndorsementId(endorsementId,PageRequest.of(page, rec));
-            List<OrganizationEmployeeDto> employeeDtos = employees.getContent().stream()
+            Page<DealEndorsement> dealEndorsementsPage = dealEndorsementRepository.findByEndorsement_EndorsementId(endorsementId, PageRequest.of(page, rec));
+            List<Deals> employees = dealEndorsementsPage.getContent().stream()
+                .map(DealEndorsement::getDeal)
+                .collect(Collectors.toList());
+            List<OrganizationEmployeeDto> employeeDtos = employees.stream()
                 .map(this::mapToOrganizationEmployeeDto)
                 .collect(Collectors.toList());
-            return responseObj.render(responseObj.formSuccessResponse(Constants.SUCCESS, employeeDtos, employees.getTotalElements()));
+            return responseObj.render(responseObj.formSuccessResponse(Constants.SUCCESS, employeeDtos, dealEndorsementsPage.getTotalElements()));
         }
         catch (Exception e) {
             logger.error("[correlationId:{}] Exception in getEmployeesByEndorsementId: {}", MDC.get("correlationId"), e.getMessage(), e);

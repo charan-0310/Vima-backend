@@ -5,6 +5,7 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
@@ -12,8 +13,11 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Collectors;
 
+import com.vimainsurance.vimaadmin.dto.*;
+import com.vimainsurance.vimaadmin.entity.*;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.slf4j.MDC;
@@ -33,16 +37,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
 
-import com.vimainsurance.vimaadmin.dto.BaseResponse;
-import com.vimainsurance.vimaadmin.dto.DocumentResponseDto;
-import com.vimainsurance.vimaadmin.dto.EndorsementRequestDto;
-import com.vimainsurance.vimaadmin.dto.EndorsementResponseDto;
-import com.vimainsurance.vimaadmin.dto.ResponseDto;
-import com.vimainsurance.vimaadmin.entity.AdminUser;
 import com.vimainsurance.vimaadmin.entity.Deals;
-import com.vimainsurance.vimaadmin.entity.Document;
-import com.vimainsurance.vimaadmin.entity.Endorsement;
-import com.vimainsurance.vimaadmin.entity.Organization;
 import com.vimainsurance.vimaadmin.enums.AccountStatus;
 import com.vimainsurance.vimaadmin.enums.DocumentCategory;
 import com.vimainsurance.vimaadmin.enums.DocumentEntityType;
@@ -63,6 +58,9 @@ import com.vimainsurance.vimaadmin.util.Constants;
 import com.vimainsurance.vimaadmin.util.EnvironmentUtil;
 import com.vimainsurance.vimaadmin.util.JwtUserExtractor;
 import com.vimainsurance.vimaadmin.util.TenantContext;
+import com.vimainsurance.vimaadmin.util.AuthentikUtil;
+import com.vimainsurance.vimaadmin.service.IEmailService;
+import com.vimainsurance.vimaadmin.dto.EmployeeOnboardingResponseDto;
 
 @Service
 public class EndorsementServiceImpl implements IEndorsementService {
@@ -95,6 +93,12 @@ public class EndorsementServiceImpl implements IEndorsementService {
 
     @Autowired
     private IS3Service s3Service;
+
+    @Autowired
+    private AuthentikUtil authentikUtil;
+
+    @Autowired
+    private IEmailService emailService;
 
     @Override
     @Transactional
@@ -440,8 +444,8 @@ public class EndorsementServiceImpl implements IEndorsementService {
             uploadedBy = uploadedByOpt.get();
             }
             Endorsement endorsement = opt.get();
-            if(endorsement.getStatus().equals(AccountStatus.APPROVED)) {
-                return responseObj.render(responseObj.formErrorResponse("Endorsement already approved"));
+            if(endorsement.getStatus().equals(AccountStatus.COMPLETED)) {
+                return responseObj.render(responseObj.formErrorResponse("Endorsement already completed"));
             }
             if(files != null && files.length > 0) {
             for(MultipartFile file : files) {
@@ -462,17 +466,17 @@ public class EndorsementServiceImpl implements IEndorsementService {
             }
          
             deals.stream().filter(deal -> deal.getStatus().equals(AccountStatus.PENDING_APPROVAL)).forEach(deal -> {
-                deal.setStatus(AccountStatus.APPROVED);
+                deal.setStatus(AccountStatus.ACTIVE);
                 deal.setUpdatedAt(LocalDateTime.now());
                 dealsRepository.save(deal);
             });
             deals.stream().filter(deal -> deal.getStatus().equals(AccountStatus.PENDING_EXIT)).forEach(deal -> {
-                deal.setStatus(AccountStatus.LEAVING);
+                deal.setStatus(AccountStatus.INACTIVE);
                 deal.setUpdatedAt(LocalDateTime.now());
                 dealsRepository.save(deal);
             });
             endorsement.setApprovedAt(LocalDateTime.now());
-            endorsement.setStatus(AccountStatus.APPROVED);
+            endorsement.setStatus(AccountStatus.COMPLETED);
             endorsement.setUpdatedAt(LocalDateTime.now());
             endorsementRepository.save(endorsement);
 
@@ -767,6 +771,140 @@ public class EndorsementServiceImpl implements IEndorsementService {
             return ResponseEntity.status(HttpStatus.NOT_FOUND).build();
         }
     }
+    
+
+    @Override
+    public ResponseEntity<ResponseDto<EmployeeOnboardingResponseDto>> employeeOnboarding(UUID endorsementId) {
+        EmployeeOnboardingRequestDto requestDto = new EmployeeOnboardingRequestDto();
+        requestDto.setEndorsementId(endorsementId);
+        return employeeOnboarding(requestDto);
+    }
+
+    public ResponseEntity<ResponseDto<EmployeeOnboardingResponseDto>> employeeOnboarding(EmployeeOnboardingRequestDto requestDto) {
+        logger.info("[correlationId:{}] Endorsement employeeOnboarding called for endorsementId: {}, individualIds: {}", 
+            MDC.get("correlationId"), requestDto.getEndorsementId(), requestDto.getIndividualIds());
+        BaseResponse<EmployeeOnboardingResponseDto> responseObj = new BaseResponse<>();
+        try {
+            // Validate that at least one parameter is provided
+            if (requestDto.getEndorsementId() == null && 
+                (requestDto.getIndividualIds() == null || requestDto.getIndividualIds().isEmpty())) {
+                return responseObj.render(responseObj.formErrorResponse("Either endorsementId or individualIds must be provided"));
+            }
+
+            AtomicInteger successCount = new AtomicInteger(0);
+            AtomicInteger failedCount = new AtomicInteger(0);
+            List<String> successUsers = new ArrayList<>();
+            List<String> failedUsers = new ArrayList<>();
+            
+            List<Deals> deals;
+            Organization organization;
+            
+            // Handle endorsementId case
+            if (requestDto.getEndorsementId() != null) {
+                Optional<Endorsement> opt = endorsementRepository.findById(requestDto.getEndorsementId());
+                if (opt.isEmpty()) {
+                    return responseObj.render(responseObj.formErrorResponse(Constants.RECORD_NOT_FOUND_MESSAGE));
+                }
+                if(!opt.get().getStatus().equals(AccountStatus.COMPLETED)) {
+                    return responseObj.render(responseObj.formErrorResponse(200, "Endorsement not completed yet"));
+                }
+                jwtUserExtractor.validateOrganizationAccess(opt.get().getOrganization().getOrganizationId());
+                Optional<Organization> orgOpt = organizationRepository.findById(opt.get().getOrganization().getOrganizationId());
+                if (orgOpt.isEmpty()) {
+                    return responseObj.render(responseObj.formErrorResponse("Organization not found"));
+                }
+                organization = orgOpt.get();
+                jwtUserExtractor.validateOrganizationAccess(organization.getOrganizationId());
+                deals = dealsRepository.findByEndorsementId(requestDto.getEndorsementId());
+            } else {
+                // Handle individualIds case
+                deals = dealsRepository.findByIndividualIdIn(requestDto.getIndividualIds());
+                if (deals.isEmpty()) {
+                    return responseObj.render(responseObj.formErrorResponse(200, "No deals found for provided individualIds"));
+                }
+                // Get organization from the first deal (assuming all deals belong to same organization)
+                UUID organizationId = deals.get(0).getOrganization() != null 
+                    ? deals.get(0).getOrganization().getOrganizationId() 
+                    : null;
+                if (organizationId == null) {
+                    return responseObj.render(responseObj.formErrorResponse("Deals must belong to an organization"));
+                }
+                jwtUserExtractor.validateOrganizationAccess(organizationId);
+                Optional<Organization> orgOpt = organizationRepository.findById(organizationId);
+                if (orgOpt.isEmpty()) {
+                    return responseObj.render(responseObj.formErrorResponse("Organization not found"));
+                }
+                organization = orgOpt.get();
+                
+                // Validate all deals belong to the same organization
+                boolean allSameOrg = deals.stream()
+                    .allMatch(deal -> deal.getOrganization() != null && 
+                        deal.getOrganization().getOrganizationId().equals(organizationId));
+                if (!allSameOrg) {
+                    return responseObj.render(responseObj.formErrorResponse("All deals must belong to the same organization"));
+                }
+            }
+            
+            if(!deals.stream().anyMatch(deal -> deal.getStatus().equals(AccountStatus.ACTIVE))) {
+                return responseObj.render(responseObj.formErrorResponse(200, "No active deals found to onboard"));
+            }
+            if(deals.isEmpty()) {
+                return responseObj.render(responseObj.formErrorResponse(200,"No deals found to onboard"));
+            }
+            
+            String orgName = "ORG_" + organization.getOrganizationName().trim().replace(" ", "_").toUpperCase();
+            String groupId = authentikUtil.getGroupIdByName(orgName);
+            if(groupId == null || groupId.isEmpty()) {
+                return responseObj.render(responseObj.formErrorResponse("No groups found"));
+            }
+            
+            // Process deals for onboarding
+            processDealsForOnboarding(deals, orgName, successCount, failedCount, successUsers, failedUsers);
+            
+            if(failedCount.get() > 0) {
+                return responseObj.render(responseObj.formErrorResponse("Employee onboarding failed for some users. Failed: " + failedCount.get() + ", Failed users: " + failedUsers.toString()));
+            }
+            EmployeeOnboardingResponseDto employeeOnboardingResponseDto = new EmployeeOnboardingResponseDto();
+            employeeOnboardingResponseDto.setSuccessUsers(successUsers);
+            employeeOnboardingResponseDto.setFailedUsers(failedUsers);
+            employeeOnboardingResponseDto.setSuccessCount(successCount.get());
+            employeeOnboardingResponseDto.setFailedCount(failedCount.get());
+            return responseObj.render(responseObj.formSuccessResponse(Constants.SUCCESS, employeeOnboardingResponseDto));
+        } catch (OrganizationAccessDeniedException e) {
+            logger.warn("[correlationId:{}] Organization access denied: {}", MDC.get("correlationId"), e.getMessage());
+            return responseObj.render(responseObj.formErrorResponse(403, e.getMessage()));
+        } catch (Exception e) {
+            logger.error("[correlationId:{}] Exception in Endorsement employeeOnboarding: {}", MDC.get("correlationId"), e.getMessage(), e);
+            return responseObj.render(responseObj.formErrorResponse("Failed to complete employee onboarding!"));
+        }
+    }
+
+    /**
+     * Helper method to process deals for onboarding
+     */
+    private void processDealsForOnboarding(List<Deals> deals, String orgName, 
+            AtomicInteger successCount, AtomicInteger failedCount, 
+            List<String> successUsers, List<String> failedUsers) {
+        deals.stream().forEach(deal -> {
+            try {
+                if(deal.getRelationship().equals("SELF")) {
+                    String dateStr = deal.getDateOfBirth() != null 
+                        ? deal.getDateOfBirth().format(java.time.format.DateTimeFormatter.ofPattern("ddMM"))
+                        : "0101";
+                    String password = deal.getFullName().trim().toLowerCase().replaceAll("\\s+", "") + "@" + dateStr;
+                    authentikUtil.createUser(deal.getFullName(), deal.getEmail().toLowerCase(), deal.getEmail().toLowerCase(), 
+                        "ROLE_EMPLOYEE", Arrays.asList(orgName), true, password, deal.getIndividualId().toString());
+                    emailService.sendWelcomeEmail(deal.getEmail().toLowerCase(), deal.getEmail().toLowerCase(), password);
+                    successCount.incrementAndGet();
+                    successUsers.add(deal.getEmail());
+                } 
+            } catch (Exception e) {
+                failedCount.incrementAndGet();
+                logger.error("[correlationId:{}] Error creating user for deal: {}", MDC.get("correlationId"), e.getMessage());
+                failedUsers.add(deal.getEmail() != null ? deal.getEmail() : deal.getFullName() != null ? deal.getFullName() : "Unknown");
+            }
+        });
+    }
 
     
     /**
@@ -789,6 +927,106 @@ public class EndorsementServiceImpl implements IEndorsementService {
 
         Sort.Direction direction = sortDirection.equalsIgnoreCase("ASC") ? Sort.Direction.ASC : Sort.Direction.DESC;
         return Sort.by(direction, sortBy);
+    }
+
+    @Override
+    @Transactional
+    public ResponseEntity<ResponseDto<List<HealthIdUploadDto>>> uploadHealthIds(UUID endorsementId, List<HealthIdUploadDto> healthIdList) {
+        logger.info("[correlationId:{}] Upload health IDs called for endorsement: {}", MDC.get("correlationId"), endorsementId);
+
+        try {
+            // Step 1: Check if endorsement exists and get organization
+            Endorsement endorsement = endorsementRepository.findByEndorsementId(endorsementId)
+                    .orElseThrow(() -> new IllegalArgumentException("Endorsement not found with ID: " + endorsementId));
+
+            if (endorsement.getOrganization() == null) {
+                logger.error("[correlationId:{}] Organization not found for endorsement: {}", MDC.get("correlationId"), endorsementId);
+                return ResponseEntity.badRequest()
+                        .body(new ResponseDto<>(400, "Organization not found for this endorsement"));
+            }
+
+            UUID organizationId = endorsement.getOrganization().getOrganizationId();
+            logger.info("[correlationId:{}] Processing {} health ID records for organization: {}",
+                    MDC.get("correlationId"), healthIdList.size(), organizationId);
+
+            int updatedCount = 0;
+            List<HealthIdUploadDto> invalidCustomers = new ArrayList<>();
+            List<Deals> validCustomers = new ArrayList<>();
+
+            // Validate all records first (no updates yet)
+            for (HealthIdUploadDto healthIdDto : healthIdList) {
+                try {
+                    Optional<Deals> customerOpt = dealsRepository.findByEmployeeNumberAndOrganizationId(
+                            healthIdDto.getEmployeeId(), organizationId);
+
+                    if (customerOpt.isPresent()) {
+                        Deals customer = customerOpt.get();
+
+                        boolean relationshipMatches = customer.getRelationship() != null &&
+                                customer.getRelationship().equalsIgnoreCase(healthIdDto.getRelationship());
+                        boolean nameMatches = customer.getFullName() != null &&
+                                customer.getFullName().equalsIgnoreCase(healthIdDto.getName());
+
+                        if (relationshipMatches && nameMatches) {
+                            validCustomers.add(customer);
+                        } else {
+                            invalidCustomers.add(healthIdDto);
+                            logger.warn("[correlationId:{}] Validation failed for employeeId:{}, relationship:{}, name:{}",
+                                    MDC.get("correlationId"),
+                                    healthIdDto.getEmployeeId(),
+                                    healthIdDto.getRelationship(),
+                                    healthIdDto.getName());
+                        }
+                    } else {
+                        invalidCustomers.add(healthIdDto);
+                        logger.warn("[correlationId:{}] Employee not found for employeeId:{}, relationship:{}, name:{}",
+                                MDC.get("correlationId"),
+                                healthIdDto.getEmployeeId(),
+                                healthIdDto.getRelationship(),
+                                healthIdDto.getName());
+                    }
+                } catch (Exception e) {
+                    invalidCustomers.add(healthIdDto);
+                    logger.error("[correlationId:{}] Error validating health ID for employeeId:{} - name:{}",
+                            MDC.get("correlationId"), healthIdDto.getEmployeeId(), healthIdDto.getName(), e);
+                }
+            }
+
+            // If any invalid, return without updating anyone
+            if (!invalidCustomers.isEmpty()) {
+                logger.info("[correlationId:{}] Health ID upload aborted due to invalid records. Count: {}",
+                        MDC.get("correlationId"), invalidCustomers.size());
+                return ResponseEntity.badRequest()
+                        .body(new ResponseDto<>("Health ID upload failed", invalidCustomers, invalidCustomers.size()));
+            }
+            // Step 3: All valid - proceed to update
+            // Perform updates only when all are valid
+            for (int i = 0; i < healthIdList.size(); i++) {
+                Deals customer = validCustomers.get(i);
+                HealthIdUploadDto healthIdDto = healthIdList.get(i);
+                customer.setHealthId(healthIdDto.getHealthId());
+                customer.setUpdatedAt(LocalDateTime.now());
+                dealsRepository.save(customer);
+                updatedCount++;
+            }
+
+            logger.info("[correlationId:{}] Health ID upload completed - Updated: {}",
+                    MDC.get("correlationId"), updatedCount);
+
+            return ResponseEntity.ok()
+                    .body(new ResponseDto<>("Health IDs uploaded successfully", null, updatedCount));
+
+
+        } catch (IllegalArgumentException e) {
+            logger.error("[correlationId:{}] Validation error: {}", MDC.get("correlationId"), e.getMessage());
+            return ResponseEntity.badRequest()
+                    .body(new ResponseDto<>(400, e.getMessage()));
+        } catch (Exception e) {
+            logger.error("[correlationId:{}] Error uploading health IDs for endorsement: {}",
+                    MDC.get("correlationId"), endorsementId, e);
+            return ResponseEntity.internalServerError()
+                    .body(new ResponseDto<>(500, "Failed to upload health IDs: " + e.getMessage()));
+        }
     }
 
 }

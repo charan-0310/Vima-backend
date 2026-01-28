@@ -9,6 +9,7 @@ import java.util.stream.Collectors;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.slf4j.MDC;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
@@ -85,7 +86,7 @@ public class AdminUserServiceImpl implements IAdminUserService {
 
     @Override
     public ResponseEntity<ResponseDto<String>> createAdminUser(AdminUserRequestDto requestDto) {
-        logger.info("createAdminUser called");
+        logger.info("[correlationId:{}] createAdminUser called", MDC.get("correlationId"));
         BaseResponse<String> responseObj = new BaseResponse<>();
         try {
             if (adminUserRepository.findByUsername(requestDto.getUsername()).isPresent()) {
@@ -103,6 +104,18 @@ public class AdminUserServiceImpl implements IAdminUserService {
             if(requestDto.getRole().contains("HR_ADMIN") && requestDto.getOrganizations() != null && requestDto.getOrganizations().size() > 1) {
                 return responseObj.render(responseObj.formErrorResponse("HR_ADMIN can only be assigned to one organization"));
             }
+
+            // create user in DB
+            AdminUser user = new AdminUser();
+            mapRequestToEntity(requestDto, user);
+            user.setCreatedAt(LocalDateTime.now());
+            AdminUser saved = adminUserRepository.save(user);
+            String dateStr = saved.getCreatedAt() != null 
+            ? saved.getCreatedAt().format(java.time.format.DateTimeFormatter.ofPattern("ddMM"))
+            : "0101";
+            String password = saved.getFullName().trim().toLowerCase() + "@" + dateStr;
+            
+
             // Create user in Authentik first
             try {
                 authentikUtil.createUser(
@@ -111,11 +124,13 @@ public class AdminUserServiceImpl implements IAdminUserService {
                     requestDto.getEmail(),
                     requestDto.getRole(),
                     requestDto.getOrganizations(),
-                    requestDto.getIsActive() != null ? requestDto.getIsActive() : true
+                    requestDto.getIsActive() != null ? requestDto.getIsActive() : true,
+                    password,
+                    saved.getId().toString()
                 );
-                logger.info("User created successfully in Authentik: {}", requestDto.getUsername());
+                logger.info("[correlationId:{}] User created successfully in Authentik: {}", MDC.get("correlationId"), requestDto.getUsername());
             } catch (Exception e) {
-                logger.error("Error creating user in Authentik", e);
+                logger.error("[correlationId:{}] Error creating user in Authentik: {}", MDC.get("correlationId"), e.getMessage(), e);
                 return responseObj.render(responseObj.formErrorResponse("Failed to create user in Authentik: " + e.getMessage()));
             }
             
@@ -550,7 +565,7 @@ public class AdminUserServiceImpl implements IAdminUserService {
 
     @Override
     public ResponseEntity<ResponseDto<String>> adminChangeUserPassword(String username) {
-        logger.info("adminChangeUserPassword called for username: {}", username);
+        logger.info("[correlationId:{}] adminChangeUserPassword called for username: {}", MDC.get("correlationId"), username);
         BaseResponse<String> responseObj = new BaseResponse<>();
         try {
             Optional<AdminUser> userOpt = adminUserRepository.findByUsername(username);
@@ -568,16 +583,16 @@ public class AdminUserServiceImpl implements IAdminUserService {
             // Send welcome email with the generated password
             try {
                 emailService.sendPasswordResetEmail(user.getEmail(), randomPassword, user.getUsername());
-                logger.info("Welcome email sent successfully to: {}", user.getEmail());
+                logger.info("[correlationId:{}] Welcome email sent successfully to: {}", MDC.get("correlationId"), user.getEmail());
             } catch (Exception emailException) {
-                logger.error("Failed to send welcome email to: {}", user.getEmail(), emailException);
+                logger.error("[correlationId:{}] Failed to send welcome email to: {}", MDC.get("correlationId"), user.getEmail(), emailException);
                 // Don't fail user creation if email fails
             }
             
-            logger.info("Admin password change successful for user: {}", username);
+            logger.info("[correlationId:{}] Admin password change successful for user: {}", MDC.get("correlationId"), username);
             return responseObj.render(responseObj.formSuccessResponse(Constants.SUCCESS, "User password changed successfully by admin"));
         } catch (Exception e) {
-            logger.error("Error changing user password by admin for user: {}", username, e);
+            logger.error("[correlationId:{}] Error changing user password by admin for user: {}", MDC.get("correlationId"), username, e);
             return responseObj.render(responseObj.formErrorResponse(e.getMessage()));
         }
     }

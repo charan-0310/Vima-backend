@@ -35,20 +35,33 @@ public class PolicyRequestDto {
 
     private UUID documentId;
 
+    // Policy Type and Category
     @NotNull(message = "Product type is required")
-    private String productType;
+    private String productType;// GMC, GPA, or GTL
 
-    @NotNull(message = "Coverage type is required")
+    private String policyCategory; // EMPLOYEE, MOTOR, PROPERTY, LIABILITY (defaults to EMPLOYEE)
+
+    private Boolean appliesToEmployees; // defaults to true
+
+
+
+    // Coverage type - required for GMC (E, ES, ESC, ESCP), optional for traditional policies
     private String coverageType;
+
 
     private String status;
 
     private String coveredIndividuals;
 
-    @NotNull(message = "Sum insured is required")
+    // Sum Insured - required for GMC, not used for GPA/GTL
     @DecimalMin(value = "0.0", inclusive = false, message = "Sum insured must be greater than 0")
     @Digits(integer = 13, fraction = 2, message = "Sum insured must have at most 13 integer digits and 2 decimal places")
     private BigDecimal sumInsured;
+
+    // CTC Multiplier - required for GPA/GTL (1-5x)
+    @Min(value = 1, message = "Sum insured multiplier must be at least 1")
+    @Max(value = 5, message = "Sum insured multiplier must be at most 5")
+    private Integer sumInsuredMultiplier;
 
     @NotNull(message = "Premium amount is required")
     @DecimalMin(value = "0.0", inclusive = false, message = "Premium amount must be greater than 0")
@@ -78,4 +91,11 @@ public class PolicyRequestDto {
     private BigDecimal netAmount;
 
     private BigDecimal gst;
+
+    // TPA Details - required for GMC only
+    @Size(max = 255, message = "TPA Organization Name must not exceed 255 characters")
+    private String tpaOrganizationName;
+
+    @Size(max = 255, message = "TPA Contact Info must not exceed 255 characters")
+    private String tpaContactInfo;
 }

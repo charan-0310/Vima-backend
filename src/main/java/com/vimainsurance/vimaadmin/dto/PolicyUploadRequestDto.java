@@ -34,4 +34,8 @@ public class PolicyUploadRequestDto {
     private MotorPolicyDetailsRequestDto motorDetails;
     private BigDecimal netAmount;
     private BigDecimal gst;
+
+    // TPA Details
+    private String tpaOrganizationName;
+    private String tpaContactInfo;
 }

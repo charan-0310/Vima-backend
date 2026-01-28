@@ -45,5 +45,6 @@ public class DealsResponseDto {
     private String custId;
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
+    private String healthId;
     private List<PolicyResponseDto> policies;
 }

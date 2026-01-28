@@ -29,6 +29,8 @@ import com.vimainsurance.vimaadmin.dto.DocumentResponseDto;
 import com.vimainsurance.vimaadmin.dto.EndorsementRequestDto;
 import com.vimainsurance.vimaadmin.dto.EndorsementResponseDto;
 import com.vimainsurance.vimaadmin.dto.OrganizationEmployeeDto;
+import com.vimainsurance.vimaadmin.dto.EmployeeOnboardingRequestDto;
+import com.vimainsurance.vimaadmin.dto.EmployeeOnboardingResponseDto;
 import com.vimainsurance.vimaadmin.dto.ResponseDto;
 import com.vimainsurance.vimaadmin.service.IEndorsementService;
 import com.vimainsurance.vimaadmin.service.IOrganizationService;
@@ -231,6 +233,27 @@ public class EndorsementController {
     public ResponseEntity<Resource> downloadDocument(@PathVariable UUID endorsementId, @PathVariable String documentId) {
         logger.info("[correlationId:{}] /endorsements/{}/documents/{}/download (GET) endpoint called", MDC.get("correlationId"), endorsementId, documentId);
         return endorsementService.downloadDocument(endorsementId, documentId);
+    }
+
+    /* 
+    * Employee onboarding by endorsement id (backward compatible)
+    */
+    @PostMapping("/{endorsementId}/employee-onboarding")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'VIMA_ADMIN')")
+    public ResponseEntity<ResponseDto<EmployeeOnboardingResponseDto>> employeeOnboarding(@PathVariable UUID endorsementId) {
+        logger.info("[correlationId:{}] /endorsements/{}/employee-onboarding (POST) endpoint called", MDC.get("correlationId"), endorsementId);
+        return endorsementService.employeeOnboarding(endorsementId);
+    }
+
+    /* 
+    * Employee onboarding by endorsement id or individual ids
+    */
+    @PostMapping("/employee-onboarding")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'VIMA_ADMIN')")
+    public ResponseEntity<ResponseDto<EmployeeOnboardingResponseDto>> employeeOnboarding(@RequestBody EmployeeOnboardingRequestDto requestDto) {
+        logger.info("[correlationId:{}] /endorsements/employee-onboarding (POST) endpoint called with endorsementId: {}, individualIds: {}", 
+            MDC.get("correlationId"), requestDto.getEndorsementId(), requestDto.getIndividualIds());
+        return endorsementService.employeeOnboarding(requestDto);
     }
 
 }

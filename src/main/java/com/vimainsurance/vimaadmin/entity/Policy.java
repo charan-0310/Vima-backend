@@ -5,24 +5,21 @@ import com.vimainsurance.vimaadmin.enums.CoverageType;
 import com.vimainsurance.vimaadmin.enums.PolicyStatus;
 import com.vimainsurance.vimaadmin.enums.PaymentFrequency;
 import com.vimainsurance.vimaadmin.enums.ProductType;
-import com.vimainsurance.vimaadmin.entity.Nominee;
-import com.vimainsurance.vimaadmin.entity.MotorPolicyDetails;
-import com.vimainsurance.vimaadmin.entity.Document;
 import jakarta.persistence.*;
 import lombok.Data;
 import lombok.EqualsAndHashCode;
 import lombok.ToString;
 import org.hibernate.annotations.CreationTimestamp;
-import org.hibernate.annotations.UpdateTimestamp;
 import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.annotations.UpdateTimestamp;
 import org.hibernate.type.SqlTypes;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
-import java.util.UUID;
-import java.util.List;
 import java.util.ArrayList;
+import java.util.List;
+import java.util.UUID;
 
 /**
  * Policy entity representing insurance policies
@@ -60,10 +57,30 @@ public class Policy {
     @JoinColumn(name = "document_id")
     private Document document;
 
+    // Policy Category (stored as VARCHAR in DB, mapped to PolicyCategory enum)
+    @Enumerated(EnumType.STRING)
+    @Column(name = "policy_category", nullable = false, length = 50)
+    private ProductType policyCategory = ProductType.EMPLOYEE;
+
+    @Column(name = "applies_to_employees", nullable = false)
+    private Boolean appliesToEmployees = true;
+
+    // TPA Details (GMC only)
+    @Column(name = "tpa_organization_name")
+    private String tpaOrganizationName;
+
+    @Column(name = "tpa_contact_info")
+    private String tpaContactInfo;
+
+
+    // CTC Multiplier (GPA/GTL only)
+    @Column(name = "sum_insured_multiplier")
+    private Integer sumInsuredMultiplier;
+
     // Policy Details
     @Enumerated(EnumType.STRING)
     @JdbcTypeCode(SqlTypes.NAMED_ENUM)
-    @Column(name = "product_type", nullable = false)
+    @Column(name = "product_type", nullable = false) // Policy_type
     private ProductType productType;
 
     @Enumerated(EnumType.STRING)
