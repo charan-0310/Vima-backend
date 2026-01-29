@@ -47,12 +47,32 @@ public interface IDealsRepository extends JpaRepository<Deals, UUID> , JpaSpecif
      * Find deal by employee number and organizationId
      */
     @Query("""
-        SELECT d FROM Deals d
-        WHERE d.employeeNumber = :employeeNumber
-        AND d.organization.organizationId = :organizationId
-        """)
-    Optional<Deals> findByEmployeeNumberAndOrganizationId(@Param("employeeNumber") String employeeNumber, @Param("organizationId") UUID organizationId);
-    
+    SELECT d FROM Deals d
+    WHERE (LOWER(d.firstName) = LOWER(:name) OR LOWER(d.lastName) = LOWER(:name))
+    AND d.employeeNumber = :employeeNumber
+    AND d.relationship = :relationship
+    AND d.organization.organizationId = :organizationId
+    """)
+    Optional<Deals> findByNameAndEmployeeNumberAndRelationshipAndOrganizationId(
+            @Param("name") String name,
+            @Param("employeeNumber") String employeeNumber,
+            @Param("relationship") String relationship,
+            @Param("organizationId") UUID organizationId
+    );
+
+    /**
+     * Find deal by employee number and organizationId
+     */
+    @Query("""
+    SELECT d FROM Deals d
+    WHERE d.employeeNumber = :employeeNumber
+    AND d.organization.organizationId = :organizationId
+    """)
+    Optional<Deals> findByEmployeeNumberAndOrganizationId(
+            @Param("employeeNumber") String employeeNumber,
+            @Param("organizationId") UUID organizationId
+    );
+
      /**
      * Find deal by employee number and organizationId
      */

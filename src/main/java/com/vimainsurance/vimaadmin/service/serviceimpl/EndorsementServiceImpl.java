@@ -956,8 +956,8 @@ public class EndorsementServiceImpl implements IEndorsementService {
             // Validate all records first (no updates yet)
             for (HealthIdUploadDto healthIdDto : healthIdList) {
                 try {
-                    Optional<Deals> customerOpt = dealsRepository.findByEmployeeNumberAndOrganizationId(
-                            healthIdDto.getEmployeeId(), organizationId);
+                    Optional<Deals> customerOpt = dealsRepository.findByNameAndEmployeeNumberAndRelationshipAndOrganizationId(
+                            healthIdDto.getName(), healthIdDto.getEmployeeId(), healthIdDto.getRelationship(), organizationId);
 
                     if (customerOpt.isPresent()) {
                         Deals customer = customerOpt.get();
