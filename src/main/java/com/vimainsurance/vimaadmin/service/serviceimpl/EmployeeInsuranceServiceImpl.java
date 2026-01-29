@@ -129,6 +129,9 @@ public class EmployeeInsuranceServiceImpl implements IEmployeeInsuranceService {
 
         return EmployeeInsuranceResponseDto.CoveredMemberDto.builder()
                 .policyId(policyId)
+                .policyNumber(primaryPolicy != null ? primaryPolicy.getPolicyNumber() : null)
+                .insuranceProviderLogo(primaryPolicy != null ?
+                        resolveInsuranceProviderName(primaryPolicy.getInsuranceProviderId()) : null)
                 .healthId(deal.getHealthId())
                 .individualId(deal.getIndividualId())
                 .fullName(deal.getFullName() != null && !deal.getFullName().isBlank() ?
