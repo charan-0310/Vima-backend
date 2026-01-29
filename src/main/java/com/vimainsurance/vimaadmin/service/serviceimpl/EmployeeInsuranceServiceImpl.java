@@ -107,7 +107,7 @@ public class EmployeeInsuranceServiceImpl implements IEmployeeInsuranceService {
                 // TPA Details
                 .tpaOrganizationName(primaryPolicy != null ? primaryPolicy.getTpaOrganizationName() : null)
                 .tpaContactInfo(primaryPolicy != null ? primaryPolicy.getTpaContactInfo() : null)
-
+                .companyName(employee.getOrganization() != null ? employee.getOrganization().getOrganizationName() : null)
                 .coveredMembers(coveredMembers)
                 .build();
 
@@ -144,6 +144,7 @@ public class EmployeeInsuranceServiceImpl implements IEmployeeInsuranceService {
                 // TPA Details
                 .tpaOrganizationName(primaryPolicy != null ? primaryPolicy.getTpaOrganizationName() : null)
                 .tpaContactInfo(primaryPolicy != null ? primaryPolicy.getTpaContactInfo() : null)
+                .companyName(deal.getOrganization() != null ? deal.getOrganization().getOrganizationName() : null)
                 .build();
     }
 

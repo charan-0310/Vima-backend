@@ -45,6 +45,9 @@ public class EmployeeInsuranceResponseDto {
     private String tpaOrganizationName;
     private String tpaContactInfo;
 
+    private String companyName;
+
+
     // Covered members (employee + dependents)
     private List<CoveredMemberDto> coveredMembers;
 
@@ -70,5 +73,6 @@ public class EmployeeInsuranceResponseDto {
         // TPA Details
         private String tpaOrganizationName;
         private String tpaContactInfo;
+        private String companyName;
     }
 }
