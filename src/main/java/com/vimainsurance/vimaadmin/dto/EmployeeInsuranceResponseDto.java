@@ -61,6 +61,8 @@ public class EmployeeInsuranceResponseDto {
     public static class CoveredMemberDto {
         private String healthId;
         private Long policyId;
+        private String policyNumber;
+        private String insuranceProviderLogo;
         private UUID individualId;
         private String fullName;
         private String relationship;
