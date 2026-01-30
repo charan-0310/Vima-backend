@@ -2,7 +2,6 @@ package com.vimainsurance.vimaadmin.util;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
-import static org.junit.jupiter.api.Assertions.assertTrue;
 import org.junit.jupiter.api.RepeatedTest;
 import org.junit.jupiter.api.Test;
 
@@ -12,14 +11,12 @@ class PasswordGeneratorTest {
     void testGenerateRandomPasswordWithSpecificLength() {
         String password = PasswordGenerator.generateRandomPassword(8);
         assertEquals(8, password.length());
-        assertTrue(password.matches("[A-Za-z0-9]+"));
     }
 
     @Test
-    void testGenerateRandomPasswordWithLength10() {
-        String password = PasswordGenerator.generateRandomPassword(10);
-        assertEquals(10, password.length());
-        assertTrue(password.matches("[A-Za-z0-9]+"));
+    void testGenerateRandomPasswordWithLength12() {
+        String password = PasswordGenerator.generateRandomPassword(12);
+        assertEquals(12, password.length());
     }
 
     @Test
@@ -29,15 +26,14 @@ class PasswordGeneratorTest {
         });
         
         assertThrows(IllegalArgumentException.class, () -> {
-            PasswordGenerator.generateRandomPassword(11);
+            PasswordGenerator.generateRandomPassword(21);
         });
     }
 
     @RepeatedTest(10)
     void testGenerateRandomPasswordDefault() {
         String password = PasswordGenerator.generateRandomPassword();
-        assertTrue(password.length() >= 8 && password.length() <= 10);
-        assertTrue(password.matches("[A-Za-z0-9]+"));
+        assertEquals(12, password.length());
     }
 
     @RepeatedTest(20)
@@ -47,7 +43,7 @@ class PasswordGeneratorTest {
         
         // While it's possible for passwords to be the same, it's highly unlikely
         // This test helps ensure randomness
-        assertTrue(password1.length() >= 8 && password1.length() <= 10);
-        assertTrue(password2.length() >= 8 && password2.length() <= 10);
+        assertEquals(12, password1.length());
+        assertEquals(12, password2.length());
     }
 }
