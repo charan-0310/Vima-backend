@@ -954,14 +954,23 @@ public class EndorsementServiceImpl implements IEndorsementService {
             // Validate all records first (no updates yet)
             for (HealthIdUploadDto healthIdDto : healthIdList) {
                 try {
+                    // Employee ID (primary's for dependents) must not be blank
+                    if (healthIdDto.getEmployeeId() == null || healthIdDto.getEmployeeId().isBlank()) {
+                        invalidCustomers.add(healthIdDto);
+                        logger.warn("[correlationId:{}] Employee ID is blank for name:{}, relationship:{}",
+                                MDC.get("correlationId"), healthIdDto.getName(), healthIdDto.getRelationship());
+                        continue;
+                    }
+
+                    String normalizedRelationship = normalizeRelationshipForLookup(healthIdDto.getRelationship());
                     Optional<Deals> customerOpt = dealsRepository.findByNameAndEmployeeNumberAndRelationshipAndOrganizationId(
-                            healthIdDto.getName(), healthIdDto.getEmployeeId(), healthIdDto.getRelationship(), organizationId);
+                            healthIdDto.getName(), healthIdDto.getEmployeeId(), normalizedRelationship, organizationId);
 
                     if (customerOpt.isPresent()) {
                         Deals customer = customerOpt.get();
 
                         boolean relationshipMatches = customer.getRelationship() != null &&
-                                customer.getRelationship().equalsIgnoreCase(healthIdDto.getRelationship());
+                                normalizeRelationshipForLookup(customer.getRelationship()).equalsIgnoreCase(normalizedRelationship);
                         boolean nameMatches = customer.getFullName() != null &&
                                 customer.getFullName().equalsIgnoreCase(healthIdDto.getName());
 
@@ -1025,6 +1034,16 @@ public class EndorsementServiceImpl implements IEndorsementService {
             return ResponseEntity.internalServerError()
                     .body(new ResponseDto<>(500, "Failed to upload health IDs: " + e.getMessage()));
         }
+    }
+
+    /**
+     * Normalizes relationship for lookup: "Employee" (case insensitive) is treated as "SELF".
+     */
+    private String normalizeRelationshipForLookup(String relationship) {
+        if (relationship == null || relationship.isBlank()) {
+            return relationship;
+        }
+        return "employee".equalsIgnoreCase(relationship.trim()) ? "SELF" : relationship.trim();
     }
 
 }

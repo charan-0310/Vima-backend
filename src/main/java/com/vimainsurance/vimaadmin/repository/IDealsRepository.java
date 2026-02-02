@@ -48,9 +48,9 @@ public interface IDealsRepository extends JpaRepository<Deals, UUID> , JpaSpecif
      */
     @Query("""
     SELECT d FROM Deals d
-    WHERE (LOWER(d.firstName) = LOWER(:name) OR LOWER(d.lastName) = LOWER(:name))
-    AND d.employeeNumber = :employeeNumber
-    AND d.relationship = :relationship
+    WHERE (d.fullName IS NOT NULL AND LOWER(d.fullName) = LOWER(:name))
+    AND (d.employeeNumber = :employeeNumber OR (d.primaryIndividual IS NOT NULL AND d.primaryIndividual.employeeNumber = :employeeNumber))
+    AND (LOWER(d.relationship) = LOWER(:relationship) OR (LOWER(:relationship) = 'self' AND LOWER(d.relationship) = 'employee'))
     AND d.organization.organizationId = :organizationId
     """)
     Optional<Deals> findByNameAndEmployeeNumberAndRelationshipAndOrganizationId(
