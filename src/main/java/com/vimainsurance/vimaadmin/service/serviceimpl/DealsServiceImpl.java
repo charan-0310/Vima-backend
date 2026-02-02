@@ -54,6 +54,7 @@ import com.vimainsurance.vimaadmin.util.Constants;
 import com.vimainsurance.vimaadmin.util.EnvironmentUtil;
 import com.vimainsurance.vimaadmin.util.JwtUserExtractor;
 import com.vimainsurance.vimaadmin.util.SlackNotificationUtil;
+
 import java.io.InputStream;
 import java.time.LocalDateTime;
 import java.util.UUID;
@@ -73,6 +74,8 @@ import org.springframework.stereotype.Service;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
+import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.interceptor.TransactionAspectSupport;
 
 @Service
 public class DealsServiceImpl implements IDealsService{
@@ -548,6 +551,7 @@ public class DealsServiceImpl implements IDealsService{
     }
 
     @Override
+    @Transactional(rollbackFor = Exception.class)
     public ResponseEntity<ResponseDto<String>> uploadPolicyWithDetails(PolicyUploadRequestDto requestDto) {
         logger.info("[correlationId:{}] uploadPolicyWithDetails called", MDC.get("correlationId"));
         BaseResponse<String> responseObj = new BaseResponse<>();
@@ -637,6 +641,7 @@ public class DealsServiceImpl implements IDealsService{
                             nomineeEntities.add(nominee);
                         }
                     } catch (IllegalArgumentException ex) {
+                        TransactionAspectSupport.currentTransactionStatus().setRollbackOnly();
                         logger.warn("[correlationId:{}] Skipping nominee due to invalid data: {}", MDC.get("correlationId"), ex.getMessage());
                     }
                 }
@@ -655,6 +660,7 @@ public class DealsServiceImpl implements IDealsService{
                         motorPolicyDetailsRepository.save(motorDetails);
                         savedPolicy.setMotorPolicyDetails(motorDetails);
                     } catch (IllegalArgumentException ex) {
+                        TransactionAspectSupport.currentTransactionStatus().setRollbackOnly();
                         logger.warn("[correlationId:{}] Skipping motor policy details due to invalid data: {}", MDC.get("correlationId"), ex.getMessage());
                     }
                 }
@@ -694,6 +700,7 @@ public class DealsServiceImpl implements IDealsService{
                     String slackMessage = buildSlackNotificationMessage(savedPolicy, primaryIndividual, agent);
                     slackNotificationUtil.sendSlackMessage("New Policy Issued!", slackMessage, true);
                 } catch (Exception slackException) {
+                    TransactionAspectSupport.currentTransactionStatus().setRollbackOnly();
                     logger.warn("[correlationId:{}] Failed to send Slack notification: {}", MDC.get("correlationId"), slackException.getMessage());
                     // Don't fail the request if Slack notification fails
                 }
@@ -703,6 +710,7 @@ public class DealsServiceImpl implements IDealsService{
             
             return responseObj.render(responseObj.formSuccessResponse(Constants.SUCCESS, "Policy created and documents uploaded successfully"));
         } catch (Exception e) {
+            TransactionAspectSupport.currentTransactionStatus().setRollbackOnly();
             logger.error("Exception in uploadPolicyWithDetails", e);
             return responseObj.render(responseObj.formErrorResponse(e.getMessage()));
         }
