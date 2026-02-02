@@ -157,7 +157,7 @@ class AdminUserServiceImplTest {
 
     @Test
     void testUpdateAdminUser_Success() {
-        requestDto.setRole("USER"); // Set role to USER to avoid reportingTo check
+        requestDto.setRole("SALES_AGENT"); // Use valid role to avoid reportingTo check
         requestDto.setEmail(adminUser.getEmail()); // Use same email to avoid email check
         when(adminUserRepository.findByUsername(anyString())).thenReturn(Optional.of(adminUser));
         when(adminUserRepository.findByEmail(anyString())).thenReturn(Optional.empty());
@@ -182,7 +182,7 @@ class AdminUserServiceImplTest {
 
     @Test
     void testUpdateAdminUser_EmailExists() {
-        requestDto.setRole("USER"); // Set role to USER to avoid reportingTo check
+        requestDto.setRole("SALES_AGENT"); // Use valid role to avoid reportingTo check
         requestDto.setEmail("different@email.com"); // Set different email to trigger email check
         AdminUser existingUser = new AdminUser();
         existingUser.setEmail("different@email.com");
@@ -198,7 +198,7 @@ class AdminUserServiceImplTest {
 
     @Test
     void testUpdateAdminUser_UsernameExists() {
-        requestDto.setRole("USER"); // Set role to USER to avoid reportingTo check
+        requestDto.setRole("SALES_AGENT"); // Use valid role to avoid reportingTo check
         AdminUser existingUser = new AdminUser();
         existingUser.setUsername("differentuser");
         existingUser.setEmail("test@email.com"); // Set email to avoid null pointer
@@ -228,7 +228,7 @@ class AdminUserServiceImplTest {
 
     @Test
     void testUpdateAdminUser_Exception() {
-        requestDto.setRole("USER"); // Set role to USER to avoid reportingTo check
+        requestDto.setRole("SALES_AGENT"); // Use valid role to avoid reportingTo check
         requestDto.setEmail(adminUser.getEmail()); // Use same email to avoid email check
         when(adminUserRepository.findByUsername(anyString())).thenReturn(Optional.of(adminUser));
         when(adminUserRepository.findByEmail(anyString())).thenReturn(Optional.empty());
@@ -529,7 +529,7 @@ class AdminUserServiceImplTest {
 
     @Test
     void testUpdateAdminUser_VerifyRepositoryCalls() {
-        requestDto.setRole("USER"); // Set role to USER to avoid reportingTo check
+        requestDto.setRole("SALES_AGENT"); // Use valid role to avoid reportingTo check
         requestDto.setEmail(adminUser.getEmail()); // Use same email to avoid email check
         when(adminUserRepository.findByUsername(anyString())).thenReturn(Optional.of(adminUser));
         when(adminUserRepository.findByEmail(anyString())).thenReturn(Optional.empty());

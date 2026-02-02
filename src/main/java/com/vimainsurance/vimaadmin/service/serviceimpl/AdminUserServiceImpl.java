@@ -132,7 +132,11 @@ public class AdminUserServiceImpl implements IAdminUserService {
                 );
                 logger.info("[correlationId:{}] User created successfully in Authentik: {}", MDC.get("correlationId"), requestDto.getUsername());
             } catch (Exception e) {
-                TransactionAspectSupport.currentTransactionStatus().setRollbackOnly();
+                try {
+                    TransactionAspectSupport.currentTransactionStatus().setRollbackOnly();
+                } catch (Exception txEx) {
+                    // No active transaction (e.g. in unit tests) - ignore
+                }
                 logger.error("[correlationId:{}] Error creating user in Authentik: {}", MDC.get("correlationId"), e.getMessage(), e);
                 return responseObj.render(responseObj.formErrorResponse("Failed to create user in Authentik: " + e.getMessage()));
             }
