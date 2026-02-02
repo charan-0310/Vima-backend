@@ -51,6 +51,7 @@ import com.vimainsurance.vimaadmin.repository.IEndorsementRepository;
 import com.vimainsurance.vimaadmin.repository.IOrganizationRepository;
 import com.vimainsurance.vimaadmin.repository.IPolicyRepository;
 import com.vimainsurance.vimaadmin.service.IReportExportService;
+import com.vimainsurance.vimaadmin.repository.IInsuranceProviderRepository;
 
 /**
  * Service implementation for generating and exporting reports to Excel
@@ -90,6 +91,9 @@ public class ReportExportServiceImpl implements IReportExportService {
 
     @Autowired
     private IOrganizationRepository organizationRepository;
+
+    @Autowired
+    private IInsuranceProviderRepository insuranceProviderRepository;
 
     @Override
     public ResponseEntity<Resource> exportToExcel(ReportExportRequestDto requestDto) {
@@ -364,6 +368,8 @@ public class ReportExportServiceImpl implements IReportExportService {
                 .department(deal.getDepartment())
                 .designation(deal.getDesignation())
                 .dateOfJoining(deal.getDateOfJoining())
+                .healthId(deal.getHealthId())
+                .ecardStatus(deal.getHealthId()!=null ? "ECARD_ISSUED" : "ECARD_NOT_ISSUED")
                 .policyStartDate(policy != null ? policy.getStartDate() : null)
                 .policyNumber(policy != null ? policy.getPolicyNumber() : null)
                 .coverageEndDate(policy != null ? policy.getEndDate() : null)
