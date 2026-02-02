@@ -956,6 +956,7 @@ public class EndorsementServiceImpl implements IEndorsementService {
                 try {
                     // Employee ID (primary's for dependents) must not be blank
                     if (healthIdDto.getEmployeeId() == null || healthIdDto.getEmployeeId().isBlank()) {
+                        healthIdDto.setErrorReason("Employee ID is required");
                         invalidCustomers.add(healthIdDto);
                         logger.warn("[correlationId:{}] Employee ID is blank for name:{}, relationship:{}",
                                 MDC.get("correlationId"), healthIdDto.getName(), healthIdDto.getRelationship());
@@ -965,6 +966,13 @@ public class EndorsementServiceImpl implements IEndorsementService {
                     String normalizedRelationship = normalizeRelationshipForLookup(healthIdDto.getRelationship());
                     Optional<Deals> customerOpt = dealsRepository.findByNameAndEmployeeNumberAndRelationshipAndOrganizationIdForEndorsement(
                             healthIdDto.getName(), healthIdDto.getEmployeeId(), normalizedRelationship, organizationId, endorsementId);
+
+                    // Fallback for SELF/Employee: if not found in endorsement, try organization scope.
+                    // Employees may exist as primaryIndividual of dependents in endorsement but not be directly linked.
+                    if (customerOpt.isEmpty() && ("SELF".equalsIgnoreCase(normalizedRelationship) || "EMPLOYEE".equalsIgnoreCase(normalizedRelationship))) {
+                        customerOpt = dealsRepository.findByNameAndEmployeeNumberAndRelationshipAndOrganizationId(
+                                healthIdDto.getName(), healthIdDto.getEmployeeId(), normalizedRelationship, organizationId);
+                    }
 
                     if (customerOpt.isPresent()) {
                         Deals customer = customerOpt.get();
@@ -976,6 +984,12 @@ public class EndorsementServiceImpl implements IEndorsementService {
                         if (relationshipMatches && nameMatches) {
                             validCustomers.add(customer);
                         } else {
+                            String reason = !nameMatches && !relationshipMatches
+                                    ? "Name and relationship do not match database records"
+                                    : !nameMatches
+                                            ? "Name does not match database record (expected format may differ)"
+                                            : "Relationship does not match database record";
+                            healthIdDto.setErrorReason(reason);
                             invalidCustomers.add(healthIdDto);
                             logger.warn("[correlationId:{}] Validation failed for employeeId:{}, relationship:{}, name:{}",
                                     MDC.get("correlationId"),
@@ -984,6 +998,10 @@ public class EndorsementServiceImpl implements IEndorsementService {
                                     healthIdDto.getName());
                         }
                     } else {
+                        healthIdDto.setErrorReason("Employee not found for employeeId " + healthIdDto.getEmployeeId()
+                                + ", relationship " + healthIdDto.getRelationship()
+                                + ", name \"" + healthIdDto.getName()
+                                + "\" in this endorsement or organization");
                         invalidCustomers.add(healthIdDto);
                         logger.warn("[correlationId:{}] Employee not found for employeeId:{}, relationship:{}, name:{}",
                                 MDC.get("correlationId"),
@@ -992,6 +1010,7 @@ public class EndorsementServiceImpl implements IEndorsementService {
                                 healthIdDto.getName());
                     }
                 } catch (Exception e) {
+                    healthIdDto.setErrorReason("Validation error: " + (e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName()));
                     invalidCustomers.add(healthIdDto);
                     logger.error("[correlationId:{}] Error validating health ID for employeeId:{} - name:{}",
                             MDC.get("correlationId"), healthIdDto.getEmployeeId(), healthIdDto.getName(), e);
