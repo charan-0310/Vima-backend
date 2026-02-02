@@ -65,7 +65,7 @@ public class ReportExportServiceImpl implements IReportExportService {
     // Standard headers for master report
     private static final String[] ACTIVE_EMPLOYEE_HEADERS = {"Employee ID", "Employee Name", "Relationship ", "Person Name",
             "Date of Birth", "Gender", "Email", "Phone", "Department", "Designation", "Join Date", "Coverage Start Date",
-            "Policy number", "insurer", "TPA", "Sum Insured", "Status", "E-card status"};
+            "Policy number", "insurer", "TPA", "Sum Insured", "Status", "Health ID", "E-card status"};
 
     private static final String[] INACTIVE_EMPLOYEE_HEADERS = {"Employee ID", "Employee Name", "Relationship ", "Person Name",
             "Date of Birth", "Gender", "Email", "Phone", "Department", "Designation", "Join Date", "Coverage Start Date",
@@ -514,6 +514,7 @@ public class ReportExportServiceImpl implements IReportExportService {
                 row.createCell(col++).setCellValue(nullSafe(data.getTpa()));                           // TPA
                 row.createCell(col++).setCellValue(data.getSumInsured() != null ? data.getSumInsured().toString() : ""); // Sum Insured
                 row.createCell(col++).setCellValue(nullSafe(data.getStatus()));                        // Status
+                row.createCell(col++).setCellValue(nullSafe(data.getHealthId()));                      // Health ID
                 row.createCell(col++).setCellValue(nullSafe(data.getEcardStatus()));                   // E-card status
                 break;
             case EMPLOYEE_INACTIVE:
@@ -759,6 +760,7 @@ public class ReportExportServiceImpl implements IReportExportService {
                 nullSafe(r.getTpa()),             // TPA
                 r.getSumInsured(),                // Sum Insured
                 nullSafe(r.getStatus()),          // Status
+                nullSafe(r.getHealthId()),         // Health ID
                 nullSafe(r.getEcardStatus())      // E-card status
             );
 
