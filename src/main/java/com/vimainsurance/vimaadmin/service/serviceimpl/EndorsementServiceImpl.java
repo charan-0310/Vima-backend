@@ -59,6 +59,7 @@ import com.vimainsurance.vimaadmin.util.EnvironmentUtil;
 import com.vimainsurance.vimaadmin.util.JwtUserExtractor;
 import com.vimainsurance.vimaadmin.util.TenantContext;
 import com.vimainsurance.vimaadmin.util.AuthentikUtil;
+import com.vimainsurance.vimaadmin.util.PasswordGenerator;
 import com.vimainsurance.vimaadmin.service.IEmailService;
 import com.vimainsurance.vimaadmin.dto.EmployeeOnboardingResponseDto;
 
@@ -888,13 +889,10 @@ public class EndorsementServiceImpl implements IEndorsementService {
         deals.stream().forEach(deal -> {
             try {
                 if(deal.getRelationship().equals("SELF")) {
-                    String dateStr = deal.getDateOfBirth() != null 
-                        ? deal.getDateOfBirth().format(java.time.format.DateTimeFormatter.ofPattern("ddMM"))
-                        : "0101";
-                    String password = deal.getFullName().trim().toLowerCase().replaceAll("\\s+", "") + "@" + dateStr;
+                    String password = PasswordGenerator.generateRandomPassword();
                     authentikUtil.createUser(deal.getFullName(), deal.getEmail().toLowerCase(), deal.getEmail().toLowerCase(), 
                         "ROLE_EMPLOYEE", Arrays.asList(orgName), true, password, deal.getIndividualId().toString());
-                    emailService.sendWelcomeEmail(deal.getEmail().toLowerCase(), deal.getEmail().toLowerCase(), password);
+                    // emailService.sendWelcomeEmail(deal.getEmail().toLowerCase(), deal.getFullName(), deal.getEmail().toLowerCase(), password);
                     successCount.incrementAndGet();
                     successUsers.add(deal.getEmail());
                 } 

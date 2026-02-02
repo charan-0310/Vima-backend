@@ -12,9 +12,9 @@ import org.slf4j.LoggerFactory;
 import org.slf4j.MDC;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
-import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.stereotype.Service;
-import org.springframework.web.multipart.MultipartFile;
+import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.interceptor.TransactionAspectSupport;
 
 import com.vimainsurance.vimaadmin.dto.AdminUserRequestDto;
 import com.vimainsurance.vimaadmin.dto.AdminUserResponseDto;
@@ -27,14 +27,15 @@ import com.vimainsurance.vimaadmin.dto.PasswordChangeRequestDto;
 import com.vimainsurance.vimaadmin.dto.ResponseDto;
 import com.vimainsurance.vimaadmin.dto.RoleDto;
 import com.vimainsurance.vimaadmin.entity.AdminUser;
+import com.vimainsurance.vimaadmin.enums.UserRole;
 import com.vimainsurance.vimaadmin.repository.IAdminUserRepository;
 import com.vimainsurance.vimaadmin.service.IAdminUserService;
 import com.vimainsurance.vimaadmin.service.IEmailService;
 import com.vimainsurance.vimaadmin.util.AuthentikUtil;
 import com.vimainsurance.vimaadmin.util.Constants;
+import com.vimainsurance.vimaadmin.util.IdGenerator;
 import com.vimainsurance.vimaadmin.util.PasswordEncoder;
 import com.vimainsurance.vimaadmin.util.PasswordGenerator;
-import com.vimainsurance.vimaadmin.util.IdGenerator;
 
 @Service
 public class AdminUserServiceImpl implements IAdminUserService {
@@ -75,7 +76,7 @@ public class AdminUserServiceImpl implements IAdminUserService {
         user.setUsername(dto.getUsername());
         user.setEmail(dto.getEmail());
         user.setFullName(dto.getFullName());
-        user.setRole(dto.getRole());
+        user.setRole(UserRole.fromValue(dto.getRole().replace("ROLE_", "")).getValue());
         user.setIsActive(dto.getIsActive() != null ? dto.getIsActive() : true);
         user.setOauthProvider(dto.getOauthProvider());
         user.setOauthProviderId(dto.getOauthProviderId());
@@ -85,6 +86,7 @@ public class AdminUserServiceImpl implements IAdminUserService {
     }
 
     @Override
+    @Transactional(rollbackFor = Exception.class)
     public ResponseEntity<ResponseDto<String>> createAdminUser(AdminUserRequestDto requestDto) {
         logger.info("[correlationId:{}] createAdminUser called", MDC.get("correlationId"));
         BaseResponse<String> responseObj = new BaseResponse<>();
@@ -130,6 +132,7 @@ public class AdminUserServiceImpl implements IAdminUserService {
                 );
                 logger.info("[correlationId:{}] User created successfully in Authentik: {}", MDC.get("correlationId"), requestDto.getUsername());
             } catch (Exception e) {
+                TransactionAspectSupport.currentTransactionStatus().setRollbackOnly();
                 logger.error("[correlationId:{}] Error creating user in Authentik: {}", MDC.get("correlationId"), e.getMessage(), e);
                 return responseObj.render(responseObj.formErrorResponse("Failed to create user in Authentik: " + e.getMessage()));
             }

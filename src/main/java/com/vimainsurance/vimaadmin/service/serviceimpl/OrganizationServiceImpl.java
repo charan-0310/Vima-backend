@@ -3,6 +3,7 @@ package com.vimainsurance.vimaadmin.service.serviceimpl;
 import java.io.InputStream;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.HashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -12,12 +13,11 @@ import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
-import java.util.Arrays;
-
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.slf4j.MDC;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.core.env.Environment;
 import org.springframework.core.io.InputStreamResource;
 import org.springframework.core.io.Resource;
 import org.springframework.data.domain.Page;
@@ -28,23 +28,24 @@ import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
-import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
 
+import com.vimainsurance.vimaadmin.dto.AuthentikGroupCreationDto;
 import com.vimainsurance.vimaadmin.dto.BaseResponse;
 import com.vimainsurance.vimaadmin.dto.BulkEmployeeDeletionRequestDto;
-import com.vimainsurance.vimaadmin.dto.EmployeeUploadResponse;
-import com.vimainsurance.vimaadmin.dto.EmployeeUploadDto;
 import com.vimainsurance.vimaadmin.dto.CsvValidationResponseDto;
 import com.vimainsurance.vimaadmin.dto.DocumentRequestDto;
 import com.vimainsurance.vimaadmin.dto.DocumentResponseDto;
+import com.vimainsurance.vimaadmin.dto.EmployeeUploadDto;
+import com.vimainsurance.vimaadmin.dto.EmployeeUploadResponse;
 import com.vimainsurance.vimaadmin.dto.OrganizationEmployeeDto;
 import com.vimainsurance.vimaadmin.dto.OrganizationRequestDto;
 import com.vimainsurance.vimaadmin.dto.OrganizationResponseDto;
 import com.vimainsurance.vimaadmin.dto.ResponseDto;
 import com.vimainsurance.vimaadmin.entity.AdminUser;
+import com.vimainsurance.vimaadmin.entity.DealEndorsement;
 import com.vimainsurance.vimaadmin.entity.Deals;
 import com.vimainsurance.vimaadmin.entity.Document;
 import com.vimainsurance.vimaadmin.entity.Organization;
@@ -54,26 +55,22 @@ import com.vimainsurance.vimaadmin.enums.DocumentEntityType;
 import com.vimainsurance.vimaadmin.enums.DocumentType;
 import com.vimainsurance.vimaadmin.enums.Industry;
 import com.vimainsurance.vimaadmin.enums.UserRole;
+import com.vimainsurance.vimaadmin.exception.OrganizationAccessDeniedException;
 import com.vimainsurance.vimaadmin.repository.IAdminUserRepository;
+import com.vimainsurance.vimaadmin.repository.IDealEndorsementRepository;
 import com.vimainsurance.vimaadmin.repository.IDealsRepository;
 import com.vimainsurance.vimaadmin.repository.IDocumentRepository;
 import com.vimainsurance.vimaadmin.repository.IOrganizationRepository;
+import com.vimainsurance.vimaadmin.repository.IPolicyRepository;
 import com.vimainsurance.vimaadmin.service.IDocumentService;
 import com.vimainsurance.vimaadmin.service.IOrganizationService;
 import com.vimainsurance.vimaadmin.service.IS3Service;
 import com.vimainsurance.vimaadmin.specification.OrganizationSpecification;
+import com.vimainsurance.vimaadmin.util.AuthentikUtil;
 import com.vimainsurance.vimaadmin.util.Constants;
 import com.vimainsurance.vimaadmin.util.CsvDealsReaderUtil;
 import com.vimainsurance.vimaadmin.util.EnvironmentUtil;
 import com.vimainsurance.vimaadmin.util.JwtUserExtractor;
-import com.vimainsurance.vimaadmin.exception.OrganizationAccessDeniedException;
-import com.vimainsurance.vimaadmin.repository.IDealEndorsementRepository;
-
-import org.springframework.core.env.Environment;
-
-import com.vimainsurance.vimaadmin.dto.AuthentikGroupCreationDto;
-import com.vimainsurance.vimaadmin.entity.DealEndorsement;
-import com.vimainsurance.vimaadmin.util.AuthentikUtil;
 
 @Service
 public class OrganizationServiceImpl implements IOrganizationService {
@@ -112,6 +109,9 @@ public class OrganizationServiceImpl implements IOrganizationService {
 
     @Autowired
     private IDealEndorsementRepository dealEndorsementRepository;
+
+    @Autowired
+    private IPolicyRepository policyRepository;
 
     @Override
     @Transactional(rollbackFor = Exception.class)
@@ -407,6 +407,9 @@ public class OrganizationServiceImpl implements IOrganizationService {
                 return responseObj.render(responseObj.formErrorResponse(Constants.RECORD_NOT_FOUND_MESSAGE));
             }
             Document document = documentOpt.get();
+            if (policyRepository.existsByDocument_DocumentId(document.getDocumentId())) {
+                return responseObj.render(responseObj.formErrorResponse("Document is mapped with policy #"+ policyRepository.findByDocument_DocumentId(document.getDocumentId()).get().getPolicyNumber() +" and cannot be deleted"));
+            }
             s3Service.deleteFile(document.getS3Key());
             // Handle special case for PAN/AADHAAR cards that have original and masked versions
             if(document.getDocumentType().equals(DocumentType.PAN_CARD) || document.getDocumentType().equals(DocumentType.AADHAAR_CARD)){
@@ -652,6 +655,8 @@ public class OrganizationServiceImpl implements IOrganizationService {
         dto.setRegisteredAddress(org.getRegisteredAddress());
         dto.setIndustry(org.getIndustry() != null ? org.getIndustry().getValue() : null);
         dto.setEmployeesCount(dealsRepository.countByOrganizationId(org.getOrganizationId()));
+        dto.setPolicyCount(policyRepository.countByOrganizationId(org.getOrganizationId()));
+        dto.setTotalPremiumAmount(policyRepository.sumPremiumAmountByOrganizationId(org.getOrganizationId()));
         return dto;
     }
 
@@ -1465,7 +1470,9 @@ public class OrganizationServiceImpl implements IOrganizationService {
             adminuser = adminUserRepository.findByUsername(username).orElseThrow(() -> new RuntimeException("Admin user not found"));
         }
         employeeUploadResponse = employeeService.uploadEmployees(employeeUploadDtoList, organization, adminuser, file, uploadType);
-        return responseObj.render(responseObj.formSuccessResponse(Constants.SUCCESS, employeeUploadResponse));
+        String responseMessage = (employeeUploadResponse.getMessage() != null && !employeeUploadResponse.getMessage().isEmpty())
+                ? employeeUploadResponse.getMessage() : Constants.SUCCESS;
+        return responseObj.render(responseObj.formSuccessResponse(responseMessage, employeeUploadResponse));
     }
     catch (OrganizationAccessDeniedException e) {
         logger.warn("[correlationId:{}] Organization access denied for organizationId: {}", MDC.get("correlationId"), organizationId);
