@@ -107,7 +107,7 @@ public class EmployeeInsuranceServiceImpl implements IEmployeeInsuranceService {
                 // TPA Details
                 .tpaOrganizationName(primaryPolicy != null ? primaryPolicy.getTpaOrganizationName() : null)
                 .tpaContactInfo(primaryPolicy != null ? primaryPolicy.getTpaContactInfo() : null)
-
+                .companyName(employee.getOrganization() != null ? employee.getOrganization().getOrganizationName() : null)
                 .coveredMembers(coveredMembers)
                 .build();
 
@@ -129,6 +129,9 @@ public class EmployeeInsuranceServiceImpl implements IEmployeeInsuranceService {
 
         return EmployeeInsuranceResponseDto.CoveredMemberDto.builder()
                 .policyId(policyId)
+                .policyNumber(primaryPolicy != null ? primaryPolicy.getPolicyNumber() : null)
+                .insuranceProviderLogo(primaryPolicy != null ?
+                        resolveInsuranceProviderName(primaryPolicy.getInsuranceProviderId()) : null)
                 .healthId(deal.getHealthId())
                 .individualId(deal.getIndividualId())
                 .fullName(deal.getFullName() != null && !deal.getFullName().isBlank() ?
@@ -144,6 +147,7 @@ public class EmployeeInsuranceServiceImpl implements IEmployeeInsuranceService {
                 // TPA Details
                 .tpaOrganizationName(primaryPolicy != null ? primaryPolicy.getTpaOrganizationName() : null)
                 .tpaContactInfo(primaryPolicy != null ? primaryPolicy.getTpaContactInfo() : null)
+                .companyName(deal.getOrganization() != null ? deal.getOrganization().getOrganizationName() : null)
                 .build();
     }
 

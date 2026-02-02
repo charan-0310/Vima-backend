@@ -59,10 +59,11 @@ public class EmailController {
     @Operation(summary = "Send welcome email", description = "Send a welcome email to a new user")
     public ResponseEntity<EmailResponse> sendWelcomeEmail(
             @RequestParam String email,
-            @RequestParam String userName,
+            @RequestParam String userFullName,
+            @RequestParam String username,
             @RequestParam(required = false) String password) {
         String generatedPassword = password != null ? password : "TempPass123!";
-        EmailResponse response = emailService.sendWelcomeEmail(email, userName, generatedPassword);
+        EmailResponse response = emailService.sendWelcomeEmail(email, userFullName, username, generatedPassword);
         return ResponseEntity.ok(response);
     }
 

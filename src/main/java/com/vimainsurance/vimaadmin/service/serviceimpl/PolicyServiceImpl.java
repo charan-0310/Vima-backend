@@ -19,6 +19,8 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.interceptor.TransactionAspectSupport;
 
 import com.vimainsurance.vimaadmin.dto.BaseResponse;
 import com.vimainsurance.vimaadmin.dto.DealsRequestDto;
@@ -94,6 +96,7 @@ public class PolicyServiceImpl implements IPolicyService {
 
 
     @Override
+    @Transactional(rollbackFor = Exception.class)
     public ResponseEntity<ResponseDto<String>> createPolicy(PolicyRequestDto requestDto) {
         logger.info("[correlationId:{}] createPolicy called", MDC.get("correlationId"));
         BaseResponse<String> responseObj = new BaseResponse<>();
@@ -207,9 +210,11 @@ public class PolicyServiceImpl implements IPolicyService {
             
             return responseObj.render(responseObj.formSuccessResponse(Constants.SUCCESS, Constants.SAVE_SUCCESS));
         } catch (BadRequestException e) {
+            TransactionAspectSupport.currentTransactionStatus().setRollbackOnly();
             logger.error("[correlationId:{}] Validation error in createPolicy: {}", MDC.get("correlationId"), e.getMessage());
             return responseObj.render(responseObj.formErrorResponse(e.getMessage()));
         } catch (Exception e) {
+            TransactionAspectSupport.currentTransactionStatus().setRollbackOnly();
             logger.error("[correlationId:{}] Exception in createPolicy: {}", MDC.get("correlationId"), e.getMessage(), e);
             return responseObj.render(responseObj.formErrorResponse(e.getMessage()));
         }
@@ -647,6 +652,7 @@ public class PolicyServiceImpl implements IPolicyService {
    
     
     @Override
+    @Transactional(rollbackFor = Exception.class)
     public ResponseEntity<ResponseDto<String>> uploadPolicyForOrganization(UUID organizationId, PolicyUploadRequestDto requestDto) {
         logger.info("[correlationId:{}] uploadPolicyForOrganization called for organizationId: {}", MDC.get("correlationId"), organizationId);
         BaseResponse<String> responseObj = new BaseResponse<>();
@@ -725,12 +731,14 @@ public class PolicyServiceImpl implements IPolicyService {
                     policyRepository.save(savedPolicy);
                 }
                 if(documentResponse.getBody() != null && documentResponse.getBody().getErrorCode() != null){
+                    TransactionAspectSupport.currentTransactionStatus().setRollbackOnly();
                     return responseObj.render(responseObj.formErrorResponse(documentResponse.getBody().getMessage()));
                 }
             }
             
             return responseObj.render(responseObj.formSuccessResponse(Constants.SUCCESS, "Policy created and documents uploaded successfully"));
         } catch (Exception e) {
+            TransactionAspectSupport.currentTransactionStatus().setRollbackOnly();
             logger.error("[correlationId:{}] Exception in uploadPolicyForOrganization: {}", MDC.get("correlationId"), e.getMessage(), e);
             return responseObj.render(responseObj.formErrorResponse(e.getMessage()));
         }

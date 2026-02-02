@@ -59,6 +59,7 @@ import com.vimainsurance.vimaadmin.util.EnvironmentUtil;
 import com.vimainsurance.vimaadmin.util.JwtUserExtractor;
 import com.vimainsurance.vimaadmin.util.TenantContext;
 import com.vimainsurance.vimaadmin.util.AuthentikUtil;
+import com.vimainsurance.vimaadmin.util.PasswordGenerator;
 import com.vimainsurance.vimaadmin.service.IEmailService;
 import com.vimainsurance.vimaadmin.dto.EmployeeOnboardingResponseDto;
 
@@ -888,13 +889,10 @@ public class EndorsementServiceImpl implements IEndorsementService {
         deals.stream().forEach(deal -> {
             try {
                 if(deal.getRelationship().equals("SELF")) {
-                    String dateStr = deal.getDateOfBirth() != null 
-                        ? deal.getDateOfBirth().format(java.time.format.DateTimeFormatter.ofPattern("ddMM"))
-                        : "0101";
-                    String password = deal.getFullName().trim().toLowerCase().replaceAll("\\s+", "") + "@" + dateStr;
+                    String password = PasswordGenerator.generateRandomPassword();
                     authentikUtil.createUser(deal.getFullName(), deal.getEmail().toLowerCase(), deal.getEmail().toLowerCase(), 
                         "ROLE_EMPLOYEE", Arrays.asList(orgName), true, password, deal.getIndividualId().toString());
-                    emailService.sendWelcomeEmail(deal.getEmail().toLowerCase(), deal.getEmail().toLowerCase(), password);
+                    // emailService.sendWelcomeEmail(deal.getEmail().toLowerCase(), deal.getFullName(), deal.getEmail().toLowerCase(), password);
                     successCount.incrementAndGet();
                     successUsers.add(deal.getEmail());
                 } 
@@ -956,20 +954,42 @@ public class EndorsementServiceImpl implements IEndorsementService {
             // Validate all records first (no updates yet)
             for (HealthIdUploadDto healthIdDto : healthIdList) {
                 try {
-                    Optional<Deals> customerOpt = dealsRepository.findByEmployeeNumberAndOrganizationId(
-                            healthIdDto.getEmployeeId(), organizationId);
+                    // Employee ID (primary's for dependents) must not be blank
+                    if (healthIdDto.getEmployeeId() == null || healthIdDto.getEmployeeId().isBlank()) {
+                        healthIdDto.setErrorReason("Employee ID is required");
+                        invalidCustomers.add(healthIdDto);
+                        logger.warn("[correlationId:{}] Employee ID is blank for name:{}, relationship:{}",
+                                MDC.get("correlationId"), healthIdDto.getName(), healthIdDto.getRelationship());
+                        continue;
+                    }
+
+                    String normalizedRelationship = normalizeRelationshipForLookup(healthIdDto.getRelationship());
+                    Optional<Deals> customerOpt = dealsRepository.findByNameAndEmployeeNumberAndRelationshipAndOrganizationIdForEndorsement(
+                            healthIdDto.getName(), healthIdDto.getEmployeeId(), normalizedRelationship, organizationId, endorsementId);
+
+                    // Fallback for SELF/Employee: if not found in endorsement, try organization scope.
+                    // Employees may exist as primaryIndividual of dependents in endorsement but not be directly linked.
+                    if (customerOpt.isEmpty() && ("SELF".equalsIgnoreCase(normalizedRelationship) || "EMPLOYEE".equalsIgnoreCase(normalizedRelationship))) {
+                        customerOpt = dealsRepository.findByNameAndEmployeeNumberAndRelationshipAndOrganizationId(
+                                healthIdDto.getName(), healthIdDto.getEmployeeId(), normalizedRelationship, organizationId);
+                    }
 
                     if (customerOpt.isPresent()) {
                         Deals customer = customerOpt.get();
 
                         boolean relationshipMatches = customer.getRelationship() != null &&
-                                customer.getRelationship().equalsIgnoreCase(healthIdDto.getRelationship());
-                        boolean nameMatches = customer.getFullName() != null &&
-                                customer.getFullName().equalsIgnoreCase(healthIdDto.getName());
+                                normalizeRelationshipForLookup(customer.getRelationship()).equalsIgnoreCase(normalizedRelationship);
+                        boolean nameMatches = matchesName(customer, healthIdDto.getName());
 
                         if (relationshipMatches && nameMatches) {
                             validCustomers.add(customer);
                         } else {
+                            String reason = !nameMatches && !relationshipMatches
+                                    ? "Name and relationship do not match database records"
+                                    : !nameMatches
+                                            ? "Name does not match database record (expected format may differ)"
+                                            : "Relationship does not match database record";
+                            healthIdDto.setErrorReason(reason);
                             invalidCustomers.add(healthIdDto);
                             logger.warn("[correlationId:{}] Validation failed for employeeId:{}, relationship:{}, name:{}",
                                     MDC.get("correlationId"),
@@ -978,6 +998,10 @@ public class EndorsementServiceImpl implements IEndorsementService {
                                     healthIdDto.getName());
                         }
                     } else {
+                        healthIdDto.setErrorReason("Employee not found for employeeId " + healthIdDto.getEmployeeId()
+                                + ", relationship " + healthIdDto.getRelationship()
+                                + ", name \"" + healthIdDto.getName()
+                                + "\" in this endorsement or organization");
                         invalidCustomers.add(healthIdDto);
                         logger.warn("[correlationId:{}] Employee not found for employeeId:{}, relationship:{}, name:{}",
                                 MDC.get("correlationId"),
@@ -986,6 +1010,7 @@ public class EndorsementServiceImpl implements IEndorsementService {
                                 healthIdDto.getName());
                     }
                 } catch (Exception e) {
+                    healthIdDto.setErrorReason("Validation error: " + (e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName()));
                     invalidCustomers.add(healthIdDto);
                     logger.error("[correlationId:{}] Error validating health ID for employeeId:{} - name:{}",
                             MDC.get("correlationId"), healthIdDto.getEmployeeId(), healthIdDto.getName(), e);
@@ -1027,6 +1052,43 @@ public class EndorsementServiceImpl implements IEndorsementService {
             return ResponseEntity.internalServerError()
                     .body(new ResponseDto<>(500, "Failed to upload health IDs: " + e.getMessage()));
         }
+    }
+
+    /**
+     * Normalizes relationship for lookup: "Employee" (case insensitive) is treated as "SELF".
+     */
+    private String normalizeRelationshipForLookup(String relationship) {
+        if (relationship == null || relationship.isBlank()) {
+            return relationship;
+        }
+        return "employee".equalsIgnoreCase(relationship.trim()) ? "SELF" : relationship.trim();
+    }
+
+    /**
+     * Checks if the deal's name matches the given name.
+     * Handles both fullName (EmployeeToDeals) and firstName+lastName (CsvDealsReaderUtil) storage.
+     */
+    private boolean matchesName(Deals customer, String name) {
+        if (name == null || name.isBlank()) {
+            return false;
+        }
+        String normalizedName = name.trim();
+        if (customer.getFullName() != null && customer.getFullName().trim().equalsIgnoreCase(normalizedName)) {
+            return true;
+        }
+        String first = customer.getFirstName() != null ? customer.getFirstName().trim() : "";
+        String last = customer.getLastName() != null ? customer.getLastName().trim() : "";
+        String firstLast = (first + " " + last).trim();
+        if (!firstLast.isBlank() && firstLast.equalsIgnoreCase(normalizedName)) {
+            return true;
+        }
+        if (!first.isBlank() && first.equalsIgnoreCase(normalizedName)) {
+            return true;
+        }
+        if (!last.isBlank() && last.equalsIgnoreCase(normalizedName)) {
+            return true;
+        }
+        return false;
     }
 
 }

@@ -43,10 +43,12 @@ public interface IEmailService {
     /**
      * Send a welcome email to new users
      * @param recipientEmail Recipient email address
-     * @param userName User's name
+     * @param userFullName User's full name (for "Welcome, X" greeting)
+     * @param username Username for login (typically email)
+     * @param password Temporary password
      * @return EmailResponse with success status and message
      */
-    EmailResponse sendWelcomeEmail(String recipientEmail, String userName, String password);
+    EmailResponse sendWelcomeEmail(String recipientEmail, String userFullName, String username, String password);
     
     /**
      * Send a password reset email with new password

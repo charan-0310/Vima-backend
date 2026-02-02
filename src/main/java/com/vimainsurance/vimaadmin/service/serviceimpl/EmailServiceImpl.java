@@ -244,13 +244,14 @@ public class EmailServiceImpl implements IEmailService {
     }
 
     @Override
-    public EmailResponse sendWelcomeEmail(String recipientEmail, String userName, String password) {
+    public EmailResponse sendWelcomeEmail(String recipientEmail, String userFullName, String username, String password) {
         EmailRequest emailRequest = EmailRequest.builder()
                 .to(recipientEmail)
                 .subject("Welcome to Vima Insurance")
                 .templateName("welcome")
                 .templateVariables(java.util.Map.of(
-                        "userName", userName,
+                        "userFullName", userFullName,
+                        "username", username,
                         "temporaryPassword", password,
                         COMPANY_NAME_KEY, COMPANY_NAME
                 ))
