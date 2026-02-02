@@ -1465,10 +1465,8 @@ public class OrganizationServiceImpl implements IOrganizationService {
         Organization organization = organizationRepository.findByOrganizationId(organizationId).orElseThrow(() -> new RuntimeException("Organization not found"));
         EmployeeUploadResponse employeeUploadResponse = new EmployeeUploadResponse();
         AdminUser adminuser = null;
-        if(EnvironmentUtil.isProductionEnvironment(environment)) {
             String username = jwtUserExtractor.getCurrentUsername();
             adminuser = adminUserRepository.findByUsername(username).orElseThrow(() -> new RuntimeException("Admin user not found"));
-        }
         employeeUploadResponse = employeeService.uploadEmployees(employeeUploadDtoList, organization, adminuser, file, uploadType);
         String responseMessage = (employeeUploadResponse.getMessage() != null && !employeeUploadResponse.getMessage().isEmpty())
                 ? employeeUploadResponse.getMessage() : Constants.SUCCESS;
@@ -1511,10 +1509,8 @@ public class OrganizationServiceImpl implements IOrganizationService {
             jwtUserExtractor.validateOrganizationAccess(organizationId);
             Organization organization = organizationRepository.findByOrganizationId(organizationId).orElseThrow(() -> new RuntimeException("Organization not found"));
             AdminUser adminuser = null;
-            if(EnvironmentUtil.isProductionEnvironment(environment)) {
                 String username = jwtUserExtractor.getCurrentUsername();
                 adminuser = adminUserRepository.findByUsername(username).orElseThrow(() -> new RuntimeException("Admin user not found"));
-            }
             EmployeeUploadResponse employeeUploadResponse = employeeService.deleteEmployee(bulkEmployeeDeletionRequestDtoList, organization, adminuser, file, uploadType);
             return responseObj.render(responseObj.formSuccessResponse(Constants.SUCCESS, employeeUploadResponse));
         }
