@@ -2,11 +2,15 @@ package com.vimainsurance.vimaadmin.service.serviceimpl;
 
 import java.time.LocalDateTime;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.stream.Collectors;
 
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.slf4j.MDC;
@@ -15,6 +19,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.interceptor.TransactionAspectSupport;
+import org.springframework.web.client.HttpStatusCodeException;
 
 import com.vimainsurance.vimaadmin.dto.AdminUserRequestDto;
 import com.vimainsurance.vimaadmin.dto.AdminUserResponseDto;
@@ -70,6 +75,71 @@ public class AdminUserServiceImpl implements IAdminUserService {
         dto.setAgentId(user.getAgentId());
         dto.setReportingTo(user.getReportingTo() != null ? user.getReportingTo().getUsername() : null);
         return dto;
+    }
+
+    private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
+    private static final Map<String, String> AUTHENTIK_FIELD_MESSAGES = Map.of(
+            "username", "Username must be unique",
+            "email", "Email must be unique",
+            "name", "Name must be unique"
+    );
+    private static final Map<Integer, String> HTTP_STATUS_MESSAGES = Map.of(
+            400, "Invalid request. Please check the provided data and try again.",
+            401, "Authentication failed. Please try again later.",
+            403, "Access denied. Please contact administrator.",
+            404, "Resource not found. Please try again.",
+            500, "Server error. Please try again later."
+    );
+
+    /**
+     * Extracts user-friendly error message from Authentik API exceptions.
+     * Uses JSON parsing and standard Map lookups (no regex or string search).
+     */
+    private String getAuthentikUserFriendlyMessage(Exception e) {
+        HttpStatusCodeException httpEx = findHttpStatusCodeException(e);
+        if (httpEx != null) {
+            int statusCode = httpEx.getStatusCode().value();
+            String statusMessage = HTTP_STATUS_MESSAGES.get(statusCode);
+            if (statusCode == 400) {
+                String fieldMessage = parseAuthentikValidationErrors(httpEx.getResponseBodyAsString());
+                return fieldMessage != null ? fieldMessage : (statusMessage != null ? statusMessage : "Invalid request. Please check the provided data and try again.");
+            }
+            return statusMessage != null ? statusMessage : "Failed to create user. Please try again.";
+        }
+        return "Failed to create user. Please try again.";
+    }
+
+    private HttpStatusCodeException findHttpStatusCodeException(Throwable t) {
+        if (t == null) return null;
+        if (t instanceof HttpStatusCodeException httpEx) return httpEx;
+        return findHttpStatusCodeException(t.getCause());
+    }
+
+    /**
+     * Parses Authentik validation error JSON and returns user-friendly message.
+     * Expects format: {"fieldName":["error message"], ...}
+     */
+    private String parseAuthentikValidationErrors(String responseBody) {
+        if (responseBody == null || responseBody.isBlank()) {
+            return null;
+        }
+        try {
+            Map<String, List<String>> errors = OBJECT_MAPPER.readValue(responseBody, new TypeReference<>() {});
+            if (errors == null || errors.isEmpty()) {
+                return null;
+            }
+            for (Map.Entry<String, String> entry : AUTHENTIK_FIELD_MESSAGES.entrySet()) {
+                List<String> fieldErrors = errors.get(entry.getKey());
+                if (fieldErrors != null && !fieldErrors.isEmpty()) {
+                    return entry.getValue();
+                }
+            }
+            Map.Entry<String, List<String>> firstError = errors.entrySet().iterator().next();
+            List<String> messages = firstError.getValue();
+            return (messages != null && !messages.isEmpty()) ? messages.get(0) : null;
+        } catch (Exception ex) {
+            return null;
+        }
     }
 
     private void mapRequestToEntity(AdminUserRequestDto dto, AdminUser user) {
@@ -138,7 +208,8 @@ public class AdminUserServiceImpl implements IAdminUserService {
                     // No active transaction (e.g. in unit tests) - ignore
                 }
                 logger.error("[correlationId:{}] Error creating user in Authentik: {}", MDC.get("correlationId"), e.getMessage(), e);
-                return responseObj.render(responseObj.formErrorResponse("Failed to create user in Authentik: " + e.getMessage()));
+                String userMessage = getAuthentikUserFriendlyMessage(e);
+                return responseObj.render(responseObj.formErrorResponse(userMessage));
             }
             
             // // Create user in local database

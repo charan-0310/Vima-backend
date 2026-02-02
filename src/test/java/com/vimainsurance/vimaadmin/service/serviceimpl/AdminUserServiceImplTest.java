@@ -150,7 +150,21 @@ class AdminUserServiceImplTest {
         ResponseEntity<ResponseDto<String>> response = adminUserService.createAdminUser(requestDto);
         
         assertEquals(HttpStatus.BAD_REQUEST, response.getStatusCode());
-        assertEquals("Failed to create user in Authentik: Database error", response.getBody().getMessage());
+        assertEquals("Failed to create user. Please try again.", response.getBody().getMessage());
+    }
+
+    @Test
+    void testCreateAdminUser_AuthentikUsernameExists() {
+        when(adminUserRepository.findByUsername(requestDto.getUsername())).thenReturn(Optional.empty());
+        when(adminUserRepository.findByEmail(requestDto.getEmail())).thenReturn(Optional.empty());
+        when(adminUserRepository.save(any(AdminUser.class))).thenReturn(adminUser);
+        String authentikError = "400 Bad Request: {\"username\":[\"This field must be unique.\"]}";
+        doThrow(new RuntimeException(authentikError)).when(authentikUtil).createUser(anyString(), anyString(), anyString(), anyString(), any(), anyBoolean(), nullable(String.class), anyString());
+
+        ResponseEntity<ResponseDto<String>> response = adminUserService.createAdminUser(requestDto);
+        
+        assertEquals(HttpStatus.BAD_REQUEST, response.getStatusCode());
+        assertEquals("Username must be unique", response.getBody().getMessage());
     }
 
     // ========== UPDATE ADMIN USER TESTS ==========
