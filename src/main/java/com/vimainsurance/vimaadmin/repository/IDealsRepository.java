@@ -67,22 +67,25 @@ public interface IDealsRepository extends JpaRepository<Deals, UUID> , JpaSpecif
 
     /**
      * Find deal for health ID upload - scoped to endorsement (deals in this endorsement or linked via deal_endorsements).
+     * Uses native query to avoid JPQL-to-SQL translation issues with CONCAT/TRIM on PostgreSQL.
      */
-    @Query("""
-    SELECT d FROM Deals d
+    @Query(value = """
+    SELECT c.* FROM cpc.customers c
+    LEFT JOIN cpc.customers p ON c.primary_individual_id = p.individual_id
     WHERE (
-        (d.fullName IS NOT NULL AND LOWER(d.fullName) = LOWER(:name))
-        OR (d.fullName IS NULL AND LOWER(TRIM(CONCAT(CONCAT(COALESCE(d.firstName,''), ' '), COALESCE(d.lastName,'')))) = LOWER(:name))
-        OR LOWER(d.firstName) = LOWER(:name)
-        OR LOWER(d.lastName) = LOWER(:name)
+        (c.full_name IS NOT NULL AND LOWER(c.full_name) = LOWER(:name))
+        OR (c.full_name IS NULL AND LOWER(TRIM(CONCAT(COALESCE(c.first_name,''), ' ', COALESCE(c.last_name,'')))) = LOWER(:name))
+        OR LOWER(c.first_name) = LOWER(:name)
+        OR LOWER(c.last_name) = LOWER(:name)
     )
-    AND (d.employeeNumber = :employeeNumber OR (d.primaryIndividual IS NOT NULL AND d.primaryIndividual.employeeNumber = :employeeNumber))
-    AND (LOWER(d.relationship) = LOWER(:relationship) OR (LOWER(:relationship) = 'self' AND LOWER(d.relationship) = 'employee'))
-    AND d.organization.organizationId = :organizationId
-    AND (d.endorsementId = :endorsementId OR EXISTS (
-        SELECT 1 FROM DealEndorsement de WHERE de.deal = d AND de.endorsement.endorsementId = :endorsementId
+    AND (c.employee_number = :employeeNumber OR (p.employee_number = :employeeNumber))
+    AND (LOWER(c.relationship) = LOWER(:relationship) OR (LOWER(:relationship) = 'self' AND LOWER(c.relationship) = 'employee'))
+    AND c.organization_id = :organizationId
+    AND (c.endorsement_id = :endorsementId OR EXISTS (
+        SELECT 1 FROM cpc.deal_endorsements de WHERE de.individual_id = c.individual_id AND de.endorsement_id = :endorsementId
     ))
-    """)
+    LIMIT 1
+    """, nativeQuery = true)
     Optional<Deals> findByNameAndEmployeeNumberAndRelationshipAndOrganizationIdForEndorsement(
             @Param("name") String name,
             @Param("employeeNumber") String employeeNumber,
