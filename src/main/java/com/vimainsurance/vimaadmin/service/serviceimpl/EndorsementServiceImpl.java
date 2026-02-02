@@ -971,8 +971,7 @@ public class EndorsementServiceImpl implements IEndorsementService {
 
                         boolean relationshipMatches = customer.getRelationship() != null &&
                                 normalizeRelationshipForLookup(customer.getRelationship()).equalsIgnoreCase(normalizedRelationship);
-                        boolean nameMatches = customer.getFullName() != null &&
-                                customer.getFullName().equalsIgnoreCase(healthIdDto.getName());
+                        boolean nameMatches = matchesName(customer, healthIdDto.getName());
 
                         if (relationshipMatches && nameMatches) {
                             validCustomers.add(customer);
@@ -1044,6 +1043,33 @@ public class EndorsementServiceImpl implements IEndorsementService {
             return relationship;
         }
         return "employee".equalsIgnoreCase(relationship.trim()) ? "SELF" : relationship.trim();
+    }
+
+    /**
+     * Checks if the deal's name matches the given name.
+     * Handles both fullName (EmployeeToDeals) and firstName+lastName (CsvDealsReaderUtil) storage.
+     */
+    private boolean matchesName(Deals customer, String name) {
+        if (name == null || name.isBlank()) {
+            return false;
+        }
+        String normalizedName = name.trim();
+        if (customer.getFullName() != null && customer.getFullName().trim().equalsIgnoreCase(normalizedName)) {
+            return true;
+        }
+        String first = customer.getFirstName() != null ? customer.getFirstName().trim() : "";
+        String last = customer.getLastName() != null ? customer.getLastName().trim() : "";
+        String firstLast = (first + " " + last).trim();
+        if (!firstLast.isBlank() && firstLast.equalsIgnoreCase(normalizedName)) {
+            return true;
+        }
+        if (!first.isBlank() && first.equalsIgnoreCase(normalizedName)) {
+            return true;
+        }
+        if (!last.isBlank() && last.equalsIgnoreCase(normalizedName)) {
+            return true;
+        }
+        return false;
     }
 
 }
