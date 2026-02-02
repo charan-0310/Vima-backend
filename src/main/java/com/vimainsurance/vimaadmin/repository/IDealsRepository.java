@@ -66,6 +66,32 @@ public interface IDealsRepository extends JpaRepository<Deals, UUID> , JpaSpecif
     );
 
     /**
+     * Find deal for health ID upload - scoped to endorsement (deals in this endorsement or linked via deal_endorsements).
+     */
+    @Query("""
+    SELECT d FROM Deals d
+    WHERE (
+        (d.fullName IS NOT NULL AND LOWER(d.fullName) = LOWER(:name))
+        OR (d.fullName IS NULL AND LOWER(TRIM(CONCAT(CONCAT(COALESCE(d.firstName,''), ' '), COALESCE(d.lastName,'')))) = LOWER(:name))
+        OR LOWER(d.firstName) = LOWER(:name)
+        OR LOWER(d.lastName) = LOWER(:name)
+    )
+    AND (d.employeeNumber = :employeeNumber OR (d.primaryIndividual IS NOT NULL AND d.primaryIndividual.employeeNumber = :employeeNumber))
+    AND (LOWER(d.relationship) = LOWER(:relationship) OR (LOWER(:relationship) = 'self' AND LOWER(d.relationship) = 'employee'))
+    AND d.organization.organizationId = :organizationId
+    AND (d.endorsementId = :endorsementId OR EXISTS (
+        SELECT 1 FROM DealEndorsement de WHERE de.deal = d AND de.endorsement.endorsementId = :endorsementId
+    ))
+    """)
+    Optional<Deals> findByNameAndEmployeeNumberAndRelationshipAndOrganizationIdForEndorsement(
+            @Param("name") String name,
+            @Param("employeeNumber") String employeeNumber,
+            @Param("relationship") String relationship,
+            @Param("organizationId") UUID organizationId,
+            @Param("endorsementId") UUID endorsementId
+    );
+
+    /**
      * Find deal by employee number and organizationId
      */
     @Query("""

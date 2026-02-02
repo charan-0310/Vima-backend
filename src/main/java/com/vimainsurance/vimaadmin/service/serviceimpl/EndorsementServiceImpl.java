@@ -963,8 +963,8 @@ public class EndorsementServiceImpl implements IEndorsementService {
                     }
 
                     String normalizedRelationship = normalizeRelationshipForLookup(healthIdDto.getRelationship());
-                    Optional<Deals> customerOpt = dealsRepository.findByNameAndEmployeeNumberAndRelationshipAndOrganizationId(
-                            healthIdDto.getName(), healthIdDto.getEmployeeId(), normalizedRelationship, organizationId);
+                    Optional<Deals> customerOpt = dealsRepository.findByNameAndEmployeeNumberAndRelationshipAndOrganizationIdForEndorsement(
+                            healthIdDto.getName(), healthIdDto.getEmployeeId(), normalizedRelationship, organizationId, endorsementId);
 
                     if (customerOpt.isPresent()) {
                         Deals customer = customerOpt.get();
