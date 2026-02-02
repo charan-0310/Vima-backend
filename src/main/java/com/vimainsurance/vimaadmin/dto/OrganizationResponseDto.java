@@ -1,5 +1,6 @@
 package com.vimainsurance.vimaadmin.dto;
 
+import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.UUID;
 
@@ -20,6 +21,8 @@ public class OrganizationResponseDto {
     private String registeredAddress;
     private String industry;
     private long employeesCount;
+    private long policyCount;
+    private BigDecimal totalPremiumAmount;
 }
 
 
