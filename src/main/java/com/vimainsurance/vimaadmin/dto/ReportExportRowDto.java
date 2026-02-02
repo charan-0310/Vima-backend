@@ -71,6 +71,7 @@ public class ReportExportRowDto {
     private String policyNumber;
     private LocalDate policyStartDate;
     private LocalDate policyEndDate;
+    private String healthId;
 
     // Endorsement Information (for enrollment reports)
     private UUID endorsementId;
