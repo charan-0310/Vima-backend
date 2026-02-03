@@ -67,4 +67,6 @@ public interface IEndorsementService {
 
     ResponseEntity<ResponseDto<List<HealthIdUploadDto>>> uploadHealthIds(UUID endorsementId, List<HealthIdUploadDto> healthIdList);
 
+    ResponseEntity<ResponseDto<String>> deactivateEndorsement(UUID endorsementId);
+
 }
