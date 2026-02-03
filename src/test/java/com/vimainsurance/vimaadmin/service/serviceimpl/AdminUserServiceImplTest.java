@@ -27,6 +27,7 @@ import org.mockito.junit.jupiter.MockitoSettings;
 import org.mockito.quality.Strictness;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.web.client.HttpClientErrorException;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 
 import com.vimainsurance.vimaadmin.dto.AdminUserRequestDto;
@@ -150,14 +151,29 @@ class AdminUserServiceImplTest {
         ResponseEntity<ResponseDto<String>> response = adminUserService.createAdminUser(requestDto);
         
         assertEquals(HttpStatus.BAD_REQUEST, response.getStatusCode());
-        assertEquals("Failed to create user in Authentik: Database error", response.getBody().getMessage());
+        assertEquals("Failed to create user. Please try again.", response.getBody().getMessage());
+    }
+
+    @Test
+    void testCreateAdminUser_AuthentikUsernameExists() {
+        when(adminUserRepository.findByUsername(requestDto.getUsername())).thenReturn(Optional.empty());
+        when(adminUserRepository.findByEmail(requestDto.getEmail())).thenReturn(Optional.empty());
+        when(adminUserRepository.save(any(AdminUser.class))).thenReturn(adminUser);
+        String responseBody = "{\"username\":[\"This field must be unique.\"]}";
+        doThrow(new HttpClientErrorException(HttpStatus.BAD_REQUEST, "Bad Request", responseBody.getBytes(java.nio.charset.StandardCharsets.UTF_8), java.nio.charset.StandardCharsets.UTF_8))
+                .when(authentikUtil).createUser(anyString(), anyString(), anyString(), anyString(), any(), anyBoolean(), nullable(String.class), anyString());
+
+        ResponseEntity<ResponseDto<String>> response = adminUserService.createAdminUser(requestDto);
+        
+        assertEquals(HttpStatus.BAD_REQUEST, response.getStatusCode());
+        assertEquals("Username must be unique", response.getBody().getMessage());
     }
 
     // ========== UPDATE ADMIN USER TESTS ==========
 
     @Test
     void testUpdateAdminUser_Success() {
-        requestDto.setRole("USER"); // Set role to USER to avoid reportingTo check
+        requestDto.setRole("SALES_AGENT"); // Use valid role to avoid reportingTo check
         requestDto.setEmail(adminUser.getEmail()); // Use same email to avoid email check
         when(adminUserRepository.findByUsername(anyString())).thenReturn(Optional.of(adminUser));
         when(adminUserRepository.findByEmail(anyString())).thenReturn(Optional.empty());
@@ -182,7 +198,7 @@ class AdminUserServiceImplTest {
 
     @Test
     void testUpdateAdminUser_EmailExists() {
-        requestDto.setRole("USER"); // Set role to USER to avoid reportingTo check
+        requestDto.setRole("SALES_AGENT"); // Use valid role to avoid reportingTo check
         requestDto.setEmail("different@email.com"); // Set different email to trigger email check
         AdminUser existingUser = new AdminUser();
         existingUser.setEmail("different@email.com");
@@ -198,7 +214,7 @@ class AdminUserServiceImplTest {
 
     @Test
     void testUpdateAdminUser_UsernameExists() {
-        requestDto.setRole("USER"); // Set role to USER to avoid reportingTo check
+        requestDto.setRole("SALES_AGENT"); // Use valid role to avoid reportingTo check
         AdminUser existingUser = new AdminUser();
         existingUser.setUsername("differentuser");
         existingUser.setEmail("test@email.com"); // Set email to avoid null pointer
@@ -228,7 +244,7 @@ class AdminUserServiceImplTest {
 
     @Test
     void testUpdateAdminUser_Exception() {
-        requestDto.setRole("USER"); // Set role to USER to avoid reportingTo check
+        requestDto.setRole("SALES_AGENT"); // Use valid role to avoid reportingTo check
         requestDto.setEmail(adminUser.getEmail()); // Use same email to avoid email check
         when(adminUserRepository.findByUsername(anyString())).thenReturn(Optional.of(adminUser));
         when(adminUserRepository.findByEmail(anyString())).thenReturn(Optional.empty());
@@ -529,7 +545,7 @@ class AdminUserServiceImplTest {
 
     @Test
     void testUpdateAdminUser_VerifyRepositoryCalls() {
-        requestDto.setRole("USER"); // Set role to USER to avoid reportingTo check
+        requestDto.setRole("SALES_AGENT"); // Use valid role to avoid reportingTo check
         requestDto.setEmail(adminUser.getEmail()); // Use same email to avoid email check
         when(adminUserRepository.findByUsername(anyString())).thenReturn(Optional.of(adminUser));
         when(adminUserRepository.findByEmail(anyString())).thenReturn(Optional.empty());

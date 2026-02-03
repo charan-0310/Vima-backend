@@ -22,4 +22,6 @@ public class HealthIdUploadDto {
     private String maritalStatus;
     private String sumInsured;
     private String healthId;
+    /** Specific failure reason when record fails validation (populated in error response only) */
+    private String errorReason;
 }

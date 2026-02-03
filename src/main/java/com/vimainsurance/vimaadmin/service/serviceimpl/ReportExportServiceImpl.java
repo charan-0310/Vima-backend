@@ -51,6 +51,7 @@ import com.vimainsurance.vimaadmin.repository.IEndorsementRepository;
 import com.vimainsurance.vimaadmin.repository.IOrganizationRepository;
 import com.vimainsurance.vimaadmin.repository.IPolicyRepository;
 import com.vimainsurance.vimaadmin.service.IReportExportService;
+import com.vimainsurance.vimaadmin.repository.IInsuranceProviderRepository;
 
 /**
  * Service implementation for generating and exporting reports to Excel
@@ -64,7 +65,7 @@ public class ReportExportServiceImpl implements IReportExportService {
     // Standard headers for master report
     private static final String[] ACTIVE_EMPLOYEE_HEADERS = {"Employee ID", "Employee Name", "Relationship ", "Person Name",
             "Date of Birth", "Gender", "Email", "Phone", "Department", "Designation", "Join Date", "Coverage Start Date",
-            "Policy number", "insurer", "TPA", "Sum Insured", "Status", "E-card status"};
+            "Policy number", "insurer", "TPA", "Sum Insured", "Status", "Health ID", "E-card status"};
 
     private static final String[] INACTIVE_EMPLOYEE_HEADERS = {"Employee ID", "Employee Name", "Relationship ", "Person Name",
             "Date of Birth", "Gender", "Email", "Phone", "Department", "Designation", "Join Date", "Coverage Start Date",
@@ -90,6 +91,9 @@ public class ReportExportServiceImpl implements IReportExportService {
 
     @Autowired
     private IOrganizationRepository organizationRepository;
+
+    @Autowired
+    private IInsuranceProviderRepository insuranceProviderRepository;
 
     @Override
     public ResponseEntity<Resource> exportToExcel(ReportExportRequestDto requestDto) {
@@ -364,6 +368,8 @@ public class ReportExportServiceImpl implements IReportExportService {
                 .department(deal.getDepartment())
                 .designation(deal.getDesignation())
                 .dateOfJoining(deal.getDateOfJoining())
+                .healthId(deal.getHealthId())
+                .ecardStatus(deal.getHealthId()!=null ? "ECARD_ISSUED" : "ECARD_NOT_ISSUED")
                 .policyStartDate(policy != null ? policy.getStartDate() : null)
                 .policyNumber(policy != null ? policy.getPolicyNumber() : null)
                 .coverageEndDate(policy != null ? policy.getEndDate() : null)
@@ -508,6 +514,7 @@ public class ReportExportServiceImpl implements IReportExportService {
                 row.createCell(col++).setCellValue(nullSafe(data.getTpa()));                           // TPA
                 row.createCell(col++).setCellValue(data.getSumInsured() != null ? data.getSumInsured().toString() : ""); // Sum Insured
                 row.createCell(col++).setCellValue(nullSafe(data.getStatus()));                        // Status
+                row.createCell(col++).setCellValue(nullSafe(data.getHealthId()));                      // Health ID
                 row.createCell(col++).setCellValue(nullSafe(data.getEcardStatus()));                   // E-card status
                 break;
             case EMPLOYEE_INACTIVE:
@@ -753,6 +760,7 @@ public class ReportExportServiceImpl implements IReportExportService {
                 nullSafe(r.getTpa()),             // TPA
                 r.getSumInsured(),                // Sum Insured
                 nullSafe(r.getStatus()),          // Status
+                nullSafe(r.getHealthId()),         // Health ID
                 nullSafe(r.getEcardStatus())      // E-card status
             );
 

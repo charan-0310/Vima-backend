@@ -83,7 +83,8 @@ import com.vimainsurance.vimaadmin.repository.IDealsRepository;
 import com.vimainsurance.vimaadmin.dto.NomineeRequestDto;
 import com.vimainsurance.vimaadmin.enums.Gender;
 import com.vimainsurance.vimaadmin.enums.NomineeRelationship;
-
+import org.springframework.transaction.interceptor.TransactionAspectSupport;
+import org.springframework.transaction.annotation.Transactional;
 
 @Service
 public class CustomerServiceImpl implements ICustomerService{
@@ -937,7 +938,9 @@ public class CustomerServiceImpl implements ICustomerService{
                             savedPolicy.setMotorPolicyDetails(motorDetails);
                         }
                     } catch (IllegalArgumentException ex) {
+                        TransactionAspectSupport.currentTransactionStatus().setRollbackOnly();
                         logger.warn("[correlationId:{}] Skipping motor policy details due to invalid data: {}", MDC.get("correlationId"), ex.getMessage());
+                        return responseObj.render(responseObj.formErrorResponse("Invalid motor policy details"));
                     }
                 }
             }
@@ -954,9 +957,11 @@ public class CustomerServiceImpl implements ICustomerService{
             AdminUser adminUser = adminUserRepository.findByUsername(currentUsername).orElseThrow(() -> new RuntimeException("Agent not found"));
             ResponseEntity<ResponseDto<List<Document>>> response = documentService.uploadKYCDocuments(requestDto.getDocument(), deals.getIndividualId().toString(), DocumentEntityType.POLICY, DocumentType.POLICY_CERTIFICATE, adminUser.getId(), UserRole.fromValue(adminUser.getRole()), "", DocumentCategory.POLICY_DOCUMENTS);
             if (response.getBody() == null || response.getBody().getErrorCode() != null) {
+                TransactionAspectSupport.currentTransactionStatus().setRollbackOnly();
                 throw new IllegalStateException(response.getBody() != null ? response.getBody().getMessage() : "Policy document upload failed");
             }
             if (response.getBody().getPayload() == null || response.getBody().getPayload().isEmpty()) {
+                TransactionAspectSupport.currentTransactionStatus().setRollbackOnly();
                 throw new IllegalStateException("Policy document upload failed: empty payload");
             }
             savedPolicy.setDocument(response.getBody().getPayload().get(0));
@@ -968,6 +973,7 @@ public class CustomerServiceImpl implements ICustomerService{
                     String slackMessage = buildCustomerToDealSlackMessage(customer, savedDeals, policyRequest, adminUser);
                     slackNotificationUtil.sendSlackMessage("New Policy Issued!", slackMessage, true);
                 } catch (Exception slackException) {
+                    TransactionAspectSupport.currentTransactionStatus().setRollbackOnly();
                     logger.warn("[correlationId:{}] Failed to send Slack notification: {}", MDC.get("correlationId"), slackException.getMessage());
                     // Don't fail the request if Slack notification fails
                 }
@@ -979,6 +985,7 @@ public class CustomerServiceImpl implements ICustomerService{
             return responseObj.render(responseObj.formSuccessResponse(Constants.SUCCESS, "Customer converted to Deals successfully"));
         }
         catch (Exception e) {
+            TransactionAspectSupport.currentTransactionStatus().setRollbackOnly();
             logger.error("[correlationId:{}] Exception in customerToDeals: {}", MDC.get("correlationId"), e.getMessage(), e);
             return responseObj.render(responseObj.formErrorResponse(e.getMessage()));
         }

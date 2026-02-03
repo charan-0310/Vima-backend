@@ -4,64 +4,151 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Welcome to Vima Insurance</title>
+    <!--[if mso]>
+    <style type="text/css">
+        body, table, td {font-family: Arial, sans-serif !important;}
+    </style>
+    <![endif]-->
 </head>
-<body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333; max-width: 600px; margin: 0 auto; padding: 20px; background-color: #f9fafb;">
+<body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; line-height: 1.6; color: #1a1a1a; margin: 0; padding: 0; background-color: #f3f4f6; -webkit-font-smoothing: antialiased;">
     
-    <div style="background: linear-gradient(135deg, #1e40af, #3b82f6); color: white; padding: 20px 20px 6px 20px; text-align: center; border-radius: 8px 8px 0 0; box-shadow: 0 4px 12px rgba(30, 64, 175, 0.15);">
-        <!-- Vima Logo -->
-        <div style="margin-bottom: 15px; background-color: #fff;border-radius: 100px;">
-            <img src="https://vimainsurance.com/assets/vima-logo-main.DiciI4hf.png" 
-                 alt="Vima Insurance Logo" 
-                 style="max-width: 200px; height: auto; display: block; margin: 0 auto;"
-                 width="200">
-                  <h1 style="padding-bottom: 10px; font-size: 20px; font-weight: 600;color:#6c6a6a;margin-top: -20px;">Welcome to <span th:text="${companyName}">Vima Insurance</span></h1>
-        </div>
-       
-    </div>
-    
-    <div style="background-color: #ffffff; padding: 35px; border-radius: 0 0 8px 8px; border-left: 4px solid #3b82f6; box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);">
-        <h2 style="color: #1e40af; margin-top: 0; font-size: 22px;">Hello <span th:text="${userName}">User</span>!</h2>
-        
-        <p style="margin: 16px 0; color: #374151;">Welcome to <strong>Vima Insurance</strong>! We're excited to have you on board.</p>
-        
-        <p style="margin: 16px 0; color: #374151;">Your account has been successfully created and you can now access all our services.</p>
-        
-        <div style="background: linear-gradient(135deg, #eff6ff, #dbeafe); border: 1px solid #93c5fd; padding: 25px; border-radius: 10px; margin: 30px 0; border-left: 4px solid #1e40af;">
-            <h3 style="color: #1e40af; margin-top: 0; font-size: 18px; display: flex; align-items: center; margin-bottom: 15px;">
-                🔑 Your Login Credentials
-            </h3>
-            <p style="margin: 12px 0; color: #1f2937;"><strong>Username:</strong> <span th:text="${userName}" style="color: #1e40af; font-family: monospace; background-color: #f3f4f6; padding: 2px 6px; border-radius: 4px;"></span></p>
-            <p style="margin: 12px 0; color: #1f2937;"><strong>Password:</strong> <span th:text="${temporaryPassword}" style="color: #1e40af; font-family: monospace; background-color: #f3f4f6; padding: 2px 6px; border-radius: 4px;"></span></p>
-            <div style="background-color: #fef2f2; border: 1px solid #f87171; padding: 15px; border-radius: 8px; border-left: 4px solid #dc2626; margin-top: 15px;">
-                <p style="color: #dc2626; font-weight: bold; margin: 0;">⚠️ Please change your password after your first login for security reasons.</p>
-            </div>
-        </div>
-        
-        <p style="margin: 20px 0; color: #374151;">If you have any questions or need assistance, please don't hesitate to contact our support team.</p>
-        
-        <div style="text-align: center; margin: 30px 0;">
-            <a href="https://vimainsurance.com/login" style="display: inline-block; background: linear-gradient(135deg, #1e40af, #3b82f6); color: white; padding: 14px 28px; text-decoration: none; border-radius: 8px; font-weight: 600; box-shadow: 0 4px 12px rgba(59, 130, 246, 0.3); transition: all 0.2s;">
-                Login to Your Account
-            </a>
-        </div>
+    <!-- Outer wrapper for background color -->
+    <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="background-color: #f3f4f6;">
+        <tr>
+            <td style="padding: 40px 20px;">
                 
-        <p style="margin: 20px 0; color: #374151; text-align: center;">Thank you for choosing <strong>Vima Insurance</strong>!</p>
-    </div>
-    
-    <div style="text-align: center; margin-top: 40px; padding: 25px; background-color: #f9fafb; border-radius: 8px; border: 1px solid #e5e7eb;">
-        <p style="margin: 0 0 10px 0; color: #6b7280; font-size: 14px;">This email was sent by <strong style="color: #1e40af;">Vima Insurance</strong>. Please do not reply to this email.</p>
-        <p style="margin: 0 0 15px 0; color: #6b7280; font-size: 12px;">&copy; 2026 Vima Insurance. All rights reserved.</p>
-        
-        <div style="margin-top: 20px; padding-top: 20px; border-top: 1px solid #e5e7eb;">
-            <a href="https://vimainsurance.com" style="color: #3b82f6; text-decoration: none; font-size: 13px; margin-right: 15px;">🌐 Visit our website</a>
-            <a href="mailto:support@vimainsurance.com" style="color: #3b82f6; text-decoration: none; font-size: 13px; margin-left: 15px;">📧 Contact Support</a>
-        </div>
-        
-        <div style="margin-top: 15px; color: #9ca3af; font-size: 11px;">
-            <p style="margin: 5px 0;">📍 Chennai, Tamil Nadu, India</p>
-            <p style="margin: 5px 0;">📞 +91-XXXX-XXXX-XX | 🌐 www.vimainsurance.com</p>
-        </div>
-    </div>
+                <!-- Inner container -->
+                <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="max-width: 560px; margin: 0 auto; background-color: #ffffff; border-radius: 12px;">
+                    <tr>
+                        <td style="padding: 40px 40px 32px 40px;">
+                            
+                            <!-- Logo with text fallback and dark mode protection -->
+                            <table role="presentation" cellspacing="0" cellpadding="0" border="0">
+                                <tr>
+                                    <td style="background-color: #ffffff; padding: 8px 12px; border-radius: 6px;">
+                                        <!--[if !mso]><!-->
+                                        <img src="https://vimainsurance.com/assets/vima-logo-main.DiciI4hf.png" 
+                                             alt="Vima Insurance" 
+                                             width="200"
+                                             height="64"
+                                             border="0"
+                                             style="height: 64px; width: 200px; max-width: 100%; display: block; border: 0;">
+                                        <!--<![endif]-->
+                                        <!--[if mso]>
+                                        <img src="https://vimainsurance.com/assets/vima-logo-main.DiciI4hf.png" 
+                                             alt="Vima Insurance" 
+                                             width="200"
+                                             height="64"
+                                             border="0"
+                                             style="height: 64px; width: 200px; display: block;">
+                                        <![endif]-->
+                                    </td>
+                                </tr>
+                            </table>
+                            
+                        </td>
+                    </tr>
+                    <tr>
+                        <td style="padding: 0 40px;">
+                            
+                            <!-- Headline -->
+                            <h1 style="font-size: 26px; font-weight: 600; color: #1a1a1a; margin: 0 0 16px 0; letter-spacing: -0.3px;">
+                                Welcome, <span th:text="${userFullName}">User</span>
+                            </h1>
+                            
+                            <p style="font-size: 16px; color: #525252; margin: 0 0 32px 0;">
+                                Your account has been created successfully. You're all set to access our insurance services.
+                            </p>
+                            
+                        </td>
+                    </tr>
+                    <tr>
+                        <td style="padding: 0 40px;">
+                            
+                            <!-- Credentials Section -->
+                            <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="background-color: #eff6ff; border-radius: 8px; border-left: 3px solid #1e40af;">
+                                <tr>
+                                    <td style="padding: 24px;">
+                                        
+                                        <p style="font-size: 12px; font-weight: 600; color: #1e40af; text-transform: uppercase; letter-spacing: 0.8px; margin: 0 0 16px 0;">
+                                            Your Login Details
+                                        </p>
+                                        
+                                        <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%">
+                                            <tr>
+                                                <td style="padding-bottom: 12px;">
+                                                    <span style="font-size: 13px; color: #6b7280; display: block;">Username</span>
+                                                    <span style="font-size: 15px; color: #1a1a1a; font-weight: 500;" th:text="${username}">user@example.com</span>
+                                                </td>
+                                            </tr>
+                                            <tr>
+                                                <td style="padding-bottom: 16px;">
+                                                    <span style="font-size: 13px; color: #6b7280; display: block;">Temporary Password</span>
+                                                    <span style="font-size: 15px; color: #1a1a1a; font-family: 'SF Mono', Monaco, 'Courier New', monospace; font-weight: 500; letter-spacing: 0.5px;" th:text="${temporaryPassword}">••••••••</span>
+                                                </td>
+                                            </tr>
+                                        </table>
+                                        
+                                        <p style="font-size: 13px; color: #dc2626; margin: 0; font-weight: 500;">
+                                            Please change your password after first login.
+                                        </p>
+                                        
+                                    </td>
+                                </tr>
+                            </table>
+                            
+                        </td>
+                    </tr>
+                    <tr>
+                        <td style="padding: 32px 40px;">
+                            
+                            <!-- CTA Button -->
+                            <table role="presentation" cellspacing="0" cellpadding="0" border="0">
+                                <tr>
+                                    <td style="background-color: #1e40af; border-radius: 6px;">
+                                        <a href="https://vimainsurance.com/login" 
+                                           style="display: inline-block; color: #ffffff; padding: 14px 32px; text-decoration: none; font-size: 15px; font-weight: 600; border-radius: 6px;">
+                                            Sign in to your account
+                                        </a>
+                                    </td>
+                                </tr>
+                            </table>
+                            
+                        </td>
+                    </tr>
+                    <tr>
+                        <td style="padding: 0 40px 40px 40px;">
+                            
+                            <p style="font-size: 14px; color: #6b7280; margin: 0;">
+                                Questions? We're here to help.
+                            </p>
+                            
+                        </td>
+                    </tr>
+                </table>
+                
+                <!-- Footer -->
+                <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="max-width: 560px; margin: 0 auto;">
+                    <tr>
+                        <td style="padding: 32px 40px 0 40px; text-align: center;">
+                            
+                            <p style="font-size: 13px; color: #6b7280; margin: 0 0 8px 0;">
+                                <a href="https://vimainsurance.com" style="color: #1e40af; text-decoration: none;">vimainsurance.com</a>
+                                <span style="color: #d1d5db; padding: 0 8px;">·</span>
+                                <a href="mailto:support@vimainsurance.com" style="color: #1e40af; text-decoration: none;">support@vimainsurance.com</a>
+                            </p>
+                            
+                            <p style="font-size: 12px; color: #9ca3af; margin: 12px 0 0 0;">
+                                © 2026 Vima Insurance · Chennai, India
+                            </p>
+                            
+                        </td>
+                    </tr>
+                </table>
+                
+            </td>
+        </tr>
+    </table>
 
 </body>
 </html>

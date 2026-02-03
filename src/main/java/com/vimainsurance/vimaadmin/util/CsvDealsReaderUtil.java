@@ -526,6 +526,7 @@ public class CsvDealsReaderUtil {
         if (nameParts.length > 1) {
             deal.setLastName(nameParts[1]);
         }
+        deal.setFullName(row.name != null ? row.name.trim() : null);
         
         deal.setDateOfBirth(parseDate(row.dateOfBirth));
         deal.setGender(row.gender.trim());
@@ -569,6 +570,7 @@ public class CsvDealsReaderUtil {
         if (nameParts.length > 1) {
             deal.setLastName(nameParts[1]);
         }
+        deal.setFullName(row.name != null ? row.name.trim() : null);
         
         deal.setDateOfBirth(parseDate(row.dateOfBirth));
         deal.setGender(row.gender.trim());
