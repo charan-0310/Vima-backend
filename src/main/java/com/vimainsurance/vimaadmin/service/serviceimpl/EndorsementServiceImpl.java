@@ -1054,6 +1054,28 @@ public class EndorsementServiceImpl implements IEndorsementService {
         }
     }
 
+    @Override
+    public ResponseEntity<ResponseDto<String>> deactivateEndorsement(UUID endorsementId) {
+        logger.info("[correlationId:{}] Deactivate endorsement called for endorsementId: {}", MDC.get("correlationId"), endorsementId);
+        BaseResponse<String> responseObj = new BaseResponse<>();
+        try {
+            Optional<Endorsement> opt = endorsementRepository.findById(endorsementId);
+            if(opt.isEmpty()) {
+                return responseObj.render(responseObj.formSuccessResponse("Endorsement not found or already deactivated.s"));
+            }
+            Endorsement endorsement = opt.get();
+            if(endorsement.getStatus() == AccountStatus.INACTIVE) {
+                return responseObj.render(responseObj.formSuccessResponse("Endorsement is already deactivated."));
+            }
+            endorsement.setStatus(AccountStatus.INACTIVE);
+            endorsement.setUpdatedAt(LocalDateTime.now());
+            endorsementRepository.save(endorsement);
+            return responseObj.render(responseObj.formSuccessResponse("Deactivation of endorsement is completed successfully."));
+        } catch (Exception e) {
+            logger.error("[correlationId:{}] Exception in Endorsement deactivateEndorsement: {}", MDC.get("correlationId"), e.getMessage(), e);
+            return responseObj.render(responseObj.formErrorResponse("Failed to deactivate endorsement!"));
+        }
+    }
     /**
      * Normalizes relationship for lookup: "Employee" (case insensitive) is treated as "SELF".
      */

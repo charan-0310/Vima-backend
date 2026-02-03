@@ -256,4 +256,10 @@ public class EndorsementController {
         return endorsementService.employeeOnboarding(requestDto);
     }
 
+    @PostMapping("/delete/{endorsementId}")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'VIMA_ADMIN')")
+    public ResponseEntity<ResponseDto<String>> deactivateEndorsement(@PathVariable UUID endorsementId) {
+        logger.info("[correlationId:{}] /endorsements/delete/{}/confirm-schedule (POST) endpoint called", MDC.get("correlationId"), endorsementId);
+        return endorsementService.deactivateEndorsement(endorsementId);
+    }
 }
