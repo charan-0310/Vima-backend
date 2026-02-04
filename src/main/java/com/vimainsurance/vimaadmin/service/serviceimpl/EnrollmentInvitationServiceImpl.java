@@ -62,6 +62,12 @@ public class EnrollmentInvitationServiceImpl implements IEnrollmentInvitation {
             if (employee == null) {
                 return responseObj.render(responseObj.formErrorResponse("Employee not found"));
             }
+            if(employee.getEmail() == null || employee.getEmail().isBlank()) {
+                return responseObj.render(responseObj.formErrorResponse("Employee email is required"));
+            }
+            if(employee.getRelationship() != null && !"SELF".equals(employee.getRelationship())) {
+                return responseObj.render(responseObj.formErrorResponse("Only Self relationship is allowed"));
+            }
             EnrollmentWindows window = enrollmentWindowsRepository.findById(windowId).orElse(null);
             if (window == null) {
                 return responseObj.render(responseObj.formErrorResponse("Enrollment window not found"));
