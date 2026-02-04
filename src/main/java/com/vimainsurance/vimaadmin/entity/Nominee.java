@@ -48,7 +48,7 @@ public class Nominee {
     private EnrollmentSubmission submission;
 
     @ManyToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "customer_id", referencedColumnName = "individualId")
+    @JoinColumn(name = "customer_id", referencedColumnName = "individual_id")
     @JsonIgnore
     private Deals customer;
 

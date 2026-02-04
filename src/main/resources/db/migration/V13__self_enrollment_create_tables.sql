@@ -105,8 +105,8 @@ CREATE INDEX idx_invitations_token ON cpc.enrollment_invitations(token_hash);
 CREATE TABLE cpc.enrollment_submissions (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     employee_id UUID NOT NULL REFERENCES cpc.customers(individual_id),
-    enrollment_window_id UUID NOT NULL REFERENCES enrollment_windows(id),
-    invitation_id UUID REFERENCES enrollment_invitations(id),
+    enrollment_window_id UUID NOT NULL REFERENCES cpc.enrollment_windows(id),
+    invitation_id UUID REFERENCES cpc.enrollment_invitations(id),
     endorsement_id UUID REFERENCES cpc.endorsements(endorsement_id),
     
     -- Reference number (human-readable)

@@ -39,7 +39,7 @@ public class EnrollmentSubmission {
     private UUID id;
 
     @ManyToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "employee_id", nullable = false, referencedColumnName = "individualId")
+    @JoinColumn(name = "employee_id", nullable = false, referencedColumnName = "individual_id")
     private Deals employee;
 
     @ManyToOne(fetch = FetchType.LAZY)
@@ -51,7 +51,7 @@ public class EnrollmentSubmission {
     private EnrollmentInvitation invitation;
 
     @ManyToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "endorsement_id", referencedColumnName = "endorsementId")
+    @JoinColumn(name = "endorsement_id", referencedColumnName = "endorsement_id")
     private Endorsement endorsement;
 
     @Column(name = "reference_number", length = 50, unique = true)

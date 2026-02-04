@@ -41,7 +41,7 @@ public class EnrollmentInvitation {
     private EnrollmentWindows enrollmentWindow;
 
     @ManyToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "employee_id", nullable = false, referencedColumnName = "individualId")
+    @JoinColumn(name = "employee_id", nullable = false, referencedColumnName = "individual_id")
     private Deals employee;
 
     @Column(name = "token_hash", length = 64, nullable = false, unique = true)
