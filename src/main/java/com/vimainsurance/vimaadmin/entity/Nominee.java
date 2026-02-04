@@ -6,18 +6,12 @@ import java.time.LocalDateTime;
 import java.util.UUID;
 
 import org.hibernate.annotations.CreationTimestamp;
-import org.hibernate.annotations.JdbcTypeCode;
 import org.hibernate.annotations.UpdateTimestamp;
-import org.hibernate.type.SqlTypes;
 
 import com.fasterxml.jackson.annotation.JsonIgnore;
-import com.vimainsurance.vimaadmin.enums.Gender;
-import com.vimainsurance.vimaadmin.enums.NomineeRelationship;
 
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
-import jakarta.persistence.EnumType;
-import jakarta.persistence.Enumerated;
 import jakarta.persistence.FetchType;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.Id;
@@ -43,9 +37,20 @@ public class Nominee {
     private UUID nomineeId;
 
     @ManyToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "policy_id", nullable = false)
+    @JoinColumn(name = "policy_id")
     @JsonIgnore
     private Policy policy;
+
+    // Self-enrollment linkage (added in V13.1)
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "submission_id")
+    @JsonIgnore
+    private EnrollmentSubmission submission;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "customer_id", referencedColumnName = "individualId")
+    @JsonIgnore
+    private Deals customer;
 
     @Column(name = "first_name", length = 100, nullable = false)
     private String firstName;

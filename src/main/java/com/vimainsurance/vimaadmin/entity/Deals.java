@@ -14,9 +14,11 @@ import com.fasterxml.jackson.annotation.JsonManagedReference;
 
 import com.vimainsurance.vimaadmin.enums.AccountStatus;
 import com.vimainsurance.vimaadmin.enums.AccountType;
+import com.vimainsurance.vimaadmin.enums.EnrollementStatus;
 
 import jakarta.persistence.CascadeType;
 import jakarta.persistence.Column;
+import jakarta.persistence.Convert;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
 import jakarta.persistence.Enumerated;
@@ -100,6 +102,21 @@ public class Deals {
     @Enumerated(EnumType.STRING)
     @JdbcTypeCode(SqlTypes.NAMED_ENUM)
     private AccountStatus status = AccountStatus.ACTIVE;
+
+    // Self-enrollment tracking (added in V13.1)
+    @Convert(disableConversion = true)
+    @Enumerated(EnumType.STRING)
+    @JdbcTypeCode(SqlTypes.NAMED_ENUM)
+    @Column(name = "enrollment_status")
+    private EnrollementStatus enrollmentStatus = EnrollementStatus.ACTIVE;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "enrollment_window_id")
+    private EnrollmentWindows enrollmentWindow;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "enrollment_submission_id")
+    private EnrollmentSubmission enrollmentSubmission;
 
     // Future B2B fields
     @ManyToOne(fetch = FetchType.LAZY)
