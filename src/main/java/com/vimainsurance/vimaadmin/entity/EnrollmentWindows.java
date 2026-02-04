@@ -64,6 +64,7 @@ public class EnrollmentWindows {
     @Column(name = "status", nullable = false)
     private EnrollementStatus status = EnrollementStatus.SCHEDULED;
 
+    @JdbcTypeCode(SqlTypes.JSON)
     @Column(name = "config", columnDefinition = "jsonb")
     private String config = "{}";
 

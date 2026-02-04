@@ -1,0 +1,39 @@
+package com.vimainsurance.vimaadmin.service;
+
+import java.util.List;
+import java.util.UUID;
+
+import org.springframework.http.ResponseEntity;
+
+import com.vimainsurance.vimaadmin.dto.EnrollmentWindowRequestDto;
+import com.vimainsurance.vimaadmin.dto.EnrollmentWindowResponseDto;
+import com.vimainsurance.vimaadmin.dto.EnrollmentWindowStatsDto;
+import com.vimainsurance.vimaadmin.dto.ResponseDto;
+
+public interface IEnrollmentWindowService {
+
+    ResponseEntity<ResponseDto<EnrollmentWindowResponseDto>> create(EnrollmentWindowRequestDto requestDto);
+
+    ResponseEntity<ResponseDto<List<EnrollmentWindowResponseDto>>> getAllWithFilters(
+            UUID organizationId,
+            String status,
+            String name,
+            String fromDate,
+            String toDate,
+            int page,
+            int size,
+            String sortBy,
+            String sortDirection);
+
+    ResponseEntity<ResponseDto<EnrollmentWindowResponseDto>> getById(UUID id);
+
+    ResponseEntity<ResponseDto<EnrollmentWindowResponseDto>> update(UUID id, EnrollmentWindowRequestDto requestDto);
+
+    ResponseEntity<ResponseDto<String>> activate(UUID id);
+
+    ResponseEntity<ResponseDto<String>> close(UUID id);
+
+    ResponseEntity<ResponseDto<String>> delete(UUID id);
+
+    ResponseEntity<ResponseDto<EnrollmentWindowStatsDto>> getStats(UUID id);
+}
