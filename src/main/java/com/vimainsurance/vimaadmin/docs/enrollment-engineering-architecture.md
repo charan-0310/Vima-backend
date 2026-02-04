@@ -292,6 +292,9 @@ ALTER TABLE cpc.nominees
 ALTER TABLE cpc.nominees
   ADD COLUMN IF NOT EXISTS submission_id UUID REFERENCES enrollment_submissions(id);
 
+ALTER TABLE cpc.nominees
+  ADD COLUMN IF NOT EXISTS customer_id UUID REFERENCES cpc.customers(id);
+
 -- Add constraint: Must have either policy_id OR submission_id
 ALTER TABLE cpc.nominees
   ADD CONSTRAINT IF NOT EXISTS check_policy_or_submission 
