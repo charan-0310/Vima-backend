@@ -1,0 +1,295 @@
+# Vima Insurance Admin Backend - Cursor AI Rules
+
+## Tech Stack
+- **Java**: 21
+- **Framework**: Spring Boot 3.4.6
+- **Database**: PostgreSQL with JPA/Hibernate
+- **Security**: Spring Security + JWT (jjwt 0.11.5)
+- **Build Tool**: Maven
+- **Migration**: Flyway
+
+## Project Structure
+
+```
+src/main/java/com/vimainsurance/vimaadmin/
+├── controller/        # REST endpoints
+├── service/           # Business logic interfaces
+│   └── serviceimpl/   # Service implementations
+├── repository/        # JPA repositories
+├── entity/            # Database entities
+├── dto/               # Data Transfer Objects
+├── mapper/            # Entity ↔ DTO mappers
+├── exception/         # Custom exceptions
+├── util/              # Utility classes
+├── config/            # Spring configurations
+└── enums/             # Enum types
+```
+
+## Standard CRUD Pattern (7 Steps)
+
+For every new feature, create these components in order:
+
+1. **Entity** - Database table mapping
+2. **Repository** - Data access layer
+3. **Request DTO** - Input validation
+4. **Response DTO** - Output structure
+5. **Mapper** - Entity ↔ DTO conversion
+6. **Service Interface** - Business contract
+7. **Service Implementation** - Business logic
+8. **Controller** - REST endpoints
+
+## Naming Conventions
+
+- **Entities**: `Person`, `Enrollment`, `Customer`
+- **Repositories**: `IPersonRepository`, `IEnrollmentRepository`
+- **Services**: `IPersonService` (interface), `PersonServiceImpl` (implementation)
+- **Controllers**: `PersonController`, `EnrollmentController`
+- **DTOs**: `PersonRequestDto`, `PersonResponseDto`
+- **Mappers**: `PersonMapper` with static methods
+- **Exceptions**: `PersonNotFoundException`, `InvalidTokenException`
+
+## Complete CRUD Example (Person)
+
+### 1. Entity
+```java
+@Entity
+@Table(name = "person", schema = "public")
+@Data
+@Builder
+@NoArgsConstructor
+@AllArgsConstructor
+public class Person {
+    @Id
+    @GeneratedValue
+    @Column(name = "id", columnDefinition = "UUID", updatable = false, nullable = false)
+    private UUID id;
+    
+    @Column(name = "name", nullable = false)
+    private String name;
+    
+    @Column(name = "age", nullable = false)
+    private Integer age;
+    
+    @Column(name = "city", nullable = false)
+    private String city;
+}
+```
+
+### 2. Repository
+```java
+public interface IPersonRepository extends JpaRepository<Person, UUID> {
+    Optional<Person> findByName(String name);
+    List<Person> findAllByAge(Integer age);
+    
+    @Query(value = "SELECT * FROM person WHERE city = :city", nativeQuery = true)
+    List<Person> findAllByCity(@Param("city") String city);
+}
+```
+
+### 3. Request DTO
+```java
+@Data
+public class PersonRequestDto {
+    private String name;
+    
+    @NotNull(message = "Age is required")
+    private Integer age;
+    
+    private String city;
+}
+```
+
+### 4. Response DTO
+```java
+@Data
+@Builder
+@NoArgsConstructor
+@AllArgsConstructor
+public class PersonResponseDto {
+    private UUID id;
+    private String name;
+    private Integer age;
+    private String city;
+}
+```
+
+### 5. Mapper
+```java
+public class PersonMapper {
+    public static PersonResponseDto mapToResponseDto(Person person) {
+        return PersonResponseDto.builder()
+            .id(person.getId())
+            .name(person.getName())
+            .age(person.getAge())
+            .city(person.getCity())
+            .build();
+    }
+    
+    public static List<PersonResponseDto> mapToResponseDtoList(List<Person> persons) {
+        return persons.stream()
+            .map(PersonMapper::mapToResponseDto)
+            .collect(Collectors.toList());
+    }
+    
+    public static Person mapToEntity(PersonRequestDto dto) {
+        return Person.builder()
+            .name(dto.getName())
+            .age(dto.getAge())
+            .city(dto.getCity())
+            .build();
+    }
+}
+```
+
+### 6. Service Interface
+```java
+public interface IPersonService {
+    ResponseEntity<ResponseDto<List<PersonResponseDto>>> getAllPersons();
+    ResponseEntity<ResponseDto<PersonResponseDto>> getPersonById(UUID id);
+    ResponseEntity<ResponseDto<PersonResponseDto>> createPerson(PersonRequestDto dto);
+    ResponseEntity<ResponseDto<PersonResponseDto>> updatePerson(UUID id, PersonRequestDto dto);
+    ResponseEntity<ResponseDto<String>> deletePerson(UUID id);
+    ResponseEntity<ResponseDto<List<PersonResponseDto>>> getPersonsByCity(String city);
+}
+```
+
+### 7. Service Implementation
+```java
+@Service
+public class PersonServiceImpl implements IPersonService {
+    private static final Logger logger = LoggerFactory.getLogger(PersonServiceImpl.class);
+    
+    @Autowired
+    private IPersonRepository personRepository;
+    
+    @Override
+    public ResponseEntity<ResponseDto<PersonResponseDto>> getPersonById(UUID id) {
+        logger.info("[correlationId:{}] getPersonById called with id: {}", 
+            MDC.get("correlationId"), id);
+        BaseResponse<PersonResponseDto> responseObj = new BaseResponse<>();
+        try {
+            Person person = personRepository.findById(id)
+                .orElseThrow(() -> new RuntimeException("Person not found"));
+            PersonResponseDto dto = PersonMapper.mapToResponseDto(person);
+            return responseObj.render(responseObj.formSuccessResponse(Constants.SUCCESS, dto));
+        } catch (Exception e) {
+            logger.error("[correlationId:{}] Exception in getPersonById: {}", 
+                MDC.get("correlationId"), e.getMessage(), e);
+            return responseObj.render(responseObj.formErrorResponse(e.getMessage()));
+        }
+    }
+    
+    @Override
+    public ResponseEntity<ResponseDto<PersonResponseDto>> createPerson(PersonRequestDto dto) {
+        logger.info("[correlationId:{}] createPerson called", MDC.get("correlationId"));
+        BaseResponse<PersonResponseDto> responseObj = new BaseResponse<>();
+        try {
+            Person person = PersonMapper.mapToEntity(dto);
+            Person savedPerson = personRepository.save(person);
+            PersonResponseDto responseDto = PersonMapper.mapToResponseDto(savedPerson);
+            return responseObj.render(responseObj.formSuccessResponse(Constants.SUCCESS, responseDto));
+        } catch (Exception e) {
+            logger.error("[correlationId:{}] Exception in createPerson: {}", 
+                MDC.get("correlationId"), e.getMessage(), e);
+            return responseObj.render(responseObj.formErrorResponse(e.getMessage()));
+        }
+    }
+}
+```
+
+### 8. Controller
+```java
+@RestController
+@RequestMapping("/api/v1/persons")
+public class PersonController {
+    @Autowired
+    private IPersonService personService;
+    
+    @GetMapping
+    public ResponseEntity<ResponseDto<List<PersonResponseDto>>> getAllPersons() {
+        return personService.getAllPersons();
+    }
+    
+    @GetMapping("/{id}")
+    public ResponseEntity<ResponseDto<PersonResponseDto>> getPersonById(@PathVariable UUID id) {
+        return personService.getPersonById(id);
+    }
+    
+    @PostMapping
+    public ResponseEntity<ResponseDto<PersonResponseDto>> createPerson(@RequestBody PersonRequestDto dto) {
+        return personService.createPerson(dto);
+    }
+    
+    @PutMapping("/{id}")
+    public ResponseEntity<ResponseDto<PersonResponseDto>> updatePerson(
+        @PathVariable UUID id, 
+        @RequestBody PersonRequestDto dto
+    ) {
+        return personService.updatePerson(id, dto);
+    }
+    
+    @DeleteMapping("/{id}")
+    public ResponseEntity<ResponseDto<String>> deletePerson(@PathVariable UUID id) {
+        return personService.deletePerson(id);
+    }
+}
+```
+
+## Key Patterns
+
+### Response Wrapper
+```java
+BaseResponse<PersonResponseDto> responseObj = new BaseResponse<>();
+return responseObj.render(responseObj.formSuccessResponse(Constants.SUCCESS, data));
+return responseObj.render(responseObj.formErrorResponse(errorMessage));
+```
+
+### Logging with MDC
+```java
+logger.info("[correlationId:{}] Method called", MDC.get("correlationId"));
+logger.error("[correlationId:{}] Exception: {}", MDC.get("correlationId"), e.getMessage(), e);
+```
+
+### Exception Handling
+```java
+try {
+    // Business logic
+} catch (Exception e) {
+    logger.error("[correlationId:{}] Exception: {}", MDC.get("correlationId"), e.getMessage(), e);
+    return responseObj.render(responseObj.formErrorResponse(e.getMessage()));
+}
+```
+
+## Database Conventions
+
+- **Primary Keys**: UUID with `@GeneratedValue`
+- **Table Names**: `snake_case` (e.g., `enrollment_invitations`)
+- **Column Names**: `snake_case` (e.g., `created_at`)
+- **Schemas**: `cpc` (business), `admin` (admin), `public` (demo)
+- **Timestamps**: `@CreationTimestamp`, `@UpdateTimestamp`
+- **Enums**: `@Enumerated(EnumType.STRING)`
+
+## Security & Best Practices
+
+✅ Never log sensitive data (passwords, tokens)  
+✅ Use `@PreAuthorize` for role-based access  
+✅ Use `@Transactional` for data modifications  
+✅ Log all public methods with correlation ID  
+✅ Use try-catch in all service methods  
+✅ Return consistent response format  
+✅ Use Optional for nullable results  
+✅ Keep mappers simple with static methods  
+✅ Keep controllers thin (delegate to services)  
+✅ Use Bean Validation in DTOs (@NotNull, @Valid)
+
+## Creating New Features
+
+1. Create Flyway migration for new table
+2. Create Entity with proper annotations
+3. Create Repository extending JpaRepository
+4. Create Request/Response DTOs
+5. Create Mapper with static methods
+6. Create Service Interface
+7. Create Service Implementation with logging and error handling
+8. Create Controller with REST endpoints
+9. Test with Postman/Swagger
