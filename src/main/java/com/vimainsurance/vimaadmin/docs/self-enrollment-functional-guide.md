@@ -104,12 +104,16 @@ System creates endorsement automatically
 │ STEP 1: HR SETUP (5 minutes)                                      │
 ├────────────────────────────────────────────────────────────────────┤
 │ • Create enrollment window (dates: March 1-31, 2026)              │
+│ • Configure reminder frequency (e.g., every 3 days)               │
 │ • Upload employee list CSV (name, email, DOB, grade)              │
-│ • System creates DRAFT ENDORSEMENT with all employees             │
-│ • System sends magic link emails to all employees                 │
+│ • Activate window → System sends magic link emails                │
+│ • Can resend activation links to specific employees               │
+│                                                                     │
+│ [Window Status: scheduled → active]                               │
+│ [System tracks: "4 out of 7 employees completed"]                 │
 └────────────────────────────────────────────────────────────────────┘
-                                 │
-                                 ↓
+                                │
+                                ↓
 ┌────────────────────────────────────────────────────────────────────┐
 │ STEP 2: EMPLOYEES ENROLL (10 minutes per employee)                │
 ├────────────────────────────────────────────────────────────────────┤
@@ -120,28 +124,38 @@ System creates endorsement automatically
 │ • Nominates beneficiaries                                          │
 │ • Reviews and submits                                              │
 │                                                                     │
-│ [System tracks: "4 out of 7 employees completed"]                 │
+│ [HR sees real-time progress: "4 out of 7 employees submitted"]    │
 └────────────────────────────────────────────────────────────────────┘
-                                 │
-                                 ↓
+                                │
+                                ↓
 ┌────────────────────────────────────────────────────────────────────┐
-│ STEP 3: HR REVIEWS (2 minutes per submission)                     │
+│ STEP 3: HR REVIEWS & COMPLETES (5 minutes per employee)           │
 ├────────────────────────────────────────────────────────────────────┤
 │ • HR sees pending approvals dashboard                              │
 │ • Reviews each submission (details, dependents, plans)             │
-│ • Approves or rejects with reason                                  │
-│ • System updates endorsement member status                         │
+│ • Approves submission OR                                           │
+│ • Edits on behalf of employee (if incomplete) OR                   │
+│ • Removes employee (last resort)                                   │
+│                                                                     │
+│ • Once ALL employees reviewed/approved                             │
+│ • HR clicks "Create Endorsement"                                   │
+│ • System creates endorsement with source='self_enrollment'         │
+│                                                                     │
+│ [Window Status: active → pending_review → approved]                │
 └────────────────────────────────────────────────────────────────────┘
-                                 │
-                                 ↓
+                                │
+                                ↓
 ┌────────────────────────────────────────────────────────────────────┐
-│ STEP 4: WINDOW CLOSES & FINALIZATION (1 minute)                   │
+│ STEP 4: WINDOW CLOSES & ENDORSEMENT VISIBILITY (1 minute)         │
 ├────────────────────────────────────────────────────────────────────┤
 │ • Enrollment window closes on March 31                             │
-│ • HR sees summary: "4 completed, 3 incomplete"                     │
-│ • HR finalizes endorsement (include/exclude incomplete)            │
-│ • System creates final endorsement for insurer                     │
-│ • Email notifications sent to all stakeholders                     │
+│ • Endorsement appears in Admin > Endorsements page                 │
+│ • Shows: 450 employees, 1200 dependents                            │
+│ • Source: "Self-Enrollment - FY 2025-26 Annual"                    │
+│ • Admin processes endorsement (same as CSV upload flow)            │
+│                                                                     │
+│ [Window Status: closed]                                            │
+│ [Endorsement managed by Admin, not HR]                             │
 └────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -159,14 +173,14 @@ VIMA ADMIN                  HR ADMIN                   EMPLOYEE                 
     │                          │                          │                         │
     │                          ├─ Create Window ──────────────────────────────────>│
     │                          │  (March 1-31, 2026)       │                         │
+    │                          │  (Reminder: every 3 days) │                         │
+    │                          │  (Status: scheduled)      │                         │
     │                          │                          │                         │
     │                          ├─ Upload Employee CSV ────────────────────────────>│
     │                          │  (500 employees)          │                         │
     │                          │                          │                         │
-    │                          │                          │   <─── Create Draft ────┤
-    │                          │                          │        Endorsement      │
-    │                          │                          │        (500 members)    │
-    │                          │                          │                         │
+    │                          ├─ Activate Window ────────────────────────────────>│
+    │                          │  (Status: active)         │                         │
     │                          │                          │   <─── Send Magic Link ─┤
     │                          │                          │        Emails (500x)    │
     │                          │                          │                         │
@@ -189,6 +203,8 @@ VIMA ADMIN                  HR ADMIN                   EMPLOYEE                 
     │                          ├─ Review Submission ──────────────────────────────>│
     │                          │                          │                         │
     │                          ├─ Approve ───────────────────────────────────────>│
+    │                          │   OR Edit on behalf       │                         │
+    │                          │   OR Remove employee      │                         │
     │                          │                          │                         │
     │                          │                          │   <─── Update Status ───┤
     │                          │                          │        = 'approved'     │
@@ -197,16 +213,21 @@ VIMA ADMIN                  HR ADMIN                   EMPLOYEE                 
     │                          │        (Approved)         │   <─── Send Email ─────┤
     │                          │                          │        (Approved)       │
     │                          │                          │                         │
+    │                          ├─ All Reviewed ──────────────────────────────────>│
+    │                          ├─ Create Endorsement ─────────────────────────────>│
+    │                          │  (source='self_enrollment')│                        │
+    │                          │  (windowName='FY 2025-26')│                        │
+    │                          │                          │   <─── Endorsement ─────┤
+    │                          │                          │        Created          │
+    │                          │                          │        (450 employees)  │
+    │                          │                          │                         │
     ├──────────── [Window Closes - March 31] ─────────────────────────────────────┤
     │                          │                          │                         │
-    │                          │   <─── Progress Summary ─────────────────────────┤
-    │                          │        (450/500 done)     │                         │
+    ├─ Admin View ─────────────────────────────────────────────────────────────────┤
     │                          │                          │                         │
-    │                          ├─ Finalize Endorsement ───────────────────────────>│
-    │                          │  (approve final)          │                         │
-    │                          │                          │                         │
-    │                          │   <─── Endorsement ──────────────────────────────┤
-    │                          │        Ready for Insurer  │                         │
+    │  View Endorsements Page  │                          │                         │
+    │  Source: "Self-Enrollment - FY 2025-26 Annual"      │                         │
+    │  450 employees, 1200 dependents                     │                         │
     │                          │                          │                         │
 ```
 
@@ -262,9 +283,12 @@ VIMA ADMIN                  HR ADMIN                   EMPLOYEE                 
    [Send Invitations] button clicked
    ```
 
-4. **System Actions (Automatic)**
+4. **Activate Window & Send Invitations**
    ```
-   ⏱️  Creating draft endorsement... ✓ (2 seconds)
+   [Activate Window] button clicked
+   
+   System Actions:
+   ⏱️  Updating window status: scheduled → active... ✓
    ⏱️  Generating 500 magic links... ✓ (5 seconds)
    ⏱️  Sending invitation emails... ✓ (3 minutes)
    
@@ -272,8 +296,8 @@ VIMA ADMIN                  HR ADMIN                   EMPLOYEE                 
    ✓ Sent: 498 emails
    ✗ Failed: 2 emails (invalid addresses)
    
-   Endorsement ID: END-2026-TECHCORP-001
-   Status: DRAFT
+   [Resend Link] available for failed emails
+   Window Status: ACTIVE
    ```
 
 5. **Monitor Progress**
@@ -590,7 +614,7 @@ VIMA ADMIN                  HR ADMIN                   EMPLOYEE                 
    
    → System updates status to 'approved'
    → Sends email to Amit: "Your enrollment is approved"
-   → Updates endorsement member status
+   → Marked as complete (ready for endorsement creation)
    
    
    Option B: Reject
@@ -649,85 +673,100 @@ VIMA ADMIN                  HR ADMIN                   EMPLOYEE                 
 
 ---
 
-### **Journey 4: Finalization After Window Closes**
+### **Journey 4: Creating Endorsement After All Reviews**
 
-**Scenario:** Enrollment window closed on March 31. Priya needs to finalize the endorsement.
+**Scenario:** All employees have been reviewed. Priya creates the endorsement.
 
 **Steps:**
 
-1. **View Finalization Summary**
+1. **View Completion Summary**
    ```
    ╔═══════════════════════════════════════════════════════════════╗
-   ║  Enrollment Window Closed                                     ║
+   ║  Enrollment Review Status                                     ║
    ║  TechCorp Annual 2026 (March 1-31, 2026)                      ║
    ╠═══════════════════════════════════════════════════════════════╣
    ║                                                               ║
-   ║  Final Results:                                               ║
+   ║  Review Status:                                               ║
    ║                                                               ║
    ║  Total Employees: 500                                         ║
-   ║  ✅ Completed & Approved: 450 (90%)                           ║
-   ║  ❌ Rejected/Incomplete: 50 (10%)                             ║
+   ║  ✅ Approved: 450 (90%)                                       ║
+   ║  ✍️  Edited by HR: 30 (6%)                                    ║
+   ║  ❌ Removed: 20 (4%)                                          ║
    ║                                                               ║
-   ║  Endorsement Status: DRAFT                                    ║
-   ║  Endorsement ID: END-2026-TECHCORP-001                        ║
+   ║  Window Status: PENDING_REVIEW                                ║
    ║                                                               ║
-   ║  What would you like to do?                                   ║
+   ║  All employees reviewed. Ready to create endorsement.         ║
    ║                                                               ║
-   ║  Option 1: Finalize with completed members only               ║
-   ║  └─ 450 members will be included                              ║
-   ║  └─ 50 incomplete members will be excluded                    ║
-   ║                                                               ║
-   ║  Option 2: Include all employees (even incomplete)            ║
-   ║  └─ All 500 members will be included                          ║
-   ║  └─ Incomplete members get basic coverage                     ║
-   ║                                                               ║
-   ║  [Finalize with 450 Members] [Include All 500]                ║
-   ║                                                               ║
-   ║  [View Incomplete Employees List]                             ║
+   ║  [Create Endorsement] [View Details]                          ║
    ╚═══════════════════════════════════════════════════════════════╝
    ```
 
-2. **Finalize Endorsement**
+2. **Create Endorsement**
    ```
-   Click: [Finalize with 450 Members]
+   Click: [Create Endorsement]
    
    ╔═══════════════════════════════════════════════════╗
-   ║  Confirm Finalization                             ║
+   ║  Create Endorsement                               ║
    ╠═══════════════════════════════════════════════════╣
    ║                                                   ║
-   ║  You are about to finalize the endorsement:       ║
+   ║  You are about to create an endorsement:          ║
    ║                                                   ║
-   ║  • 450 approved members will be included          ║
-   ║  • 50 incomplete members will be excluded         ║
-   ║  • Endorsement status will change to APPROVED     ║
-   ║  • This action cannot be undone                   ║
+   ║  • 450 approved employees will be included        ║
+   ║  • 20 removed employees will be excluded          ║
+   ║  • Source: Self-Enrollment                        ║
+   ║  • Window: FY 2025-26 Annual                      ║
+   ║  • Endorsement will appear in Endorsements page   ║
    ║                                                   ║
    ║  Total Annual Premium: ₹72,00,000                 ║
    ║  (Employer share: ₹70,00,000)                     ║
    ║  (Employee share: ₹2,00,000)                      ║
    ║                                                   ║
-   ║  [Cancel] [Confirm & Finalize]                    ║
+   ║  [Cancel] [Create Endorsement]                    ║
    ╚═══════════════════════════════════════════════════╝
    ```
 
 3. **Success!**
    ```
    ╔═══════════════════════════════════════════════════╗
-   ║  ✅ Endorsement Finalized Successfully!           ║
+   ║  ✅ Endorsement Created Successfully!             ║
    ╠═══════════════════════════════════════════════════╣
    ║                                                   ║
    ║  Endorsement ID: END-2026-TECHCORP-001            ║
-   ║  Status: APPROVED                                 ║
-   ║  Final Member Count: 450                          ║
+   ║  Source: Self-Enrollment - FY 2025-26 Annual      ║
+   ║  Total Members: 450 employees, 1200 dependents    ║
+   ║  Window Status: APPROVED                          ║
    ║                                                   ║
    ║  What's next?                                     ║
-   ║  1. Endorsement sent to insurer for processing    ║
-   ║  2. Policy certificates will be generated         ║
-   ║  3. Coverage effective from April 1, 2026         ║
+   ║  1. Endorsement visible in Admin > Endorsements   ║
+   ║  2. Admin will process for insurer submission     ║
+   ║  3. Window will auto-close on March 31            ║
    ║                                                   ║
-   ║  [Download Endorsement Report]                    ║
-   ║  [View in Endorsements]                           ║
-   ║  [Send Notifications to Employees]                ║
+   ║  [View in Endorsements] [Close Window Now]        ║
+   ╚═══════════════════════════════════════════════════╝
+   ```
+
+4. **Admin Views Endorsement**
+   ```
+   Admin Portal > Endorsements Page
+   
+   ╔═══════════════════════════════════════════════════╗
+   ║  Endorsement Details                              ║
+   ╠═══════════════════════════════════════════════════╣
+   ║                                                   ║
+   ║  ID: END-2026-TECHCORP-001                        ║
+   ║  Company: TechCorp                                ║
+   ║  Source: Self-Enrollment - FY 2025-26 Annual      ║
+   ║  Type: ADDITION                                   ║
+   ║  Status: DRAFT                                    ║
+   ║                                                   ║
+   ║  Members:                                         ║
+   ║  • Employees: 450                                 ║
+   ║  • Dependents: 1,200                              ║
+   ║  • Total: 1,650                                   ║
+   ║                                                   ║
+   ║  Premium: ₹72,00,000/year                         ║
+   ║                                                   ║
+   ║  [Same workflow as CSV upload endorsements]       ║
    ╚═══════════════════════════════════════════════════╝
    ```
 
@@ -1009,11 +1048,19 @@ Add Optional Top-up:
   - Mandatory plans: GMC, GPA, GTL
 
 ✓ Status Lifecycle:
-  scheduled → active → closed
+  scheduled → active → pending_review → approved → closed
   
-  - scheduled: Before start date
-  - active: Between start and end dates
-  - closed: After end date or manual close
+  - scheduled: Window created, before activation
+  - active: Invitations sent, employees enrolling
+  - pending_review: All submissions in, HR reviewing
+  - approved: Endorsement created, ready for processing
+  - closed: Window ended (auto-closes on end_date)
+
+✓ Reminder Configuration:
+  - Frequency: 3, 5, or 7 days (configurable per window)
+  - Auto-reminders sent to employees who haven't completed
+  - Final reminder 1 day before deadline
+  - Can resend activation links individually
 ```
 
 ---
@@ -1082,19 +1129,32 @@ Add Optional Top-up:
 
 ---
 
-### **7.5 Finalization Rules**
+### **7.5 Endorsement Creation Rules**
 
 ```
-✓ Window must be closed
-✓ Endorsement must be in DRAFT status
-✓ Options:
-  - Include only approved members
-  - Include all (even incomplete)
+✓ HR must review all submissions first
+✓ HR Options for incomplete submissions:
+  - Approve as-is
+  - Edit on behalf of employee
+  - Remove employee from window
 
-✓ After finalization:
-  - Status changes to APPROVED
-  - Cannot be modified
-  - Sent to insurer
+✓ When all reviewed:
+  - HR clicks "Create Endorsement"
+  - System creates endorsement with source='self_enrollment'
+  - Stores window name (e.g., "FY 2025-26 Annual")
+  - Window status: pending_review → approved
+
+✓ Endorsement Source Types:
+  - csv_upload: Traditional CSV upload
+  - self_enrollment: From enrollment window (stores windowName)
+  - hrms_sync: Future HRMS integration
+  - manual: Manually created by admin
+
+✓ After creation:
+  - Endorsement appears in Admin > Endorsements page
+  - Shows source: "Self-Enrollment - [Window Name]"
+  - Admin processes like any other endorsement
+  - Window auto-closes on end_date
 ```
 
 ---

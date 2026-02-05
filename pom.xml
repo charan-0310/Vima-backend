@@ -221,6 +221,13 @@
             <version>5.2.5</version>
         </dependency>
 
+        <!-- Bucket4j for rate limiting -->
+        <dependency>
+            <groupId>com.bucket4j</groupId>
+            <artifactId>bucket4j-core</artifactId>
+            <version>8.7.0</version>
+        </dependency>
+
     </dependencies>
 
 	<build>
