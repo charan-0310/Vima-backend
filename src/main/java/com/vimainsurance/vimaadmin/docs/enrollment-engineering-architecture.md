@@ -39,7 +39,7 @@ CREATE TABLE enrollment_windows (
     
     -- Status
     status VARCHAR(50) NOT NULL DEFAULT 'scheduled',
-    -- Values: scheduled, active, closed, cancelled
+    -- Values: scheduled, active, pending_review, approved, closed, cancelled
     
     -- Configuration (stored as JSONB)
     config JSONB DEFAULT '{}',
@@ -270,13 +270,21 @@ CREATE INDEX IF NOT EXISTS idx_customers_enrollment_window ON cpc.customers(enro
 -- Track endorsement source
 ALTER TABLE cpc.endorsements 
   ADD COLUMN IF NOT EXISTS source VARCHAR(50) DEFAULT 'csv_upload';
--- Values: csv_upload, self_enrollment, api, manual
+-- Values: csv_upload, self_enrollment, hrms_sync, manual
+
+ALTER TABLE cpc.endorsements
+  ADD COLUMN IF NOT EXISTS source_metadata JSONB DEFAULT '{}';
+/* Example for self_enrollment:
+{
+  "windowId": "uuid",
+  "windowName": "FY 2025-26 Annual",
+  "enrollmentStartDate": "2026-03-01",
+  "enrollmentEndDate": "2026-03-31"
+}
+*/
 
 ALTER TABLE cpc.endorsements
   ADD COLUMN IF NOT EXISTS enrollment_window_id UUID REFERENCES enrollment_windows(id);
-
-ALTER TABLE cpc.endorsements
-  ADD COLUMN IF NOT EXISTS submission_count INTEGER DEFAULT 0;
 
 CREATE INDEX IF NOT EXISTS idx_endorsements_source ON cpc.endorsements(source);
 CREATE INDEX IF NOT EXISTS idx_endorsements_enrollment_window ON cpc.endorsements(enrollment_window_id);
@@ -727,38 +735,31 @@ Response: {id, name, status, dates, stats}
 
 ---
 
-### **BE-005: Invitation & Email Service APIs (+ Draft Endorsement Creation)**
-**Priority:** High | **Story Points:** 8 | **Type:** Backend
+### **BE-005: Invitation & Email Service APIs**
+**Priority:** High | **Story Points:** 6 | **Type:** Backend
 
-Bulk invitation sending with email delivery + **create draft endorsement upfront for tracking**.
+Bulk invitation sending with email delivery + activation workflow.
 
 **Sub-tasks:**
 - Create `EnrollmentInvitationService`:
   - sendInvitation(employeeId, windowId)
   - sendBulkInvitations(employeeIds, windowId)
+  - resendActivationLink(invitationId) - NEW: Resend individual link
   - sendReminders(windowId) - Used by scheduled job
   - extendDeadline(invitationId, newDate)
-- **Create `EndorsementPreparationService`:** (NEW)
-  - **createDraftEndorsement(windowId, employeeIds)**
-    - Create endorsement (status='draft', source='self_enrollment', type='ADDITION')
-    - Create deal_endorsement entries for each employee (enrollment_status='invited')
-    - Link endorsement_id to enrollment_window
-    - Return endorsement with member count
-  - **getEnrollmentProgress(windowId)**
-    - Query deal_endorsements for enrollment_status counts
-    - Calculate completion rate
-    - Return progress summary
+  - getEnrollmentProgress(windowId) - Track completion without endorsement
 - Create `EnrollmentInvitationController`:
-  - POST /api/admin/enrollments/send-invitation - Single invite
-  - POST /api/admin/enrollments/send-bulk - Bulk invites (creates endorsement)
+  - POST /api/admin/enrollments/windows/{windowId}/activate - Activate window and send invites
+  - POST /api/admin/enrollments/{invitationId}/resend - Resend single activation link (NEW)
   - POST /api/admin/enrollments/send-reminders - Manual reminder trigger
   - POST /api/admin/enrollments/{employeeId}/extend - Extend deadline
   - GET /api/admin/enrollments/invitations - List with status
-  - **GET /api/admin/enrollments/windows/{windowId}/progress** - Track completion (NEW)
+  - GET /api/admin/enrollments/windows/{windowId}/progress - Track completion (no endorsement)
 - Generate unique token using TokenSecurityService
 - Store hashed token in invitation
 - Integrate with existing email service (SES/SMTP)
 - Create email template with magic link
+- Update window status: scheduled → active on activation
 - Update invitation status after send
 - Handle email failures with retry mechanism
 - Track reminder_count and last_reminder_at
@@ -766,53 +767,58 @@ Bulk invitation sending with email delivery + **create draft endorsement upfront
 - Async processing for bulk sends (CompletableFuture or @Async)
 
 **Acceptance Criteria:**
-- Single invite completes in < 2 seconds
+- Window activation triggers bulk invitation sending
 - Bulk 1000 employees in < 5 minutes
-- **Draft endorsement created automatically with all employees**
-- **Progress tracking API shows "4/7 completed"**
+- Can resend individual activation links for failed emails
+- Progress tracking API shows "4/7 completed" without endorsement
 - Failed emails logged and marked
 - Email contains valid magic link
 - Async bulk processing works
-- Endorsement linked to enrollment window
+- Window status updates correctly
 
 **API Contract:**
 ```json
-POST /api/admin/enrollments/send-bulk
+POST /api/admin/enrollments/windows/{windowId}/activate
 Request: {
-  "windowId": "uuid",
-  "employeeIds": ["uuid1", "uuid2", ...]
+  "windowId": "uuid"
 }
 Response: {
+  "windowStatus": "active",
   "sent": 950,
   "failed": 50,
-  "failedEmployees": [...],
-  "endorsementId": "uuid",
-  "endorsementStatus": "draft",
-  "totalMembers": 950
+  "failedEmployees": [...]
+}
+
+POST /api/admin/enrollments/{invitationId}/resend
+Response: {
+  "sent": true,
+  "email": "employee@company.com"
 }
 
 GET /api/admin/enrollments/windows/{windowId}/progress
 Response: {
   "windowId": "uuid",
-  "endorsementId": "uuid",
+  "windowStatus": "active",
   "totalEmployees": 7,
   "invitedCount": 7,
   "openedCount": 5,
   "submittedCount": 4,
-  "approvedCount": 0,
-  "completionRate": 57.14,
+  "approvedCount": 2,
+  "reviewedCount": 6,
+  "completionRate": 85.71,
   "employeeDetails": [
     {
       "employeeId": "uuid",
       "name": "John Doe",
-      "enrollmentStatus": "submitted",
-      "submittedAt": "2026-01-15T10:30:00Z"
+      "enrollmentStatus": "approved",
+      "submittedAt": "2026-01-15T10:30:00Z",
+      "approvedAt": "2026-01-16T09:00:00Z"
     },
     {
       "employeeId": "uuid",
       "name": "Jane Smith",
-      "enrollmentStatus": "invited",
-      "invitedAt": "2026-01-10T09:00:00Z"
+      "enrollmentStatus": "submitted",
+      "submittedAt": "2026-01-14T14:20:00Z"
     }
   ]
 }
@@ -1070,86 +1076,93 @@ Response: {success: true, message: "Rejected"}
 
 ---
 
-### **BE-011: Endorsement Finalization & Approval**
-**Priority:** High | **Story Points:** 6 | **Type:** Backend
+### **BE-011: Endorsement Creation from Completed Reviews**
+**Priority:** High | **Story Points:** 7 | **Type:** Backend
 
-Finalize draft endorsement after window closes (endorsement already created in BE-005).
+Create endorsement AFTER all HR reviews are complete (not upfront).
 
-> **Note:** Endorsement is created upfront when invitations are sent (BE-005). This ticket handles finalization.
+> **Note:** Endorsement is created AFTER HR completes all reviews, not during invitation sending.
 
 **Sub-tasks:**
-- Create `EndorsementFinalizationService`:
-  - **finalizeEndorsement(endorsementId, includeIncomplete=false)**
-    - Validate: Endorsement exists and status='draft'
-    - Validate: All members reviewed (approved/rejected) OR includeIncomplete=true
+- Create `EndorsementCreationService`:
+  - **createEndorsementFromWindow(windowId, windowName)**
+    - Validate: All submissions reviewed (approved/rejected/removed)
     - Query all approved submissions for window
-    - Update deal_endorsement.enrollment_status = 'finalized' for approved members
-    - Remove rejected members from endorsement (delete deal_endorsement entries)
-    - Migrate nominees to policies:
+    - Create endorsement:
+      - status='draft'
+      - source='self_enrollment'
+      - source_metadata = {"windowId": "uuid", "windowName": "FY 2025-26 Annual", ...}
+      - type='ADDITION'
+    - Create deal_endorsement entries for approved members
+    - Link submission.endorsement_id
+    - Migrate dependents: status='pending_approval' → 'active'
+    - Migrate nominees to customers:
       - Find nominees where submission_id = submission.id
-      - After policy assignment: Update nominee.policy_id, clear submission_id
+      - Link to customer records
     - Update submission status: 'approved' → 'endorsed'
-    - Link submission.endorsement_id (if not already linked)
-    - Update dependent.status: 'pending_approval' → 'active'
-    - Change endorsement.status: 'draft' → 'approved'
-    - Update endorsement.updated_at
+    - Update window status: 'pending_review' → 'approved'
     - Calculate final premium totals
-    - Send notification to VIMA admin + insurer API
-  - **getEndorsementSummary(endorsementId)**
-    - Return member counts by status
-    - Show completion rate
-    - List incomplete members
+    - Send notification to Admin (endorsement created)
+  - **getWindowReviewSummary(windowId)**
+    - Return submission counts by status
+    - Show who needs review
+    - Check if ready to create endorsement
 - Add endpoints:
-  - POST /api/admin/endorsements/{id}/finalize - Finalize endorsement
-  - GET /api/admin/endorsements/{id}/summary - Get finalization summary
-  - POST /api/admin/endorsements/{id}/approve - HR final approval
+  - POST /api/hr/enrollments/windows/{windowId}/create-endorsement - Create endorsement
+  - GET /api/hr/enrollments/windows/{windowId}/review-summary - Get review status
+  - POST /api/hr/enrollments/{submissionId}/edit-on-behalf - Edit for employee
+  - DELETE /api/hr/enrollments/{submissionId}/remove - Remove employee
 - Add transactional boundary (rollback on any failure)
 - Handle edge cases:
-  - What if no one completed? (Allow finalization with 0 members)
-  - What if some incomplete? (includeIncomplete flag)
-- Send batch completion notification
+  - What if some not reviewed? (Block creation until all reviewed)
+  - What if all removed? (Allow empty endorsement)
+- Send notification to Admin portal
 
 **Acceptance Criteria:**
-- Can only finalize endorsements with status='draft'
-- All approved members remain in endorsement
-- Rejected/incomplete members removed (if includeIncomplete=false)
-- Nominees migrated to policies correctly
-- Endorsement status changes to 'approved'
+- Can only create endorsement after all reviews complete
+- Endorsement has source='self_enrollment' with windowName in source_metadata
+- All approved members included in endorsement
+- Removed members excluded
+- Endorsement appears in Admin > Endorsements page
+- Source displayed as "Self-Enrollment - [Window Name]"
 - Transactional (all or nothing)
 - Completes in < 2 minutes for 500 members
 - Notification sent to admins
 
 **API Contract:**
 ```json
-GET /api/admin/endorsements/{endorsementId}/summary
+GET /api/hr/enrollments/windows/{windowId}/review-summary
+Response: {
+  "windowId": "uuid",
+  "windowName": "FY 2025-26 Annual",
+  "totalEmployees": 500,
+  "approvedCount": 450,
+  "rejectedCount": 20,
+  "removedCount": 20,
+  "pendingReviewCount": 10,
+  "readyToCreateEndorsement": false,
+  "message": "10 submissions still need review"
+}
+
+POST /api/hr/enrollments/windows/{windowId}/create-endorsement
+Request: {
+  "windowName": "FY 2025-26 Annual",
+  "notes": "Annual enrollment completed"
+}
 Response: {
   "endorsementId": "uuid",
   "status": "draft",
-  "totalMembers": 7,
-  "completedMembers": 4,
-  "approvedMembers": 3,
-  "rejectedMembers": 1,
-  "incompleteMembers": 3,
-  "readyToFinalize": false,
-  "members": [
-    {"name": "John", "status": "approved"},
-    {"name": "Jane", "status": "submitted"},
-    {"name": "Bob", "status": "invited"}
-  ]
-}
-
-POST /api/admin/endorsements/{endorsementId}/finalize
-Request: {
-  "includeIncomplete": false,
-  "notes": "Finalized after window close"
-}
-Response: {
-  "endorsementId": "uuid",
-  "status": "approved",
-  "finalMemberCount": 4,
-  "removedMembers": 3,
-  "totalPremium": 150000,
-  "message": "Endorsement finalized successfully"
+  "source": "self_enrollment",
+  "sourceMetadata": {
+    "windowId": "uuid",
+    "windowName": "FY 2025-26 Annual",
+    "enrollmentStartDate": "2026-03-01",
+    "enrollmentEndDate": "2026-03-31"
+  },
+  "totalMembers": 450,
+  "totalDependents": 1200,
+  "totalPremium": 7200000,
+  "message": "Endorsement created successfully. View in Admin > Endorsements."
 }
 ```
 
@@ -1347,36 +1360,36 @@ Comprehensive testing and observability.
 
 ## Summary: Updated Story Points & Timeline
 
-### **Ticket Story Points (After Workflow Change)**
+### **Ticket Story Points (After Workflow Change - Latest)**
 
 | Ticket | Description | Original SP | Updated SP | Change | Reason |
 |--------|-------------|-------------|------------|--------|--------|
-| BE-001 | Database Schema & Migrations | 5 | 5 | - | Minor schema additions |
-| BE-002 | Core Entities & Repositories | 3 | 3 | - | Entity mapping updates |
+| BE-001 | Database Schema & Migrations | 5 | 5 | - | Added source_metadata JSONB field |
+| BE-002 | Core Entities & Repositories | 3 | 3 | - | Entity mapping for source_metadata |
 | BE-003 | Token Security | 5 | 5 | - | No change |
-| BE-004 | Enrollment Window APIs | 5 | 5 | - | No change |
-| **BE-005** | **Invitation + Endorsement Creation** | **6** | **8** | **+2** | **Now creates draft endorsement** |
+| BE-004 | Enrollment Window APIs | 5 | 6 | +1 | Added window activation endpoint |
+| **BE-005** | **Invitation + Activation** | **6** | **6** | **0** | **Removed endorsement creation** |
 | BE-006 | Token Validation API | 4 | 4 | - | No change |
-| BE-007 | Dependent Management | 6 | 6 | - | Status tracking (minor) |
+| BE-007 | Dependent Management | 6 | 6 | - | No change |
 | BE-008 | Plan & Nominee APIs | 6 | 6 | - | No change |
-| BE-009 | Submission API | 4 | 4 | - | Status tracking (minor) |
-| BE-010 | HR Approval APIs | 5 | 5 | - | Status tracking (minor) |
-| **BE-011** | **Endorsement Finalization** | **6** | **6** | **0** | **Different work, same effort** |
+| BE-009 | Submission API | 4 | 4 | - | No change |
+| BE-010 | HR Approval APIs | 5 | 6 | +1 | Added edit-on-behalf, remove APIs |
+| **BE-011** | **Endorsement Creation** | **6** | **7** | **+1** | **Create after reviews, not upfront** |
 | BE-012 | Background Jobs | 4 | 4 | - | No change |
 | BE-013 | Config Management | 3 | 3 | - | No change |
 | BE-014 | Testing & Documentation | 5 | 5 | - | No change |
-| **Total** | | **57 SP** | **59 SP** | **+2 SP** | **~0.25 weeks added** |
+| **Total** | | **57 SP** | **60 SP** | **+3 SP** | **~0.5 weeks added** |
 
 ### **Updated Timeline with Cursor AI**
 
 | Week | Dev1 Tasks | Dev2 Tasks | SP per Dev |
 |------|-----------|-----------|------------|
 | **Week 1** | Foundation (both) | Foundation (both) | 13 SP (shared) |
-| **Week 2** | BE-004 (5), BE-005 (8), BE-013 (3) | BE-006 (4), BE-007 (6), BE-008 (start, 3) | 16 SP / 13 SP |
-| **Week 3** | BE-010 (5), BE-011 (6) | BE-008 (3), BE-009 (4), BE-014 (2) | 11 SP / 9 SP |
+| **Week 2** | BE-004 (6), BE-005 (6), BE-013 (3) | BE-006 (4), BE-007 (6), BE-008 (start, 3) | 15 SP / 13 SP |
+| **Week 3** | BE-010 (6), BE-011 (7) | BE-008 (3), BE-009 (4), BE-014 (2) | 13 SP / 9 SP |
 | **Week 4** | BE-012 (4), BE-014 (3) | BE-014 (testing, 3) | 7 SP / 3 SP |
 | **Week 5** | Polish, deployment | Polish, deployment | Buffer |
-| **Total** | ~30 SP | ~29 SP | **59 SP** |
+| **Total** | ~31 SP | ~29 SP | **60 SP** |
 
 ### **Timeline Comparison**
 
@@ -1384,34 +1397,37 @@ Comprehensive testing and observability.
 |----------|------|----------|----------|
 | Original Complex Plan | 1 dev | 13 weeks | 94 SP |
 | Simplified (No Cursor) | 1 dev | 8 weeks | 57 SP |
-| **With Workflow Change** | **1 dev** | **~8.5 weeks** | **59 SP** |
-| **With Cursor AI (2 devs)** | **2 devs** | **~5 weeks** | **59 SP** ✅ |
+| **With Workflow Change** | **1 dev** | **~8.5 weeks** | **60 SP** |
+| **With Cursor AI (2 devs)** | **2 devs** | **~5 weeks** | **60 SP** ✅ |
 
-**Impact of Workflow Change:** +2 SP (~0.25 weeks) - Minimal impact
+**Impact of Workflow Change:** +3 SP (~0.5 weeks) - Minimal impact
 
 ### **Key Workflow Changes**
 
 **Before:**
 ```
-Window Created → Send Invites → Employees Enroll → HR Approves 
-→ Window Closes → CREATE Endorsement
+Window Created → Send Invites + Create Draft Endorsement → Employees Enroll 
+→ HR Approves → Window Closes → Finalize Endorsement
 ```
 
-**After (New):**
+**After (NEW - Latest):**
 ```
-Window Created → Send Invites + CREATE DRAFT ENDORSEMENT 
+Window Created (scheduled) → Window Activated → Send Invites 
 → Track Progress (4/7 completed) → Employees Enroll 
-→ HR Approves → Window Closes → FINALIZE Endorsement
+→ HR Reviews ALL (approve/edit/remove) → CREATE Endorsement 
+→ Window Closes → Endorsement in Admin Page
 ```
 
 **Benefits:**
 - ✅ Real-time progress tracking ("4 out of 7 completed")
-- ✅ Single endorsement from start to finish
-- ✅ Better visibility for HR (see who's incomplete)
-- ✅ Cleaner data model
-- ✅ Follows existing CSV upload pattern
+- ✅ HR completes all reviews before endorsement creation
+- ✅ Clean separation: HR page vs Admin/Endorsement page
+- ✅ Endorsement source tracking with window name
+- ✅ Can resend activation links individually
+- ✅ Window status lifecycle: scheduled → active → pending_review → approved → closed
+- ✅ Endorsement shows source: "Self-Enrollment - FY 2025-26 Annual"
 
-**Cost:** +2 story points (~0.25 weeks)
+**Cost:** +3 story points (~0.5 weeks)
 
 ---
 
