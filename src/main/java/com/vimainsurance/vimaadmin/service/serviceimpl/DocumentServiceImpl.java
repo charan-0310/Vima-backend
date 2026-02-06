@@ -724,7 +724,7 @@ public class DocumentServiceImpl implements IDocumentService {
 
 
     private String generateS3KeyUploadDocument(DocumentEntityType entityType, String entityId, DocumentType documentType, String fileName) {
-        return String.format("%s/%s/%s/%s", entityType.getValue().toLowerCase(), entityId, documentType.getValue().toLowerCase(), fileName);
+        return String.format("%s/%s/%s/%s", entityType.getValue().toLowerCase(), documentType.getValue().toLowerCase(), entityId, fileName);
     }
     
     private String getFileExtension(String filename) {

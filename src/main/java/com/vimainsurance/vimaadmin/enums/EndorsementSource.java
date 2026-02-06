@@ -7,7 +7,8 @@ public enum EndorsementSource {
     CSV_UPLOAD("CSV_UPLOAD"),
     SELF_ENROLLMENT("SELF_ENROLLMENT"),
     API("API"),
-    MANUAL("MANUAL");
+    MANUAL("MANUAL"),
+    HRMS_SYNC("HRMS_SYNC");
 
     private final String value;
 

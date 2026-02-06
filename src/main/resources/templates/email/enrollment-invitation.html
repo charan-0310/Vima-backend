@@ -25,7 +25,6 @@
             <p>Hello <strong th:text="${employeeName}">Employee</strong>,</p>
             <p th:if="${isReminder != null && isReminder}">This is a reminder to complete your self-service enrollment. Use the link below to continue.</p>
             <p th:unless="${isReminder != null && isReminder}">You have been invited to complete your enrollment. Click the link below to get started.</p>
-            <!-- Magic link: replace with actual token URL when TokenSecurityService is integrated -->
             <p><a th:href="${magicLink}" th:text="${magicLink}" class="btn">Open enrollment</a></p>
             <p style="font-size: 14px; color: #64748b;">If the button does not work, copy and paste the link into your browser.</p>
         </div>

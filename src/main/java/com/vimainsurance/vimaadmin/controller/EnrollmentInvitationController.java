@@ -1,5 +1,6 @@
 package com.vimainsurance.vimaadmin.controller;
 
+import java.util.List;
 import java.util.UUID;
 
 import org.slf4j.Logger;
@@ -26,7 +27,7 @@ import com.vimainsurance.vimaadmin.dto.SendRemindersRequestDto;
 import com.vimainsurance.vimaadmin.service.IEnrollmentInvitation;
 
 /**
- * Admin APIs for enrollment invitations: send, bulk send, reminders, extend deadline, list.
+ * Admin APIs for enrollment invitations: send, bulk send, activate window, resend, reminders, extend deadline, list, progress.
  */
 @RestController
 @CrossOrigin(allowedHeaders = "*")
@@ -38,12 +39,29 @@ public class EnrollmentInvitationController {
     @Autowired
     private IEnrollmentInvitation enrollmentInvitationService;
 
-    /** POST /api/v1/admin/enrollments/send-invitation - Single invite */
+    /** POST /api/v1/admin/enrollments/windows/{windowId}/activate - Activate window and send invites */
+    @PostMapping("/windows/{windowId}/activate")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'VIMA_ADMIN', 'HR_ADMIN')")
+    public ResponseEntity<?> activateWindowAndSendInvites(@PathVariable UUID windowId) {
+        logger.info("[correlationId:{}] POST /api/v1/admin/enrollments/windows/{}/activate", MDC.get("correlationId"), windowId);
+        return enrollmentInvitationService.activateWindowAndSendInvites(windowId);
+    }
+
+    /** POST /api/v1/admin/enrollments/{invitationId}/resend - Resend single activation link */
+    @PostMapping("/{invitationId}/resend")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'VIMA_ADMIN', 'HR_ADMIN')")
+    public ResponseEntity<?> resendActivationLink(@PathVariable UUID invitationId) {
+        logger.info("[correlationId:{}] POST /api/v1/admin/enrollments/{}/resend", MDC.get("correlationId"), invitationId);
+        return enrollmentInvitationService.resendActivationLink(invitationId);
+    }
+
+    /** POST /api/v1/admin/enrollments/send-invitation - Single or multiple (use employeeIds for bulk) */
     @PostMapping("/send-invitation")
     @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'VIMA_ADMIN', 'HR_ADMIN')")
     public ResponseEntity<?> sendInvitation(@RequestBody @Valid SendInvitationRequestDto request) {
         logger.info("[correlationId:{}] POST /api/v1/admin/enrollments/send-invitation", MDC.get("correlationId"));
-        return enrollmentInvitationService.sendInvitation(request.getEmployeeId(), request.getWindowId());
+        return enrollmentInvitationService.sendBulkInvitations(request.getEmployeeIds(), request.getWindowId());
+        
     }
 
     /** POST /api/v1/admin/enrollments/send-bulk - Bulk invites */
@@ -54,18 +72,32 @@ public class EnrollmentInvitationController {
         return enrollmentInvitationService.sendBulkInvitations(request.getEmployeeIds(), request.getWindowId());
     }
 
-    /** POST /api/v1/admin/enrollments/send-reminders - Manual reminder trigger */
+    /** POST /api/v1/admin/enrollments/send-reminders - Manual reminder trigger (optional employeeIds to limit to specific employees) */
     @PostMapping("/send-reminders")
     @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'VIMA_ADMIN', 'HR_ADMIN')")
     public ResponseEntity<?> sendReminders(@RequestBody @Valid SendRemindersRequestDto request) {
         logger.info("[correlationId:{}] POST /api/v1/admin/enrollments/send-reminders", MDC.get("correlationId"));
-        return enrollmentInvitationService.sendReminders(request.getWindowId());
+        return enrollmentInvitationService.sendReminders(request.getWindowId(), request.getEmployeeIds());
     }
 
-    /** POST /api/v1/admin/enrollments/{employeeId}/extend - Extend deadline (body: windowId, newExpiresAt) */
+    /** POST /api/v1/admin/enrollments/extend - Extend deadline for one or more employees (body: windowId, newExpiresAt, employeeIds) */
+    @PostMapping("/extend")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'VIMA_ADMIN', 'HR_ADMIN')")
+    public ResponseEntity<?> extendDeadlineBulk(@RequestBody @Valid ExtendDeadlineRequestDto request) {
+        logger.info("[correlationId:{}] POST /api/v1/admin/enrollments/extend", MDC.get("correlationId"));
+        List<UUID> ids = request.getEmployeeIds();
+        if (ids == null || ids.isEmpty()) {
+            return enrollmentInvitationService.extendDeadlineForEmployees(
+                    java.util.Collections.emptyList(), request.getWindowId(), request.getNewExpiresAt());
+        }
+        return enrollmentInvitationService.extendDeadlineForEmployees(
+                ids, request.getWindowId(), request.getNewExpiresAt());
+    }
+
+    /** POST /api/v1/admin/enrollments/{employeeId}/extend - Extend deadline for single employee (body: windowId, newExpiresAt) */
     @PostMapping("/{employeeId}/extend")
     @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'VIMA_ADMIN', 'HR_ADMIN')")
-    public ResponseEntity<?> extendDeadline(
+    public ResponseEntity<?> extendDeadlineSingle(
             @PathVariable UUID employeeId,
             @RequestBody @Valid ExtendDeadlineRequestDto request) {
         logger.info("[correlationId:{}] POST /api/v1/admin/enrollments/{}/extend", MDC.get("correlationId"), employeeId);
@@ -82,5 +114,13 @@ public class EnrollmentInvitationController {
             Pageable pageable) {
         logger.info("[correlationId:{}] GET /api/v1/admin/enrollments/invitations", MDC.get("correlationId"));
         return enrollmentInvitationService.listInvitations(windowId, status, pageable);
+    }
+
+    /** GET /api/v1/admin/enrollments/windows/{windowId}/progress - Track completion (no endorsement) */
+    @GetMapping("/windows/{windowId}/progress")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'VIMA_ADMIN', 'HR_ADMIN')")
+    public ResponseEntity<?> getEnrollmentProgress(@PathVariable UUID windowId) {
+        logger.info("[correlationId:{}] GET /api/v1/admin/enrollments/windows/{}/progress", MDC.get("correlationId"), windowId);
+        return enrollmentInvitationService.getEnrollmentProgress(windowId);
     }
 }
