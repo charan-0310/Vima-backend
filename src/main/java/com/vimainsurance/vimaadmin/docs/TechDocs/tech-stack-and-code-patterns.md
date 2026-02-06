@@ -49,6 +49,27 @@
 | **CloudWatch** | AWS CloudWatch Logs | 2.22.1 | Log aggregation |
 | **SES/SMTP** | Spring Mail | - | Email delivery |
 
+#### Document storage (S3 key convention)
+
+Uploaded documents are stored in S3 using an **industry-standard path** (object key):
+
+```
+{entityType}/{entityId}/{folder}/{filename}
+```
+
+| Segment | Description | Example |
+|---------|-------------|---------|
+| `entityType` | Lowercase entity type (organization, policy, claim, customer) | `organization` |
+| `entityId` | UUID or ID of the entity | `e9499e0c-d70e-4454-a519-fbce0b9fea71` |
+| `folder` | `endorsement` for endorsement/self-enrollment docs; otherwise document type (lowercase) | `endorsement` |
+| `filename` | Original file name | `self_enrollment_sample.csv` |
+
+**Example (enrollment window upload):**
+
+`organization/e9499e0c-d70e-4454-a519-fbce0b9fea71/endorsement/self_enrollment_sample.csv`
+
+Implementation: `DocumentServiceImpl.generateS3KeyUploadDocument()`.
+
 ### Utilities & Libraries
 | Component | Technology | Version | Purpose |
 |-----------|-----------|---------|---------|

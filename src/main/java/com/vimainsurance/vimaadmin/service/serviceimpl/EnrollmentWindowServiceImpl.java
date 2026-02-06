@@ -3,10 +3,13 @@ package com.vimainsurance.vimaadmin.service.serviceimpl;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
+import java.util.stream.Collectors;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -17,6 +20,7 @@ import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
 import org.springframework.data.jpa.domain.Specification;
 import org.springframework.http.ResponseEntity;
+import org.springframework.web.multipart.MultipartFile;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -25,13 +29,19 @@ import com.vimainsurance.vimaadmin.dto.EnrollmentWindowRequestDto;
 import com.vimainsurance.vimaadmin.dto.EnrollmentWindowResponseDto;
 import com.vimainsurance.vimaadmin.dto.EnrollmentWindowStatsDto;
 import com.vimainsurance.vimaadmin.dto.ResponseDto;
+import com.vimainsurance.vimaadmin.dto.SelfEmployeeEnrollmentRequestDto;
 import com.vimainsurance.vimaadmin.entity.AdminUser;
+import com.vimainsurance.vimaadmin.entity.Deals;
 import com.vimainsurance.vimaadmin.entity.EnrollmentWindows;
 import com.vimainsurance.vimaadmin.entity.Organization;
+import com.vimainsurance.vimaadmin.enums.AccountStatus;
+import com.vimainsurance.vimaadmin.enums.DocumentCategory;
 import com.vimainsurance.vimaadmin.enums.EnrollementStatus;
+import com.vimainsurance.vimaadmin.enums.NomineeRelationship;
 import com.vimainsurance.vimaadmin.exception.OrganizationAccessDeniedException;
 import com.vimainsurance.vimaadmin.mapper.EnrollmentWindowMapper;
 import com.vimainsurance.vimaadmin.repository.IAdminUserRepository;
+import com.vimainsurance.vimaadmin.repository.IDealsRepository;
 import com.vimainsurance.vimaadmin.repository.IEnrollmentInvitationRepository;
 import com.vimainsurance.vimaadmin.repository.IEnrollmentSubmissionRepository;
 import com.vimainsurance.vimaadmin.repository.IEnrollmentWindowsRepository;
@@ -41,11 +51,18 @@ import com.vimainsurance.vimaadmin.specification.EnrollmentWindowSpecification;
 import com.vimainsurance.vimaadmin.util.Constants;
 import com.vimainsurance.vimaadmin.util.JwtUserExtractor;
 import com.vimainsurance.vimaadmin.util.TenantContext;
+import com.vimainsurance.vimaadmin.util.TransactionUtil;
+import com.vimainsurance.vimaadmin.service.IDocumentService;
+import com.vimainsurance.vimaadmin.enums.DocumentType;
+import com.vimainsurance.vimaadmin.enums.DocumentEntityType;
 
 @Service
 public class EnrollmentWindowServiceImpl implements IEnrollmentWindowService {
 
     private static final Logger logger = LoggerFactory.getLogger(EnrollmentWindowServiceImpl.class);
+
+    @Autowired
+    private IDealsRepository dealsRepository;
 
     @Autowired
     private IEnrollmentWindowsRepository enrollmentWindowsRepository;
@@ -65,8 +82,11 @@ public class EnrollmentWindowServiceImpl implements IEnrollmentWindowService {
     @Autowired
     private JwtUserExtractor jwtUserExtractor;
 
+    @Autowired
+    private IDocumentService documentService;
+
     @Override
-    @Transactional
+    @Transactional(rollbackFor = Exception.class)
     public ResponseEntity<ResponseDto<EnrollmentWindowResponseDto>> create(EnrollmentWindowRequestDto requestDto) {
         logger.info("[correlationId:{}] EnrollmentWindow create called", MDC.get("correlationId"));
         BaseResponse<EnrollmentWindowResponseDto> responseObj = new BaseResponse<>();
@@ -90,15 +110,67 @@ public class EnrollmentWindowServiceImpl implements IEnrollmentWindowService {
             EnrollmentWindows entity = EnrollmentWindowMapper.mapToEntity(requestDto, orgOpt.get(), createdByOpt.get());
             entity = enrollmentWindowsRepository.save(entity);
             EnrollmentWindowResponseDto dto = EnrollmentWindowMapper.mapToResponseDto(entity);
+
+            logger.info("[correlationId:{}] EnrollmentWindow created successfully", MDC.get("correlationId"));
             return responseObj.render(responseObj.formSuccessResponse(Constants.SUCCESS, dto));
         } catch (OrganizationAccessDeniedException e) {
+            TransactionUtil.markRollbackOnly();
             logger.warn("[correlationId:{}] Organization access denied: {}", MDC.get("correlationId"));
             return responseObj.render(responseObj.formErrorResponse(403, e.getMessage()));
         } catch (IllegalArgumentException e) {
+            TransactionUtil.markRollbackOnly();
             logger.error("[correlationId:{}] Invalid value in EnrollmentWindow create: {}", MDC.get("correlationId"), e.getMessage());
             return responseObj.render(responseObj.formErrorResponse("Invalid value: " + e.getMessage()));
         } catch (Exception e) {
+            TransactionUtil.markRollbackOnly();
             logger.error("[correlationId:{}] Exception in EnrollmentWindow create: {}", MDC.get("correlationId"), e.getMessage(), e);
+            return responseObj.render(responseObj.formErrorResponse(Constants.RECORD_NOT_CREATED));
+        }
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public ResponseEntity<ResponseDto<EnrollmentWindowResponseDto>> uploadEmployees(UUID windowId, List<SelfEmployeeEnrollmentRequestDto> selfEmployeeEnrollmentRequestDtos, MultipartFile file) {
+        logger.info("[correlationId:{}] EnrollmentWindow uploadEmployees called for window {}", MDC.get("correlationId"), windowId);
+        BaseResponse<EnrollmentWindowResponseDto> responseObj = new BaseResponse<>();
+        try {
+            EnrollmentWindows window = enrollmentWindowsRepository.findById(windowId)
+                    .orElse(null);
+            if (window == null) {
+                return responseObj.render(responseObj.formErrorResponse("Enrollment window not found"));
+            }
+            Organization organization = window.getOrganization();
+            if (organization == null) {
+                return responseObj.render(responseObj.formErrorResponse("Organization not found for window"));
+            }
+            jwtUserExtractor.validateOrganizationAccess(organization.getOrganizationId());
+
+            List<String> errors = validateSelfEmployeeEnrollmentRequest(selfEmployeeEnrollmentRequestDtos, organization.getOrganizationId());
+            if (!errors.isEmpty()) {
+                @SuppressWarnings("unchecked")
+                ResponseDto<EnrollmentWindowResponseDto> errorDto = (ResponseDto<EnrollmentWindowResponseDto>) (ResponseDto<?>) responseObj.formErrorResponse("Validation failed", errors);
+                return responseObj.render(errorDto);
+            }
+
+            createSelfEmployee(selfEmployeeEnrollmentRequestDtos, organization, window);
+            logger.info("[correlationId:{}] Self employees created successfully for window {}", MDC.get("correlationId"), windowId);
+
+            ResponseEntity<ResponseDto<String>> documentResponse = documentService.uploadDocument(file, DocumentType.SELF_ENROLLMENT.getValue(), DocumentCategory.ENDORSEMENT_DOCUMENTS.getValue(), DocumentEntityType.ORGANIZATION.getValue(), windowId.toString(), "");
+            ResponseDto<String> docBody = documentResponse.getBody();
+            if (docBody != null && docBody.getErrorCode() != null) {
+                TransactionUtil.markRollbackOnly();
+                return responseObj.render(responseObj.formErrorResponse(docBody.getMessage()));
+            }
+
+            EnrollmentWindowResponseDto dto = EnrollmentWindowMapper.mapToResponseDto(window);
+            return responseObj.render(responseObj.formSuccessResponse(Constants.SUCCESS, dto));
+        } catch (OrganizationAccessDeniedException e) {
+            TransactionUtil.markRollbackOnly();
+            logger.warn("[correlationId:{}] Organization access denied: {}", MDC.get("correlationId"));
+            return responseObj.render(responseObj.formErrorResponse(403, e.getMessage()));
+        } catch (Exception e) {
+            TransactionUtil.markRollbackOnly();
+            logger.error("[correlationId:{}] Exception in EnrollmentWindow uploadEmployees: {}", MDC.get("correlationId"), e.getMessage(), e);
             return responseObj.render(responseObj.formErrorResponse(Constants.RECORD_NOT_CREATED));
         }
     }
@@ -368,5 +440,83 @@ public class EnrollmentWindowServiceImpl implements IEnrollmentWindowService {
         }
         Sort.Direction direction = "asc".equalsIgnoreCase(sortDirection) ? Sort.Direction.ASC : Sort.Direction.DESC;
         return Sort.by(direction, sortBy);
+    }
+
+
+    /**
+     * Validates self-service employee enrollment requests (supports bulk).
+     * Uses batch DB lookups for existing employee numbers and emails, then validates each row.
+     * Returns a list of validation error messages; empty list means all valid.
+     */
+    private List<String> validateSelfEmployeeEnrollmentRequest(List<SelfEmployeeEnrollmentRequestDto> requestDtos, UUID organizationId) {
+        List<String> errors = new ArrayList<>();
+        if (requestDtos == null || requestDtos.isEmpty()) {
+            return errors;
+        }
+        String relationship = NomineeRelationship.SELF.getValue();
+
+        List<String> employeeIds = requestDtos.stream().map(SelfEmployeeEnrollmentRequestDto::getEmployeeId).distinct().toList();
+        List<String> emails = requestDtos.stream().map(SelfEmployeeEnrollmentRequestDto::getEmail).distinct().toList();
+
+        Set<String> existingEmployeeIds = dealsRepository
+                .findByEmployeeNumberInAndOrganizationIdAndRelationship(employeeIds, organizationId, relationship)
+                .stream()
+                .map(Deals::getEmployeeNumber)
+                .collect(Collectors.toSet());
+        Set<String> existingEmails = dealsRepository
+                .findByEmailInAndOrganizationIdAndRelationship(emails, organizationId, relationship)
+                .stream()
+                .map(Deals::getEmail)
+                .collect(Collectors.toSet());
+
+        LocalDate today = LocalDate.now();
+        Set<String> seenEmployeeIds = new HashSet<>();
+        Set<String> seenEmails = new HashSet<>();
+        for (int i = 0; i < requestDtos.size(); i++) {
+            SelfEmployeeEnrollmentRequestDto dto = requestDtos.get(i);
+            int row = i + 1;
+            String prefix = requestDtos.size() > 1 ? "Row " + row + " (" + dto.getEmployeeId() + "): " : "";
+
+            if (existingEmployeeIds.contains(dto.getEmployeeId()) || !seenEmployeeIds.add(dto.getEmployeeId())) {
+                errors.add(prefix + "Employee " + dto.getEmployeeId() + " already exists");
+            }
+            if (dto.getDateOfBirth() != null && dto.getDateOfBirth().isAfter(today)) {
+                errors.add(prefix + "Date of birth cannot be in the future");
+            }
+            if (existingEmails.contains(dto.getEmail()) || !seenEmails.add(dto.getEmail())) {
+                errors.add(prefix + "Email already " + dto.getEmail() + " exists");
+            }
+        }
+        return errors;
+    }
+
+    /** Batch size for bulk self-employee save (e.g. 1000 records in batches of 500). */
+    private static final int SELF_EMPLOYEE_SAVE_BATCH_SIZE = 500;
+
+    private void createSelfEmployee(List<SelfEmployeeEnrollmentRequestDto> requestDtos, Organization organization, EnrollmentWindows enrollmentWindow) {
+        try {
+            List<Deals> employees = new ArrayList<>();
+            for (SelfEmployeeEnrollmentRequestDto requestDto : requestDtos) {
+                Deals employee = new Deals();
+                employee.setFullName(requestDto.getName());
+                employee.setEmployeeNumber(requestDto.getEmployeeId());
+                employee.setDateOfBirth(requestDto.getDateOfBirth());
+                employee.setEmail(requestDto.getEmail());
+                employee.setPhone("");
+                employee.setOrganization(organization);
+                employee.setEnrollmentWindow(enrollmentWindow);
+                employee.setRelationship(NomineeRelationship.SELF.getValue());
+                employee.setStatus(AccountStatus.PENDING_APPROVAL);
+                employees.add(employee);
+            }
+            for (int i = 0; i < employees.size(); i += SELF_EMPLOYEE_SAVE_BATCH_SIZE) {
+                int end = Math.min(i + SELF_EMPLOYEE_SAVE_BATCH_SIZE, employees.size());
+                List<Deals> batch = employees.subList(i, end);
+                dealsRepository.saveAll(batch);
+            }
+        } catch (Exception e) {
+            logger.error("[correlationId:{}] Exception in createSelfEmployee: {}", MDC.get("correlationId"), e.getMessage(), e);
+            throw new RuntimeException("Failed to create self employee");
+        }
     }
 }

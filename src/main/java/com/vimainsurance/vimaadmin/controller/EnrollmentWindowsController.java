@@ -8,6 +8,7 @@ import org.slf4j.LoggerFactory;
 import org.slf4j.MDC;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
+import org.springframework.http.MediaType;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.CrossOrigin;
 import org.springframework.web.bind.annotation.DeleteMapping;
@@ -18,12 +19,15 @@ import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.RequestPart;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.multipart.MultipartFile;
 
 import com.vimainsurance.vimaadmin.dto.EnrollmentWindowRequestDto;
 import com.vimainsurance.vimaadmin.dto.EnrollmentWindowResponseDto;
 import com.vimainsurance.vimaadmin.dto.EnrollmentWindowStatsDto;
 import com.vimainsurance.vimaadmin.dto.ResponseDto;
+import com.vimainsurance.vimaadmin.dto.SelfEmployeeEnrollmentRequestDto;
 import com.vimainsurance.vimaadmin.service.IEnrollmentWindowService;
 
 /**
@@ -40,13 +44,26 @@ public class EnrollmentWindowsController {
     private IEnrollmentWindowService enrollmentWindowService;
 
     /**
-     * Create a new enrollment window
+     * Create a new enrollment window (no employees or file; use upload endpoint for that).
      */
-    @PostMapping
+    @PostMapping(consumes = MediaType.APPLICATION_JSON_VALUE, produces = MediaType.APPLICATION_JSON_VALUE)
     @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'VIMA_ADMIN', 'HR_ADMIN')")
     public ResponseEntity<ResponseDto<EnrollmentWindowResponseDto>> create(@RequestBody EnrollmentWindowRequestDto requestDto) {
         logger.info("[correlationId:{}] POST /api/admin/enrollment-windows called", MDC.get("correlationId"));
         return enrollmentWindowService.create(requestDto);
+    }
+
+    /**
+     * Upload employees and document for an existing enrollment window.
+     */
+    @PostMapping(value = "/{id}/upload", consumes = MediaType.MULTIPART_FORM_DATA_VALUE, produces = MediaType.APPLICATION_JSON_VALUE)
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'VIMA_ADMIN', 'HR_ADMIN')")
+    public ResponseEntity<ResponseDto<EnrollmentWindowResponseDto>> upload(
+            @PathVariable UUID id,
+            @RequestPart("selfEmployeeEnrollmentRequestDtos") List<SelfEmployeeEnrollmentRequestDto> selfEmployeeEnrollmentRequestDtos,
+            @RequestPart("file") MultipartFile file) {
+        logger.info("[correlationId:{}] POST /api/admin/enrollment-windows/{}/upload called", MDC.get("correlationId"), id);
+        return enrollmentWindowService.uploadEmployees(id, selfEmployeeEnrollmentRequestDtos, file);
     }
 
     /**

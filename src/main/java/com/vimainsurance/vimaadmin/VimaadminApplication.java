@@ -3,6 +3,7 @@ package com.vimainsurance.vimaadmin;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
+import org.springframework.scheduling.annotation.EnableAsync;
 import org.springframework.scheduling.annotation.EnableScheduling;
 
 import com.vimainsurance.vimaadmin.config.CsvDealsHeaderProperties;
@@ -11,6 +12,7 @@ import com.vimainsurance.vimaadmin.config.VendorMasterDataConfig;
 
 @SpringBootApplication
 @EnableScheduling
+@EnableAsync
 @EnableConfigurationProperties({
 		VendorMasterDataConfig.class,
 		CsvDealsHeaderProperties.class,
