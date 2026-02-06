@@ -185,20 +185,24 @@ public class EnrollmentWindowServiceImpl implements IEnrollmentWindowService {
             LocalDate from = fromDate != null && !fromDate.isBlank() ? LocalDate.parse(fromDate) : null;
             LocalDate to = toDate != null && !toDate.isBlank() ? LocalDate.parse(toDate) : null;
 
-            Map<String, List<String>> tenantMap = TenantContext.getCurrentTenant();
-            List<String> orgIds = (tenantMap != null) ? tenantMap.get("organizationIds") : null;
-            if (orgIds == null) {
-                orgIds = new ArrayList<>();
-            }
-            if (organizationId != null && !orgIds.contains(organizationId.toString())) {
-                orgIds.add(organizationId.toString());
-            }
             List<UUID> organizationIds = new ArrayList<>();
-            for (String orgIdStr : orgIds) {
-                try {
-                    organizationIds.add(UUID.fromString(orgIdStr));
-                } catch (IllegalArgumentException iae) {
-                    logger.warn("[correlationId:{}] Skipping invalid organizationId: {}", MDC.get("correlationId"), orgIdStr);
+            if (organizationId != null) {
+                // Explicit query param: filter only by this org (and enforce access)
+                jwtUserExtractor.validateOrganizationAccess(organizationId);
+                organizationIds.add(organizationId);
+            } else {
+                // No org param: use tenant context (orgs the user has access to)
+                Map<String, List<String>> tenantMap = TenantContext.getCurrentTenant();
+                List<String> orgIds = (tenantMap != null) ? tenantMap.get("organizationIds") : null;
+                if (orgIds == null) {
+                    orgIds = new ArrayList<>();
+                }
+                for (String orgIdStr : orgIds) {
+                    try {
+                        organizationIds.add(UUID.fromString(orgIdStr));
+                    } catch (IllegalArgumentException iae) {
+                        logger.warn("[correlationId:{}] Skipping invalid organizationId: {}", MDC.get("correlationId"), orgIdStr);
+                    }
                 }
             }
 
@@ -213,6 +217,9 @@ public class EnrollmentWindowServiceImpl implements IEnrollmentWindowService {
                 out.add(EnrollmentWindowMapper.mapToResponseDto(ew));
             }
             return responseObj.render(responseObj.formSuccessResponse(Constants.SUCCESS, out, pageResult.getTotalElements()));
+        } catch (OrganizationAccessDeniedException e) {
+            logger.warn("[correlationId:{}] Organization access denied: {}", MDC.get("correlationId"));
+            return responseObj.render(responseObj.formErrorResponse(403, e.getMessage()));
         } catch (IllegalArgumentException e) {
             logger.error("[correlationId:{}] Invalid value in getAllWithFilters: {}", MDC.get("correlationId"), e.getMessage());
             return responseObj.render(responseObj.formErrorResponse("Invalid value: " + e.getMessage()));
