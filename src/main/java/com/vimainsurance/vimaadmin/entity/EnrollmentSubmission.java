@@ -72,6 +72,15 @@ public class EnrollmentSubmission {
     @Column(name = "nominee_data", columnDefinition = "jsonb")
     private String nomineeData = "{}";
 
+    @Column(name = "personal_details", columnDefinition = "jsonb")
+    private String personalDetails = "{}";
+
+    @Column(name = "dependents", columnDefinition = "jsonb")
+    private String dependents = "{}";
+
+    @Column(name = "stage", length = 50)
+    private String stage = "";
+
     @Column(name = "premium_breakdown", columnDefinition = "jsonb")
     private String premiumBreakdown = "{}";
 
