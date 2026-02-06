@@ -16,6 +16,8 @@ public class EmployeeProgressDetailDto {
 
     private UUID employeeId;
     private String name;
+    private String email;
+    private String employeeNumber;
     private String enrollmentStatus;
     private LocalDateTime submittedAt;
     private LocalDateTime approvedAt;

@@ -427,10 +427,27 @@ public class EnrollmentInvitationServiceImpl implements IEnrollmentInvitation {
             if (window == null) {
                 return responseObj.render(responseObj.formErrorResponse("Enrollment window not found"));
             }
+
+            // Query ALL employees linked to this window (from customers table)
+            List<Deals> allEmployees = dealsRepository.findByEnrollmentWindow_Id(windowId);
+
+            // Query invitations and submissions
             List<EnrollmentInvitation> invitations = invitationRepository.findAllByEnrollmentWindow_Id(windowId);
             List<EnrollmentSubmission> submissions = submissionRepository.findAllByEnrollmentWindow_Id(windowId);
 
-            int totalEmployees = invitations.size();
+            // Index invitations and submissions by employee ID for quick lookup
+            java.util.Map<UUID, EnrollmentInvitation> invitationByEmployee = new java.util.HashMap<>();
+            for (EnrollmentInvitation inv : invitations) {
+                invitationByEmployee.put(inv.getEmployee().getIndividualId(), inv);
+            }
+            java.util.Map<UUID, EnrollmentSubmission> submissionByEmployee = new java.util.HashMap<>();
+            for (EnrollmentSubmission s : submissions) {
+                submissionByEmployee.put(s.getEmployee().getIndividualId(), s);
+            }
+
+            // Use the larger of employees vs invitations as the total
+            int totalEmployees = Math.max(allEmployees.size(), invitations.size());
+
             long invitedCount = invitations.stream().filter(inv -> inv.getStatus() != null && inv.getStatus() != EnrollementStatus.PENDING).count();
             long openedCount = invitations.stream().filter(inv -> inv.getStatus() == EnrollementStatus.OPENED || inv.getStatus() == EnrollementStatus.IN_PROGRESS || inv.getStatus() == EnrollementStatus.COMPLETED).count();
             long submittedCount = submissions.stream().filter(s -> s.getStatus() == EnrollementStatus.SUBMITTED || s.getStatus() == EnrollementStatus.APPROVED || s.getStatus() == EnrollementStatus.REJECTED || s.getStatus() == EnrollementStatus.ENDORSED).count();
@@ -439,23 +456,57 @@ public class EnrollmentInvitationServiceImpl implements IEnrollmentInvitation {
 
             double completionRate = totalEmployees > 0 ? (submittedCount * 100.0 / totalEmployees) : 0.0;
 
-            java.util.Map<UUID, EnrollmentSubmission> submissionByEmployee = new java.util.HashMap<>();
-            for (EnrollmentSubmission s : submissions) {
-                submissionByEmployee.put(s.getEmployee().getIndividualId(), s);
-            }
+            // Build employee details from ALL employees (customers table),
+            // enriched with invitation and submission data where available
             List<EmployeeProgressDetailDto> employeeDetails = new ArrayList<>();
-            for (EnrollmentInvitation inv : invitations) {
-                Deals emp = inv.getEmployee();
-                EnrollmentSubmission sub = submissionByEmployee.get(emp.getIndividualId());
-                String enrollmentStatus = sub != null ? sub.getStatus().name() : (inv.getStatus() != null ? inv.getStatus().name().toLowerCase() : "pending");
+            java.util.Set<UUID> processedEmployeeIds = new java.util.HashSet<>();
+
+            for (Deals emp : allEmployees) {
+                UUID empId = emp.getIndividualId();
+                processedEmployeeIds.add(empId);
+
+                EnrollmentInvitation inv = invitationByEmployee.get(empId);
+                EnrollmentSubmission sub = submissionByEmployee.get(empId);
+
+                String enrollmentStatus;
+                if (sub != null) {
+                    enrollmentStatus = sub.getStatus().name();
+                } else if (inv != null) {
+                    enrollmentStatus = inv.getStatus() != null ? inv.getStatus().name().toLowerCase() : "pending";
+                } else {
+                    enrollmentStatus = "not_invited";
+                }
+
                 EmployeeProgressDetailDto detail = EmployeeProgressDetailDto.builder()
-                    .employeeId(emp.getIndividualId())
+                    .employeeId(empId)
                     .name(emp.getFullName())
+                    .email(emp.getEmail())
+                    .employeeNumber(emp.getEmployeeNumber())
                     .enrollmentStatus(enrollmentStatus)
                     .submittedAt(sub != null ? sub.getSubmittedAt() : null)
                     .approvedAt(sub != null && (sub.getStatus() == EnrollementStatus.APPROVED || sub.getStatus() == EnrollementStatus.ENDORSED) ? sub.getReviewedAt() : null)
                     .build();
                 employeeDetails.add(detail);
+            }
+
+            // Also include any invitation-only records (edge case: invitation exists but employee not linked to window)
+            for (EnrollmentInvitation inv : invitations) {
+                UUID empId = inv.getEmployee().getIndividualId();
+                if (!processedEmployeeIds.contains(empId)) {
+                    Deals emp = inv.getEmployee();
+                    EnrollmentSubmission sub = submissionByEmployee.get(empId);
+                    String enrollmentStatus = sub != null ? sub.getStatus().name() : (inv.getStatus() != null ? inv.getStatus().name().toLowerCase() : "pending");
+                    EmployeeProgressDetailDto detail = EmployeeProgressDetailDto.builder()
+                        .employeeId(empId)
+                        .name(emp.getFullName())
+                        .email(emp.getEmail())
+                        .employeeNumber(emp.getEmployeeNumber())
+                        .enrollmentStatus(enrollmentStatus)
+                        .submittedAt(sub != null ? sub.getSubmittedAt() : null)
+                        .approvedAt(sub != null && (sub.getStatus() == EnrollementStatus.APPROVED || sub.getStatus() == EnrollementStatus.ENDORSED) ? sub.getReviewedAt() : null)
+                        .build();
+                    employeeDetails.add(detail);
+                }
             }
 
             EnrollmentProgressResponseDto dto = EnrollmentProgressResponseDto.builder()
