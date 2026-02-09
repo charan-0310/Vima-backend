@@ -168,7 +168,8 @@ public class SecurityConfig {
                             // These should eventually be migrated to use JWT tokens
                             .requestMatchers("/api/v1/login", "/oauth2/**", "/api/v1/zoho/auth/**",
                                     "/api/v1/nonce", "/api/v1/auth/challenge", "/api/v1/auth/login").permitAll()
-
+                            // Enrollment token validation - public (no JWT; token in path)
+                            .requestMatchers("/api/v1/enrollments/**").permitAll()
                             // Test endpoint - requires specific authorities
                             .requestMatchers("/api/v1/test").hasAnyAuthority("VIMA_ADMIN", "SALES_AGENT")
 
