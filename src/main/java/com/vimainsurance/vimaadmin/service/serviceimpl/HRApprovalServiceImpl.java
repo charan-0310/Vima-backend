@@ -1,11 +1,16 @@
 package com.vimainsurance.vimaadmin.service.serviceimpl;
 
+import java.math.BigDecimal;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
+import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
+
 import org.slf4j.MDC;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.domain.Page;
@@ -16,6 +21,8 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.vimainsurance.vimaadmin.dto.ApprovalRequest;
 import com.vimainsurance.vimaadmin.dto.BaseResponse;
 import com.vimainsurance.vimaadmin.dto.BulkApprovalRequest;
@@ -29,17 +36,21 @@ import com.vimainsurance.vimaadmin.entity.Deals;
 import com.vimainsurance.vimaadmin.entity.EnrollmentInvitation;
 import com.vimainsurance.vimaadmin.entity.EnrollmentSubmission;
 import com.vimainsurance.vimaadmin.entity.EnrollmentWindows;
+import com.vimainsurance.vimaadmin.entity.Nominee;
 import com.vimainsurance.vimaadmin.entity.Organization;
 import com.vimainsurance.vimaadmin.enums.AccountStatus;
+import com.vimainsurance.vimaadmin.enums.AccountType;
 import com.vimainsurance.vimaadmin.enums.EnrollementStatus;
 import com.vimainsurance.vimaadmin.repository.IAdminUserRepository;
 import com.vimainsurance.vimaadmin.repository.IDealsRepository;
 import com.vimainsurance.vimaadmin.repository.IEnrollmentInvitationRepository;
 import com.vimainsurance.vimaadmin.repository.IEnrollmentSubmissionRepository;
+import com.vimainsurance.vimaadmin.repository.INomineeRepository;
 import com.vimainsurance.vimaadmin.service.IEmailService;
 import com.vimainsurance.vimaadmin.service.IHRApprovalService;
 import com.vimainsurance.vimaadmin.specification.EnrollmentSubmissionSpecification;
 import com.vimainsurance.vimaadmin.util.TenantContext;
+import com.vimainsurance.vimaadmin.util.TransactionUtil;
 import com.vimainsurance.vimaadmin.util.JwtUserExtractor;
 
 import lombok.extern.slf4j.Slf4j;
@@ -47,6 +58,10 @@ import lombok.extern.slf4j.Slf4j;
 @Service
 @Slf4j
 public class HRApprovalServiceImpl implements IHRApprovalService {
+
+    private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
+    private static final DateTimeFormatter DATE_FORMAT = DateTimeFormatter.ISO_LOCAL_DATE;
+    private static final int BATCH_SIZE = 500;
 
     @Autowired
     private IEnrollmentSubmissionRepository enrollmentSubmissionRepository;
@@ -60,6 +75,8 @@ public class HRApprovalServiceImpl implements IHRApprovalService {
     private IEmailService emailService;
     @Autowired
     private JwtUserExtractor jwtUserExtractor;
+    @Autowired
+    private INomineeRepository nomineeRepository;
 
     @Override
     public ResponseEntity<ResponseDto<Page<SubmissionListItemDto>>> getEnrollments(
@@ -124,7 +141,7 @@ public class HRApprovalServiceImpl implements IHRApprovalService {
     }
 
     @Override
-    @Transactional
+    @Transactional(rollbackFor = Exception.class)
     public ResponseEntity<ResponseDto<SubmissionDetailDto>> approve(UUID id, ApprovalRequest request) {
         BaseResponse<SubmissionDetailDto> responseObj = new BaseResponse<>();
         try {
@@ -140,9 +157,7 @@ public class HRApprovalServiceImpl implements IHRApprovalService {
             UUID orgId = sub.getEmployee() != null && sub.getEmployee().getOrganization() != null
                     ? sub.getEmployee().getOrganization().getOrganizationId()
                     : null;
-            if (orgId == null || !organizationIds.contains(orgId)) {
-                return responseObj.render(responseObj.formErrorResponse(403, "Access denied to this submission"));
-            }
+            jwtUserExtractor.validateOrganizationAccess(orgId);
             if (sub.getStatus() != EnrollementStatus.SUBMITTED) {
                 return responseObj.render(responseObj.formErrorResponse(400,
                         "Only submitted enrollments can be approved; current status: " + sub.getStatus()));
@@ -156,14 +171,26 @@ public class HRApprovalServiceImpl implements IHRApprovalService {
             sub.setReviewedAt(LocalDateTime.now());
             enrollmentSubmissionRepository.save(sub);
 
-            List<Deals> dependents = dealsRepository.findByEnrollmentSubmission_Id(id);
+            Deals employee = sub.getEmployee();
+            if (employee != null) {
+                updateEmployeeFromPersonalDetails(employee, sub.getPersonalDetails());
+                dealsRepository.save(employee);
+
+                List<Deals> newDependents = createDependentsFromJson(sub, employee, sub.getDependents());
+                saveDealsInBatches(newDependents);
+
+                List<Nominee> nominees = createNomineesFromJson(sub, employee, sub.getNomineeData());
+                saveNomineesInBatches(nominees);
+            }
+
+            List<Deals> existingDependents = dealsRepository.findByEnrollmentSubmission_Id(id);
             LocalDateTime now = LocalDateTime.now();
-            for (Deals d : dependents) {
+            for (Deals d : existingDependents) {
                 d.setStatus(AccountStatus.PENDING_APPROVAL);
                 d.setUpdatedAt(now);
             }
-            if (!dependents.isEmpty()) {
-                dealsRepository.saveAll(dependents);
+            if (!existingDependents.isEmpty()) {
+                saveDealsInBatches(existingDependents);
             }
 
             sendApprovalEmail(sub);
@@ -171,13 +198,14 @@ public class HRApprovalServiceImpl implements IHRApprovalService {
             SubmissionDetailDto dto = toDetailDto(enrollmentSubmissionRepository.findById(id).orElse(sub));
             return responseObj.render(responseObj.formSuccessResponse("Enrollment approved", dto));
         } catch (Exception e) {
+            TransactionUtil.markRollbackOnly();
             log.error("[correlationId:{}] approve error: {}", MDC.get("correlationId"), e.getMessage(), e);
             return responseObj.render(responseObj.formErrorResponse("Approval failed"));
         }
     }
 
     @Override
-    @Transactional
+    @Transactional(rollbackFor = Exception.class)
     public ResponseEntity<ResponseDto<SubmissionDetailDto>> reject(UUID id, RejectionRequest request) {
         BaseResponse<SubmissionDetailDto> responseObj = new BaseResponse<>();
         try {
@@ -217,7 +245,7 @@ public class HRApprovalServiceImpl implements IHRApprovalService {
                 d.setUpdatedAt(now);
             }
             if (!dependents.isEmpty()) {
-                dealsRepository.saveAll(dependents);
+                saveDealsInBatches(dependents);
             }
 
             if (request.isReopenInvitation() && sub.getInvitation() != null) {
@@ -237,7 +265,7 @@ public class HRApprovalServiceImpl implements IHRApprovalService {
     }
 
     @Override
-    @Transactional
+    @Transactional(rollbackFor = Exception.class)
     public ResponseEntity<ResponseDto<List<SubmissionListItemDto>>> bulkApprove(BulkApprovalRequest request) {
         BaseResponse<List<SubmissionListItemDto>> responseObj = new BaseResponse<>();
         try {
@@ -270,14 +298,26 @@ public class HRApprovalServiceImpl implements IHRApprovalService {
                 sub.setReviewedAt(LocalDateTime.now());
                 enrollmentSubmissionRepository.save(sub);
 
-                List<Deals> dependents = dealsRepository.findByEnrollmentSubmission_Id(id);
+                Deals employee = sub.getEmployee();
+                if (employee != null) {
+                    updateEmployeeFromPersonalDetails(employee, sub.getPersonalDetails());
+                    dealsRepository.save(employee);
+
+                    List<Deals> newDependents = createDependentsFromJson(sub, employee, sub.getDependents());
+                    saveDealsInBatches(newDependents);
+
+                    List<Nominee> nominees = createNomineesFromJson(sub, employee, sub.getNomineeData());
+                    saveNomineesInBatches(nominees);
+                }
+
+                List<Deals> existingDependents = dealsRepository.findByEnrollmentSubmission_Id(id);
                 LocalDateTime now = LocalDateTime.now();
-                for (Deals d : dependents) {
+                for (Deals d : existingDependents) {
                     d.setStatus(AccountStatus.ACTIVE);
                     d.setUpdatedAt(now);
                 }
-                if (!dependents.isEmpty()) {
-                    dealsRepository.saveAll(dependents);
+                if (!existingDependents.isEmpty()) {
+                    saveDealsInBatches(existingDependents);
                 }
 
                 sendApprovalEmail(sub);
@@ -433,6 +473,258 @@ public class HRApprovalServiceImpl implements IHRApprovalService {
             emailService.sendSimpleEmail(req);
         } catch (Exception e) {
             log.warn("[correlationId:{}] Failed to send rejection email: {}", MDC.get("correlationId"), e.getMessage());
+        }
+    }
+
+    /**
+     * Updates employee (Deals) from personalDetails JSON. Only non-null fields in JSON are applied.
+     */
+    private void updateEmployeeFromPersonalDetails(Deals employee, String personalDetailsJson) {
+        if (employee == null || personalDetailsJson == null || personalDetailsJson.isBlank()) {
+            return;
+        }
+        try {
+            JsonNode root = OBJECT_MAPPER.readTree(personalDetailsJson);
+            if (!root.isObject()) {
+                return;
+            }
+            if (root.has("firstName")) {
+                employee.setFirstName(text(root.get("firstName")));
+            }
+            if (root.has("lastName")) {
+                employee.setLastName(text(root.get("lastName")));
+            }
+            if (root.has("fullName")) {
+                employee.setFullName(text(root.get("fullName")));
+            } else if (root.has("firstName") || root.has("lastName")) {
+                String first = employee.getFirstName() != null ? employee.getFirstName() : "";
+                String last = employee.getLastName() != null ? employee.getLastName() : "";
+                employee.setFullName((first + " " + last).trim());
+            }
+            if (root.has("email")) {
+                employee.setEmail(text(root.get("email")));
+            }
+            if (root.has("phone") || root.has("mobile")) {
+                employee.setPhone(text(root.has("phone") ? root.get("phone") : root.get("mobile")));
+            }
+            if (root.has("dateOfBirth") || root.has("dob")) {
+                employee.setDateOfBirth(parseDate(text(root.has("dateOfBirth") ? root.get("dateOfBirth") : root.get("dob"))));
+            }
+            if (root.has("gender")) {
+                employee.setGender(text(root.get("gender")));
+            }
+            if (root.has("address")) {
+                employee.setAddress(text(root.get("address")));
+            }
+            if (root.has("city")) {
+                employee.setCity(text(root.get("city")));
+            }
+            if (root.has("state")) {
+                employee.setState(text(root.get("state")));
+            }
+            if (root.has("pincode")) {
+                employee.setPincode(text(root.get("pincode")));
+            }
+            if (root.has("maritalStatus")) {
+                employee.setMaritalStatus(text(root.get("maritalStatus")));
+            }
+            if (root.has("employeeNumber")) {
+                employee.setEmployeeNumber(text(root.get("employeeNumber")));
+            }
+            employee.setUpdatedAt(LocalDateTime.now());
+        } catch (Exception e) {
+            log.warn("[correlationId:{}] Failed to parse personalDetails JSON: {}", MDC.get("correlationId"), e.getMessage());
+        }
+    }
+
+    /**
+     * Creates Deals (dependents) from dependents JSON array. Each object may have name/firstName/lastName, relationship, dateOfBirth, gender, etc.
+     */
+    private List<Deals> createDependentsFromJson(EnrollmentSubmission sub, Deals primaryEmployee, String dependentsJson) {
+        List<Deals> list = new ArrayList<>();
+        if (dependentsJson == null || dependentsJson.isBlank()) {
+            return list;
+        }
+        try {
+            JsonNode root = OBJECT_MAPPER.readTree(dependentsJson);
+            if (!root.isArray()) {
+                return list;
+            }
+            Organization org = primaryEmployee.getOrganization();
+            for (JsonNode node : root) {
+                if (!node.isObject()) {
+                    continue;
+                }
+                Deals d = new Deals();
+                d.setOrganization(org);
+                d.setPrimaryIndividual(primaryEmployee);
+                d.setEnrollmentSubmission(sub);
+                d.setIsPrimaryMember(false);
+                d.setAccountType(AccountType.CORPORATE_DEPENDENT);
+                d.setStatus(AccountStatus.PENDING_APPROVAL);
+                d.setEmployeeNumber(primaryEmployee.getEmployeeNumber());
+
+                String firstName = text(node.get("firstName"));
+                String lastName = text(node.get("lastName"));
+                String fullName = text(node.get("fullName"));
+                if (fullName == null && (firstName != null || lastName != null)) {
+                    fullName = (firstName != null ? firstName : "") + " " + (lastName != null ? lastName : "");
+                    fullName = fullName.trim();
+                }
+                if (fullName == null) {
+                    fullName = text(node.get("name"));
+                }
+                if (firstName == null && fullName != null) {
+                    String[] parts = fullName.split("\\s+", 2);
+                    firstName = parts[0];
+                    lastName = parts.length > 1 ? parts[1] : null;
+                }
+                d.setFirstName(firstName);
+                d.setLastName(lastName);
+                d.setFullName(fullName);
+                d.setRelationship(text(node.get("relationship")));
+                d.setDateOfBirth(parseDate(text(node.get("dateOfBirth"))));
+                if (d.getDateOfBirth() == null) {
+                    d.setDateOfBirth(parseDate(text(node.get("dob"))));
+                }
+                d.setGender(text(node.get("gender")));
+                d.setEmail(text(node.get("email")));
+                d.setPhone(text(node.get("phone")));
+                if (d.getPhone() == null) {
+                    d.setPhone(text(node.get("mobile")));
+                }
+                d.setCreatedAt(LocalDateTime.now());
+                d.setUpdatedAt(LocalDateTime.now());
+                list.add(d);
+            }
+        } catch (Exception e) {
+            log.warn("[correlationId:{}] Failed to parse dependents JSON: {}", MDC.get("correlationId"), e.getMessage());
+        }
+        return list;
+    }
+
+    /**
+     * Creates Nominee entities from nomineeData JSON. Supports single object or array of objects.
+     */
+    private List<Nominee> createNomineesFromJson(EnrollmentSubmission sub, Deals customer, String nomineeDataJson) {
+        List<Nominee> list = new ArrayList<>();
+        if (nomineeDataJson == null || nomineeDataJson.isBlank()) {
+            return list;
+        }
+        try {
+            JsonNode root = OBJECT_MAPPER.readTree(nomineeDataJson);
+            List<JsonNode> nodes = new ArrayList<>();
+            if (root.isArray()) {
+                for (JsonNode n : root) {
+                    nodes.add(n);
+                }
+            } else if (root.isObject()) {
+                nodes.add(root);
+            }
+            for (JsonNode node : nodes) {
+                if (!node.isObject()) {
+                    continue;
+                }
+                String firstName = text(node.get("firstName"));
+                String lastName = text(node.get("lastName"));
+                String fullName = text(node.get("fullName"));
+                if (fullName == null && (firstName != null || lastName != null)) {
+                    fullName = (firstName != null ? firstName : "") + " " + (lastName != null ? lastName : "");
+                    fullName = fullName.trim();
+                }
+                if (fullName == null) {
+                    fullName = text(node.get("name"));
+                }
+                if (firstName == null && fullName != null) {
+                    String[] parts = fullName.split("\\s+", 2);
+                    firstName = parts[0];
+                    if (parts.length > 1) {
+                        lastName = parts[1];
+                    }
+                }
+                LocalDate dob = parseDate(text(node.get("dateOfBirth")));
+                if (dob == null) {
+                    dob = parseDate(text(node.get("dob")));
+                }
+                String gender = text(node.get("gender"));
+                String relationship = text(node.get("relationship"));
+                if ((firstName == null || firstName.isBlank()) && (fullName == null || fullName.isBlank())) {
+                    continue;
+                }
+                if (dob == null || gender == null || relationship == null) {
+                    continue;
+                }
+                Nominee n = new Nominee();
+                n.setSubmission(sub);
+                n.setCustomer(customer);
+                n.setFirstName(firstName != null ? firstName : fullName);
+                n.setLastName(lastName);
+                n.setFullName(fullName);
+                n.setDateOfBirth(dob);
+                n.setGender(gender);
+                n.setRelationship(relationship);
+                if (node.has("nomineePercentage")) {
+                    try {
+                        n.setNomineePercentage(BigDecimal.valueOf(node.get("nomineePercentage").doubleValue()));
+                    } catch (Exception ignored) {
+                        n.setNomineePercentage(BigDecimal.valueOf(100.00));
+                    }
+                } else {
+                    n.setNomineePercentage(BigDecimal.valueOf(100.00));
+                }
+                n.setIsActive(true);
+                list.add(n);
+            }
+        } catch (Exception e) {
+            log.warn("[correlationId:{}] Failed to parse nomineeData JSON: {}", MDC.get("correlationId"), e.getMessage());
+        }
+        return list;
+    }
+
+    private void saveDealsInBatches(List<Deals> deals) {
+        if (deals == null || deals.isEmpty()) {
+            return;
+        }
+        for (int i = 0; i < deals.size(); i += BATCH_SIZE) {
+            int end = Math.min(i + BATCH_SIZE, deals.size());
+            List<Deals> batch = deals.subList(i, end);
+            dealsRepository.saveAll(batch);
+            log.debug("[correlationId:{}] Saved deals batch {}-{} of {}", MDC.get("correlationId"), i + 1, end, deals.size());
+        }
+    }
+
+    private void saveNomineesInBatches(List<Nominee> nominees) {
+        if (nominees == null || nominees.isEmpty()) {
+            return;
+        }
+        for (int i = 0; i < nominees.size(); i += BATCH_SIZE) {
+            int end = Math.min(i + BATCH_SIZE, nominees.size());
+            List<Nominee> batch = nominees.subList(i, end);
+            nomineeRepository.saveAll(batch);
+            log.debug("[correlationId:{}] Saved nominees batch {}-{} of {}", MDC.get("correlationId"), i + 1, end, nominees.size());
+        }
+    }
+
+    private static String text(JsonNode n) {
+        if (n == null || n.isNull()) {
+            return null;
+        }
+        String s = n.asText();
+        return (s != null && !s.isBlank()) ? s.trim() : null;
+    }
+
+    private static LocalDate parseDate(String dateStr) {
+        if (dateStr == null || dateStr.isBlank()) {
+            return null;
+        }
+        try {
+            return LocalDate.parse(dateStr.trim(), DATE_FORMAT);
+        } catch (DateTimeParseException e) {
+            try {
+                return LocalDate.parse(dateStr.trim(), DateTimeFormatter.ofPattern("yyyy-MM-dd"));
+            } catch (DateTimeParseException e2) {
+                return null;
+            }
         }
     }
 }

@@ -12,5 +12,7 @@ public interface INomineeRepository extends JpaRepository<Nominee, UUID> {
     List<Nominee> findByPolicyPolicyId(Long policyId);
 
     List<Nominee> findByPolicyPolicyNumber(String policyNumber);
+
+    List<Nominee> findBySubmission_Id(UUID submissionId);
 }
 
