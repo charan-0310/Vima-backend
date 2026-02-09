@@ -11,7 +11,6 @@ import org.hibernate.type.SqlTypes;
 import com.vimainsurance.vimaadmin.enums.EnrollementStatus;
 
 import jakarta.persistence.Column;
-import jakarta.persistence.Convert;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
 import jakarta.persistence.Enumerated;
@@ -66,21 +65,26 @@ public class EnrollmentSubmission {
     @Column(name = "status", nullable = false)
     private EnrollementStatus status = EnrollementStatus.DRAFT;
 
+    @JdbcTypeCode(SqlTypes.JSON)
     @Column(name = "plan_selections", columnDefinition = "jsonb")
     private String planSelections = "[]";
 
+    @JdbcTypeCode(SqlTypes.JSON)
     @Column(name = "nominee_data", columnDefinition = "jsonb")
     private String nomineeData = "{}";
 
+    @JdbcTypeCode(SqlTypes.JSON)
     @Column(name = "personal_details", columnDefinition = "jsonb")
     private String personalDetails = "{}";
 
+    @JdbcTypeCode(SqlTypes.JSON)
     @Column(name = "dependents", columnDefinition = "jsonb")
     private String dependents = "{}";
 
     @Column(name = "stage", length = 50)
     private String stage = "";
 
+    @JdbcTypeCode(SqlTypes.JSON)
     @Column(name = "premium_breakdown", columnDefinition = "jsonb")
     private String premiumBreakdown = "{}";
 
@@ -103,6 +107,7 @@ public class EnrollmentSubmission {
     @Column(name = "declaration_timestamp")
     private LocalDateTime declarationTimestamp;
 
+    @JdbcTypeCode(SqlTypes.INET)
     @Column(name = "declaration_ip_address", columnDefinition = "inet")
     private String declarationIpAddress;
 
