@@ -180,8 +180,9 @@ public class SecurityConfig {
                                     "/favicon.ico"
                             ).permitAll()
 
-                            // Enrollment token validation - public (no JWT; token in path)
+                            // Enrollment — public (token-based auth, no JWT)
                             .requestMatchers("/api/v1/enrollment/**").permitAll()
+                            .requestMatchers("/api/v1/enrollment-submissions/**").permitAll()
 
                             // All other /api/** endpoints require authentication via JWT
                             .requestMatchers("/api/**").authenticated()
