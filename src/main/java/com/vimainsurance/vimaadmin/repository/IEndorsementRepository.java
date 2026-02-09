@@ -15,6 +15,7 @@ import org.springframework.stereotype.Repository;
 
 import com.vimainsurance.vimaadmin.entity.Endorsement;
 import com.vimainsurance.vimaadmin.enums.AccountStatus;
+import com.vimainsurance.vimaadmin.enums.EndorsementSource;
 import com.vimainsurance.vimaadmin.enums.EndorsementType;
 
 @Repository
@@ -198,6 +199,12 @@ public interface IEndorsementRepository extends JpaRepository<Endorsement, UUID>
     List<Endorsement> findByOrganizationAndToDate(@Param("organizationId") UUID organizationId,
                                                   @Param("toDate") LocalDateTime toDate);
 
+    /**
+     * Find the most recent self-enrollment endorsement for the given organization and enrollment window.
+     * Used to attach approved submissions to the same endorsement for the whole window.
+     */
+    Optional<Endorsement> findFirstByOrganization_OrganizationIdAndEnrollmentWindow_IdAndSourceOrderByCreatedAtDesc(
+            UUID organizationId, UUID enrollmentWindowId, EndorsementSource source);
 
 }
 

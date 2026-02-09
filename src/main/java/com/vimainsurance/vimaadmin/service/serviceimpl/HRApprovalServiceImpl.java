@@ -32,7 +32,9 @@ import com.vimainsurance.vimaadmin.dto.ResponseDto;
 import com.vimainsurance.vimaadmin.dto.SubmissionDetailDto;
 import com.vimainsurance.vimaadmin.dto.SubmissionListItemDto;
 import com.vimainsurance.vimaadmin.entity.AdminUser;
+import com.vimainsurance.vimaadmin.entity.DealEndorsement;
 import com.vimainsurance.vimaadmin.entity.Deals;
+import com.vimainsurance.vimaadmin.entity.Endorsement;
 import com.vimainsurance.vimaadmin.entity.EnrollmentInvitation;
 import com.vimainsurance.vimaadmin.entity.EnrollmentSubmission;
 import com.vimainsurance.vimaadmin.entity.EnrollmentWindows;
@@ -40,9 +42,13 @@ import com.vimainsurance.vimaadmin.entity.Nominee;
 import com.vimainsurance.vimaadmin.entity.Organization;
 import com.vimainsurance.vimaadmin.enums.AccountStatus;
 import com.vimainsurance.vimaadmin.enums.AccountType;
+import com.vimainsurance.vimaadmin.enums.EndorsementSource;
+import com.vimainsurance.vimaadmin.enums.EndorsementType;
 import com.vimainsurance.vimaadmin.enums.EnrollementStatus;
 import com.vimainsurance.vimaadmin.repository.IAdminUserRepository;
+import com.vimainsurance.vimaadmin.repository.IDealEndorsementRepository;
 import com.vimainsurance.vimaadmin.repository.IDealsRepository;
+import com.vimainsurance.vimaadmin.repository.IEndorsementRepository;
 import com.vimainsurance.vimaadmin.repository.IEnrollmentInvitationRepository;
 import com.vimainsurance.vimaadmin.repository.IEnrollmentSubmissionRepository;
 import com.vimainsurance.vimaadmin.repository.INomineeRepository;
@@ -77,6 +83,10 @@ public class HRApprovalServiceImpl implements IHRApprovalService {
     private JwtUserExtractor jwtUserExtractor;
     @Autowired
     private INomineeRepository nomineeRepository;
+    @Autowired
+    private IEndorsementRepository endorsementRepository;
+    @Autowired
+    private IDealEndorsementRepository dealEndorsementRepository;
 
     @Override
     public ResponseEntity<ResponseDto<Page<SubmissionListItemDto>>> getEnrollments(
@@ -221,9 +231,7 @@ public class HRApprovalServiceImpl implements IHRApprovalService {
             UUID orgId = sub.getEmployee() != null && sub.getEmployee().getOrganization() != null
                     ? sub.getEmployee().getOrganization().getOrganizationId()
                     : null;
-            if (orgId == null || !organizationIds.contains(orgId)) {
-                return responseObj.render(responseObj.formErrorResponse(403, "Access denied to this submission"));
-            }
+            jwtUserExtractor.validateOrganizationAccess(orgId);
             if (sub.getStatus() != EnrollementStatus.SUBMITTED) {
                 return responseObj.render(responseObj.formErrorResponse(400,
                         "Only submitted enrollments can be rejected; current status: " + sub.getStatus()));
@@ -286,9 +294,7 @@ public class HRApprovalServiceImpl implements IHRApprovalService {
                 UUID orgId = sub.getEmployee() != null && sub.getEmployee().getOrganization() != null
                         ? sub.getEmployee().getOrganization().getOrganizationId()
                         : null;
-                if (orgId == null || !organizationIds.contains(orgId)) {
-                    throw new IllegalArgumentException("Access denied to submission: " + id);
-                }
+                jwtUserExtractor.validateOrganizationAccess(orgId);
                 if (sub.getStatus() != EnrollementStatus.SUBMITTED) {
                     throw new IllegalArgumentException("Submission " + id + " is not in SUBMITTED status");
                 }
@@ -451,6 +457,80 @@ public class HRApprovalServiceImpl implements IHRApprovalService {
         } catch (Exception e) {
             log.warn("[correlationId:{}] Failed to send approval email: {}", MDC.get("correlationId"), e.getMessage());
         }
+    }
+
+    /**
+     * Uses or creates the single endorsement for the whole enrollment window and adds this submission's
+     * employee + dependents to it (deal_endorsement). All approved submissions in the same window
+     * share one endorsement. Runs inside the same transaction as approve().
+     */
+    private void createEndorsementAndDealEndorsementsForSubmission(EnrollmentSubmission sub, UUID submissionId) {
+        Deals employee = sub.getEmployee();
+        if (employee == null || employee.getOrganization() == null) {
+            return;
+        }
+        Organization org = employee.getOrganization();
+        EnrollmentWindows window = sub.getEnrollmentWindow();
+        if (window == null) {
+            return;
+        }
+        UUID orgId = org.getOrganizationId();
+        UUID windowId = window.getId();
+
+        List<Deals> dependents = dealsRepository.findByEnrollmentSubmission_Id(submissionId);
+        int thisSubmissionDependents = dependents.size();
+        int thisSubmissionEmployees = 1;
+
+        Endorsement savedEndorsement = endorsementRepository
+                .findFirstByOrganization_OrganizationIdAndEnrollmentWindow_IdAndSourceOrderByCreatedAtDesc(
+                        orgId, windowId, EndorsementSource.SELF_ENROLLMENT)
+                .orElse(null);
+
+        if (savedEndorsement == null) {
+            Endorsement endorsement = new Endorsement();
+            endorsement.setOrganization(org);
+            endorsement.setEnrollmentWindow(window);
+            endorsement.setEndorsementType(EndorsementType.ADDITION);
+            endorsement.setSource(EndorsementSource.SELF_ENROLLMENT);
+            endorsement.setStatus(AccountStatus.PENDING_APPROVAL);
+            endorsement.setTotalEmployees(thisSubmissionEmployees);
+            endorsement.setTotalDependents(thisSubmissionDependents);
+            endorsement.setSubmissionCount(1);
+            endorsement.setCreatedAt(LocalDateTime.now());
+            endorsement.setUpdatedAt(LocalDateTime.now());
+            savedEndorsement = endorsementRepository.save(endorsement);
+        } else {
+            savedEndorsement.setTotalEmployees(savedEndorsement.getTotalEmployees() + thisSubmissionEmployees);
+            savedEndorsement.setTotalDependents(savedEndorsement.getTotalDependents() + thisSubmissionDependents);
+            savedEndorsement.setSubmissionCount(savedEndorsement.getSubmissionCount() != null ? savedEndorsement.getSubmissionCount() + 1 : 1);
+            savedEndorsement.setUpdatedAt(LocalDateTime.now());
+            savedEndorsement = endorsementRepository.save(savedEndorsement);
+        }
+        UUID endorsementId = savedEndorsement.getEndorsementId();
+
+        sub.setEndorsement(savedEndorsement);
+        enrollmentSubmissionRepository.save(sub);
+
+        List<DealEndorsement> toSave = new ArrayList<>();
+        if (!dealEndorsementRepository.existsByDeal_IndividualIdAndEndorsement_EndorsementId(employee.getIndividualId(), endorsementId)) {
+            DealEndorsement de = new DealEndorsement();
+            de.setDeal(employee);
+            de.setEndorsement(savedEndorsement);
+            toSave.add(de);
+        }
+        for (Deals d : dependents) {
+            if (d.getIndividualId() != null && !dealEndorsementRepository.existsByDeal_IndividualIdAndEndorsement_EndorsementId(d.getIndividualId(), endorsementId)) {
+                DealEndorsement de = new DealEndorsement();
+                de.setDeal(d);
+                de.setEndorsement(savedEndorsement);
+                toSave.add(de);
+            }
+        }
+        for (int i = 0; i < toSave.size(); i += BATCH_SIZE) {
+            int end = Math.min(i + BATCH_SIZE, toSave.size());
+            dealEndorsementRepository.saveAll(toSave.subList(i, end));
+        }
+        log.debug("[correlationId:{}] Endorsement {} (window): added submission {} with {} deal endorsement(s)", MDC.get("correlationId"), endorsementId, submissionId, toSave.size());
     }
 
     private void sendRejectionEmail(EnrollmentSubmission sub, String reason) {
