@@ -174,6 +174,7 @@ public class SecurityConfig {
                                     "/api/v1/nonce", "/api/v1/auth/challenge", "/api/v1/auth/login").permitAll()
                             // Enrollment token validation - public (no JWT; token in path)
                             .requestMatchers("/api/v1/enrollments/**").permitAll()
+                            .requestMatchers("/api/v1/enrollment-submissions/**").permitAll()
                             // Test endpoint - requires specific authorities
                             .requestMatchers("/api/v1/test").hasAnyAuthority("VIMA_ADMIN", "SALES_AGENT")
 
