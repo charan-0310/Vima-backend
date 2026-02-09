@@ -5,13 +5,14 @@ import java.util.Optional;
 import java.util.UUID;
 
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.JpaSpecificationExecutor;
 import org.springframework.stereotype.Repository;
 
 import com.vimainsurance.vimaadmin.entity.EnrollmentSubmission;
 import com.vimainsurance.vimaadmin.enums.EnrollementStatus;
 
 @Repository
-public interface IEnrollmentSubmissionRepository extends JpaRepository<EnrollmentSubmission, UUID> {
+public interface IEnrollmentSubmissionRepository extends JpaRepository<EnrollmentSubmission, UUID>, JpaSpecificationExecutor<EnrollmentSubmission> {
 
     Optional<EnrollmentSubmission> findByReferenceNumber(String referenceNumber);
 

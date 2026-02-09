@@ -10,4 +10,5 @@ public interface IHRService {
 
     ResponseEntity<ResponseDto<HRDashBoardResponseDto>> getHrDashboard(LocalDateTime startDate, LocalDateTime endDate, String companyId);
 
+    
 }
