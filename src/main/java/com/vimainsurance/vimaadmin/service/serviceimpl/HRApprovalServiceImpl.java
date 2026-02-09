@@ -50,6 +50,7 @@ import com.vimainsurance.vimaadmin.service.IEmailService;
 import com.vimainsurance.vimaadmin.service.IHRApprovalService;
 import com.vimainsurance.vimaadmin.specification.EnrollmentSubmissionSpecification;
 import com.vimainsurance.vimaadmin.util.TenantContext;
+import com.vimainsurance.vimaadmin.util.TransactionUtil;
 import com.vimainsurance.vimaadmin.util.JwtUserExtractor;
 
 import lombok.extern.slf4j.Slf4j;
@@ -140,7 +141,7 @@ public class HRApprovalServiceImpl implements IHRApprovalService {
     }
 
     @Override
-    @Transactional
+    @Transactional(rollbackFor = Exception.class)
     public ResponseEntity<ResponseDto<SubmissionDetailDto>> approve(UUID id, ApprovalRequest request) {
         BaseResponse<SubmissionDetailDto> responseObj = new BaseResponse<>();
         try {
@@ -156,9 +157,7 @@ public class HRApprovalServiceImpl implements IHRApprovalService {
             UUID orgId = sub.getEmployee() != null && sub.getEmployee().getOrganization() != null
                     ? sub.getEmployee().getOrganization().getOrganizationId()
                     : null;
-            if (orgId == null || !organizationIds.contains(orgId)) {
-                return responseObj.render(responseObj.formErrorResponse(403, "Access denied to this submission"));
-            }
+            jwtUserExtractor.validateOrganizationAccess(orgId);
             if (sub.getStatus() != EnrollementStatus.SUBMITTED) {
                 return responseObj.render(responseObj.formErrorResponse(400,
                         "Only submitted enrollments can be approved; current status: " + sub.getStatus()));
@@ -199,13 +198,14 @@ public class HRApprovalServiceImpl implements IHRApprovalService {
             SubmissionDetailDto dto = toDetailDto(enrollmentSubmissionRepository.findById(id).orElse(sub));
             return responseObj.render(responseObj.formSuccessResponse("Enrollment approved", dto));
         } catch (Exception e) {
+            TransactionUtil.markRollbackOnly();
             log.error("[correlationId:{}] approve error: {}", MDC.get("correlationId"), e.getMessage(), e);
             return responseObj.render(responseObj.formErrorResponse("Approval failed"));
         }
     }
 
     @Override
-    @Transactional
+    @Transactional(rollbackFor = Exception.class)
     public ResponseEntity<ResponseDto<SubmissionDetailDto>> reject(UUID id, RejectionRequest request) {
         BaseResponse<SubmissionDetailDto> responseObj = new BaseResponse<>();
         try {
@@ -265,7 +265,7 @@ public class HRApprovalServiceImpl implements IHRApprovalService {
     }
 
     @Override
-    @Transactional
+    @Transactional(rollbackFor = Exception.class)
     public ResponseEntity<ResponseDto<List<SubmissionListItemDto>>> bulkApprove(BulkApprovalRequest request) {
         BaseResponse<List<SubmissionListItemDto>> responseObj = new BaseResponse<>();
         try {
