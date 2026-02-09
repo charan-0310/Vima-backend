@@ -23,7 +23,7 @@ import com.vimainsurance.vimaadmin.service.IEnrollmentSubmissionService;
 
 @RestController
 @CrossOrigin(allowedHeaders = "*")
-@RequestMapping("/api/v1/EnrollmentSubmission")
+@RequestMapping("/api/v1/enrollment-submissions")
 public class EnrollmentSubmissionController {
 
     private static final Logger logger = LoggerFactory.getLogger(EnrollmentSubmissionController.class);
@@ -33,20 +33,20 @@ public class EnrollmentSubmissionController {
 
     @PostMapping("/insertUpdate")
     public ResponseEntity<ResponseDto<String>> insertUpdate(@RequestBody EnrollmentSubmissionRequestDto requestDto) {
-        logger.info("[correlationId:{}] /api/v1/EnrollmentSubmission/insertUpdate (POST) called", MDC.get("correlationId"));
+        logger.info("[correlationId:{}] /api/v1/enrollment-submissions/insertUpdate (POST) called", MDC.get("correlationId"));
         return enrollmentSubmissionService.insertOrUpdate(requestDto);
     }
 
     @GetMapping("/getList")
     public ResponseEntity<ResponseDto<List<EnrollmentSubmissionResponseDto>>> getList() {
-        logger.info("[correlationId:{}] /api/v1/EnrollmentSubmission/getList (GET) called", MDC.get("correlationId"));
+        logger.info("[correlationId:{}] /api/v1/enrollment-submissions/getList (GET) called", MDC.get("correlationId"));
         return enrollmentSubmissionService.getList();
     }
 
     @GetMapping("/employee/{employeeId}")
     public ResponseEntity<ResponseDto<List<EnrollmentSubmissionResponseDto>>> getByEmployeeId(
             @PathVariable UUID employeeId) {
-        logger.info("[correlationId:{}] /api/v1/EnrollmentSubmission/employee/{} (GET) called", MDC.get("correlationId"), employeeId);
+        logger.info("[correlationId:{}] /api/v1/enrollment-submissions/employee/{} (GET) called", MDC.get("correlationId"), employeeId);
         return enrollmentSubmissionService.getByEmployeeId(employeeId);
     }
 }

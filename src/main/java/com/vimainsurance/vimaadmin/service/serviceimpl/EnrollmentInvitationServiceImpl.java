@@ -109,7 +109,7 @@ public class EnrollmentInvitationServiceImpl implements IEnrollmentInvitation {
                 .build();
             invitation = invitationRepository.save(invitation);
 
-            String magicLink = baseUrl + "/enrollment?token=" + rawToken;
+            String magicLink = baseUrl + "/enrollment/" + rawToken;
             boolean emailSent = sendEnrollmentInvitationEmail(employee.getEmail(), employee.getFullName(), magicLink);
             if (emailSent) {
                 invitation.setStatus(EnrollementStatus.SENT);
@@ -215,7 +215,7 @@ public class EnrollmentInvitationServiceImpl implements IEnrollmentInvitation {
                 String tokenHash = tokenSecurityService.hashToken(rawToken);
                 inv.setTokenHash(tokenHash);
                 invitationRepository.save(inv);
-                String magicLink = baseUrl + "/enrollment?token=" + rawToken;
+                String magicLink = baseUrl + "/enrollment/" + rawToken;
                 boolean emailSent = sendEnrollmentReminderEmail(inv.getEmployee().getEmail(), inv.getEmployee().getFullName(), magicLink);
                 if (emailSent) {
                     inv.setReminderCount(inv.getReminderCount() == null ? 1 : inv.getReminderCount() + 1);
@@ -355,7 +355,7 @@ public class EnrollmentInvitationServiceImpl implements IEnrollmentInvitation {
             String tokenHash = tokenSecurityService.hashToken(rawToken);
             inv.setTokenHash(tokenHash);
             invitationRepository.save(inv);
-            String magicLink = baseUrl + "/enrollment?token=" + rawToken;
+            String magicLink = baseUrl + "/enrollment/" + rawToken;
             boolean emailSent = sendEnrollmentInvitationEmail(employee.getEmail(), employee.getFullName(), magicLink);
             if (emailSent) {
                 inv.setStatus(EnrollementStatus.SENT);
