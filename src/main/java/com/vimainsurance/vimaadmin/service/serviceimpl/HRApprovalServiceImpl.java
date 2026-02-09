@@ -294,9 +294,7 @@ public class HRApprovalServiceImpl implements IHRApprovalService {
                 UUID orgId = sub.getEmployee() != null && sub.getEmployee().getOrganization() != null
                         ? sub.getEmployee().getOrganization().getOrganizationId()
                         : null;
-                if (orgId == null || !organizationIds.contains(orgId)) {
-                    throw new IllegalArgumentException("Access denied to submission: " + id);
-                }
+                jwtUserExtractor.validateOrganizationAccess(orgId);
                 if (sub.getStatus() != EnrollementStatus.SUBMITTED) {
                     throw new IllegalArgumentException("Submission " + id + " is not in SUBMITTED status");
                 }
