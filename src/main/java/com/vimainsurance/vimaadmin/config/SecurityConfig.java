@@ -83,6 +83,10 @@ public class SecurityConfig {
     
     @Autowired
     private Environment environment;
+
+    /** Context path (e.g. /dev) so permitAll matchers work when request URI includes it. */
+    @Value("${server.servlet.context-path:}")
+    private String contextPath;
     
     /**
      * Filter to set up mock authentication in dev mode
@@ -181,8 +185,12 @@ public class SecurityConfig {
                                     "/favicon.ico"
                             ).permitAll()
 
-                            // Enrollment token validation - public (no JWT; token in path)
+                            // Enrollment — public (token-based auth, no JWT)
                             .requestMatchers("/api/v1/enrollment/**").permitAll()
+                            .requestMatchers("/api/v1/enrollment-submissions/**").permitAll()
+                            // With context-path (e.g. /dev), request URI is /dev/api/... — match that too
+                            .requestMatchers(contextPath + "/api/v1/enrollment/**").permitAll()
+                            .requestMatchers(contextPath + "/api/v1/enrollment-submissions/**").permitAll()
 
                             // All other /api/** endpoints require authentication via JWT
                             .requestMatchers("/api/**").authenticated()

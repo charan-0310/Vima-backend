@@ -1,6 +1,8 @@
 package com.vimainsurance.vimaadmin.service.serviceimpl;
 
 import java.time.LocalDate;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -15,15 +17,19 @@ import org.springframework.transaction.annotation.Transactional;
 import com.vimainsurance.vimaadmin.dto.BaseResponse;
 import com.vimainsurance.vimaadmin.dto.DealsResponseDto;
 import com.vimainsurance.vimaadmin.dto.EnrollmentContextDto;
+import com.vimainsurance.vimaadmin.dto.EnrollmentSubmissionResponseDto;
 import com.vimainsurance.vimaadmin.dto.EnrollmentWindowResponseDto;
 import com.vimainsurance.vimaadmin.dto.ResponseDto;
 import com.vimainsurance.vimaadmin.entity.Deals;
-import com.vimainsurance.vimaadmin.mapper.EnrollmentWindowMapper;
 import com.vimainsurance.vimaadmin.entity.EnrollmentInvitation;
+import com.vimainsurance.vimaadmin.entity.EnrollmentSubmission;
 import com.vimainsurance.vimaadmin.entity.EnrollmentWindows;
 import com.vimainsurance.vimaadmin.enums.EnrollementStatus;
+import com.vimainsurance.vimaadmin.mapper.EnrollmentSubmissionMapper;
+import com.vimainsurance.vimaadmin.mapper.EnrollmentWindowMapper;
 import com.vimainsurance.vimaadmin.repository.IDealsRepository;
 import com.vimainsurance.vimaadmin.repository.IEnrollmentInvitationRepository;
+import com.vimainsurance.vimaadmin.repository.IEnrollmentSubmissionRepository;
 import com.vimainsurance.vimaadmin.repository.IEnrollmentWindowsRepository;
 import com.vimainsurance.vimaadmin.service.IEnrollmentService;
 import com.vimainsurance.vimaadmin.service.TokenSecurityService;
@@ -43,6 +49,8 @@ public class EnrollmentServiceImpl implements IEnrollmentService {
     private IEnrollmentWindowsRepository enrollmentWindowsRepository;
     @Autowired
     private IDealsRepository dealsRepository;
+    @Autowired
+    private IEnrollmentSubmissionRepository enrollmentSubmissionRepository;
 
     @Override
     @Transactional
@@ -106,6 +114,41 @@ public class EnrollmentServiceImpl implements IEnrollmentService {
         } catch (Exception e) {
             logger.error("[correlationId:{}] Exception in validateTokenAndGetContext: {}", MDC.get("correlationId"), e.getMessage(), e);
             return responseObj.render(responseObj.formErrorResponse(500, INVALID_TOKEN_MESSAGE));
+        }
+    }
+
+    @Override
+    public ResponseEntity<ResponseDto<List<EnrollmentSubmissionResponseDto>>> getSubmissionsByToken(String token) {
+        logger.info("[correlationId:{}] Enrollment getSubmissionsByToken called", MDC.get("correlationId"));
+        BaseResponse<List<EnrollmentSubmissionResponseDto>> responseObj = new BaseResponse<>();
+        try {
+            if (token == null || token.isBlank()) {
+                return responseObj.render(responseObj.formErrorResponse(400, "Token is required"));
+            }
+
+            // Validate the token and extract the employee ID
+            String tokenHash = tokenSecurityService.hashToken(token.trim());
+            Optional<EnrollmentInvitation> invOpt = enrollmentInvitationRepository.findByTokenHashWithWindowAndEmployee(tokenHash);
+            if (invOpt.isEmpty()) {
+                return responseObj.render(responseObj.formErrorResponse(404, INVALID_TOKEN_MESSAGE));
+            }
+
+            EnrollmentInvitation invitation = invOpt.get();
+            UUID employeeId = invitation.getEmployee().getIndividualId();
+
+            // Fetch submissions for this employee
+            List<EnrollmentSubmission> submissions = enrollmentSubmissionRepository.findAllByEmployee_IndividualId(employeeId);
+            List<EnrollmentSubmissionResponseDto> out = new ArrayList<>();
+            for (EnrollmentSubmission submission : submissions) {
+                out.add(EnrollmentSubmissionMapper.mapToResponseDto(submission));
+            }
+            return responseObj.render(responseObj.formSuccessResponse("Success", out, out.size()));
+        } catch (IllegalArgumentException e) {
+            logger.warn("[correlationId:{}] Invalid token in getSubmissionsByToken: {}", MDC.get("correlationId"), e.getMessage());
+            return responseObj.render(responseObj.formErrorResponse(400, INVALID_TOKEN_MESSAGE));
+        } catch (Exception e) {
+            logger.error("[correlationId:{}] Exception in getSubmissionsByToken: {}", MDC.get("correlationId"), e.getMessage(), e);
+            return responseObj.render(responseObj.formErrorResponse(500, "Failed to retrieve submissions"));
         }
     }
 
