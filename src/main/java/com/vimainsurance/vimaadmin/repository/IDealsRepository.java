@@ -333,6 +333,11 @@ public interface IDealsRepository extends JpaRepository<Deals, UUID> , JpaSpecif
      */
     List<Deals> findByEnrollmentWindow_Id(UUID enrollmentWindowId);
 
+    /**
+     * Find deals (dependents) linked to an enrollment submission (created from that submission).
+     */
+    List<Deals> findByEnrollmentSubmission_Id(UUID enrollmentSubmissionId);
+
     @Query("""
         SELECT COUNT(d) FROM Deals d
         WHERE d.endorsementId = :endorsementId
