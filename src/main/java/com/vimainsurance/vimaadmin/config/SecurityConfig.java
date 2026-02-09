@@ -189,7 +189,9 @@ public class SecurityConfig {
                             // Enrollment — public (token-based auth, no JWT)
                             .requestMatchers("/api/v1/enrollment/**").permitAll()
                             .requestMatchers("/api/v1/enrollment-submissions/**").permitAll()
-                            // With context-path (e.g. /dev), request URI is /dev/api/... — match that too
+                            // With context-path (e.g. /dev, /prod), request URI includes it — match explicitly
+                            .requestMatchers("/dev/api/v1/enrollment-submissions/**").permitAll()
+                            .requestMatchers("/prod/api/v1/enrollment-submissions/**").permitAll()
                             .requestMatchers(contextPath + "/api/v1/enrollment/**").permitAll()
                             .requestMatchers(contextPath + "/api/v1/enrollment-submissions/**").permitAll()
 
