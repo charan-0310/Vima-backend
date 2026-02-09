@@ -3,6 +3,7 @@ package com.vimainsurance.vimaadmin.service.serviceimpl;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
+import java.util.UUID;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -210,6 +211,23 @@ public class EnrollmentSubmissionServiceImpl implements IEnrollmentSubmissionSer
             return responseObj.render(responseObj.formSuccessResponse(Constants.SUCCESS, out, out.size()));
         } catch (Exception e) {
             logger.error("[correlationId:{}] Exception in EnrollmentSubmission getList: {}", MDC.get("correlationId"), e.getMessage(), e);
+            return responseObj.render(responseObj.formErrorResponse(Constants.RECORD_NOT_FOUND_MESSAGE));
+        }
+    }
+
+    @Override
+    public ResponseEntity<ResponseDto<List<EnrollmentSubmissionResponseDto>>> getByEmployeeId(UUID employeeId) {
+        logger.info("[correlationId:{}] EnrollmentSubmission getByEmployeeId called for {}", MDC.get("correlationId"), employeeId);
+        BaseResponse<List<EnrollmentSubmissionResponseDto>> responseObj = new BaseResponse<>();
+        try {
+            List<EnrollmentSubmission> list = enrollmentSubmissionRepository.findAllByEmployee_IndividualId(employeeId);
+            List<EnrollmentSubmissionResponseDto> out = new ArrayList<>();
+            for (EnrollmentSubmission submission : list) {
+                out.add(EnrollmentSubmissionMapper.mapToResponseDto(submission));
+            }
+            return responseObj.render(responseObj.formSuccessResponse(Constants.SUCCESS, out, out.size()));
+        } catch (Exception e) {
+            logger.error("[correlationId:{}] Exception in EnrollmentSubmission getByEmployeeId: {}", MDC.get("correlationId"), e.getMessage(), e);
             return responseObj.render(responseObj.formErrorResponse(Constants.RECORD_NOT_FOUND_MESSAGE));
         }
     }

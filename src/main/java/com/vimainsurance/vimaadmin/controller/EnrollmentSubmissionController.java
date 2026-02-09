@@ -1,6 +1,7 @@
 package com.vimainsurance.vimaadmin.controller;
 
 import java.util.List;
+import java.util.UUID;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -9,6 +10,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.CrossOrigin;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -39,5 +41,12 @@ public class EnrollmentSubmissionController {
     public ResponseEntity<ResponseDto<List<EnrollmentSubmissionResponseDto>>> getList() {
         logger.info("[correlationId:{}] /api/v1/EnrollmentSubmission/getList (GET) called", MDC.get("correlationId"));
         return enrollmentSubmissionService.getList();
+    }
+
+    @GetMapping("/employee/{employeeId}")
+    public ResponseEntity<ResponseDto<List<EnrollmentSubmissionResponseDto>>> getByEmployeeId(
+            @PathVariable UUID employeeId) {
+        logger.info("[correlationId:{}] /api/v1/EnrollmentSubmission/employee/{} (GET) called", MDC.get("correlationId"), employeeId);
+        return enrollmentSubmissionService.getByEmployeeId(employeeId);
     }
 }
