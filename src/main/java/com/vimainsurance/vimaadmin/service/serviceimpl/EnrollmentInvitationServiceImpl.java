@@ -348,6 +348,7 @@ public class EnrollmentInvitationServiceImpl implements IEnrollmentInvitation {
     }
 
     @Override
+    @Transactional
     public ResponseEntity<ResponseDto<InvitationLinkResponseDto>> getInvitationLink(UUID invitationId) {
         BaseResponse<InvitationLinkResponseDto> responseObj = new BaseResponse<>();
         try {
@@ -360,6 +361,13 @@ public class EnrollmentInvitationServiceImpl implements IEnrollmentInvitation {
                     "Link not available for this invitation; use Resend to generate a new link."));
             }
             String rawToken = tokenSecurityService.generateTokenForInvitation(inv.getId());
+            // Ensure stored hash matches the deterministic token (fixes inconsistency from creation vs copy-link)
+            if (!tokenSecurityService.verifyToken(rawToken, inv.getTokenHash())) {
+                logger.warn("[correlationId:{}] Invitation {} token hash mismatch; repairing to deterministic token hash",
+                    MDC.get("correlationId"), invitationId);
+                inv.setTokenHash(tokenSecurityService.hashToken(rawToken));
+                invitationRepository.save(inv);
+            }
             String magicLink = baseUrl + "/enrollment/" + rawToken;
             InvitationLinkResponseDto dto = InvitationLinkResponseDto.builder().magicLink(magicLink).build();
             return responseObj.render(responseObj.formSuccessResponse("OK", dto));

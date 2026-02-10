@@ -62,9 +62,12 @@ public class EnrollmentServiceImpl implements IEnrollmentService {
                 return responseObj.render(responseObj.formErrorResponse(400, "Token is required"));
             }
 
-            String tokenHash = tokenSecurityService.hashToken(token.trim());
+            String trimmedToken = token.trim();
+            String tokenHash = tokenSecurityService.hashToken(trimmedToken);
             Optional<EnrollmentInvitation> invOpt = enrollmentInvitationRepository.findByTokenHashWithWindowAndEmployee(tokenHash);
             if (invOpt.isEmpty()) {
+                logger.warn("[correlationId:{}] Enrollment token not found. Token length={}, hash length={}",
+                    MDC.get("correlationId"), trimmedToken.length(), tokenHash != null ? tokenHash.length() : 0);
                 return responseObj.render(responseObj.formErrorResponse(404, INVALID_TOKEN_MESSAGE));
             }
 
@@ -84,7 +87,9 @@ public class EnrollmentServiceImpl implements IEnrollmentService {
             if (today.isBefore(enrollmentWindow.getStartDate()) || today.isAfter(enrollmentWindow.getEndDate())) {
                 logger.warn("[correlationId:{}] Enrollment window expired: id={}, start={}, end={}, today={}",
                         MDC.get("correlationId"), enrollmentWindowId, enrollmentWindow.getStartDate(), enrollmentWindow.getEndDate(), today);
-                return responseObj.render(responseObj.formErrorResponse(400, ENROLLMENT_WINDOW_EXPIRED_MESSAGE));
+                String detail = String.format("Window is open from %s to %s; today is %s.",
+                    enrollmentWindow.getStartDate(), enrollmentWindow.getEndDate(), today);
+                return responseObj.render(responseObj.formErrorResponse(400, ENROLLMENT_WINDOW_EXPIRED_MESSAGE + " " + detail));
             }
 
             // Update enrollment window status to OPENED when date validation is successful
