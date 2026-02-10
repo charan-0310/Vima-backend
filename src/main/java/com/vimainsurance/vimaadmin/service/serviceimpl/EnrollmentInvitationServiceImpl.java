@@ -479,6 +479,7 @@ public class EnrollmentInvitationServiceImpl implements IEnrollmentInvitation {
 
                 EmployeeProgressDetailDto detail = EmployeeProgressDetailDto.builder()
                     .employeeId(empId)
+                    .submissionId(sub != null ? sub.getId() : null)
                     .name(emp.getFullName())
                     .email(emp.getEmail())
                     .employeeNumber(emp.getEmployeeNumber())
@@ -498,6 +499,7 @@ public class EnrollmentInvitationServiceImpl implements IEnrollmentInvitation {
                     String enrollmentStatus = sub != null ? sub.getStatus().name() : (inv.getStatus() != null ? inv.getStatus().name().toLowerCase() : "pending");
                     EmployeeProgressDetailDto detail = EmployeeProgressDetailDto.builder()
                         .employeeId(empId)
+                        .submissionId(sub != null ? sub.getId() : null)
                         .name(emp.getFullName())
                         .email(emp.getEmail())
                         .employeeNumber(emp.getEmployeeNumber())

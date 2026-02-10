@@ -125,11 +125,6 @@ public class HRApprovalServiceImpl implements IHRApprovalService {
     public ResponseEntity<ResponseDto<SubmissionDetailDto>> getEnrollmentDetail(UUID id) {
         BaseResponse<SubmissionDetailDto> responseObj = new BaseResponse<>();
         try {
-            List<UUID> organizationIds = resolveOrganizationIds(null);
-            if (organizationIds == null || organizationIds.isEmpty()) {
-                return responseObj.render(responseObj.formErrorResponse("No organization access"));
-            }
-
             Optional<EnrollmentSubmission> opt = enrollmentSubmissionRepository.findById(id);
             if (opt.isEmpty()) {
                 return responseObj.render(responseObj.formErrorResponse(404, "Enrollment submission not found"));
@@ -138,9 +133,10 @@ public class HRApprovalServiceImpl implements IHRApprovalService {
             UUID orgId = sub.getEmployee() != null && sub.getEmployee().getOrganization() != null
                     ? sub.getEmployee().getOrganization().getOrganizationId()
                     : null;
-            if (orgId == null || !organizationIds.contains(orgId)) {
-                return responseObj.render(responseObj.formErrorResponse(403, "Access denied to this submission"));
+            if (orgId == null) {
+                return responseObj.render(responseObj.formErrorResponse(403, "Submission has no organization"));
             }
+            jwtUserExtractor.validateOrganizationAccess(orgId);
 
             SubmissionDetailDto dto = toDetailDto(sub);
             return responseObj.render(responseObj.formSuccessResponse("Enrollment detail", dto));
@@ -155,11 +151,6 @@ public class HRApprovalServiceImpl implements IHRApprovalService {
     public ResponseEntity<ResponseDto<SubmissionDetailDto>> approve(UUID id, ApprovalRequest request) {
         BaseResponse<SubmissionDetailDto> responseObj = new BaseResponse<>();
         try {
-            List<UUID> organizationIds = resolveOrganizationIds(null);
-            if (organizationIds == null || organizationIds.isEmpty()) {
-                return responseObj.render(responseObj.formErrorResponse("No organization access"));
-            }
-
             EnrollmentSubmission sub = enrollmentSubmissionRepository.findById(id).orElse(null);
             if (sub == null) {
                 return responseObj.render(responseObj.formErrorResponse(404, "Enrollment submission not found"));
@@ -167,6 +158,9 @@ public class HRApprovalServiceImpl implements IHRApprovalService {
             UUID orgId = sub.getEmployee() != null && sub.getEmployee().getOrganization() != null
                     ? sub.getEmployee().getOrganization().getOrganizationId()
                     : null;
+            if (orgId == null) {
+                return responseObj.render(responseObj.formErrorResponse(403, "Submission has no organization"));
+            }
             jwtUserExtractor.validateOrganizationAccess(orgId);
             if (sub.getStatus() != EnrollementStatus.SUBMITTED) {
                 return responseObj.render(responseObj.formErrorResponse(400,
@@ -199,11 +193,6 @@ public class HRApprovalServiceImpl implements IHRApprovalService {
     public ResponseEntity<ResponseDto<SubmissionDetailDto>> reject(UUID id, RejectionRequest request) {
         BaseResponse<SubmissionDetailDto> responseObj = new BaseResponse<>();
         try {
-            List<UUID> organizationIds = resolveOrganizationIds(null);
-            if (organizationIds == null || organizationIds.isEmpty()) {
-                return responseObj.render(responseObj.formErrorResponse("No organization access"));
-            }
-
             EnrollmentSubmission sub = enrollmentSubmissionRepository.findById(id).orElse(null);
             if (sub == null) {
                 return responseObj.render(responseObj.formErrorResponse(404, "Enrollment submission not found"));
@@ -211,6 +200,9 @@ public class HRApprovalServiceImpl implements IHRApprovalService {
             UUID orgId = sub.getEmployee() != null && sub.getEmployee().getOrganization() != null
                     ? sub.getEmployee().getOrganization().getOrganizationId()
                     : null;
+            if (orgId == null) {
+                return responseObj.render(responseObj.formErrorResponse(403, "Submission has no organization"));
+            }
             jwtUserExtractor.validateOrganizationAccess(orgId);
             if (sub.getStatus() != EnrollementStatus.SUBMITTED) {
                 return responseObj.render(responseObj.formErrorResponse(400,
@@ -249,11 +241,6 @@ public class HRApprovalServiceImpl implements IHRApprovalService {
     public ResponseEntity<ResponseDto<List<SubmissionListItemDto>>> bulkApprove(BulkApprovalRequest request) {
         BaseResponse<List<SubmissionListItemDto>> responseObj = new BaseResponse<>();
         try {
-            List<UUID> organizationIds = resolveOrganizationIds(null);
-            if (organizationIds == null || organizationIds.isEmpty()) {
-                return responseObj.render(responseObj.formErrorResponse("No organization access"));
-            }
-
             UUID reviewerId = jwtUserExtractor.getCurrentUserId();
             AdminUser reviewer = reviewerId != null ? adminUserRepository.findById(reviewerId).orElse(null) : null;
 
@@ -266,6 +253,9 @@ public class HRApprovalServiceImpl implements IHRApprovalService {
                 UUID orgId = sub.getEmployee() != null && sub.getEmployee().getOrganization() != null
                         ? sub.getEmployee().getOrganization().getOrganizationId()
                         : null;
+                if (orgId == null) {
+                    throw new IllegalArgumentException("Submission " + id + " has no organization");
+                }
                 jwtUserExtractor.validateOrganizationAccess(orgId);
                 if (sub.getStatus() != EnrollementStatus.SUBMITTED) {
                     throw new IllegalArgumentException("Submission " + id + " is not in SUBMITTED status");
@@ -295,12 +285,24 @@ public class HRApprovalServiceImpl implements IHRApprovalService {
     /**
      * Resolve organization IDs for access control. HR_ADMIN sees only their company (from tenant).
      * If companyId is provided, it must be in the tenant's allowed list; otherwise all allowed orgs are used.
+     * Falls back to JWT claims (organization_ids / organizations) when TenantContext has none (e.g. filter order).
      */
     private List<UUID> resolveOrganizationIds(String companyId) {
         Map<String, List<String>> tenantMap = TenantContext.getCurrentTenant();
         List<String> allowed = tenantMap != null ? tenantMap.get("organizationIds") : null;
         if (allowed == null) {
             allowed = new ArrayList<>();
+        }
+        if (allowed.isEmpty() && jwtUserExtractor != null) {
+            List<String> fromJwt = jwtUserExtractor.getCurrentOrganizations();
+            if (fromJwt != null && !fromJwt.isEmpty()) {
+                allowed = new ArrayList<>(fromJwt);
+            } else {
+                UUID jwtCompanyId = jwtUserExtractor.getCurrentCompanyId();
+                if (jwtCompanyId != null) {
+                    allowed = List.of(jwtCompanyId.toString());
+                }
+            }
         }
         List<String> orgIds = new ArrayList<>();
         if (companyId != null && !companyId.trim().isEmpty()) {
