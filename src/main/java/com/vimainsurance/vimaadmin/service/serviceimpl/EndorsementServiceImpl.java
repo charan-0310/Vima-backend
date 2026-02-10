@@ -731,6 +731,14 @@ public class EndorsementServiceImpl implements IEndorsementService {
             List<DocumentResponseDto> documentResponseDtos = documents.getContent().stream()
                 .map(document -> new DocumentResponseDto(document.getDocumentId().toString(), document.getDocumentType(), document.getUploadedAt(), document.getMimeType(), document.getNotes(), document.getOriginalFilename(), document.getDocumentCategory().toString(), DocumentServiceImpl.formatFileSize(document.getFileSize())))
                 .collect(Collectors.toList());
+
+            if(opt.get().getEnrollmentWindow() != null) {
+                EnrollmentWindows enrollmentWindow = opt.get().getEnrollmentWindow();
+                List<Document> enrollmentWindowDocuments = documentRepository.findByEntityId(enrollmentWindow.getEnrollmentWindowId().toString());
+                documentResponseDtos.addAll(enrollmentWindowDocuments.stream()
+                    .map(document -> new DocumentResponseDto(document.getDocumentId().toString(), document.getDocumentType(), document.getUploadedAt(), document.getMimeType(), document.getNotes(), document.getOriginalFilename(), document.getDocumentCategory().toString(), DocumentServiceImpl.formatFileSize(document.getFileSize())))
+                    .collect(Collectors.toList()));
+            }    
             return responseObj.render(responseObj.formSuccessResponse(Constants.SUCCESS, documentResponseDtos, documents.getTotalElements()));
         } catch(OrganizationAccessDeniedException e) {
             logger.warn("[correlationId:{}] Organization access denied: {}", MDC.get("correlationId"));
