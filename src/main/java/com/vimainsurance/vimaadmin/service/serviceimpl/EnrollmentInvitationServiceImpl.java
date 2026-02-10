@@ -50,7 +50,6 @@ import com.vimainsurance.vimaadmin.util.TransactionUtil;
 public class EnrollmentInvitationServiceImpl implements IEnrollmentInvitation {
 
     private static final Logger logger = LoggerFactory.getLogger(EnrollmentInvitationServiceImpl.class);
-    private static final int DEFAULT_EXPIRY_DAYS = 7;
 
     @Autowired
     private IEnrollmentInvitationRepository invitationRepository;
@@ -95,17 +94,21 @@ public class EnrollmentInvitationServiceImpl implements IEnrollmentInvitation {
                 return responseObj.render(responseObj.formErrorResponse("Enrollment window not found"));
             }
 
-            String rawToken = tokenSecurityService.generateToken();
+            // Token valid until window end; deterministic so reminders can resend the same link
+            UUID invId = UUID.randomUUID();
+            String rawToken = tokenSecurityService.generateTokenForInvitation(invId);
             String tokenHash = tokenSecurityService.hashToken(rawToken);
-            LocalDateTime expiresAt = LocalDateTime.now().plusDays(DEFAULT_EXPIRY_DAYS);
+            LocalDateTime expiresAt = window.getEndDate().atTime(23, 59, 59);
 
             EnrollmentInvitation invitation = EnrollmentInvitation.builder()
+                .id(invId)
                 .enrollmentWindow(window)
                 .employee(employee)
                 .tokenHash(tokenHash)
                 .status(EnrollementStatus.PENDING)
                 .expiresAt(expiresAt)
                 .reminderCount(0)
+                .tokenDeterministic(true)
                 .build();
             invitation = invitationRepository.save(invitation);
 
@@ -211,10 +214,14 @@ public class EnrollmentInvitationServiceImpl implements IEnrollmentInvitation {
                 if (inv.getExpiresAt() != null && inv.getExpiresAt().isBefore(LocalDateTime.now())) {
                     continue;
                 }
-                String rawToken = tokenSecurityService.generateToken();
-                String tokenHash = tokenSecurityService.hashToken(rawToken);
-                inv.setTokenHash(tokenHash);
-                invitationRepository.save(inv);
+                // Deterministic token: resend same link. Legacy: generate new token and update hash.
+                String rawToken = Boolean.TRUE.equals(inv.getTokenDeterministic())
+                    ? tokenSecurityService.generateTokenForInvitation(inv.getId())
+                    : tokenSecurityService.generateToken();
+                if (!Boolean.TRUE.equals(inv.getTokenDeterministic())) {
+                    inv.setTokenHash(tokenSecurityService.hashToken(rawToken));
+                    invitationRepository.save(inv);
+                }
                 String magicLink = baseUrl + "/enrollment/" + rawToken;
                 boolean emailSent = sendEnrollmentReminderEmail(inv.getEmployee().getEmail(), inv.getEmployee().getFullName(), magicLink);
                 if (emailSent) {
@@ -351,10 +358,14 @@ public class EnrollmentInvitationServiceImpl implements IEnrollmentInvitation {
             if (employee.getEmail() == null || employee.getEmail().isBlank()) {
                 return responseObj.render(responseObj.formErrorResponse("Employee email is required"));
             }
-            String rawToken = tokenSecurityService.generateToken();
-            String tokenHash = tokenSecurityService.hashToken(rawToken);
-            inv.setTokenHash(tokenHash);
-            invitationRepository.save(inv);
+            // Deterministic: resend same link. Legacy: generate new token and update hash.
+            String rawToken = Boolean.TRUE.equals(inv.getTokenDeterministic())
+                ? tokenSecurityService.generateTokenForInvitation(inv.getId())
+                : tokenSecurityService.generateToken();
+            if (!Boolean.TRUE.equals(inv.getTokenDeterministic())) {
+                inv.setTokenHash(tokenSecurityService.hashToken(rawToken));
+                invitationRepository.save(inv);
+            }
             String magicLink = baseUrl + "/enrollment/" + rawToken;
             boolean emailSent = sendEnrollmentInvitationEmail(employee.getEmail(), employee.getFullName(), magicLink);
             if (emailSent) {
@@ -535,7 +546,7 @@ public class EnrollmentInvitationServiceImpl implements IEnrollmentInvitation {
             EmailRequest req = EmailRequest.builder()
                 .to(to)
                 .subject("Enrollment invitation - Vima Insurance")
-                .cc("sanjaymansel.selvan@kumaran.com")
+                .cc("sanjaymansel.selvan@kumaran.com", "rajaram.ganesan@kumaran.com")
                 .templateName("enrollment-invitation")
                 .templateVariables(java.util.Map.of(
                     "employeeName", employeeName != null ? employeeName : "Employee",
@@ -555,7 +566,7 @@ public class EnrollmentInvitationServiceImpl implements IEnrollmentInvitation {
             EmailRequest req = EmailRequest.builder()
                 .to(to)
                 .subject("Reminder: Complete your enrollment - Vima Insurance")
-                .cc("sanjaymansel.selvan@kumaran.com")
+                .cc("sanjaymansel.selvan@kumaran.com", "rajaram.ganesan@kumaran.com")
                 .templateName("enrollment-invitation")
                 .templateVariables(java.util.Map.of(
                     "employeeName", employeeName != null ? employeeName : "Employee",

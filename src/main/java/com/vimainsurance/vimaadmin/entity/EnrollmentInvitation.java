@@ -15,7 +15,6 @@ import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
 import jakarta.persistence.Enumerated;
 import jakarta.persistence.FetchType;
-import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.Id;
 import jakarta.persistence.JoinColumn;
 import jakarta.persistence.ManyToOne;
@@ -34,7 +33,6 @@ import lombok.NoArgsConstructor;
 public class EnrollmentInvitation {
 
     @Id
-    @GeneratedValue
     @Column(name = "id", columnDefinition = "UUID", updatable = false, nullable = false)
     private UUID id;
 
@@ -75,6 +73,13 @@ public class EnrollmentInvitation {
 
     @Column(name = "last_reminder_at")
     private LocalDateTime lastReminderAt;
+
+    /**
+     * When true, token is derived from invitation id; reminder emails resend the same link (valid until window end).
+     * When false or null (legacy), reminder generates a new token.
+     */
+    @Column(name = "token_deterministic")
+    private Boolean tokenDeterministic;
 
     @CreationTimestamp
     @Column(name = "created_at", updatable = false)

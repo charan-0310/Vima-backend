@@ -5,9 +5,14 @@ import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.security.SecureRandom;
 import java.util.Base64;
+import java.util.UUID;
+
+import javax.crypto.Mac;
+import javax.crypto.spec.SecretKeySpec;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
 /**
@@ -16,6 +21,7 @@ import org.springframework.stereotype.Service;
  * 
  * Security features:
  * - 256-bit cryptographically secure random tokens
+ * - Deterministic tokens (HMAC of invitation id) for "same link until window end"
  * - SHA-256 one-way hashing
  * - Constant-time comparison to prevent timing attacks
  * - URL-safe Base64 encoding
@@ -26,6 +32,10 @@ public class TokenSecurityService {
     
     private static final int TOKEN_BYTE_LENGTH = 32; // 256 bits
     private static final String HASH_ALGORITHM = "SHA-256";
+    private static final String HMAC_ALGORITHM = "HmacSHA256";
+
+    @Value("${app.enrollment-token-secret:default-enrollment-token-secret-change-in-production}")
+    private String enrollmentTokenSecret;
     
     /**
      * Generates a cryptographically secure random token.
@@ -44,6 +54,35 @@ public class TokenSecurityService {
         logger.debug("Generated token: {}...", token.substring(0, 8));
         
         return token;
+    }
+
+    /**
+     * Generates a deterministic token for an enrollment invitation id.
+     * The same invitation id always produces the same token, so the same magic link
+     * can be sent in the first email and in reminders (valid until window end).
+     *
+     * @param invitationId The enrollment invitation id (must not be null)
+     * @return URL-safe token string derived from the invitation id
+     */
+    public String generateTokenForInvitation(UUID invitationId) {
+        if (invitationId == null) {
+            throw new IllegalArgumentException("Invitation id cannot be null");
+        }
+        try {
+            Mac mac = Mac.getInstance(HMAC_ALGORITHM);
+            SecretKeySpec keySpec = new SecretKeySpec(
+                enrollmentTokenSecret.getBytes(StandardCharsets.UTF_8),
+                HMAC_ALGORITHM
+            );
+            mac.init(keySpec);
+            byte[] hmacBytes = mac.doFinal(invitationId.toString().getBytes(StandardCharsets.UTF_8));
+            String token = Base64.getUrlEncoder().withoutPadding().encodeToString(hmacBytes);
+            logger.debug("Generated deterministic token for invitation: {}...", token.substring(0, Math.min(8, token.length())));
+            return token;
+        } catch (Exception e) {
+            logger.error("Failed to generate deterministic token", e);
+            throw new RuntimeException("Failed to generate enrollment token", e);
+        }
     }
     
     /**
