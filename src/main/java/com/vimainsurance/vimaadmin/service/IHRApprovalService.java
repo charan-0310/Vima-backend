@@ -47,4 +47,13 @@ public interface IHRApprovalService {
      * Bulk approve submissions in a single transaction.
      */
     ResponseEntity<ResponseDto<List<SubmissionListItemDto>>> bulkApprove(BulkApprovalRequest request);
+
+    /**
+     * Finalize enrollment window on close: ensure all submissions are approved or rejected,
+     * then for each approved submission update employee from personalDetails, create dependents and nominees from JSON,
+     * and create endorsement + deal endorsements for the window. Call this before closing the window.
+     *
+     * @return success or 400 if any submission is still SUBMITTED/DRAFT
+     */
+    ResponseEntity<ResponseDto<String>> finalizeEnrollmentWindow(UUID windowId);
 }

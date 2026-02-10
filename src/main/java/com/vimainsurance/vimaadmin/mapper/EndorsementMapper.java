@@ -111,6 +111,8 @@ public class EndorsementMapper {
         dto.setPremiumAmount(endorsement.getPremiumAmount());
         dto.setCreatedAt(endorsement.getCreatedAt());
         dto.setUpdatedAt(endorsement.getUpdatedAt());
+
+        dto.setSource(endorsement.getSource().getValue());
         
         return dto;
     }

@@ -282,6 +282,49 @@ public class HRApprovalServiceImpl implements IHRApprovalService {
         }
     }
 
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public ResponseEntity<ResponseDto<String>> finalizeEnrollmentWindow(UUID windowId) {
+        BaseResponse<String> responseObj = new BaseResponse<>();
+        try {
+            List<EnrollmentSubmission> submissions = enrollmentSubmissionRepository.findAllByEnrollmentWindow_Id(windowId);
+            long pending = submissions.stream()
+                    .filter(s -> s.getStatus() == EnrollementStatus.SUBMITTED || s.getStatus() == EnrollementStatus.DRAFT)
+                    .count();
+            if (pending > 0) {
+                return responseObj.render(responseObj.formErrorResponse(400,
+                        "Cannot close window: " + pending + " submission(s) must be approved or rejected first."));
+            }
+
+            long approvedCount = submissions.stream().filter(s -> s.getStatus() == EnrollementStatus.APPROVED).count();
+            log.info("[correlationId:{}] finalizeEnrollmentWindow window {}: {} submissions, {} approved", MDC.get("correlationId"), windowId, submissions.size(), approvedCount);
+
+            for (EnrollmentSubmission sub : submissions) {
+                if (sub.getStatus() != EnrollementStatus.APPROVED) {
+                    continue;
+                }
+                Deals employee = sub.getEmployee();
+                if (employee != null) {
+                    updateEmployeeFromPersonalDetails(employee, sub.getPersonalDetails());
+                    dealsRepository.save(employee);
+
+                    List<Deals> newDependents = createDependentsFromJson(sub, employee, sub.getDependents());
+                    saveDealsInBatches(newDependents);
+
+                    List<Nominee> nominees = createNomineesFromJson(sub, employee, sub.getNomineeData());
+                    saveNomineesInBatches(nominees);
+                }
+                createEndorsementAndDealEndorsementsForSubmission(sub, sub.getId());
+            }
+
+            return responseObj.render(responseObj.formSuccessResponse("Window finalized successfully"));
+        } catch (Exception e) {
+            TransactionUtil.markRollbackOnly();
+            log.error("[correlationId:{}] finalizeEnrollmentWindow error: {}", MDC.get("correlationId"), e.getMessage(), e);
+            return responseObj.render(responseObj.formErrorResponse("Failed to finalize enrollment window"));
+        }
+    }
+
     /**
      * Resolve organization IDs for access control. HR_ADMIN sees only their company (from tenant).
      * If companyId is provided, it must be in the tenant's allowed list; otherwise all allowed orgs are used.
@@ -442,16 +485,25 @@ public class HRApprovalServiceImpl implements IHRApprovalService {
     /**
      * Uses or creates the single endorsement for the whole enrollment window and adds this submission's
      * employee + dependents to it (deal_endorsement). All approved submissions in the same window
-     * share one endorsement. Runs inside the same transaction as approve().
+     * share one endorsement. Runs inside the same transaction as finalizeEnrollmentWindow.
      */
     private void createEndorsementAndDealEndorsementsForSubmission(EnrollmentSubmission sub, UUID submissionId) {
         Deals employee = sub.getEmployee();
-        if (employee == null || employee.getOrganization() == null) {
-            return;
-        }
-        Organization org = employee.getOrganization();
         EnrollmentWindows window = sub.getEnrollmentWindow();
         if (window == null) {
+            log.warn("[correlationId:{}] Skipping endorsement for submission {}: enrollment window is null", MDC.get("correlationId"), submissionId);
+            return;
+        }
+        // Resolve organization: prefer employee's org, fallback to window's org so endorsement is still created
+        Organization org = (employee != null && employee.getOrganization() != null)
+                ? employee.getOrganization()
+                : window.getOrganization();
+        if (org == null) {
+            log.warn("[correlationId:{}] Skipping endorsement for submission {}: no organization (employee and window have no org)", MDC.get("correlationId"), submissionId);
+            return;
+        }
+        if (employee == null) {
+            log.warn("[correlationId:{}] Skipping endorsement for submission {}: employee is null", MDC.get("correlationId"), submissionId);
             return;
         }
         UUID orgId = org.getOrganizationId();
@@ -479,9 +531,12 @@ public class HRApprovalServiceImpl implements IHRApprovalService {
             endorsement.setCreatedAt(LocalDateTime.now());
             endorsement.setUpdatedAt(LocalDateTime.now());
             savedEndorsement = endorsementRepository.save(endorsement);
+            log.info("[correlationId:{}] Created endorsement {} for window {} org {}", MDC.get("correlationId"), savedEndorsement.getEndorsementId(), windowId, orgId);
         } else {
-            savedEndorsement.setTotalEmployees(savedEndorsement.getTotalEmployees() + thisSubmissionEmployees);
-            savedEndorsement.setTotalDependents(savedEndorsement.getTotalDependents() + thisSubmissionDependents);
+            int prevEmployees = savedEndorsement.getTotalEmployees() != null ? savedEndorsement.getTotalEmployees() : 0;
+            int prevDependents = savedEndorsement.getTotalDependents() != null ? savedEndorsement.getTotalDependents() : 0;
+            savedEndorsement.setTotalEmployees(prevEmployees + thisSubmissionEmployees);
+            savedEndorsement.setTotalDependents(prevDependents + thisSubmissionDependents);
             savedEndorsement.setSubmissionCount(savedEndorsement.getSubmissionCount() != null ? savedEndorsement.getSubmissionCount() + 1 : 1);
             savedEndorsement.setUpdatedAt(LocalDateTime.now());
             savedEndorsement = endorsementRepository.save(savedEndorsement);
@@ -492,7 +547,7 @@ public class HRApprovalServiceImpl implements IHRApprovalService {
         enrollmentSubmissionRepository.save(sub);
 
         List<DealEndorsement> toSave = new ArrayList<>();
-        if (!dealEndorsementRepository.existsByDeal_IndividualIdAndEndorsement_EndorsementId(employee.getIndividualId(), endorsementId)) {
+        if (employee.getIndividualId() != null && !dealEndorsementRepository.existsByDeal_IndividualIdAndEndorsement_EndorsementId(employee.getIndividualId(), endorsementId)) {
             DealEndorsement de = new DealEndorsement();
             de.setDeal(employee);
             de.setEndorsement(savedEndorsement);
