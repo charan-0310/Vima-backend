@@ -26,5 +26,6 @@ public class EndorsementResponseDto {
     private BigDecimal premiumAmount;
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
+    private String source;
 }
 
