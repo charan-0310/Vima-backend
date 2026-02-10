@@ -52,6 +52,7 @@ import com.vimainsurance.vimaadmin.repository.IEndorsementRepository;
 import com.vimainsurance.vimaadmin.repository.IEnrollmentInvitationRepository;
 import com.vimainsurance.vimaadmin.repository.IEnrollmentSubmissionRepository;
 import com.vimainsurance.vimaadmin.repository.INomineeRepository;
+import com.vimainsurance.vimaadmin.service.IDocumentService;
 import com.vimainsurance.vimaadmin.service.IEmailService;
 import com.vimainsurance.vimaadmin.service.IHRApprovalService;
 import com.vimainsurance.vimaadmin.specification.EnrollmentSubmissionSpecification;
@@ -87,6 +88,8 @@ public class HRApprovalServiceImpl implements IHRApprovalService {
     private IEndorsementRepository endorsementRepository;
     @Autowired
     private IDealEndorsementRepository dealEndorsementRepository;
+    @Autowired
+    private IDocumentService documentService;
 
     @Override
     public ResponseEntity<ResponseDto<Page<SubmissionListItemDto>>> getEnrollments(
@@ -289,7 +292,7 @@ public class HRApprovalServiceImpl implements IHRApprovalService {
         try {
             List<EnrollmentSubmission> submissions = enrollmentSubmissionRepository.findAllByEnrollmentWindow_Id(windowId);
             long pending = submissions.stream()
-                    .filter(s -> s.getStatus() == EnrollementStatus.SUBMITTED || s.getStatus() == EnrollementStatus.DRAFT)
+                    .filter(s -> s.getStatus() == EnrollementStatus.SUBMITTED || s.getStatus() == EnrollementStatus.DRAFT || !s.getStatus().equals(EnrollementStatus.APPROVED) || !s.getStatus().equals(EnrollementStatus.REJECTED))
                     .count();
             if (pending > 0) {
                 return responseObj.render(responseObj.formErrorResponse(400,
@@ -518,8 +521,13 @@ public class HRApprovalServiceImpl implements IHRApprovalService {
                         orgId, windowId, EndorsementSource.SELF_ENROLLMENT)
                 .orElse(null);
 
-        if (savedEndorsement == null) {
+        if (savedEndorsement == null) { 
             Endorsement endorsement = new Endorsement();
+            String username = jwtUserExtractor.extractCurrentUsername();
+            AdminUser uploadedBy = adminUserRepository.findByUsername(username).orElse(null);
+            if (uploadedBy != null) {
+                endorsement.setUploadedBy(uploadedBy);
+            }
             endorsement.setOrganization(org);
             endorsement.setEnrollmentWindow(window);
             endorsement.setEndorsementType(EndorsementType.ADDITION);
@@ -533,6 +541,11 @@ public class HRApprovalServiceImpl implements IHRApprovalService {
             savedEndorsement = endorsementRepository.save(endorsement);
             log.info("[correlationId:{}] Created endorsement {} for window {} org {}", MDC.get("correlationId"), savedEndorsement.getEndorsementId(), windowId, orgId);
         } else {
+            String username = jwtUserExtractor.extractCurrentUsername();
+            AdminUser uploadedBy = adminUserRepository.findByUsername(username).orElse(null);
+            if (uploadedBy != null) {
+                savedEndorsement.setUploadedBy(uploadedBy);
+            }
             int prevEmployees = savedEndorsement.getTotalEmployees() != null ? savedEndorsement.getTotalEmployees() : 0;
             int prevDependents = savedEndorsement.getTotalDependents() != null ? savedEndorsement.getTotalDependents() : 0;
             savedEndorsement.setTotalEmployees(prevEmployees + thisSubmissionEmployees);
@@ -541,8 +554,8 @@ public class HRApprovalServiceImpl implements IHRApprovalService {
             savedEndorsement.setUpdatedAt(LocalDateTime.now());
             savedEndorsement = endorsementRepository.save(savedEndorsement);
         }
-        UUID endorsementId = savedEndorsement.getEndorsementId();
-
+        UUID endorsementId = savedEndorsement.getEndorsementId();        
+     
         sub.setEndorsement(savedEndorsement);
         enrollmentSubmissionRepository.save(sub);
 

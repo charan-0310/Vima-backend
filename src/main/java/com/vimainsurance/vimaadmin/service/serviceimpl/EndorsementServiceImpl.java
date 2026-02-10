@@ -725,12 +725,27 @@ public class EndorsementServiceImpl implements IEndorsementService {
                 List<DocumentResponseDto> documentResponseDtos = documents.stream()
                     .map(document -> new DocumentResponseDto(document.getDocumentId().toString(), document.getDocumentType(), document.getUploadedAt(), document.getMimeType(), document.getNotes(), document.getOriginalFilename(), document.getDocumentCategory().toString(), DocumentServiceImpl.formatFileSize(document.getFileSize())))
                     .collect(Collectors.toList());
+                if(opt.get().getEnrollmentWindow() != null) {
+                    UUID enrollmentWindowId = opt.get().getEnrollmentWindow().getId();
+                    List<Document> enrollmentWindowDocuments = documentRepository.findByEntityId(enrollmentWindowId.toString());
+                    documentResponseDtos.addAll(enrollmentWindowDocuments.stream()
+                        .map(document -> new DocumentResponseDto(document.getDocumentId().toString(), document.getDocumentType(), document.getUploadedAt(), document.getMimeType(), document.getNotes(), document.getOriginalFilename(), document.getDocumentCategory().toString(), DocumentServiceImpl.formatFileSize(document.getFileSize())))
+                        .collect(Collectors.toList()));
+                }        
                 return responseObj.render(responseObj.formSuccessResponse(Constants.SUCCESS, documentResponseDtos, documents.size()));
             }
             Page<Document> documents = documentRepository.findByEntityId(endorsementId, PageRequest.of(page, rec));
             List<DocumentResponseDto> documentResponseDtos = documents.getContent().stream()
                 .map(document -> new DocumentResponseDto(document.getDocumentId().toString(), document.getDocumentType(), document.getUploadedAt(), document.getMimeType(), document.getNotes(), document.getOriginalFilename(), document.getDocumentCategory().toString(), DocumentServiceImpl.formatFileSize(document.getFileSize())))
                 .collect(Collectors.toList());
+
+            if(opt.get().getEnrollmentWindow() != null) {
+                UUID enrollmentWindowId = opt.get().getEnrollmentWindow().getId();
+                List<Document> enrollmentWindowDocuments = documentRepository.findByEntityId(enrollmentWindowId.toString());
+                documentResponseDtos.addAll(enrollmentWindowDocuments.stream()
+                    .map(document -> new DocumentResponseDto(document.getDocumentId().toString(), document.getDocumentType(), document.getUploadedAt(), document.getMimeType(), document.getNotes(), document.getOriginalFilename(), document.getDocumentCategory().toString(), DocumentServiceImpl.formatFileSize(document.getFileSize())))
+                    .collect(Collectors.toList()));
+            }    
             return responseObj.render(responseObj.formSuccessResponse(Constants.SUCCESS, documentResponseDtos, documents.getTotalElements()));
         } catch(OrganizationAccessDeniedException e) {
             logger.warn("[correlationId:{}] Organization access denied: {}", MDC.get("correlationId"));
