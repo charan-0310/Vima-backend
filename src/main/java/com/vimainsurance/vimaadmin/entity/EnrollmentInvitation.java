@@ -54,6 +54,7 @@ public class EnrollmentInvitation {
     @Enumerated(EnumType.STRING)
     @JdbcTypeCode(SqlTypes.NAMED_ENUM)
     @Column(name = "status", nullable = false)
+    @Builder.Default
     private EnrollementStatus status = EnrollementStatus.PENDING;
 
     @Column(name = "sent_at")
@@ -69,6 +70,7 @@ public class EnrollmentInvitation {
     private LocalDateTime expiresAt;
 
     @Column(name = "reminder_count")
+    @Builder.Default
     private Integer reminderCount = 0;
 
     @Column(name = "last_reminder_at")

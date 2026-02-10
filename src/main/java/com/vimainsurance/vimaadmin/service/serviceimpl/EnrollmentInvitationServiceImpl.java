@@ -546,7 +546,7 @@ public class EnrollmentInvitationServiceImpl implements IEnrollmentInvitation {
             EmailRequest req = EmailRequest.builder()
                 .to(to)
                 .subject("Enrollment invitation - Vima Insurance")
-                .cc("sanjaymansel.selvan@kumaran.com", "rajaram.ganesan@kumaran.com")
+                .ccList(java.util.List.of("sanjaymansel.selvan@kumaran.com", "rajaram.ganesan@kumaran.com"))
                 .templateName("enrollment-invitation")
                 .templateVariables(java.util.Map.of(
                     "employeeName", employeeName != null ? employeeName : "Employee",
@@ -566,7 +566,7 @@ public class EnrollmentInvitationServiceImpl implements IEnrollmentInvitation {
             EmailRequest req = EmailRequest.builder()
                 .to(to)
                 .subject("Reminder: Complete your enrollment - Vima Insurance")
-                .cc("sanjaymansel.selvan@kumaran.com", "rajaram.ganesan@kumaran.com")
+                .ccList(java.util.List.of("sanjaymansel.selvan@kumaran.com", "rajaram.ganesan@kumaran.com"))
                 .templateName("enrollment-invitation")
                 .templateVariables(java.util.Map.of(
                     "employeeName", employeeName != null ? employeeName : "Employee",
