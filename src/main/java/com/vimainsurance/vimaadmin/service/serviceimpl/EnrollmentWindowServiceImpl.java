@@ -47,6 +47,7 @@ import com.vimainsurance.vimaadmin.repository.IEnrollmentSubmissionRepository;
 import com.vimainsurance.vimaadmin.repository.IEnrollmentWindowsRepository;
 import com.vimainsurance.vimaadmin.repository.IOrganizationRepository;
 import com.vimainsurance.vimaadmin.service.IEnrollmentWindowService;
+import com.vimainsurance.vimaadmin.service.IHRApprovalService;
 import com.vimainsurance.vimaadmin.specification.EnrollmentWindowSpecification;
 import com.vimainsurance.vimaadmin.util.Constants;
 import com.vimainsurance.vimaadmin.util.JwtUserExtractor;
@@ -78,6 +79,9 @@ public class EnrollmentWindowServiceImpl implements IEnrollmentWindowService {
 
     @Autowired
     private IEnrollmentSubmissionRepository enrollmentSubmissionRepository;
+
+    @Autowired
+    private IHRApprovalService hrApprovalService;
 
     @Autowired
     private JwtUserExtractor jwtUserExtractor;
@@ -343,6 +347,12 @@ public class EnrollmentWindowServiceImpl implements IEnrollmentWindowService {
             if (entity.getStatus() == EnrollementStatus.CANCELLED) {
                 return responseObj.render(responseObj.formErrorResponse("Window is already cancelled"));
             }
+
+            ResponseEntity<ResponseDto<String>> finalizeResult = hrApprovalService.finalizeEnrollmentWindow(id);
+            if (finalizeResult.getBody() != null && finalizeResult.getBody().getErrorCode() != null) {
+                return finalizeResult;
+            }
+
             entity.setStatus(EnrollementStatus.CLOSED);
             entity.setClosedAt(LocalDateTime.now());
             enrollmentWindowsRepository.save(entity);
