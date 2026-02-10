@@ -15,6 +15,8 @@ import lombok.NoArgsConstructor;
 public class EmployeeProgressDetailDto {
 
     private UUID employeeId;
+    /** Enrollment invitation ID (for "Copy link" when email not received). */
+    private UUID invitationId;
     /** Enrollment submission ID when employee has a submission (e.g. SUBMITTED, APPROVED, REJECTED). */
     private UUID submissionId;
     private String name;

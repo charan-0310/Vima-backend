@@ -116,6 +116,14 @@ public class EnrollmentInvitationController {
         return enrollmentInvitationService.listInvitations(windowId, status, pageable);
     }
 
+    /** GET /api/v1/admin/enrollments/invitations/{invitationId}/link - Get enrollment URL (e.g. if email not received) */
+    @GetMapping("/invitations/{invitationId}/link")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'VIMA_ADMIN', 'HR_ADMIN')")
+    public ResponseEntity<?> getInvitationLink(@PathVariable UUID invitationId) {
+        logger.info("[correlationId:{}] GET /api/v1/admin/enrollments/invitations/{}/link", MDC.get("correlationId"), invitationId);
+        return enrollmentInvitationService.getInvitationLink(invitationId);
+    }
+
     /** GET /api/v1/admin/enrollments/windows/{windowId}/progress - Track completion (no endorsement) */
     @GetMapping("/windows/{windowId}/progress")
     @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'VIMA_ADMIN', 'HR_ADMIN')")

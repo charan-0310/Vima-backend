@@ -6,16 +6,13 @@ import lombok.Data;
 import lombok.NoArgsConstructor;
 
 /**
- * Response for POST /api/v1/admin/enrollments/{invitationId}/resend
+ * Response for GET /api/v1/admin/enrollments/invitations/{id}/link
  */
 @Data
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
-public class ResendInvitationResponseDto {
+public class InvitationLinkResponseDto {
 
-    private boolean sent;
-    private String email;
-    /** Enrollment URL so admin can copy if email not received */
     private String magicLink;
 }

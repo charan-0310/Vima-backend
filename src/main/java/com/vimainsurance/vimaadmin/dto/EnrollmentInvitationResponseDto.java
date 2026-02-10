@@ -26,4 +26,7 @@ public class EnrollmentInvitationResponseDto {
     private LocalDateTime lastReminderAt;
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
+
+    /** Enrollment URL for this invitation (included when available, e.g. after send/resend so admin can copy if email not received) */
+    private String magicLink;
 }
