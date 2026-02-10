@@ -546,6 +546,15 @@ public class HRApprovalServiceImpl implements IHRApprovalService {
         sub.setEndorsement(savedEndorsement);
         enrollmentSubmissionRepository.save(sub);
 
+        employee.setEndorsementId(endorsementId);
+        dealsRepository.save(employee);
+        for (Deals d : dependents) {
+            d.setEndorsementId(endorsementId);
+        }
+        if (!dependents.isEmpty()) {
+            saveDealsInBatches(dependents);
+        }
+
         List<DealEndorsement> toSave = new ArrayList<>();
         if (employee.getIndividualId() != null && !dealEndorsementRepository.existsByDeal_IndividualIdAndEndorsement_EndorsementId(employee.getIndividualId(), endorsementId)) {
             DealEndorsement de = new DealEndorsement();
