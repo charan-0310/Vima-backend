@@ -34,6 +34,8 @@ import com.vimainsurance.vimaadmin.repository.IEnrollmentWindowsRepository;
 import com.vimainsurance.vimaadmin.service.IEnrollmentService;
 import com.vimainsurance.vimaadmin.service.TokenSecurityService;
 
+import java.time.LocalDateTime;
+
 @Service
 public class EnrollmentServiceImpl implements IEnrollmentService {
 
@@ -92,9 +94,13 @@ public class EnrollmentServiceImpl implements IEnrollmentService {
                 return responseObj.render(responseObj.formErrorResponse(400, ENROLLMENT_WINDOW_EXPIRED_MESSAGE + " " + detail));
             }
 
-            // Update enrollment window status to OPENED when date validation is successful
-            enrollmentWindow.setStatus(EnrollementStatus.OPENED);
-            enrollmentWindowsRepository.save(enrollmentWindow);
+            // Mark invitation as OPENED on first access (not the window — window stays ACTIVE)
+            if (invitation.getStatus() == EnrollementStatus.SENT || invitation.getStatus() == EnrollementStatus.PENDING) {
+                invitation.setStatus(EnrollementStatus.OPENED);
+                invitation.setOpenedAt(LocalDateTime.now());
+                enrollmentInvitationRepository.save(invitation);
+                logger.info("[correlationId:{}] Invitation marked as OPENED: {}", MDC.get("correlationId"), invitation.getId());
+            }
 
             // 3. Retrieve and return the matched enrollment_windows record (via IEnrollmentWindowsRepository)
             EnrollmentWindowResponseDto enrollmentWindowDto = EnrollmentWindowMapper.mapToResponseDto(enrollmentWindow);
@@ -107,11 +113,33 @@ public class EnrollmentServiceImpl implements IEnrollmentService {
             Deals employeeDeal = dealsOpt.get();
             DealsResponseDto employeeDto = mapDealToResponseDto(employeeDeal);
 
-            EnrollmentContextDto dto = new EnrollmentContextDto(
-                    enrollmentWindowId,
-                    employeeId,
-                    enrollmentWindowDto,
-                    employeeDto);
+            // 5. Get or create draft submission so frontend always has a submissionId
+            EnrollmentSubmission submission = enrollmentSubmissionRepository
+                    .findByEmployee_IndividualIdAndEnrollmentWindow_Id(employeeId, enrollmentWindowId)
+                    .orElseGet(() -> {
+                        logger.info("[correlationId:{}] Creating draft submission for employee: {} window: {}",
+                                MDC.get("correlationId"), employeeId, enrollmentWindowId);
+                        EnrollmentSubmission draft = new EnrollmentSubmission();
+                        draft.setEmployee(employeeDeal);
+                        draft.setEnrollmentWindow(enrollmentWindow);
+                        draft.setInvitation(invitation);
+                        draft.setStatus(EnrollementStatus.DRAFT);
+                        draft.setPlanSelections("[]");
+                        draft.setNomineeData("{}");
+                        draft.setPersonalDetails("{}");
+                        draft.setDependents("[]");
+                        draft.setPremiumBreakdown("{}");
+                        draft.setDeclarationAccepted(false);
+                        return enrollmentSubmissionRepository.saveAndFlush(draft);
+                    });
+
+            EnrollmentContextDto dto = new EnrollmentContextDto();
+            dto.setEnrollmentWindowId(enrollmentWindowId);
+            dto.setEmployeeId(employeeId);
+            dto.setSubmissionId(submission.getId());
+            dto.setInvitationId(invitation.getId());
+            dto.setEnrollmentWindow(enrollmentWindowDto);
+            dto.setEmployee(employeeDto);
             return responseObj.render(responseObj.formSuccessResponse("Token valid", dto));
         } catch (IllegalArgumentException e) {
             logger.warn("[correlationId:{}] Invalid token: {}", MDC.get("correlationId"), e.getMessage());

@@ -194,8 +194,14 @@ public class EnrollmentSubmissionServiceImpl implements IEnrollmentSubmissionSer
         }
 
         EnrollmentSubmission entity = EnrollmentSubmissionMapper.mapToEntity(requestDto, employee, enrollmentWindow, invitation, endorsement, reviewedBy);
-        enrollmentSubmissionRepository.save(entity);
-        return responseObj.render(responseObj.formSuccessResponse(Constants.SUCCESS, Constants.SAVE_SUCCESS));
+        // Flush so the DB assigns the UUID before we read it (getId() is null until insert is executed)
+        EnrollmentSubmission saved = enrollmentSubmissionRepository.saveAndFlush(entity);
+        UUID id = saved.getId();
+        if (id == null) {
+            logger.warn("[correlationId:{}] EnrollmentSubmission insert returned entity with null id", MDC.get("correlationId"));
+            return responseObj.render(responseObj.formErrorResponse("Failed to create submission: ID not assigned"));
+        }
+        return responseObj.render(responseObj.formSuccessResponse(Constants.SUCCESS, id.toString()));
     }
 
     @Override
