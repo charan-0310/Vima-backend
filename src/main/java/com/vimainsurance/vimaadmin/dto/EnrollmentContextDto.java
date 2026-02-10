@@ -1,5 +1,6 @@
 package com.vimainsurance.vimaadmin.dto;
 
+import java.util.List;
 import java.util.UUID;
 
 import lombok.AllArgsConstructor;
@@ -9,7 +10,8 @@ import lombok.NoArgsConstructor;
 /**
  * Context returned after validating an enrollment token.
  * Includes the matched enrollment_windows record, employee/deals record,
- * and the draft submission that was created or found.
+ * the draft submission that was created or found, and organization policies
+ * so the employee portal can show only the plans (GMC/GHI, GPA, GTL) the company has.
  */
 @Data
 @NoArgsConstructor
@@ -26,4 +28,6 @@ public class EnrollmentContextDto {
     private EnrollmentWindowResponseDto enrollmentWindow;
     /** Matched employee/deals record (retrieved via IDealsRepository). */
     private DealsResponseDto employee;
+    /** Organization policies (fetched internally) — which plans the company has. */
+    private List<EnrollmentOrganizationPolicyDto> organizationPolicies;
 }

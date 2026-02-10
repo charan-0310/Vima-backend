@@ -17,6 +17,7 @@ import org.springframework.transaction.annotation.Transactional;
 import com.vimainsurance.vimaadmin.dto.BaseResponse;
 import com.vimainsurance.vimaadmin.dto.DealsResponseDto;
 import com.vimainsurance.vimaadmin.dto.EnrollmentContextDto;
+import com.vimainsurance.vimaadmin.dto.EnrollmentOrganizationPolicyDto;
 import com.vimainsurance.vimaadmin.dto.EnrollmentSubmissionResponseDto;
 import com.vimainsurance.vimaadmin.dto.EnrollmentWindowResponseDto;
 import com.vimainsurance.vimaadmin.dto.ResponseDto;
@@ -24,6 +25,7 @@ import com.vimainsurance.vimaadmin.entity.Deals;
 import com.vimainsurance.vimaadmin.entity.EnrollmentInvitation;
 import com.vimainsurance.vimaadmin.entity.EnrollmentSubmission;
 import com.vimainsurance.vimaadmin.entity.EnrollmentWindows;
+import com.vimainsurance.vimaadmin.entity.Policy;
 import com.vimainsurance.vimaadmin.enums.EnrollementStatus;
 import com.vimainsurance.vimaadmin.mapper.EnrollmentSubmissionMapper;
 import com.vimainsurance.vimaadmin.mapper.EnrollmentWindowMapper;
@@ -31,6 +33,7 @@ import com.vimainsurance.vimaadmin.repository.IDealsRepository;
 import com.vimainsurance.vimaadmin.repository.IEnrollmentInvitationRepository;
 import com.vimainsurance.vimaadmin.repository.IEnrollmentSubmissionRepository;
 import com.vimainsurance.vimaadmin.repository.IEnrollmentWindowsRepository;
+import com.vimainsurance.vimaadmin.repository.IPolicyRepository;
 import com.vimainsurance.vimaadmin.service.IEnrollmentService;
 import com.vimainsurance.vimaadmin.service.TokenSecurityService;
 
@@ -53,6 +56,8 @@ public class EnrollmentServiceImpl implements IEnrollmentService {
     private IDealsRepository dealsRepository;
     @Autowired
     private IEnrollmentSubmissionRepository enrollmentSubmissionRepository;
+    @Autowired
+    private IPolicyRepository policyRepository;
 
     @Override
     @Transactional
@@ -140,6 +145,24 @@ public class EnrollmentServiceImpl implements IEnrollmentService {
             dto.setInvitationId(invitation.getId());
             dto.setEnrollmentWindow(enrollmentWindowDto);
             dto.setEmployee(employeeDto);
+            // Fetch organization policies internally (no separate public API) for Nominees/Plans steps
+            if (enrollmentWindow.getOrganization() != null) {
+                UUID orgId = enrollmentWindow.getOrganization().getOrganizationId();
+                List<Policy> policies = policyRepository.findByOrganizationId(orgId);
+                List<EnrollmentOrganizationPolicyDto> policyDtos = new ArrayList<>();
+                for (Policy p : policies) {
+                    EnrollmentOrganizationPolicyDto pd = new EnrollmentOrganizationPolicyDto();
+                    pd.setPolicyId(p.getPolicyId());
+                    pd.setPolicyNumber(p.getPolicyNumber());
+                    pd.setProductType(p.getProductType() != null ? p.getProductType().name() : null);
+                    pd.setSumInsured(p.getSumInsured());
+                    pd.setCoverageAmount(p.getSumInsured());
+                    policyDtos.add(pd);
+                }
+                dto.setOrganizationPolicies(policyDtos);
+            } else {
+                dto.setOrganizationPolicies(new ArrayList<>());
+            }
             return responseObj.render(responseObj.formSuccessResponse("Token valid", dto));
         } catch (IllegalArgumentException e) {
             logger.warn("[correlationId:{}] Invalid token: {}", MDC.get("correlationId"), e.getMessage());
