@@ -292,7 +292,7 @@ public class HRApprovalServiceImpl implements IHRApprovalService {
         try {
             List<EnrollmentSubmission> submissions = enrollmentSubmissionRepository.findAllByEnrollmentWindow_Id(windowId);
             long pending = submissions.stream()
-                    .filter(s -> s.getStatus() == EnrollementStatus.SUBMITTED || s.getStatus() == EnrollementStatus.DRAFT)
+                    .filter(s -> s.getStatus() == EnrollementStatus.SUBMITTED || s.getStatus() == EnrollementStatus.DRAFT || !s.getStatus().equals(EnrollementStatus.APPROVED) || !s.getStatus().equals(EnrollementStatus.REJECTED))
                     .count();
             if (pending > 0) {
                 return responseObj.render(responseObj.formErrorResponse(400,

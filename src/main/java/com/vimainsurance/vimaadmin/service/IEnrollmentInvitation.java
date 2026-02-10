@@ -12,6 +12,7 @@ import com.vimainsurance.vimaadmin.dto.ActivateWindowResponseDto;
 import com.vimainsurance.vimaadmin.dto.EnrollmentInvitationResponseDto;
 import com.vimainsurance.vimaadmin.dto.EnrollmentProgressResponseDto;
 import com.vimainsurance.vimaadmin.dto.ExtendDeadlineResultDto;
+import com.vimainsurance.vimaadmin.dto.InvitationLinkResponseDto;
 import com.vimainsurance.vimaadmin.dto.ResendInvitationResponseDto;
 import com.vimainsurance.vimaadmin.dto.ResponseDto;
 
@@ -56,6 +57,11 @@ public interface IEnrollmentInvitation {
      * List invitations with optional filters (windowId, status) and pagination.
      */
     ResponseEntity<ResponseDto<Page<EnrollmentInvitationResponseDto>>> listInvitations(UUID windowId, String status, Pageable pageable);
+
+    /**
+     * Get the enrollment (magic) link for an invitation. Only available when token is deterministic (new invitations).
+     */
+    ResponseEntity<ResponseDto<InvitationLinkResponseDto>> getInvitationLink(UUID invitationId);
 
     /**
      * Activate enrollment window (scheduled → active) and send invitations to all employees linked to the window.
