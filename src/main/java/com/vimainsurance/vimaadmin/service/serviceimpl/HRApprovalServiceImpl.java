@@ -55,9 +55,9 @@ import com.vimainsurance.vimaadmin.repository.INomineeRepository;
 import com.vimainsurance.vimaadmin.service.IEmailService;
 import com.vimainsurance.vimaadmin.service.IHRApprovalService;
 import com.vimainsurance.vimaadmin.specification.EnrollmentSubmissionSpecification;
+import com.vimainsurance.vimaadmin.util.JwtUserExtractor;
 import com.vimainsurance.vimaadmin.util.TenantContext;
 import com.vimainsurance.vimaadmin.util.TransactionUtil;
-import com.vimainsurance.vimaadmin.util.JwtUserExtractor;
 
 import lombok.extern.slf4j.Slf4j;
 
@@ -181,27 +181,7 @@ public class HRApprovalServiceImpl implements IHRApprovalService {
             sub.setReviewedAt(LocalDateTime.now());
             enrollmentSubmissionRepository.save(sub);
 
-            Deals employee = sub.getEmployee();
-            if (employee != null) {
-                updateEmployeeFromPersonalDetails(employee, sub.getPersonalDetails());
-                dealsRepository.save(employee);
-
-                List<Deals> newDependents = createDependentsFromJson(sub, employee, sub.getDependents());
-                saveDealsInBatches(newDependents);
-
-                List<Nominee> nominees = createNomineesFromJson(sub, employee, sub.getNomineeData());
-                saveNomineesInBatches(nominees);
-            }
-
-            List<Deals> existingDependents = dealsRepository.findByEnrollmentSubmission_Id(id);
-            LocalDateTime now = LocalDateTime.now();
-            for (Deals d : existingDependents) {
-                d.setStatus(AccountStatus.PENDING_APPROVAL);
-                d.setUpdatedAt(now);
-            }
-            if (!existingDependents.isEmpty()) {
-                saveDealsInBatches(existingDependents);
-            }
+            updateDealEnrollmentStatusForSubmission(id, EnrollementStatus.APPROVED);
 
             sendApprovalEmail(sub);
 
@@ -246,15 +226,7 @@ public class HRApprovalServiceImpl implements IHRApprovalService {
             sub.setReviewedAt(LocalDateTime.now());
             enrollmentSubmissionRepository.save(sub);
 
-            List<Deals> dependents = dealsRepository.findByEnrollmentSubmission_Id(id);
-            LocalDateTime now = LocalDateTime.now();
-            for (Deals d : dependents) {
-                d.setStatus(AccountStatus.REJECTED);
-                d.setUpdatedAt(now);
-            }
-            if (!dependents.isEmpty()) {
-                saveDealsInBatches(dependents);
-            }
+            updateDealEnrollmentStatusForSubmission(id, EnrollementStatus.REJECTED);
 
             if (request.isReopenInvitation() && sub.getInvitation() != null) {
                 EnrollmentInvitation inv = sub.getInvitation();
@@ -304,27 +276,7 @@ public class HRApprovalServiceImpl implements IHRApprovalService {
                 sub.setReviewedAt(LocalDateTime.now());
                 enrollmentSubmissionRepository.save(sub);
 
-                Deals employee = sub.getEmployee();
-                if (employee != null) {
-                    updateEmployeeFromPersonalDetails(employee, sub.getPersonalDetails());
-                    dealsRepository.save(employee);
-
-                    List<Deals> newDependents = createDependentsFromJson(sub, employee, sub.getDependents());
-                    saveDealsInBatches(newDependents);
-
-                    List<Nominee> nominees = createNomineesFromJson(sub, employee, sub.getNomineeData());
-                    saveNomineesInBatches(nominees);
-                }
-
-                List<Deals> existingDependents = dealsRepository.findByEnrollmentSubmission_Id(id);
-                LocalDateTime now = LocalDateTime.now();
-                for (Deals d : existingDependents) {
-                    d.setStatus(AccountStatus.ACTIVE);
-                    d.setUpdatedAt(now);
-                }
-                if (!existingDependents.isEmpty()) {
-                    saveDealsInBatches(existingDependents);
-                }
+                updateDealEnrollmentStatusForSubmission(id, EnrollementStatus.APPROVED);
 
                 sendApprovalEmail(sub);
                 approved.add(toListItemDto(sub));
@@ -435,6 +387,32 @@ public class HRApprovalServiceImpl implements IHRApprovalService {
                 .invitationId(inv != null ? inv.getId() : null)
                 .invitationStatus(inv != null && inv.getStatus() != null ? inv.getStatus().getValue() : null)
                 .build();
+    }
+
+    /**
+     * Sets enrollmentStatus on the submission's employee and all deals linked to this submission (dependents).
+     * Does not change account status (e.g. remains PENDING_APPROVAL).
+     */
+    private void updateDealEnrollmentStatusForSubmission(UUID submissionId, EnrollementStatus enrollmentStatus) {
+        EnrollmentSubmission sub = enrollmentSubmissionRepository.findById(submissionId).orElse(null);
+        if (sub == null) {
+            return;
+        }
+        LocalDateTime now = LocalDateTime.now();
+        Deals employee = sub.getEmployee();
+        if (employee != null) {
+            employee.setEnrollmentStatus(enrollmentStatus);
+            employee.setUpdatedAt(now);
+            dealsRepository.save(employee);
+        }
+        List<Deals> dependents = dealsRepository.findByEnrollmentSubmission_Id(submissionId);
+        for (Deals d : dependents) {
+            d.setEnrollmentStatus(enrollmentStatus);
+            d.setUpdatedAt(now);
+        }
+        if (!dependents.isEmpty()) {
+            saveDealsInBatches(dependents);
+        }
     }
 
     private void sendApprovalEmail(EnrollmentSubmission sub) {
