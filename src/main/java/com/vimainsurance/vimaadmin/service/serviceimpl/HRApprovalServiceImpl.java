@@ -6,6 +6,7 @@ import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -741,7 +742,11 @@ public class HRApprovalServiceImpl implements IHRApprovalService {
     }
 
     /**
-     * Creates Nominee entities from nomineeData JSON. Supports single object or array of objects.
+     * Creates Nominee entities from nomineeData JSON.
+     * Supports:
+     * - New structure: { "gpaNominees": [...], "gtlNominees": [...], "customNominees": [...], "useSameAsGtl": boolean }
+     *   where each nominee has id, name (or firstName/lastName), percentage, relationship, etc.
+     * - Legacy: single object or array of objects with firstName, lastName, fullName, dateOfBirth, gender, relationship.
      */
     private List<Nominee> createNomineesFromJson(EnrollmentSubmission sub, Deals customer, String nomineeDataJson) {
         List<Nominee> list = new ArrayList<>();
@@ -750,6 +755,54 @@ public class HRApprovalServiceImpl implements IHRApprovalService {
         }
         try {
             JsonNode root = OBJECT_MAPPER.readTree(nomineeDataJson);
+
+            // New structure: gpaNominees, gtlNominees, customNominees (dedupe by id)
+            if (root.isObject() && (root.has("gpaNominees") || root.has("gtlNominees") || root.has("customNominees"))) {
+                Map<String, JsonNode> byId = new LinkedHashMap<>();
+                if (root.has("customNominees") && root.get("customNominees").isArray()) {
+                    for (JsonNode node : root.get("customNominees")) {
+                        if (node.isObject()) {
+                            String id = text(node.get("id"));
+                            if (id != null && !id.isBlank()) {
+                                byId.put(id, node);
+                            }
+                        }
+                    }
+                }
+                if (root.has("gpaNominees") && root.get("gpaNominees").isArray()) {
+                    for (JsonNode node : root.get("gpaNominees")) {
+                        if (node.isObject()) {
+                            String id = text(node.get("id"));
+                            if (id != null && !id.isBlank()) {
+                                byId.putIfAbsent(id, node);
+                            }
+                        }
+                    }
+                }
+                boolean useSameAsGtl = root.has("useSameAsGtl") && root.get("useSameAsGtl").asBoolean(false);
+                if (root.has("gtlNominees") && root.get("gtlNominees").isArray()) {
+                    for (JsonNode node : root.get("gtlNominees")) {
+                        if (node.isObject()) {
+                            String id = text(node.get("id"));
+                            if (id != null && !id.isBlank()) {
+                                if (useSameAsGtl && byId.containsKey(id)) {
+                                    continue;
+                                }
+                                byId.putIfAbsent(id, node);
+                            }
+                        }
+                    }
+                }
+                for (JsonNode node : byId.values()) {
+                    Nominee nominee = mapNomineeNodeToEntity(sub, customer, node, true);
+                    if (nominee != null) {
+                        list.add(nominee);
+                    }
+                }
+                return list;
+            }
+
+            // Legacy: array or single object
             List<JsonNode> nodes = new ArrayList<>();
             if (root.isArray()) {
                 for (JsonNode n : root) {
@@ -762,60 +815,86 @@ public class HRApprovalServiceImpl implements IHRApprovalService {
                 if (!node.isObject()) {
                     continue;
                 }
-                String firstName = text(node.get("firstName"));
-                String lastName = text(node.get("lastName"));
-                String fullName = text(node.get("fullName"));
-                if (fullName == null && (firstName != null || lastName != null)) {
-                    fullName = (firstName != null ? firstName : "") + " " + (lastName != null ? lastName : "");
-                    fullName = fullName.trim();
+                Nominee nominee = mapNomineeNodeToEntity(sub, customer, node, false);
+                if (nominee != null) {
+                    list.add(nominee);
                 }
-                if (fullName == null) {
-                    fullName = text(node.get("name"));
-                }
-                if (firstName == null && fullName != null) {
-                    String[] parts = fullName.split("\\s+", 2);
-                    firstName = parts[0];
-                    if (parts.length > 1) {
-                        lastName = parts[1];
-                    }
-                }
-                LocalDate dob = parseDate(text(node.get("dateOfBirth")));
-                if (dob == null) {
-                    dob = parseDate(text(node.get("dob")));
-                }
-                String gender = text(node.get("gender"));
-                String relationship = text(node.get("relationship"));
-                if ((firstName == null || firstName.isBlank()) && (fullName == null || fullName.isBlank())) {
-                    continue;
-                }
-                if (dob == null || gender == null || relationship == null) {
-                    continue;
-                }
-                Nominee n = new Nominee();
-                n.setSubmission(sub);
-                n.setCustomer(customer);
-                n.setFirstName(firstName != null ? firstName : fullName);
-                n.setLastName(lastName);
-                n.setFullName(fullName);
-                n.setDateOfBirth(dob);
-                n.setGender(gender);
-                n.setRelationship(relationship);
-                if (node.has("nomineePercentage")) {
-                    try {
-                        n.setNomineePercentage(BigDecimal.valueOf(node.get("nomineePercentage").doubleValue()));
-                    } catch (Exception ignored) {
-                        n.setNomineePercentage(BigDecimal.valueOf(100.00));
-                    }
-                } else {
-                    n.setNomineePercentage(BigDecimal.valueOf(100.00));
-                }
-                n.setIsActive(true);
-                list.add(n);
             }
         } catch (Exception e) {
             log.warn("[correlationId:{}] Failed to parse nomineeData JSON: {}", MDC.get("correlationId"), e.getMessage());
         }
         return list;
+    }
+
+    /**
+     * Maps a single JSON node (from gpaNominees/gtlNominees/customNominees or legacy) to a Nominee entity.
+     * @param allowMissingDobGender when true (new structure), use defaults for missing dob/gender; when false (legacy), skip if missing.
+     */
+    private Nominee mapNomineeNodeToEntity(EnrollmentSubmission sub, Deals customer, JsonNode node, boolean allowMissingDobGender) {
+        String firstName = text(node.get("firstName"));
+        String lastName = text(node.get("lastName"));
+        String fullName = text(node.get("fullName"));
+        if (fullName == null && (firstName != null || lastName != null)) {
+            fullName = (firstName != null ? firstName : "") + " " + (lastName != null ? lastName : "");
+            fullName = fullName.trim();
+        }
+        if (fullName == null) {
+            fullName = text(node.get("name"));
+        }
+        if (firstName == null && fullName != null) {
+            String[] parts = fullName.split("\\s+", 2);
+            firstName = parts[0];
+            if (parts.length > 1) {
+                lastName = parts[1];
+            }
+        }
+        LocalDate dob = parseDate(text(node.get("dateOfBirth")));
+        if (dob == null) {
+            dob = parseDate(text(node.get("dob")));
+        }
+        String gender = text(node.get("gender"));
+        String relationship = text(node.get("relationship"));
+        if ((firstName == null || firstName.isBlank()) && (fullName == null || fullName.isBlank())) {
+            return null;
+        }
+        if (relationship == null || relationship.isBlank()) {
+            return null;
+        }
+        if (!allowMissingDobGender && (dob == null || gender == null)) {
+            return null;
+        }
+        if (dob == null) {
+            dob = LocalDate.of(1900, 1, 1);
+        }
+        if (gender == null || gender.isBlank()) {
+            gender = "Other";
+        }
+        Nominee n = new Nominee();
+        n.setSubmission(sub);
+        n.setCustomer(customer);
+        n.setFirstName(firstName != null ? firstName : fullName);
+        n.setLastName(lastName);
+        n.setFullName(fullName);
+        n.setDateOfBirth(dob);
+        n.setGender(gender);
+        n.setRelationship(relationship);
+        if (node.has("percentage")) {
+            try {
+                n.setNomineePercentage(BigDecimal.valueOf(node.get("percentage").doubleValue()));
+            } catch (Exception ignored) {
+                n.setNomineePercentage(BigDecimal.valueOf(100.00));
+            }
+        } else if (node.has("nomineePercentage")) {
+            try {
+                n.setNomineePercentage(BigDecimal.valueOf(node.get("nomineePercentage").doubleValue()));
+            } catch (Exception ignored) {
+                n.setNomineePercentage(BigDecimal.valueOf(100.00));
+            }
+        } else {
+            n.setNomineePercentage(BigDecimal.valueOf(100.00));
+        }
+        n.setIsActive(true);
+        return n;
     }
 
     private void saveDealsInBatches(List<Deals> deals) {
