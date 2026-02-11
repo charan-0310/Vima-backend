@@ -82,6 +82,15 @@ public class EnrollmentServiceImpl implements IEnrollmentService {
             }
 
             EnrollmentInvitation invitation = invOpt.get();
+
+            if(invitation.getStatus() == EnrollementStatus.EXPIRED) {
+                return responseObj.render(responseObj.formErrorResponse(400, "Enrollment invitation expired"));
+            }
+
+            if(invitation.getStatus() == EnrollementStatus.COMPLETED) {
+                return responseObj.render(responseObj.formErrorResponse(400, "Enrollment invitation already completed"));
+            }
+
             UUID enrollmentWindowId = invitation.getEnrollmentWindow().getId();
             UUID employeeId = invitation.getEmployee().getIndividualId();
 

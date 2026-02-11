@@ -17,12 +17,14 @@ import org.springframework.transaction.annotation.Transactional;
 import com.vimainsurance.vimaadmin.dto.BaseResponse;
 import com.vimainsurance.vimaadmin.dto.EnrollmentSubmissionRequestDto;
 import com.vimainsurance.vimaadmin.dto.EnrollmentSubmissionResponseDto;
+import com.vimainsurance.vimaadmin.dto.EmailRequest;
 import com.vimainsurance.vimaadmin.dto.ResponseDto;
 import com.vimainsurance.vimaadmin.entity.AdminUser;
 import com.vimainsurance.vimaadmin.entity.Deals;
 import com.vimainsurance.vimaadmin.entity.EnrollmentInvitation;
 import com.vimainsurance.vimaadmin.entity.EnrollmentSubmission;
 import com.vimainsurance.vimaadmin.entity.EnrollmentWindows;
+import com.vimainsurance.vimaadmin.enums.EnrollementStatus;
 import com.vimainsurance.vimaadmin.entity.Endorsement;
 import com.vimainsurance.vimaadmin.mapper.EnrollmentSubmissionMapper;
 import com.vimainsurance.vimaadmin.repository.IAdminUserRepository;
@@ -32,6 +34,7 @@ import com.vimainsurance.vimaadmin.repository.IEnrollmentSubmissionRepository;
 import com.vimainsurance.vimaadmin.repository.IEnrollmentWindowsRepository;
 import com.vimainsurance.vimaadmin.repository.IEndorsementRepository;
 import com.vimainsurance.vimaadmin.service.IEnrollmentSubmissionService;
+import com.vimainsurance.vimaadmin.service.IEmailService;
 import com.vimainsurance.vimaadmin.util.Constants;
 
 @Service
@@ -56,6 +59,9 @@ public class EnrollmentSubmissionServiceImpl implements IEnrollmentSubmissionSer
 
     @Autowired
     private IAdminUserRepository adminUserRepository;
+
+    @Autowired
+    private IEmailService emailService;
 
     @Override
     @Transactional
@@ -151,6 +157,10 @@ public class EnrollmentSubmissionServiceImpl implements IEnrollmentSubmissionSer
 
         EnrollmentSubmissionMapper.updateEntityFromDto(entity, requestDto, employee, enrollmentWindow, invitation, endorsement, reviewedBy);
         enrollmentSubmissionRepository.save(entity);
+
+        if(entity.getStatus() == EnrollementStatus.SUBMITTED) {
+            sendSubmissionEmail(entity);
+        }
         return responseObj.render(responseObj.formSuccessResponse(Constants.SUCCESS, Constants.UPDATE_SUCCESS));
     }
 
@@ -235,6 +245,28 @@ public class EnrollmentSubmissionServiceImpl implements IEnrollmentSubmissionSer
         } catch (Exception e) {
             logger.error("[correlationId:{}] Exception in EnrollmentSubmission getByEmployeeId: {}", MDC.get("correlationId"), e.getMessage(), e);
             return responseObj.render(responseObj.formErrorResponse(Constants.RECORD_NOT_FOUND_MESSAGE));
+        }
+    }
+
+    private void sendSubmissionEmail(EnrollmentSubmission submission) {
+        try {
+            Deals emp = submission.getEmployee();
+            if (emp == null || emp.getEmail() == null || emp.getEmail().isBlank()) {
+                return;
+            }
+            String subject = "Enrollment Submission – " + (submission.getReferenceNumber() != null ? submission.getReferenceNumber() : submission.getId());
+            String body = "Your enrollment submission has been submitted.\n\nReference: "
+                    + (submission.getReferenceNumber() != null ? submission.getReferenceNumber() : submission.getId())
+                    + "\n\nThank you.";
+            EmailRequest req = EmailRequest.builder()
+                    .to(emp.getEmail())
+                    .subject(subject)
+                    .body(body)
+                    .isHtml(false)
+                    .build();
+            emailService.sendSimpleEmail(req);
+        } catch (Exception e) {
+            logger.warn("[correlationId:{}] Failed to send submission email: {}", MDC.get("correlationId"), e.getMessage());
         }
     }
 }
