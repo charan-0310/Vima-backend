@@ -184,6 +184,13 @@ public class HRApprovalServiceImpl implements IHRApprovalService {
             sendApprovalEmail(sub);
 
             SubmissionDetailDto dto = toDetailDto(enrollmentSubmissionRepository.findById(id).orElse(sub));
+
+            EnrollmentInvitation inv = sub.getInvitation();
+            if (inv != null) {
+                inv.setStatus(EnrollementStatus.COMPLETED);
+                enrollmentInvitationRepository.save(inv);
+            }
+
             return responseObj.render(responseObj.formSuccessResponse("Enrollment approved", dto));
         } catch (Exception e) {
             TransactionUtil.markRollbackOnly();
@@ -224,9 +231,9 @@ public class HRApprovalServiceImpl implements IHRApprovalService {
 
             updateDealEnrollmentStatusForSubmission(id, EnrollementStatus.REJECTED);
 
-            if (request.isReopenInvitation() && sub.getInvitation() != null) {
-                EnrollmentInvitation inv = sub.getInvitation();
-                inv.setStatus(EnrollementStatus.SENT);
+            EnrollmentInvitation inv = sub.getInvitation();
+            if (inv != null) {
+                inv.setStatus(request.isReopenInvitation() ? EnrollementStatus.SENT : EnrollementStatus.EXPIRED);
                 enrollmentInvitationRepository.save(inv);
             }
 
