@@ -23,4 +23,8 @@ public class EnrollmentOrganizationPolicyDto {
     private BigDecimal sumInsured;
     /** Same as sumInsured for compatibility with frontend; GMC may use coverage amount. */
     private BigDecimal coverageAmount;
+
+    private String coverageType;
+
+    private String insurerName;
 }

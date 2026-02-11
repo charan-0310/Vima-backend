@@ -34,6 +34,7 @@ import com.vimainsurance.vimaadmin.repository.IEnrollmentInvitationRepository;
 import com.vimainsurance.vimaadmin.repository.IEnrollmentSubmissionRepository;
 import com.vimainsurance.vimaadmin.repository.IEnrollmentWindowsRepository;
 import com.vimainsurance.vimaadmin.repository.IPolicyRepository;
+import com.vimainsurance.vimaadmin.repository.IInsuranceProviderRepository;
 import com.vimainsurance.vimaadmin.service.IEnrollmentService;
 import com.vimainsurance.vimaadmin.service.TokenSecurityService;
 
@@ -58,6 +59,8 @@ public class EnrollmentServiceImpl implements IEnrollmentService {
     private IEnrollmentSubmissionRepository enrollmentSubmissionRepository;
     @Autowired
     private IPolicyRepository policyRepository;
+    @Autowired
+    private IInsuranceProviderRepository insuranceProviderRepository;
 
     @Override
     @Transactional
@@ -157,6 +160,8 @@ public class EnrollmentServiceImpl implements IEnrollmentService {
                     pd.setProductType(p.getProductType() != null ? p.getProductType().name() : null);
                     pd.setSumInsured(p.getSumInsured());
                     pd.setCoverageAmount(p.getSumInsured());
+                    pd.setCoverageType(p.getCoverageType() != null ? p.getCoverageType().name() : null);
+                    pd.setInsurerName(p.getInsuranceProviderId() != null ? insuranceProviderRepository.findById(p.getInsuranceProviderId()).orElseThrow(() -> new RuntimeException("Insurance provider not found")).getProviderName() : null);
                     policyDtos.add(pd);
                 }
                 dto.setOrganizationPolicies(policyDtos);
