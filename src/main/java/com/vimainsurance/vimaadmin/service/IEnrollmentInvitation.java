@@ -73,6 +73,13 @@ public interface IEnrollmentInvitation {
      */
     ResponseEntity<ResponseDto<EnrollmentProgressResponseDto>> getEnrollmentProgress(UUID windowId);
 
+    /**
+     * Run scheduled reminder job: find invitations with status IN (sent, opened, in_progress) and expires_at &gt; now,
+     * apply window config (reminderEnabled, reminderFrequencyDays), send reminders when due and update reminder_count/last_reminder_at.
+     * Also sends final reminder 1 day before expiry.
+     */
+    void runScheduledReminders();
+
     /** Result of bulk send: sent count, failed count, and detailed failures (employeeNumber, name, error). */
     record BulkInvitationResult(int sent, int failed, List<com.vimainsurance.vimaadmin.dto.FailedInvitationDto> failedDetails) {}
 

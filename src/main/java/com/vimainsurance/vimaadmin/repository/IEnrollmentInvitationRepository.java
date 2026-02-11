@@ -1,5 +1,6 @@
 package com.vimainsurance.vimaadmin.repository;
 
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -35,4 +36,12 @@ public interface IEnrollmentInvitationRepository extends JpaRepository<Enrollmen
     List<EnrollmentInvitation> findAllByEmployee_IndividualId(UUID employeeId);
 
     boolean existsByEmployee_IndividualIdAndEnrollmentWindow_Id(UUID employeeId, UUID enrollmentWindowId);
+
+    /**
+     * Find invitations eligible for reminder: status IN (SENT, OPENED, IN_PROGRESS) and expires_at > now.
+     */
+    @Query("SELECT i FROM EnrollmentInvitation i WHERE i.status IN :statuses AND i.expiresAt > :now")
+    List<EnrollmentInvitation> findEligibleForReminder(
+            @Param("statuses") List<EnrollementStatus> statuses,
+            @Param("now") LocalDateTime now);
 }

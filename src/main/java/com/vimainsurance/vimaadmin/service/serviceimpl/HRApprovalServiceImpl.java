@@ -321,6 +321,20 @@ public class HRApprovalServiceImpl implements IHRApprovalService {
                 createEndorsementAndDealEndorsementsForSubmission(sub, sub.getId());
             }
 
+            // Update invitation status on close: mark non-completed invitations as EXPIRED
+            List<EnrollmentInvitation> invitations = enrollmentInvitationRepository.findAllByEnrollmentWindow_Id(windowId);
+            int expiredCount = 0;
+            for (EnrollmentInvitation inv : invitations) {
+                if (inv.getStatus() != EnrollementStatus.COMPLETED) {
+                    inv.setStatus(EnrollementStatus.EXPIRED);
+                    enrollmentInvitationRepository.save(inv);
+                    expiredCount++;
+                }
+            }
+            if (expiredCount > 0) {
+                log.info("[correlationId:{}] finalizeEnrollmentWindow window {}: updated {} invitation(s) to EXPIRED", MDC.get("correlationId"), windowId, expiredCount);
+            }
+
             return responseObj.render(responseObj.formSuccessResponse("Window finalized successfully"));
         } catch (Exception e) {
             TransactionUtil.markRollbackOnly();

@@ -1,10 +1,14 @@
 package com.vimainsurance.vimaadmin.service.serviceimpl;
 
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
+
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executor;
 
@@ -51,6 +55,7 @@ import com.vimainsurance.vimaadmin.util.TransactionUtil;
 public class EnrollmentInvitationServiceImpl implements IEnrollmentInvitation {
 
     private static final Logger logger = LoggerFactory.getLogger(EnrollmentInvitationServiceImpl.class);
+    private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
 
     @Autowired
     private IEnrollmentInvitationRepository invitationRepository;
@@ -242,6 +247,75 @@ public class EnrollmentInvitationServiceImpl implements IEnrollmentInvitation {
             logger.error("[correlationId:{}] sendReminders failed", MDC.get("correlationId"), e);
             return responseObj.render(responseObj.formErrorResponse(e.getMessage()));
         }
+    }
+
+    @Override
+    @Transactional
+    public void runScheduledReminders() {
+        List<EnrollementStatus> reminderStatuses = List.of(EnrollementStatus.SENT, EnrollementStatus.OPENED, EnrollementStatus.IN_PROGRESS);
+        List<EnrollmentInvitation> eligible = invitationRepository.findEligibleForReminder(reminderStatuses, LocalDateTime.now());
+        LocalDate today = LocalDate.now();
+        LocalDate tomorrow = today.plusDays(1);
+        int sent = 0;
+        int skipped = 0;
+        int failed = 0;
+        for (EnrollmentInvitation inv : eligible) {
+            try {
+                EnrollmentWindows window = inv.getEnrollmentWindow();
+                String configJson = window != null ? window.getConfig() : null;
+                boolean reminderEnabled = true;
+                int reminderFrequencyDays = 3;
+                if (configJson != null && !configJson.isBlank()) {
+                    try {
+                        JsonNode config = OBJECT_MAPPER.readTree(configJson);
+                        if (config.has("reminderEnabled") && config.get("reminderEnabled").isBoolean()) {
+                            reminderEnabled = config.get("reminderEnabled").asBoolean();
+                        }
+                        if (config.has("reminderFrequencyDays") && config.get("reminderFrequencyDays").isNumber()) {
+                            reminderFrequencyDays = config.get("reminderFrequencyDays").asInt();
+                        }
+                    } catch (Exception e) {
+                        logger.debug("[correlationId:{}] Failed to parse window config, using defaults: {}", MDC.get("correlationId"), e.getMessage());
+                    }
+                }
+                if (!reminderEnabled) {
+                    skipped++;
+                    continue;
+                }
+                LocalDateTime lastReminderAt = inv.getLastReminderAt();
+                LocalDate expiresDate = inv.getExpiresAt() != null ? inv.getExpiresAt().toLocalDate() : null;
+                boolean dueByFrequency = lastReminderAt == null
+                        || !lastReminderAt.toLocalDate().plusDays(reminderFrequencyDays).isAfter(today);
+                boolean finalReminderDue = expiresDate != null && expiresDate.equals(tomorrow);
+                if (!dueByFrequency && !finalReminderDue) {
+                    skipped++;
+                    continue;
+                }
+                String rawToken = Boolean.TRUE.equals(inv.getTokenDeterministic())
+                        ? tokenSecurityService.generateTokenForInvitation(inv.getId())
+                        : tokenSecurityService.generateToken();
+                if (!Boolean.TRUE.equals(inv.getTokenDeterministic())) {
+                    inv.setTokenHash(tokenSecurityService.hashToken(rawToken));
+                }
+                String magicLink = baseUrl + "/enrollment/" + rawToken;
+                boolean emailSent = sendEnrollmentReminderEmail(
+                        inv.getEmployee().getEmail(),
+                        inv.getEmployee().getFullName(),
+                        magicLink);
+                if (emailSent) {
+                    inv.setReminderCount(inv.getReminderCount() == null ? 1 : inv.getReminderCount() + 1);
+                    inv.setLastReminderAt(LocalDateTime.now());
+                    invitationRepository.save(inv);
+                    sent++;
+                } else {
+                    failed++;
+                }
+            } catch (Exception e) {
+                logger.warn("[correlationId:{}] Scheduled reminder failed for invitation {}: {}", MDC.get("correlationId"), inv.getId(), e.getMessage());
+                failed++;
+            }
+        }
+        logger.info("[correlationId:{}] Scheduled reminders: eligible={}, sent={}, skipped={}, failed={}", MDC.get("correlationId"), eligible.size(), sent, skipped, failed);
     }
 
     @Override
