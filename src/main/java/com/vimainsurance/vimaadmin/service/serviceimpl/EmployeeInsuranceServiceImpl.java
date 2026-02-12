@@ -3,11 +3,14 @@ package com.vimainsurance.vimaadmin.service.serviceimpl;
 import com.vimainsurance.vimaadmin.dto.EmployeeInsuranceResponseDto;
 import com.vimainsurance.vimaadmin.entity.Deals;
 import com.vimainsurance.vimaadmin.entity.InsuranceProvider;
+import com.vimainsurance.vimaadmin.entity.Nominee;
 import com.vimainsurance.vimaadmin.entity.Policy;
 import com.vimainsurance.vimaadmin.enums.PolicyStatus;
+import com.vimainsurance.vimaadmin.enums.ProductType;
 import com.vimainsurance.vimaadmin.exception.BadRequestException;
 import com.vimainsurance.vimaadmin.repository.IDealsRepository;
 import com.vimainsurance.vimaadmin.repository.IInsuranceProviderRepository;
+import com.vimainsurance.vimaadmin.repository.INomineeRepository;
 import com.vimainsurance.vimaadmin.repository.IPolicyRepository;
 import com.vimainsurance.vimaadmin.service.IEmployeeInsuranceService;
 import com.vimainsurance.vimaadmin.util.TenantContext;
@@ -19,6 +22,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 import java.util.*;
+import java.util.stream.Collectors;
 
 /**
  * Service implementation for employee insurance operations
@@ -39,6 +43,9 @@ public class EmployeeInsuranceServiceImpl implements IEmployeeInsuranceService {
     @Autowired
     private IInsuranceProviderRepository insuranceProviderRepository;
 
+    @Autowired
+    private INomineeRepository nomineeRepository;
+
     @Override
     public EmployeeInsuranceResponseDto getEmployeeInsuranceDetails(UUID employeeId) {
         // Resolve organization ID from tenant context
@@ -58,29 +65,50 @@ public class EmployeeInsuranceServiceImpl implements IEmployeeInsuranceService {
         List<Deals> dependents = dealsRepository.findByPrimaryIndividualId(employee.getIndividualId());
         logger.info("Found {} dependents for employee {}", dependents.size(), employeeId);
 
-        // Fetch policies for the employee (primary individual)
-        List<Policy> policies = policyRepository.findByPrimaryIndividualId(organizationId);
+        // All members (employee + dependents) for coverage resolution
+        List<Deals> allMembers = new ArrayList<>();
+        allMembers.add(employee);
+        allMembers.addAll(dependents);
 
-        // Use the first active policy or fallback to the first policy
-        Policy primaryPolicy = policies.stream()
-                .filter(p -> p.getStatus() != null && PolicyStatus.ACTIVE.equals(p.getStatus()))
-                .findFirst()
-                .orElse(policies.isEmpty() ? null : policies.get(0));
+        // Fetch all active policies for the organization (GMC, GTL, GPA, etc.)
+        List<Policy> orgPolicies = policyRepository.findByOrganizationIdAndStatus(organizationId, PolicyStatus.ACTIVE);
+        logger.info("Found {} active policies for organization {}", orgPolicies.size(), organizationId);
 
-        if (primaryPolicy == null) {
-            logger.warn("No policy found for employee {}", employeeId);
+        // Build one PolicyDetailDto per policy: GMC has coveredMembers, GTL/GPA have nominees
+        List<EmployeeInsuranceResponseDto.PolicyDetailDto> policyDetails = new ArrayList<>();
+        for (Policy policy : orgPolicies) {
+            List<EmployeeInsuranceResponseDto.CoveredMemberDto> coveredForPolicy = coveredMembersForPolicy(allMembers, policy);
+            List<EmployeeInsuranceResponseDto.NomineeDto> nomineesForPolicy = nomineesForPolicy(employee.getIndividualId(), policy);
+            policyDetails.add(EmployeeInsuranceResponseDto.PolicyDetailDto.builder()
+                    .insuranceType(policy.getProductType() != null ? policy.getProductType().getValue() : null)
+                    .coverageType(policy.getCoverageType() != null ? policy.getCoverageType().getValue() : null)
+                    .insuranceProviderLogo(resolveInsuranceProviderName(policy.getInsuranceProviderId()))
+                    .policyId(policy.getPolicyId())
+                    .policyNumber(policy.getPolicyNumber())
+                    .validUntil(policy.getEndDate())
+                    .policyStatus(policy.getStatus())
+                    .sumInsured(policy.getSumInsured())
+                    .premiumAmount(policy.getPremiumAmount())
+                    .policyStartDate(policy.getStartDate())
+                    .tpaOrganizationName(policy.getTpaOrganizationName())
+                    .tpaContactInfo(policy.getTpaContactInfo())
+                    .coveredMembers(coveredForPolicy)
+                    .nominees(nomineesForPolicy)
+                    .build());
         }
 
-        // Build covered members list: employee + dependents
-        List<EmployeeInsuranceResponseDto.CoveredMemberDto> coveredMembers = new ArrayList<>();
+        // Primary policy for backward compatibility: first policy in list, or first GMC if present
+        Policy primaryPolicy = orgPolicies.stream()
+                .filter(p -> p.getProductType() != null && "GMC".equals(p.getProductType().getValue()))
+                .findFirst()
+                .orElse(orgPolicies.isEmpty() ? null : orgPolicies.get(0));
+
+        List<EmployeeInsuranceResponseDto.CoveredMemberDto> primaryCoveredMembers = new ArrayList<>();
+        if (primaryPolicy != null) {
+            primaryCoveredMembers = coveredMembersForPolicy(allMembers, primaryPolicy);
+        }
+
         Long policyId = primaryPolicy != null ? primaryPolicy.getPolicyId() : null;
-
-        // Add primary employee to covered members
-        coveredMembers.add(mapToCoveredMember(employee, policyId, primaryPolicy));
-
-        // Add all dependents to covered members
-        dependents.forEach(dependent -> coveredMembers.add(mapToCoveredMember(dependent, policyId, primaryPolicy)));
-
 
         // Build and return the response DTO
         return EmployeeInsuranceResponseDto.builder()
@@ -93,8 +121,8 @@ public class EmployeeInsuranceServiceImpl implements IEmployeeInsuranceService {
                 .phone(employee.getPhone())
                 .cardType("")
                 .healthId(employee.getHealthId())
-                .insuranceType(primaryPolicy != null  && primaryPolicy.getProductType() !=null ? primaryPolicy.getProductType().getValue() : null)
-                .coverageType(primaryPolicy != null && primaryPolicy.getCoverageType() !=null ? primaryPolicy.getCoverageType().getValue() : null)
+                .insuranceType(primaryPolicy != null && primaryPolicy.getProductType() != null ? primaryPolicy.getProductType().getValue() : null)
+                .coverageType(primaryPolicy != null && primaryPolicy.getCoverageType() != null ? primaryPolicy.getCoverageType().getValue() : null)
                 .insuranceProviderLogo(primaryPolicy != null ?
                         resolveInsuranceProviderName(primaryPolicy.getInsuranceProviderId()) : null)
                 .policyId(policyId)
@@ -104,13 +132,58 @@ public class EmployeeInsuranceServiceImpl implements IEmployeeInsuranceService {
                 .sumInsured(primaryPolicy != null ? primaryPolicy.getSumInsured() : null)
                 .premiumAmount(primaryPolicy != null ? primaryPolicy.getPremiumAmount() : null)
                 .policyStartDate(primaryPolicy != null ? primaryPolicy.getStartDate() : null)
-                // TPA Details
                 .tpaOrganizationName(primaryPolicy != null ? primaryPolicy.getTpaOrganizationName() : null)
                 .tpaContactInfo(primaryPolicy != null ? primaryPolicy.getTpaContactInfo() : null)
                 .companyName(employee.getOrganization() != null ? employee.getOrganization().getOrganizationName() : null)
-                .coveredMembers(coveredMembers)
+                .coveredMembers(primaryCoveredMembers)
+                .policies(policyDetails)
                 .build();
 
+    }
+
+    /**
+     * Covered members (employee + dependents) are only attached to GMC (Group Medical Cover).
+     * GTL and GPA policies return empty coveredMembers.
+     */
+    private List<EmployeeInsuranceResponseDto.CoveredMemberDto> coveredMembersForPolicy(List<Deals> allMembers, Policy policy) {
+        if (policy.getProductType() == null || policy.getProductType() != ProductType.GMC) {
+            return Collections.emptyList();
+        }
+        Long policyId = policy.getPolicyId();
+        return allMembers.stream()
+                .map(d -> mapToCoveredMember(d, policyId, policy))
+                .collect(Collectors.toList());
+    }
+
+    /**
+     * Nominees are only attached to GTL and GPA. GMC returns empty list.
+     * Fetches nominees for this policy and this employee (customer).
+     */
+    private List<EmployeeInsuranceResponseDto.NomineeDto> nomineesForPolicy(UUID employeeId, Policy policy) {
+        if (policy.getProductType() == null || (policy.getProductType() != ProductType.GTL && policy.getProductType() != ProductType.GPA)) {
+            return Collections.emptyList();
+        }
+        List<Nominee> nominees = nomineeRepository.findByPolicyPolicyIdAndCustomerIndividualId(policy.getPolicyId(), employeeId);
+        return nominees.stream()
+                .map(this::mapToNomineeDto)
+                .collect(Collectors.toList());
+    }
+
+    private EmployeeInsuranceResponseDto.NomineeDto mapToNomineeDto(Nominee n) {
+        String fullName = n.getFullName();
+        if (fullName == null || fullName.isBlank()) {
+            fullName = ((n.getFirstName() != null ? n.getFirstName().trim() : "") + " " + (n.getLastName() != null ? n.getLastName().trim() : "")).trim();
+        }
+        return EmployeeInsuranceResponseDto.NomineeDto.builder()
+                .nomineeId(n.getNomineeId())
+                .firstName(n.getFirstName())
+                .lastName(n.getLastName())
+                .fullName(fullName)
+                .dateOfBirth(n.getDateOfBirth())
+                .gender(n.getGender())
+                .relationship(n.getRelationship())
+                .nomineePercentage(n.getNomineePercentage())
+                .build();
     }
 
     /**

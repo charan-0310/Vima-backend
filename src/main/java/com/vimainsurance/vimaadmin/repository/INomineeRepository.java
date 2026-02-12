@@ -11,6 +11,9 @@ public interface INomineeRepository extends JpaRepository<Nominee, UUID> {
 
     List<Nominee> findByPolicyPolicyId(Long policyId);
 
+    /** Nominees for a given policy and customer (employee) - for GTL/GPA in employee portal. */
+    List<Nominee> findByPolicyPolicyIdAndCustomerIndividualId(Long policyId, UUID customerIndividualId);
+
     List<Nominee> findByPolicyPolicyNumber(String policyNumber);
 
     List<Nominee> findBySubmission_Id(UUID submissionId);

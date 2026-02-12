@@ -47,9 +47,14 @@ public class EmployeeInsuranceResponseDto {
 
     private String companyName;
 
-
-    // Covered members (employee + dependents)
+    // Covered members (employee + dependents) for the primary/first policy (backward compatibility)
     private List<CoveredMemberDto> coveredMembers;
+
+    /**
+     * All policies for the organization (GMC, GTL, GPA, etc.) with covered members per policy.
+     * Employee portal can render one card per policy.
+     */
+    private List<PolicyDetailDto> policies;
 
     /**
      * DTO for covered member details
@@ -76,5 +81,49 @@ public class EmployeeInsuranceResponseDto {
         private String tpaOrganizationName;
         private String tpaContactInfo;
         private String companyName;
+    }
+
+    /**
+     * One policy (GMC, GTL, GPA, etc.). GMC has coveredMembers; GTL/GPA have nominees.
+     */
+    @Data
+    @NoArgsConstructor
+    @AllArgsConstructor
+    @Builder
+    public static class PolicyDetailDto {
+        private String insuranceType;
+        private String coverageType;
+        private String insuranceProviderLogo;
+        private Long policyId;
+        private String policyNumber;
+        private LocalDate validUntil;
+        private PolicyStatus policyStatus;
+        private BigDecimal sumInsured;
+        private BigDecimal premiumAmount;
+        private LocalDate policyStartDate;
+        private String tpaOrganizationName;
+        private String tpaContactInfo;
+        /** For GMC: employee + dependents. Empty for GTL/GPA. */
+        private List<CoveredMemberDto> coveredMembers;
+        /** For GTL/GPA: nominees for this employee. Empty for GMC. */
+        private List<NomineeDto> nominees;
+    }
+
+    /**
+     * DTO for nominee details (GTL/GPA policies).
+     */
+    @Data
+    @NoArgsConstructor
+    @AllArgsConstructor
+    @Builder
+    public static class NomineeDto {
+        private UUID nomineeId;
+        private String firstName;
+        private String lastName;
+        private String fullName;
+        private LocalDate dateOfBirth;
+        private String gender;
+        private String relationship;
+        private BigDecimal nomineePercentage;
     }
 }
