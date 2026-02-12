@@ -23,4 +23,11 @@ public class EnrollmentWindowResponseDto {
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
     private LocalDateTime closedAt;
+
+    /** Progress: completion rate (submittedCount * 100 / totalEmployees). Same as getEnrollmentProgress. */
+    private Double completionRate;
+    /** Progress: total employees (max of employees linked to window vs invitations). */
+    private Integer totalEmployees;
+    /** Progress: count of submissions with status SUBMITTED/APPROVED/REJECTED/ENDORSED. */
+    private Integer submittedCount;
 }

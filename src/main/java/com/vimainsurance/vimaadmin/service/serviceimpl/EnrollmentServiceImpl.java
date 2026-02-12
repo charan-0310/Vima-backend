@@ -91,6 +91,10 @@ public class EnrollmentServiceImpl implements IEnrollmentService {
                 return responseObj.render(responseObj.formErrorResponse(400, "Enrollment invitation already completed"));
             }
 
+            if(invitation.getStatus() == EnrollementStatus.REJECTED) {
+                return responseObj.render(responseObj.formErrorResponse(400, "Enrollment invitation rejected"));
+            }
+
             UUID enrollmentWindowId = invitation.getEnrollmentWindow().getId();
             UUID employeeId = invitation.getEmployee().getIndividualId();
 

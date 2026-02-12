@@ -209,7 +209,7 @@ public class EnrollmentInvitationServiceImpl implements IEnrollmentInvitation {
         BaseResponse<IEnrollmentInvitation.ReminderResult> responseObj = new BaseResponse<>();
         try {
             List<EnrollmentInvitation> all = invitationRepository.findAllByEnrollmentWindow_Id(windowId);
-            List<EnrollementStatus> reminderStatuses = List.of(EnrollementStatus.SENT, EnrollementStatus.OPENED, EnrollementStatus.IN_PROGRESS);
+            List<EnrollementStatus> reminderStatuses = List.of(EnrollementStatus.SENT, EnrollementStatus.OPENED, EnrollementStatus.IN_PROGRESS, EnrollementStatus.REJECTED);
             List<EnrollmentInvitation> invitations = all.stream()
                 .filter(inv -> reminderStatuses.contains(inv.getStatus()))
                 .filter(inv -> employeeIds == null || employeeIds.isEmpty() || employeeIds.contains(inv.getEmployee().getIndividualId()))
@@ -232,6 +232,7 @@ public class EnrollmentInvitationServiceImpl implements IEnrollmentInvitation {
                 String magicLink = baseUrl + "/enrollment/" + rawToken;
                 boolean emailSent = sendEnrollmentReminderEmail(inv.getEmployee().getEmail(), inv.getEmployee().getFullName(), magicLink);
                 if (emailSent) {
+                    inv.setStatus(inv.getStatus() == EnrollementStatus.REJECTED ? EnrollementStatus.SENT : inv.getStatus());
                     inv.setReminderCount(inv.getReminderCount() == null ? 1 : inv.getReminderCount() + 1);
                     inv.setLastReminderAt(LocalDateTime.now());
                     invitationRepository.save(inv);
@@ -572,7 +573,7 @@ public class EnrollmentInvitationServiceImpl implements IEnrollmentInvitation {
             // Count as invited if they have an invitation (including PENDING: invitation exists, link was created even if status wasn't updated to SENT)
             long invitedCount = invitations.size();
             long openedCount = invitations.stream().filter(inv -> inv.getStatus() == EnrollementStatus.OPENED || inv.getStatus() == EnrollementStatus.IN_PROGRESS || inv.getStatus() == EnrollementStatus.COMPLETED).count();
-            long submittedCount = submissions.stream().filter(s -> s.getStatus() == EnrollementStatus.SUBMITTED || s.getStatus() == EnrollementStatus.APPROVED || s.getStatus() == EnrollementStatus.REJECTED || s.getStatus() == EnrollementStatus.ENDORSED).count();
+            long submittedCount = submissions.stream().filter(s -> s.getStatus() == EnrollementStatus.SUBMITTED || s.getStatus() == EnrollementStatus.APPROVED).count();
             long approvedCount = submissions.stream().filter(s -> s.getStatus() == EnrollementStatus.APPROVED || s.getStatus() == EnrollementStatus.ENDORSED).count();
             long reviewedCount = submissions.stream().filter(s -> s.getStatus() == EnrollementStatus.APPROVED || s.getStatus() == EnrollementStatus.REJECTED || s.getStatus() == EnrollementStatus.ENDORSED).count();
 
