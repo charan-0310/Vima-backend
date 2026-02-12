@@ -11,6 +11,8 @@ import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
+import com.vimainsurance.vimaadmin.repository.WindowProgressProjection;
+
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.slf4j.MDC;
@@ -215,11 +217,30 @@ public class EnrollmentWindowServiceImpl implements IEnrollmentWindowService {
             Sort sort = createSort(sortBy, sortDirection);
             PageRequest pageRequest = PageRequest.of(page, size, sort);
             Page<EnrollmentWindows> pageResult = enrollmentWindowsRepository.findAll(spec, pageRequest);
+            List<EnrollmentWindows> content = pageResult.getContent();
 
             List<EnrollmentWindowResponseDto> out = new ArrayList<>();
-            for (EnrollmentWindows ew : pageResult.getContent()) {
-                out.add(EnrollmentWindowMapper.mapToResponseDto(ew));
+            if (!content.isEmpty()) {
+                List<UUID> windowIds = content.stream().map(EnrollmentWindows::getId).toList();
+                List<WindowProgressProjection> progressList = enrollmentWindowsRepository.findProgressByWindowIds(windowIds);
+                Map<UUID, WindowProgressProjection> progressByWindow = progressList.stream()
+                        .collect(Collectors.toMap(WindowProgressProjection::getWindowId, p -> p, (a, b) -> a));
+
+                for (EnrollmentWindows ew : content) {
+                    EnrollmentWindowResponseDto dto = EnrollmentWindowMapper.mapToResponseDto(ew);
+                    WindowProgressProjection progress = progressByWindow.get(ew.getId());
+                    if (progress != null) {
+                        int totalEmployees = (int) Math.max(progress.getEmployeeCount(), progress.getInvitationCount());
+                        long submittedCount = progress.getSubmittedCount();
+                        double completionRate = totalEmployees > 0 ? (submittedCount * 100.0 / totalEmployees) : 0.0;
+                        dto.setTotalEmployees(totalEmployees);
+                        dto.setSubmittedCount((int) submittedCount);
+                        dto.setCompletionRate(Math.round(completionRate * 100.0) / 100.0);
+                    }
+                    out.add(dto);
+                }
             }
+
             return responseObj.render(responseObj.formSuccessResponse(Constants.SUCCESS, out, pageResult.getTotalElements()));
         } catch (OrganizationAccessDeniedException e) {
             logger.warn("[correlationId:{}] Organization access denied: {}", MDC.get("correlationId"));

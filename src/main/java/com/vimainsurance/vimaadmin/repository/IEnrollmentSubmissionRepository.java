@@ -24,6 +24,9 @@ public interface IEnrollmentSubmissionRepository extends JpaRepository<Enrollmen
 
     List<EnrollmentSubmission> findAllByEnrollmentWindow_Id(UUID enrollmentWindowId);
 
+    /** Batch load submissions for multiple windows (for list progress). */
+    List<EnrollmentSubmission> findAllByEnrollmentWindow_IdIn(Iterable<UUID> enrollmentWindowIds);
+
     List<EnrollmentSubmission> findAllByEnrollmentWindow_IdAndStatus(UUID enrollmentWindowId, EnrollementStatus status);
 
     List<EnrollmentSubmission> findAllByEmployee_IndividualId(UUID employeeId);

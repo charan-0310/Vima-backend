@@ -27,6 +27,9 @@ public interface IEnrollmentInvitationRepository extends JpaRepository<Enrollmen
 
     List<EnrollmentInvitation> findAllByEnrollmentWindow_Id(UUID enrollmentWindowId);
 
+    /** Batch load invitations for multiple windows (for list progress). */
+    List<EnrollmentInvitation> findAllByEnrollmentWindow_IdIn(Iterable<UUID> enrollmentWindowIds);
+
     Page<EnrollmentInvitation> findAllByEnrollmentWindow_Id(UUID enrollmentWindowId, Pageable pageable);
 
     List<EnrollmentInvitation> findAllByEnrollmentWindow_IdAndStatus(UUID enrollmentWindowId, EnrollementStatus status);

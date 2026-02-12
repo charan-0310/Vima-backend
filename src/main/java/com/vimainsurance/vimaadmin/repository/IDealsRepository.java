@@ -334,6 +334,11 @@ public interface IDealsRepository extends JpaRepository<Deals, UUID> , JpaSpecif
     List<Deals> findByEnrollmentWindow_Id(UUID enrollmentWindowId);
 
     /**
+     * Find employees (deals) linked to any of the given enrollment windows (batch for progress).
+     */
+    List<Deals> findByEnrollmentWindow_IdIn(Iterable<UUID> enrollmentWindowIds);
+
+    /**
      * Find deals (dependents) linked to an enrollment submission (created from that submission).
      */
     List<Deals> findByEnrollmentSubmission_Id(UUID enrollmentSubmissionId);
