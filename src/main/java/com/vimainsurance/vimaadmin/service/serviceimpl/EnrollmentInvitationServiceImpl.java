@@ -573,7 +573,7 @@ public class EnrollmentInvitationServiceImpl implements IEnrollmentInvitation {
             // Count as invited if they have an invitation (including PENDING: invitation exists, link was created even if status wasn't updated to SENT)
             long invitedCount = invitations.size();
             long openedCount = invitations.stream().filter(inv -> inv.getStatus() == EnrollementStatus.OPENED || inv.getStatus() == EnrollementStatus.IN_PROGRESS || inv.getStatus() == EnrollementStatus.COMPLETED).count();
-            long submittedCount = submissions.stream().filter(s -> s.getStatus() == EnrollementStatus.SUBMITTED || s.getStatus() == EnrollementStatus.APPROVED || s.getStatus() == EnrollementStatus.REJECTED || s.getStatus() == EnrollementStatus.ENDORSED).count();
+            long submittedCount = submissions.stream().filter(s -> s.getStatus() == EnrollementStatus.SUBMITTED || s.getStatus() == EnrollementStatus.APPROVED).count();
             long approvedCount = submissions.stream().filter(s -> s.getStatus() == EnrollementStatus.APPROVED || s.getStatus() == EnrollementStatus.ENDORSED).count();
             long reviewedCount = submissions.stream().filter(s -> s.getStatus() == EnrollementStatus.APPROVED || s.getStatus() == EnrollementStatus.REJECTED || s.getStatus() == EnrollementStatus.ENDORSED).count();
 
