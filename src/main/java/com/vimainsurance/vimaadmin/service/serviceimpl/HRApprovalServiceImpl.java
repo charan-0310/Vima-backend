@@ -233,7 +233,7 @@ public class HRApprovalServiceImpl implements IHRApprovalService {
 
             EnrollmentInvitation inv = sub.getInvitation();
             if (inv != null) {
-                inv.setStatus(request.isReopenInvitation() ? EnrollementStatus.SENT : EnrollementStatus.EXPIRED);
+                inv.setStatus(request.isReopenInvitation() ? EnrollementStatus.SENT : EnrollementStatus.REJECTED);
                 enrollmentInvitationRepository.save(inv);
             }
 

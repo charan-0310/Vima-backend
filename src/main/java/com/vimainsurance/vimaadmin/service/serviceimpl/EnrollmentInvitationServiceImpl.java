@@ -209,7 +209,7 @@ public class EnrollmentInvitationServiceImpl implements IEnrollmentInvitation {
         BaseResponse<IEnrollmentInvitation.ReminderResult> responseObj = new BaseResponse<>();
         try {
             List<EnrollmentInvitation> all = invitationRepository.findAllByEnrollmentWindow_Id(windowId);
-            List<EnrollementStatus> reminderStatuses = List.of(EnrollementStatus.SENT, EnrollementStatus.OPENED, EnrollementStatus.IN_PROGRESS);
+            List<EnrollementStatus> reminderStatuses = List.of(EnrollementStatus.SENT, EnrollementStatus.OPENED, EnrollementStatus.IN_PROGRESS, EnrollementStatus.REJECTED);
             List<EnrollmentInvitation> invitations = all.stream()
                 .filter(inv -> reminderStatuses.contains(inv.getStatus()))
                 .filter(inv -> employeeIds == null || employeeIds.isEmpty() || employeeIds.contains(inv.getEmployee().getIndividualId()))
@@ -232,6 +232,7 @@ public class EnrollmentInvitationServiceImpl implements IEnrollmentInvitation {
                 String magicLink = baseUrl + "/enrollment/" + rawToken;
                 boolean emailSent = sendEnrollmentReminderEmail(inv.getEmployee().getEmail(), inv.getEmployee().getFullName(), magicLink);
                 if (emailSent) {
+                    inv.setStatus(inv.getStatus() == EnrollementStatus.REJECTED ? EnrollementStatus.SENT : inv.getStatus());
                     inv.setReminderCount(inv.getReminderCount() == null ? 1 : inv.getReminderCount() + 1);
                     inv.setLastReminderAt(LocalDateTime.now());
                     invitationRepository.save(inv);
