@@ -58,6 +58,7 @@ import com.vimainsurance.vimaadmin.util.TransactionUtil;
 import com.vimainsurance.vimaadmin.service.IDocumentService;
 import com.vimainsurance.vimaadmin.enums.DocumentType;
 import com.vimainsurance.vimaadmin.enums.DocumentEntityType;
+import com.vimainsurance.vimaadmin.enums.AccountType;
 
 @Service
 public class EnrollmentWindowServiceImpl implements IEnrollmentWindowService {
@@ -538,6 +539,7 @@ public class EnrollmentWindowServiceImpl implements IEnrollmentWindowService {
                 employee.setEnrollmentWindow(enrollmentWindow);
                 employee.setRelationship(NomineeRelationship.SELF.getValue());
                 employee.setStatus(AccountStatus.PENDING_APPROVAL);
+                employee.setAccountType(AccountType.CORPORATE_EMPLOYEE);
                 employees.add(employee);
             }
             for (int i = 0; i < employees.size(); i += SELF_EMPLOYEE_SAVE_BATCH_SIZE) {
