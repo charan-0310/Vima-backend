@@ -327,6 +327,9 @@ public class HRApprovalServiceImpl implements IHRApprovalService {
 
                     List<Nominee> nominees = createNomineesFromJson(sub, employee, sub.getNomineeData());
                     saveNomineesInBatches(nominees);
+                    
+                    sub.setStatus(EnrollementStatus.COMPLETED);
+                    enrollmentSubmissionRepository.save(sub);
                 }
                 createEndorsementAndDealEndorsementsForSubmission(sub, sub.getId());
             }
