@@ -608,7 +608,7 @@ public class OrganizationServiceImpl implements IOrganizationService {
         dto.setFullName(deal.getFullName());
         dto.setSumInsured(deal.getSumInsured());
         dto.setHealthId(deal.getHealthId());
-        dto.setEnrollementStatus(deal.getEnrollmentSubmission().getStatus().getValue());
+        dto.setEnrollementStatus(deal.getEnrollmentSubmission() != null ? deal.getEnrollmentSubmission().getStatus().getValue() : null);
         return dto;
     }
 
