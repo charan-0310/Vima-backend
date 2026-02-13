@@ -53,6 +53,7 @@ import com.vimainsurance.vimaadmin.repository.IEndorsementRepository;
 import com.vimainsurance.vimaadmin.repository.IEnrollmentInvitationRepository;
 import com.vimainsurance.vimaadmin.repository.IEnrollmentSubmissionRepository;
 import com.vimainsurance.vimaadmin.repository.INomineeRepository;
+import com.vimainsurance.vimaadmin.repository.IPolicyRepository;
 import com.vimainsurance.vimaadmin.service.IDocumentService;
 import com.vimainsurance.vimaadmin.service.IEmailService;
 import com.vimainsurance.vimaadmin.service.IHRApprovalService;
@@ -91,6 +92,8 @@ public class HRApprovalServiceImpl implements IHRApprovalService {
     private IDealEndorsementRepository dealEndorsementRepository;
     @Autowired
     private IDocumentService documentService;
+    @Autowired
+    private IPolicyRepository policyRepository;
 
     @Override
     public ResponseEntity<ResponseDto<Page<SubmissionListItemDto>>> getEnrollments(
@@ -855,6 +858,7 @@ public class HRApprovalServiceImpl implements IHRApprovalService {
         String firstName = text(node.get("firstName"));
         String lastName = text(node.get("lastName"));
         String fullName = text(node.get("fullName"));
+        String policyId = text(node.get("policyId"));
         if (fullName == null && (firstName != null || lastName != null)) {
             fullName = (firstName != null ? firstName : "") + " " + (lastName != null ? lastName : "");
             fullName = fullName.trim();
@@ -899,6 +903,9 @@ public class HRApprovalServiceImpl implements IHRApprovalService {
         n.setDateOfBirth(dob);
         n.setGender(gender);
         n.setRelationship(relationship);
+        if (policyId != null && !policyId.isBlank()) {
+            n.setPolicy(policyRepository.findById(Long.parseLong(policyId)).orElse(null));
+        }
         if (node.has("percentage")) {
             try {
                 n.setNomineePercentage(BigDecimal.valueOf(node.get("percentage").doubleValue()));
