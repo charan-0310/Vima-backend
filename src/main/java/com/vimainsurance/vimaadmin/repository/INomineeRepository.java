@@ -6,6 +6,7 @@ import java.util.UUID;
 import org.springframework.data.jpa.repository.JpaRepository;
 
 import com.vimainsurance.vimaadmin.entity.Nominee;
+import com.vimainsurance.vimaadmin.enums.ProductType;
 
 public interface INomineeRepository extends JpaRepository<Nominee, UUID> {
 
@@ -13,6 +14,11 @@ public interface INomineeRepository extends JpaRepository<Nominee, UUID> {
 
     /** Nominees for a given policy and customer (employee) - for GTL/GPA in employee portal. */
     List<Nominee> findByPolicyPolicyIdAndCustomerIndividualId(Long policyId, UUID customerIndividualId);
+
+    /** Nominees for a customer where policy product type is in the given types (e.g. GTL, GPA). */
+    List<Nominee> findByPolicyProductTypeInAndCustomerIndividualId(List<ProductType> productTypes, UUID customerIndividualId);
+
+    List<Nominee> findByCustomerIndividualId(UUID customerIndividualId);
 
     List<Nominee> findByPolicyPolicyNumber(String policyNumber);
 
