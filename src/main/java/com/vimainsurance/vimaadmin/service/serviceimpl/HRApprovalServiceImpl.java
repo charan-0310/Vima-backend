@@ -28,6 +28,7 @@ import com.vimainsurance.vimaadmin.dto.ApprovalRequest;
 import com.vimainsurance.vimaadmin.dto.BaseResponse;
 import com.vimainsurance.vimaadmin.dto.BulkApprovalRequest;
 import com.vimainsurance.vimaadmin.dto.EmailRequest;
+import com.vimainsurance.vimaadmin.dto.EnrollmentOrganizationPolicyDto;
 import com.vimainsurance.vimaadmin.dto.RejectionRequest;
 import com.vimainsurance.vimaadmin.dto.ResponseDto;
 import com.vimainsurance.vimaadmin.dto.SubmissionDetailDto;
@@ -41,6 +42,7 @@ import com.vimainsurance.vimaadmin.entity.EnrollmentSubmission;
 import com.vimainsurance.vimaadmin.entity.EnrollmentWindows;
 import com.vimainsurance.vimaadmin.entity.Nominee;
 import com.vimainsurance.vimaadmin.entity.Organization;
+import com.vimainsurance.vimaadmin.entity.Policy;
 import com.vimainsurance.vimaadmin.enums.AccountStatus;
 import com.vimainsurance.vimaadmin.enums.AccountType;
 import com.vimainsurance.vimaadmin.enums.EndorsementSource;
@@ -52,6 +54,7 @@ import com.vimainsurance.vimaadmin.repository.IDealsRepository;
 import com.vimainsurance.vimaadmin.repository.IEndorsementRepository;
 import com.vimainsurance.vimaadmin.repository.IEnrollmentInvitationRepository;
 import com.vimainsurance.vimaadmin.repository.IEnrollmentSubmissionRepository;
+import com.vimainsurance.vimaadmin.repository.IInsuranceProviderRepository;
 import com.vimainsurance.vimaadmin.repository.INomineeRepository;
 import com.vimainsurance.vimaadmin.repository.IPolicyRepository;
 import com.vimainsurance.vimaadmin.service.IDocumentService;
@@ -94,6 +97,8 @@ public class HRApprovalServiceImpl implements IHRApprovalService {
     private IDocumentService documentService;
     @Autowired
     private IPolicyRepository policyRepository;
+    @Autowired
+    private IInsuranceProviderRepository insuranceProviderRepository;
 
     @Override
     public ResponseEntity<ResponseDto<Page<SubmissionListItemDto>>> getEnrollments(
@@ -425,8 +430,40 @@ public class HRApprovalServiceImpl implements IHRApprovalService {
         Deals emp = sub.getEmployee();
         EnrollmentWindows window = sub.getEnrollmentWindow();
         Organization org = (emp != null && emp.getOrganization() != null) ? emp.getOrganization() : null;
+        if (org == null && window != null && window.getOrganization() != null) {
+            org = window.getOrganization();
+        }
         AdminUser reviewedBy = sub.getReviewedBy();
         EnrollmentInvitation inv = sub.getInvitation();
+
+        List<EnrollmentOrganizationPolicyDto> organizationPolicies = new ArrayList<>();
+        BigDecimal sumPremium = BigDecimal.ZERO;
+        if (org != null) {
+            List<Policy> policies = policyRepository.findByOrganizationId(org.getOrganizationId());
+            for (Policy p : policies) {
+                if (p.getPremiumAmount() != null) {
+                    sumPremium = sumPremium.add(p.getPremiumAmount());
+                }
+                EnrollmentOrganizationPolicyDto pd = new EnrollmentOrganizationPolicyDto();
+                pd.setPolicyId(p.getPolicyId());
+                pd.setPolicyNumber(p.getPolicyNumber());
+                pd.setProductType(p.getProductType() != null ? p.getProductType().name() : null);
+                pd.setSumInsured(p.getSumInsured());
+                pd.setCoverageAmount(p.getSumInsured());
+                pd.setCoverageType(p.getCoverageType() != null ? p.getCoverageType().name() : null);
+                pd.setInsurerName(p.getInsuranceProviderId() != null
+                        ? insuranceProviderRepository.findById(p.getInsuranceProviderId()).map(provider -> provider.getProviderName()).orElse(null)
+                        : null);
+                organizationPolicies.add(pd);
+            }
+        }
+
+        String premiumBreakdown = sub.getPremiumBreakdown();
+        if (premiumBreakdown == null || premiumBreakdown.isBlank() || "{}".equals(premiumBreakdown.trim())) {
+            premiumBreakdown = String.format("{\"total\":%s,\"employerShare\":%s,\"employeeShare\":0}",
+                    sumPremium.stripTrailingZeros().toPlainString(),
+                    sumPremium.stripTrailingZeros().toPlainString());
+        }
 
         return SubmissionDetailDto.builder()
                 .id(sub.getId())
@@ -437,7 +474,7 @@ public class HRApprovalServiceImpl implements IHRApprovalService {
                 .nomineeData(sub.getNomineeData())
                 .personalDetails(sub.getPersonalDetails())
                 .dependents(sub.getDependents())
-                .premiumBreakdown(sub.getPremiumBreakdown())
+                .premiumBreakdown(premiumBreakdown)
                 .submittedAt(sub.getSubmittedAt())
                 .reviewedAt(sub.getReviewedAt())
                 .reviewedByName(reviewedBy != null ? reviewedBy.getFullName() : null)
@@ -459,6 +496,7 @@ public class HRApprovalServiceImpl implements IHRApprovalService {
                 .organizationName(org != null ? org.getOrganizationName() : null)
                 .invitationId(inv != null ? inv.getId() : null)
                 .invitationStatus(inv != null && inv.getStatus() != null ? inv.getStatus().getValue() : null)
+                .organizationPolicies(organizationPolicies)
                 .build();
     }
 

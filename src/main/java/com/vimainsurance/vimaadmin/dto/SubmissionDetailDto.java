@@ -1,6 +1,7 @@
 package com.vimainsurance.vimaadmin.dto;
 
 import java.time.LocalDateTime;
+import java.util.List;
 import java.util.UUID;
 
 import lombok.AllArgsConstructor;
@@ -53,4 +54,7 @@ public class SubmissionDetailDto {
     // Invitation (if any)
     private UUID invitationId;
     private String invitationStatus;
+
+    /** Company plans (policies attached to the organization) for HR review. */
+    private List<EnrollmentOrganizationPolicyDto> organizationPolicies;
 }
