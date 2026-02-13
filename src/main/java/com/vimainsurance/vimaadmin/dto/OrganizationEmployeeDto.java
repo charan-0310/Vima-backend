@@ -33,5 +33,6 @@ public class OrganizationEmployeeDto {
     private String organizationName;
     private Integer dependentCount; // Number of dependents for this employee
     private String healthId;
+    private String enrollementStatus;
 }
 
