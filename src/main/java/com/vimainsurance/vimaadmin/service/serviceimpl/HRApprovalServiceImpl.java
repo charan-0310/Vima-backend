@@ -896,6 +896,7 @@ public class HRApprovalServiceImpl implements IHRApprovalService {
         String firstName = text(node.get("firstName"));
         String lastName = text(node.get("lastName"));
         String fullName = text(node.get("fullName"));
+        String policyId = text(node.get("policyId"));
         if (fullName == null && (firstName != null || lastName != null)) {
             fullName = (firstName != null ? firstName : "") + " " + (lastName != null ? lastName : "");
             fullName = fullName.trim();
@@ -940,6 +941,9 @@ public class HRApprovalServiceImpl implements IHRApprovalService {
         n.setDateOfBirth(dob);
         n.setGender(gender);
         n.setRelationship(relationship);
+        if (policyId != null && !policyId.isBlank()) {
+            n.setPolicy(policyRepository.findById(Long.parseLong(policyId)).orElse(null));
+        }
         if (node.has("percentage")) {
             try {
                 n.setNomineePercentage(BigDecimal.valueOf(node.get("percentage").doubleValue()));

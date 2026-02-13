@@ -6,9 +6,6 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
-
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executor;
 
@@ -24,14 +21,17 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.vimainsurance.vimaadmin.config.AsyncConfig;
 import com.vimainsurance.vimaadmin.dto.ActivateWindowResponseDto;
 import com.vimainsurance.vimaadmin.dto.BaseResponse;
 import com.vimainsurance.vimaadmin.dto.EmailRequest;
-import com.vimainsurance.vimaadmin.dto.FailedInvitationDto;
 import com.vimainsurance.vimaadmin.dto.EmployeeProgressDetailDto;
 import com.vimainsurance.vimaadmin.dto.EnrollmentInvitationResponseDto;
 import com.vimainsurance.vimaadmin.dto.EnrollmentProgressResponseDto;
 import com.vimainsurance.vimaadmin.dto.ExtendDeadlineResultDto;
+import com.vimainsurance.vimaadmin.dto.FailedInvitationDto;
 import com.vimainsurance.vimaadmin.dto.InvitationLinkResponseDto;
 import com.vimainsurance.vimaadmin.dto.ResendInvitationResponseDto;
 import com.vimainsurance.vimaadmin.dto.ResponseDto;
@@ -40,14 +40,13 @@ import com.vimainsurance.vimaadmin.entity.EnrollmentInvitation;
 import com.vimainsurance.vimaadmin.entity.EnrollmentSubmission;
 import com.vimainsurance.vimaadmin.entity.EnrollmentWindows;
 import com.vimainsurance.vimaadmin.enums.EnrollementStatus;
+import com.vimainsurance.vimaadmin.mapper.EnrollmentInvitationMapper;
 import com.vimainsurance.vimaadmin.repository.IDealsRepository;
 import com.vimainsurance.vimaadmin.repository.IEnrollmentInvitationRepository;
 import com.vimainsurance.vimaadmin.repository.IEnrollmentSubmissionRepository;
 import com.vimainsurance.vimaadmin.repository.IEnrollmentWindowsRepository;
 import com.vimainsurance.vimaadmin.service.IEmailService;
-import com.vimainsurance.vimaadmin.mapper.EnrollmentInvitationMapper;
 import com.vimainsurance.vimaadmin.service.IEnrollmentInvitation;
-import com.vimainsurance.vimaadmin.config.AsyncConfig;
 import com.vimainsurance.vimaadmin.service.TokenSecurityService;
 import com.vimainsurance.vimaadmin.util.TransactionUtil;
 
@@ -218,7 +217,7 @@ public class EnrollmentInvitationServiceImpl implements IEnrollmentInvitation {
             int sent = 0;
             int failed = 0;
             for (EnrollmentInvitation inv : invitations) {
-                if (inv.getExpiresAt() != null && inv.getExpiresAt().isBefore(LocalDateTime.now())) {
+                if (inv.getExpiresAt() != null && inv.getExpiresAt().toLocalDate().isBefore(LocalDate.now())) {
                     continue;
                 }
                 // Deterministic token: resend same link. Legacy: generate new token and update hash.

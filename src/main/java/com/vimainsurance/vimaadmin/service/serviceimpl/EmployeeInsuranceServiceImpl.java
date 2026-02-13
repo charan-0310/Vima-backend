@@ -1,5 +1,20 @@
 package com.vimainsurance.vimaadmin.service.serviceimpl;
 
+import java.math.BigDecimal;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
+import java.util.Map;
+import java.util.Optional;
+import java.util.UUID;
+import java.util.stream.Collectors;
+
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+
 import com.vimainsurance.vimaadmin.dto.EmployeeInsuranceResponseDto;
 import com.vimainsurance.vimaadmin.entity.Deals;
 import com.vimainsurance.vimaadmin.entity.InsuranceProvider;
@@ -14,15 +29,6 @@ import com.vimainsurance.vimaadmin.repository.INomineeRepository;
 import com.vimainsurance.vimaadmin.repository.IPolicyRepository;
 import com.vimainsurance.vimaadmin.service.IEmployeeInsuranceService;
 import com.vimainsurance.vimaadmin.util.TenantContext;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
-
-import java.math.BigDecimal;
-import java.util.*;
-import java.util.stream.Collectors;
 
 /**
  * Service implementation for employee insurance operations
@@ -146,7 +152,7 @@ public class EmployeeInsuranceServiceImpl implements IEmployeeInsuranceService {
      * GTL and GPA policies return empty coveredMembers.
      */
     private List<EmployeeInsuranceResponseDto.CoveredMemberDto> coveredMembersForPolicy(List<Deals> allMembers, Policy policy) {
-        if (policy.getProductType() == null || policy.getProductType() != ProductType.GMC) {
+        if (policy.getProductType() == null || policy.getProductType() != ProductType.GMC || policy.getProductType() != ProductType.GHI) {
             return Collections.emptyList();
         }
         Long policyId = policy.getPolicyId();
