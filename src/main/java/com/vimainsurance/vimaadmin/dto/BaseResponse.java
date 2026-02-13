@@ -1,6 +1,8 @@
 package com.vimainsurance.vimaadmin.dto;
 
 
+import java.util.List;
+
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 
@@ -25,6 +27,10 @@ public class BaseResponse<T> {
 	public ResponseDto<T> formErrorResponse(String message) {
 		return new ResponseDto<>(0, message);
 	}
+	
+	public ResponseDto<List<String>> formErrorResponse(String message, List<String> errors) {
+		return new ResponseDto<>(400, message, (List<String>) errors);
+	}
 
 	public ResponseDto<T> formErrorResponse(String message, T payload) {
 		return new ResponseDto<>(400,message, payload);
@@ -32,7 +38,7 @@ public class BaseResponse<T> {
 
 	public ResponseEntity<ResponseDto<T>> render(ResponseDto<T> response) {
 		if (response.getErrorCode() != null) {
-			ResponseDto<T> errorResponse = new ResponseDto<>(response.getErrorCode(), response.getMessage());
+			ResponseDto<T> errorResponse = new ResponseDto<>(response.getErrorCode(), response.getMessage(), response.getPayload());
 			return renderError(errorResponse);
 		}
 		ResponseDto<T> successResponse = new ResponseDto<>(response.getMessage(), response.getPayload(), response.getTotalRecords());

@@ -1,0 +1,415 @@
+---
+description: Backend architecture patterns, CRUD conventions, and Spring Boot structure for Vima-backend
+alwaysApply: true
+---
+
+# Vima Backend — Architecture & Conventions
+
+Spring Boot 3.4.6 / Java / PostgreSQL / Flyway / Lombok
+
+## Project Structure
+
+```
+src/main/java/com/vimainsurance/vimaadmin/
+  controller/         — REST controllers (@RestController)
+  service/            — Service interfaces (I*Service)
+    serviceimpl/      — Service implementations (*ServiceImpl)
+  entity/             — JPA entities (maps to DB tables)
+  repository/         — Spring Data JPA repositories (I*Repository)
+  dto/                — Data Transfer Objects (request/response)
+  mapper/             — Static mapper classes (Entity ↔ DTO)
+  enums/              — Enum types with getValue()/fromValue()
+  config/             — Spring configuration (Security, CORS, etc.)
+  exception/          — Custom exception classes
+  util/               — Utility classes
+  annotation/         — Custom annotations
+  aspect/             — AOP aspects (rate limiting, etc.)
+  security/           — Security-related classes
+  scheduler/          — Scheduled tasks
+  specification/      — JPA Specification builders
+
+src/main/resources/
+  application.properties          — Shared config + Flyway
+  application-{profile}.properties — Profile-specific (dev, uat, prod)
+  db/migration/                   — Flyway SQL migrations
+  templates/email/                — Thymeleaf email templates
+```
+
+## Standard Response Wrapper
+
+All endpoints return `ResponseEntity<ResponseDto<T>>`:
+
+```java
+public class ResponseDto<T> {
+    private String message;
+    private Integer errorCode = null;  // null on success
+    private T payload;
+    private long totalRecords = 0;
+}
+
+// Usage in service:
+return ResponseEntity.ok(new ResponseDto<>("Success", data));
+return ResponseEntity.ok(new ResponseDto<>("Success", data, totalRecords));
+return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+    .body(new ResponseDto<>(400, "Validation failed"));
+```
+
+## Adding a New Feature (CRUD Pattern)
+
+Reference: Endorsements (`/api/v1/batches`)
+
+### Step 1 — Entity (`entity/*.java`)
+
+```java
+@Table(name = "endorsements", schema = "cpc")
+@Getter @Setter @NoArgsConstructor @AllArgsConstructor @Data @Entity
+public class Endorsement {
+
+    @Id
+    @GeneratedValue
+    @Column(name = "endorsement_id", columnDefinition = "UUID", updatable = false, nullable = false)
+    private UUID endorsementId;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "organization_id", nullable = false)
+    private Organization organization;
+
+    @Column(name = "status", nullable = false)
+    @Enumerated(EnumType.STRING)
+    @JdbcTypeCode(SqlTypes.NAMED_ENUM)
+    private AccountStatus status = AccountStatus.PENDING_APPROVAL;
+
+    @Column(name = "created_at", nullable = false, updatable = false)
+    private LocalDateTime createdAt = LocalDateTime.now();
+
+    @Column(name = "updated_at", nullable = false)
+    private LocalDateTime updatedAt = LocalDateTime.now();
+}
+```
+
+**Key conventions:**
+- Schema: `cpc` for all business tables
+- UUID primary keys with `@GeneratedValue`
+- Lombok `@Getter @Setter @Data` (no manual getters/setters)
+- `@JdbcTypeCode(SqlTypes.NAMED_ENUM)` for PostgreSQL enum columns
+- `FetchType.LAZY` for all `@ManyToOne` relationships
+- Default `createdAt`/`updatedAt` fields
+
+### Step 2 — Repository (`repository/I*Repository.java`)
+
+```java
+@Repository
+public interface IEndorsementRepository
+    extends JpaRepository<Endorsement, UUID>, JpaSpecificationExecutor<Endorsement> {
+
+    Optional<Endorsement> findByEndorsementId(UUID endorsementId);
+    List<Endorsement> findByOrganization_OrganizationId(UUID organizationId);
+    Page<Endorsement> findByStatus(AccountStatus status, Pageable pageable);
+
+    // Custom JPQL queries when Spring Data naming isn't enough
+    @Query("""
+        SELECT e FROM Endorsement e
+        WHERE e.organization.organizationId = :organizationId
+        ORDER BY e.createdAt DESC
+    """)
+    List<Endorsement> findByOrganization(@Param("organizationId") UUID organizationId);
+
+    // Native queries for aggregations
+    @Query(value = """
+        SELECT COUNT(e.endorsement_id) FROM cpc.endorsements e
+        WHERE e.organization_id IN :orgIds
+    """, nativeQuery = true)
+    Long getCountByOrgs(@Param("orgIds") List<UUID> orgIds);
+}
+```
+
+**Key conventions:**
+- Extend both `JpaRepository<Entity, UUID>` and `JpaSpecificationExecutor<Entity>`
+- Spring Data derived queries for simple cases
+- `@Query` with JPQL for complex filtering
+- `nativeQuery = true` for PostgreSQL-specific features
+
+### Step 3 — DTOs (`dto/*.java`)
+
+Request and Response DTOs are separate classes:
+
+```java
+// Request DTO — incoming from frontend
+@Data
+public class EndorsementRequestDto {
+    @NotNull(message = "Organization ID is required")
+    private UUID organizationId;
+    private String endorsementType;
+    private String status;
+    private Integer totalEmployees;
+}
+
+// Response DTO — outgoing to frontend
+@Data
+public class EndorsementResponseDto {
+    private UUID endorsementId;
+    private UUID organizationId;
+    private String organizationName;
+    private String status;
+    private LocalDateTime createdAt;
+}
+```
+
+**Key conventions:**
+- Lombok `@Data` for all DTOs
+- `@NotNull` / `@NotBlank` / `@Email` from `jakarta.validation` for request DTOs
+- Response DTOs flatten nested entity data (e.g., `organizationName` instead of nested object)
+- Use `String` for enum fields in DTOs (not the enum type directly)
+- Use `@Builder` when constructing DTOs in service layer
+
+### Step 4 — Mapper (`mapper/*.java`)
+
+Static utility class with three standard methods:
+
+```java
+public class EndorsementMapper {
+    // Entity from Request DTO
+    public static Endorsement mapToEntity(EndorsementRequestDto dto, Organization org) { ... }
+    // Response DTO from Entity
+    public static EndorsementResponseDto mapToResponseDto(Endorsement entity) { ... }
+    // Update existing Entity from DTO (partial update)
+    public static void updateEntityFromDto(Endorsement entity, EndorsementRequestDto dto) { ... }
+}
+```
+
+**Key conventions:**
+- All methods are `public static`
+- Null-safe: check each field before mapping
+- Enums: use `EnumType.fromValue(dto.getField())` when mapping from String
+- Set `updatedAt = LocalDateTime.now()` on every mutation
+
+### Step 5 — Service Interface + Impl
+
+```java
+// Interface
+public interface IEndorsementService {
+    ResponseEntity<ResponseDto<String>> create(EndorsementRequestDto requestDto);
+    ResponseEntity<ResponseDto<EndorsementResponseDto>> getById(UUID endorsementId);
+    ResponseEntity<ResponseDto<List<EndorsementResponseDto>>> getAllWithFilters(
+        UUID organizationId, String status, int page, int size, String sortBy, String sortDirection);
+}
+
+// Implementation
+@Service
+public class EndorsementServiceImpl implements IEndorsementService {
+
+    @Autowired
+    private IEndorsementRepository endorsementRepository;
+
+    @Autowired
+    private IOrganizationRepository organizationRepository;
+
+    @Override
+    public ResponseEntity<ResponseDto<String>> create(EndorsementRequestDto dto) {
+        // 1. Validate & fetch related entities
+        // 2. Map DTO → Entity using Mapper
+        // 3. Save via repository
+        // 4. Return ResponseDto
+    }
+}
+```
+
+**Key conventions:**
+- Interface naming: `I*Service`
+- Impl in `serviceimpl/` subpackage
+- `@Autowired` field injection for repositories (not constructor injection)
+- Service returns `ResponseEntity<ResponseDto<T>>` directly
+- Logging: `logger.info("[correlationId:{}] ...", MDC.get("correlationId"))`
+
+### Step 6 — Controller
+
+```java
+@RestController
+@CrossOrigin(allowedHeaders = "*")
+@RequestMapping("/api/v1/batches")
+public class EndorsementController {
+
+    private static final Logger logger = LoggerFactory.getLogger(EndorsementController.class);
+
+    @Autowired
+    private IEndorsementService endorsementService;
+
+    @PostMapping
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'VIMA_ADMIN')")
+    public ResponseEntity<ResponseDto<String>> create(@RequestBody EndorsementRequestDto requestDto) {
+        logger.info("[correlationId:{}] /endorsements (POST) endpoint called", MDC.get("correlationId"));
+        return endorsementService.create(requestDto);
+    }
+
+    @GetMapping("/filtered")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'VIMA_ADMIN', 'SALES_MANAGER', 'HR_ADMIN')")
+    public ResponseEntity<ResponseDto<List<EndorsementResponseDto>>> getAllWithFilters(
+            @RequestParam(required = false) UUID organizationId,
+            @RequestParam(required = false) String status,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "10") int size,
+            @RequestParam(required = false) String sortBy,
+            @RequestParam(defaultValue = "desc") String sortDirection) {
+        return endorsementService.getAllWithFilters(organizationId, status, page, size, sortBy, sortDirection);
+    }
+
+    // Multipart file upload
+    @PostMapping(value = "/approve", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'VIMA_ADMIN')")
+    public ResponseEntity<ResponseDto<String>> approve(
+            @RequestPart(value = "files", required = false) MultipartFile[] files,
+            @RequestPart("requestDto") EndorsementRequestDto requestDto) {
+        return endorsementService.approve(files, requestDto);
+    }
+}
+```
+
+**Key conventions:**
+- `@CrossOrigin(allowedHeaders = "*")` on all controllers
+- `@RequestMapping("/api/v1/...")` — all paths start with `/api/v1/`
+- `@PreAuthorize("hasAnyRole(...)")` on every endpoint
+- Log every endpoint entry with correlation ID
+- Controllers are thin — delegate to service immediately
+- Multipart: `@RequestPart` for JSON + file uploads
+
+## Enum Pattern
+
+```java
+public enum EndorsementType {
+    ADDITION("ADDITION"),
+    DELETION("DELETION");
+
+    private final String value;
+
+    EndorsementType(String value) { this.value = value; }
+    public String getValue() { return value; }
+
+    public static EndorsementType fromValue(String value) {
+        for (EndorsementType type : EndorsementType.values()) {
+            if (type.value.equals(value)) return type;
+        }
+        throw new IllegalArgumentException("Unknown EndorsementType: " + value);
+    }
+
+    @Converter(autoApply = true)
+    public static class EndorsementTypeConverter implements AttributeConverter<EndorsementType, String> {
+        @Override public String convertToDatabaseColumn(EndorsementType t) { return t != null ? t.getValue() : null; }
+        @Override public EndorsementType convertToEntityAttribute(String v) { return v != null ? fromValue(v) : null; }
+    }
+}
+```
+
+## Database
+
+- **PostgreSQL** with schema `cpc` for all business tables
+- **UUID** primary keys everywhere
+- **JSONB** for flexible config/data (enrollment window config, submission data)
+- **PostgreSQL enums** (`CREATE TYPE cpc.*_enum`) mapped with `@JdbcTypeCode(SqlTypes.NAMED_ENUM)`
+
+## Flyway Migrations
+
+Location: `src/main/resources/db/migration/`
+Naming: `V{number}__{description}.sql` (double underscore)
+Sub-versions: `V13.1__modify_tables.sql`
+
+```sql
+-- Example: V13__self_enrollment_create_tables.sql
+CREATE TYPE cpc.endorsement_status_enum AS ENUM ('ACTIVE', 'SCHEDULED', ...);
+CREATE TABLE cpc.enrollment_windows (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    organization_id UUID NOT NULL REFERENCES cpc.organizations(organization_id),
+    status cpc.endorsement_status_enum NOT NULL DEFAULT 'SCHEDULED',
+    config JSONB DEFAULT '{}',
+    created_at TIMESTAMP DEFAULT NOW(),
+    updated_at TIMESTAMP DEFAULT NOW()
+);
+```
+
+## User Roles & Personas
+
+Roles defined in `enums/UserRole.java` (DB enum: `admin.user_role_enum`):
+
+| Role | Backend Value | Frontend Value | Who | Access Level |
+|------|--------------|----------------|-----|--------------|
+| **Super Admin** | `SUPER_ADMIN` | — | System-level | Full system access, all operations |
+| **Admin** | `ADMIN` | — | Legacy admin | Same as Super Admin (kept for backward compat) |
+| **Vima Admin** | `VIMA_ADMIN` | `ROLE_VIMA_ADMIN` | Vima operations team | Manages all orgs, endorsements, enrollment windows, user management |
+| **Sales Manager** | `SALES_MANAGER` | `ROLE_SALES_MANAGER` | Manages sales agents | Read access to endorsements, deals dashboard, org data |
+| **Sales Agent** | `SALES_AGENT` | `ROLE_SALES_AGENT` | Sells policies | Deals, quotes, customer management |
+| **HR Admin** | `HR_ADMIN` | `ROLE_HR_ADMIN` | Company HR personnel | Manages own org's enrollment windows, endorsements, employee data |
+| **Employee** | — | `ROLE_EMPLOYEE` | Company employee | Self-service enrollment (token-based, no JWT login) |
+
+### Access Control Matrix (Common Operations)
+
+| Operation | SUPER_ADMIN | VIMA_ADMIN | SALES_MANAGER | HR_ADMIN | SALES_AGENT |
+|-----------|:-----------:|:----------:|:-------------:|:--------:|:-----------:|
+| Create/Update Endorsements | Yes | Yes | — | — | — |
+| View Endorsements | Yes | Yes | Yes | Yes (own org) | — |
+| Approve Endorsements | Yes | Yes | — | — | — |
+| Manage Enrollment Windows | Yes | Yes | — | Yes (own org) | — |
+| Send Invitations/Reminders | Yes | Yes | — | Yes (own org) | — |
+| View Enrollment Progress | Yes | Yes | Yes | Yes (own org) | — |
+| User Management | Yes | Yes | — | — | — |
+| Feature Flags | Yes | Yes | — | — | — |
+
+### How Roles Work
+
+**Backend** — `@PreAuthorize` annotation on every controller method:
+```java
+// Vima Admin only (write operations)
+@PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'VIMA_ADMIN')")
+
+// Vima Admin + HR Admin (org-scoped read/write)
+@PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'VIMA_ADMIN', 'HR_ADMIN')")
+
+// Broad read access
+@PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'VIMA_ADMIN', 'SALES_MANAGER', 'HR_ADMIN')")
+```
+
+**Frontend** — Zustand auth store + constant checks:
+```typescript
+import { useAuthStore } from "@/stores/useAuthStore";
+import { USER_ROLES } from "@/constants";
+
+const { userRole } = useAuthStore();
+const isVimaAdmin = userRole === USER_ROLES.VIMA_ADMIN;
+const isHRAdmin = userRole === USER_ROLES.HR_ADMIN;
+// Conditionally render UI elements based on role
+```
+
+**Employee enrollment** uses token-based auth (no JWT login) — the `/api/v1/enrollment/**` endpoints are public and secured by magic link tokens instead.
+
+### Tenant Isolation
+
+HR Admins only see their own organization's data. This is enforced via:
+1. `X-Organization-ID` header (set automatically by frontend interceptor)
+2. `TenantFilter` in the Spring Security chain
+3. Backend queries filter by `organizationId`
+
+## Security
+
+- **Authentik** OAuth2/OIDC for JWT validation in production
+- **Dev profile** bypasses auth (mock user gets all roles)
+- Public endpoints: `/health`, `/public/**`, `/api/v1/enrollment/**`
+- Role-based access via `@PreAuthorize("hasAnyRole(...)")`
+- Tenant isolation via `X-Organization-ID` header + `TenantFilter`
+
+## Key Dependencies
+
+- **Lombok** — `@Data`, `@Builder`, `@Getter`, `@Setter` (no manual boilerplate)
+- **Flyway** — Database migrations
+- **Spring Security** — OAuth2 Resource Server + method security
+- **Spring Data JPA** — Repositories + Specifications
+- **Thymeleaf** — Email templates
+- **AWS S3** — Document storage
+- **OpenCSV / Apache POI** — CSV/Excel parsing
+- **Bucket4j** — Rate limiting
+- **Springdoc OpenAPI** — Swagger docs at `/swagger-ui.html`
+
+## Profiles
+
+- `dev` — Local development, auth bypassed, `server.servlet.context-path=/dev`
+- `uat` — Staging, `server.servlet.context-path=/dev`, real auth
+- `prod` — Production, `server.servlet.context-path=/prod`, real auth
+
+Run with: `mvnd spring-boot:run -Dspring-boot.run.profiles=uat`

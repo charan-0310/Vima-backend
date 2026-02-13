@@ -14,6 +14,7 @@ import com.fasterxml.jackson.annotation.JsonManagedReference;
 
 import com.vimainsurance.vimaadmin.enums.AccountStatus;
 import com.vimainsurance.vimaadmin.enums.ConfirmationMethod;
+import com.vimainsurance.vimaadmin.enums.EndorsementSource;
 import com.vimainsurance.vimaadmin.enums.EndorsementType;
 import com.vimainsurance.vimaadmin.enums.PremiumChangeType;
 
@@ -66,6 +67,19 @@ public class Endorsement {
     @Enumerated(EnumType.STRING)
     @JdbcTypeCode(SqlTypes.NAMED_ENUM)
     private AccountStatus status = AccountStatus.PENDING_APPROVAL;
+
+    // Endorsement source tracking (added in V13.1)
+    @Column(name = "source")
+    @Enumerated(EnumType.STRING)
+    @JdbcTypeCode(SqlTypes.NAMED_ENUM)
+    private EndorsementSource source = EndorsementSource.CSV_UPLOAD;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "enrollment_window_id")
+    private EnrollmentWindows enrollmentWindow;
+
+    @Column(name = "submission_count")
+    private Integer submissionCount = 0;
 
     @Column(name = "total_employees", nullable = false)
     private Integer totalEmployees = 0;

@@ -328,6 +328,21 @@ public interface IDealsRepository extends JpaRepository<Deals, UUID> , JpaSpecif
         """)
     Long countByEndorsementIdAndRelationshipSelf(@Param("endorsementId") UUID endorsementId);
 
+    /**
+     * Find employees (deals) linked to an enrollment window (self-enrollment).
+     */
+    List<Deals> findByEnrollmentWindow_Id(UUID enrollmentWindowId);
+
+    /**
+     * Find employees (deals) linked to any of the given enrollment windows (batch for progress).
+     */
+    List<Deals> findByEnrollmentWindow_IdIn(Iterable<UUID> enrollmentWindowIds);
+
+    /**
+     * Find deals (dependents) linked to an enrollment submission (created from that submission).
+     */
+    List<Deals> findByEnrollmentSubmission_Id(UUID enrollmentSubmissionId);
+
     @Query("""
         SELECT COUNT(d) FROM Deals d
         WHERE d.endorsementId = :endorsementId
@@ -543,6 +558,43 @@ public interface IDealsRepository extends JpaRepository<Deals, UUID> , JpaSpecif
             @Param("organizationId") UUID organizationId,
             @Param("statuses") List<AccountStatus> statuses
     );
+
+    @Query("""
+        SELECT d FROM Deals d
+        WHERE d.email = :email
+        AND d.organization.organizationId = :organizationId
+        AND d.relationship = :relationship
+    """)
+    Optional<Deals> findByEmailAndOrganizationIdAndRelationship(@Param("email") String email, @Param("organizationId") UUID organizationId, @Param("relationship") String relationship);
+
+    /**
+     * Batch find by emails, organizationId, and relationship (for bulk validation).
+     */
+    @Query("""
+        SELECT d FROM Deals d
+        WHERE d.email IN :emails
+        AND d.organization.organizationId = :organizationId
+        AND d.relationship = :relationship
+    """)
+    List<Deals> findByEmailInAndOrganizationIdAndRelationship(
+        @Param("emails") List<String> emails,
+        @Param("organizationId") UUID organizationId,
+        @Param("relationship") String relationship);
+
+    /**
+     * Batch find by phones, organizationId, and relationship (for bulk validation).
+     */
+    @Query("""
+        SELECT d FROM Deals d
+        WHERE d.phone IN :phones
+        AND d.organization.organizationId = :organizationId
+        AND d.relationship = :relationship
+    """)
+    List<Deals> findByPhoneInAndOrganizationIdAndRelationship(
+        @Param("phones") List<String> phones,
+        @Param("organizationId") UUID organizationId,
+        @Param("relationship") String relationship);
+
     /**
      * Count deals (employees + dependents) added through endorsement additions
      * This counts actual deal records linked to endorsements, providing accurate addition counts

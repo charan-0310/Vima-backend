@@ -83,6 +83,10 @@ public class SecurityConfig {
     
     @Autowired
     private Environment environment;
+
+    /** Context path (e.g. /dev) so permitAll matchers work when request URI includes it. */
+    @Value("${server.servlet.context-path:}")
+    private String contextPath;
     
     /**
      * Filter to set up mock authentication in dev mode
@@ -168,7 +172,9 @@ public class SecurityConfig {
                             // These should eventually be migrated to use JWT tokens
                             .requestMatchers("/api/v1/login", "/oauth2/**", "/api/v1/zoho/auth/**",
                                     "/api/v1/nonce", "/api/v1/auth/challenge", "/api/v1/auth/login").permitAll()
-
+                            // Enrollment token validation - public (no JWT; token in path)
+                            .requestMatchers("/api/v1/enrollments/**").permitAll()
+                            .requestMatchers("/api/v1/enrollment-submissions/**").permitAll()
                             // Test endpoint - requires specific authorities
                             .requestMatchers("/api/v1/test").hasAnyAuthority("VIMA_ADMIN", "SALES_AGENT")
 
@@ -179,6 +185,15 @@ public class SecurityConfig {
                                     "/swagger-ui.html",
                                     "/favicon.ico"
                             ).permitAll()
+
+                            // Enrollment — public (token-based auth, no JWT)
+                            .requestMatchers("/api/v1/enrollment/**").permitAll()
+                            .requestMatchers("/api/v1/enrollment-submissions/**").permitAll()
+                            // With context-path (e.g. /dev, /prod), request URI includes it — match explicitly
+                            .requestMatchers("/dev/api/v1/enrollment-submissions/**").permitAll()
+                            .requestMatchers("/prod/api/v1/enrollment-submissions/**").permitAll()
+                            .requestMatchers(contextPath + "/api/v1/enrollment/**").permitAll()
+                            .requestMatchers(contextPath + "/api/v1/enrollment-submissions/**").permitAll()
 
                             // All other /api/** endpoints require authentication via JWT
                             .requestMatchers("/api/**").authenticated()
