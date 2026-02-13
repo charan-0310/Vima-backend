@@ -163,13 +163,13 @@ public class EmployeeInsuranceServiceImpl implements IEmployeeInsuranceService {
 
     /**
      * Nominees are only attached to GTL and GPA. GMC returns empty list.
-     * Fetches nominees for this policy and this employee (customer).
+     * Fetches nominees for this employee (customer) where policy type is GTL or GPA, then scoped to this policy.
      */
     private List<EmployeeInsuranceResponseDto.NomineeDto> nomineesForPolicy(UUID employeeId, Policy policy) {
         if (policy.getProductType() == null || (policy.getProductType() != ProductType.GTL && policy.getProductType() != ProductType.GPA)) {
             return Collections.emptyList();
         }
-        List<Nominee> nominees = nomineeRepository.findByPolicyPolicyIdAndCustomerIndividualId(policy.getPolicyId(), employeeId);
+        List<Nominee> nominees = nomineeRepository.findByCustomerIndividualId(employeeId);
         return nominees.stream()
                 .map(this::mapToNomineeDto)
                 .collect(Collectors.toList());
