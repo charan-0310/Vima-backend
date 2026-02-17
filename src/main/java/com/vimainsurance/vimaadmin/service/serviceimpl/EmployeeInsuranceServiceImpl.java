@@ -152,7 +152,7 @@ public class EmployeeInsuranceServiceImpl implements IEmployeeInsuranceService {
      * GTL and GPA policies return empty coveredMembers.
      */
     private List<EmployeeInsuranceResponseDto.CoveredMemberDto> coveredMembersForPolicy(List<Deals> allMembers, Policy policy) {
-        if (policy.getProductType() == null || policy.getProductType() != ProductType.GMC || policy.getProductType() != ProductType.GHI) {
+        if (policy.getProductType() == null || (policy.getProductType() != ProductType.GMC && policy.getProductType() != ProductType.GHI)) {
             return Collections.emptyList();
         }
         Long policyId = policy.getPolicyId();
