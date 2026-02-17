@@ -161,6 +161,10 @@ public class EnrollmentSubmissionServiceImpl implements IEnrollmentSubmissionSer
         if(entity.getStatus() == EnrollementStatus.SUBMITTED) {
             sendSubmissionEmail(entity);
         }
+
+        employee.setEnrollmentStatus(entity.getStatus());
+        dealsRepository.save(employee);
+        
         return responseObj.render(responseObj.formSuccessResponse(Constants.SUCCESS, Constants.UPDATE_SUCCESS));
     }
 
@@ -206,6 +210,10 @@ public class EnrollmentSubmissionServiceImpl implements IEnrollmentSubmissionSer
         EnrollmentSubmission entity = EnrollmentSubmissionMapper.mapToEntity(requestDto, employee, enrollmentWindow, invitation, endorsement, reviewedBy);
         // Flush so the DB assigns the UUID before we read it (getId() is null until insert is executed)
         EnrollmentSubmission saved = enrollmentSubmissionRepository.saveAndFlush(entity);
+
+        employee.setEnrollmentStatus(entity.getStatus());
+        dealsRepository.save(employee);
+
         UUID id = saved.getId();
         if (id == null) {
             logger.warn("[correlationId:{}] EnrollmentSubmission insert returned entity with null id", MDC.get("correlationId"));
