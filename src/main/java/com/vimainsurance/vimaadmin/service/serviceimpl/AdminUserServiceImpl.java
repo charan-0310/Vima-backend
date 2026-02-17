@@ -37,6 +37,7 @@ import com.vimainsurance.vimaadmin.repository.IAdminUserRepository;
 import com.vimainsurance.vimaadmin.service.IAdminUserService;
 import com.vimainsurance.vimaadmin.service.IEmailService;
 import com.vimainsurance.vimaadmin.util.AuthentikUtil;
+import com.vimainsurance.vimaadmin.util.KeyCloakUtil;
 import com.vimainsurance.vimaadmin.util.Constants;
 import com.vimainsurance.vimaadmin.util.IdGenerator;
 import com.vimainsurance.vimaadmin.util.PasswordEncoder;
@@ -60,6 +61,9 @@ public class AdminUserServiceImpl implements IAdminUserService {
 
     @Autowired
     private AuthentikUtil authentikUtil;
+
+    @Autowired
+    private KeyCloakUtil keyCloakUtil;
 
     private AdminUserResponseDto mapToResponseDto(AdminUser user) {
         AdminUserResponseDto dto = new AdminUserResponseDto();
@@ -190,14 +194,14 @@ public class AdminUserServiceImpl implements IAdminUserService {
 
             // Create user in Authentik first
             try {
-                authentikUtil.createUser(
+                keyCloakUtil.createUser(
                     requestDto.getFullName(),
                     requestDto.getUsername(),
                     requestDto.getEmail(),
                     requestDto.getRole(),
                     requestDto.getOrganizations(),
                     requestDto.getIsActive() != null ? requestDto.getIsActive() : true,
-                    password,
+                    null,
                     saved.getId().toString()
                 );
                 logger.info("[correlationId:{}] User created successfully in Authentik: {}", MDC.get("correlationId"), requestDto.getUsername());
@@ -601,8 +605,8 @@ public class AdminUserServiceImpl implements IAdminUserService {
         BaseResponse<AuthentikGroupsResponseDto> responseObj = new BaseResponse<>();
         try {
             // Fetch roles and organizations separately and combine them
-            List<RoleDto> roles = authentikUtil.getRoles();
-            List<OrganizationDto> organizations = authentikUtil.getOrganizations();
+            List<RoleDto> roles = keyCloakUtil.getRoles();
+            List<OrganizationDto> organizations = keyCloakUtil.getOrganizations();
             
             AuthentikGroupsResponseDto groups = new AuthentikGroupsResponseDto();
             groups.setRoles(roles);
@@ -620,7 +624,7 @@ public class AdminUserServiceImpl implements IAdminUserService {
         logger.info("getRoles called");
         BaseResponse<List<RoleDto>> responseObj = new BaseResponse<>();
         try {
-            List<RoleDto> roles = authentikUtil.getRoles();
+            List<RoleDto> roles = keyCloakUtil.getRoles();
             return responseObj.render(responseObj.formSuccessResponse(Constants.SUCCESS, roles));
         } catch (Exception e) {
             logger.error("Error fetching roles from Authentik", e);
@@ -633,7 +637,7 @@ public class AdminUserServiceImpl implements IAdminUserService {
         logger.info("getOrganizations called");
         BaseResponse<List<OrganizationDto>> responseObj = new BaseResponse<>();
         try {
-            List<OrganizationDto> organizations = authentikUtil.getOrganizations();
+            List<OrganizationDto> organizations = keyCloakUtil.getOrganizations();
             return responseObj.render(responseObj.formSuccessResponse(Constants.SUCCESS, organizations));
         } catch (Exception e) {
             logger.error("Error fetching organizations from Authentik", e);
