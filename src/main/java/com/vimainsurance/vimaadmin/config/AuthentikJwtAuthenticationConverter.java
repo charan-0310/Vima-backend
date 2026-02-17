@@ -16,19 +16,18 @@ import org.springframework.security.oauth2.server.resource.authentication.JwtGra
 import org.springframework.stereotype.Component;
 
 /**
- * JWT Authentication Converter for Authentik
- * 
- * Extracts roles/authorities from Authentik JWT tokens and converts them to Spring Security authorities.
- * 
- * This converter looks for roles in various JWT claims:
+ * JWT Authentication Converter for Authentik and Keycloak.
+ *
+ * Extracts roles/authorities from JWT tokens and converts them to Spring Security authorities.
+ * Used for both Authentik (dev/prod) and Keycloak (UAT) - issuer-uri is profile-specific in application-*.properties.
+ *
+ * Looks for roles in:
  * - 'groups' claim (Authentik default)
  * - 'roles' claim
- * - 'realm_access.roles' claim (Keycloak-style)
- * 
+ * - 'realm_access.roles' (Keycloak)
+ * - 'resource_access' client roles (Keycloak)
+ *
  * Roles are mapped to authorities with the 'ROLE_' prefix for Spring Security compatibility.
- * 
- * This backend only validates JWT tokens issued by Authentik.
- * React performs login and token exchange - no login endpoints or callback endpoints are required here.
  */
 @Component
 public class AuthentikJwtAuthenticationConverter implements Converter<Jwt, AbstractAuthenticationToken> {
