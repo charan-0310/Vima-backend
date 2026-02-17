@@ -936,7 +936,6 @@ public class HRApprovalServiceImpl implements IHRApprovalService {
             gender = "Other";
         }
         Nominee n = new Nominee();
-        n.setSubmission(sub);
         n.setCustomer(customer);
         n.setFirstName(firstName != null ? firstName : fullName);
         n.setLastName(lastName);
@@ -946,6 +945,9 @@ public class HRApprovalServiceImpl implements IHRApprovalService {
         n.setRelationship(relationship);
         if (policyId != null && !policyId.isBlank()) {
             n.setPolicy(policyRepository.findById(Long.parseLong(policyId)).orElse(null));
+        }
+        else{
+            n.setSubmission(sub);
         }
         if (node.has("percentage")) {
             try {
