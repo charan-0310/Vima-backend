@@ -16,6 +16,8 @@ public interface IClaimQueryRepository extends JpaRepository<ClaimQuery, UUID> {
 
     List<ClaimQuery> findByClaim_Id(UUID claimId);
 
+    List<ClaimQuery> findByClaim_IdOrderByCreatedAtAsc(UUID claimId);
+
     List<ClaimQuery> findByClaim_IdAndQueryStatus(UUID claimId, QueryStatus queryStatus);
 
     @Query("SELECT COUNT(q) FROM ClaimQuery q WHERE q.claim.id = :claimId AND q.queryStatus = com.vimainsurance.vimaadmin.enums.QueryStatus.OPEN")

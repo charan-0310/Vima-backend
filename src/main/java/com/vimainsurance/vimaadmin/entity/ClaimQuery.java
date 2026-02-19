@@ -74,6 +74,12 @@ public class ClaimQuery {
     @Column(name = "num_documents_attached")
     private Integer numDocumentsAttached;
 
+    @Column(name = "employee_remarks", columnDefinition = "TEXT")
+    private String employeeRemarks;
+
+    @Column(name = "employee_response_at")
+    private LocalDateTime employeeResponseAt;
+
     @Column(name = "created_at", nullable = false, updatable = false)
     private LocalDateTime createdAt;
 

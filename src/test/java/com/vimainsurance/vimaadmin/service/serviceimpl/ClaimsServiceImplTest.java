@@ -227,7 +227,7 @@ class ClaimsServiceImplTest {
         when(claimRepository.findById(claimId)).thenReturn(Optional.of(claim));
 
         assertThrows(BadRequestException.class, () -> claimsService.submitToInsurer(claimId));
-        verify(adapterFactory, never()).getAdapter(any());
+        verify(adapterFactory, never()).getAdapter(any(Claim.class));
     }
 
     @Test

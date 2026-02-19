@@ -25,14 +25,20 @@ import com.vimainsurance.vimaadmin.dto.ResponseDto;
 import com.vimainsurance.vimaadmin.dto.claim.ClaimDocumentListResponse;
 import com.vimainsurance.vimaadmin.dto.claim.ClaimDetailsResponse;
 import com.vimainsurance.vimaadmin.dto.claim.ClaimListFilters;
+import com.vimainsurance.vimaadmin.dto.claim.DeductionRequest;
 import com.vimainsurance.vimaadmin.dto.claim.DocumentUploadResponse;
 import com.vimainsurance.vimaadmin.dto.claim.InsurerRefRequest;
+import com.vimainsurance.vimaadmin.dto.claim.QueryCreateRequest;
+import com.vimainsurance.vimaadmin.dto.claim.QueryResponseRequest;
+import com.vimainsurance.vimaadmin.dto.claim.SettlementRequest;
 import com.vimainsurance.vimaadmin.dto.claim.StatusUpdateRequest;
 import com.vimainsurance.vimaadmin.enums.ClaimStatus;
 import com.vimainsurance.vimaadmin.enums.ClaimType;
 import com.vimainsurance.vimaadmin.enums.DocumentType;
 import com.vimainsurance.vimaadmin.enums.UserRole;
 import com.vimainsurance.vimaadmin.service.IAdminClaimsService;
+import com.vimainsurance.vimaadmin.service.IClaimQueryService;
+import com.vimainsurance.vimaadmin.service.IClaimSettlementService;
 import com.vimainsurance.vimaadmin.service.IClaimsDocumentService;
 import com.vimainsurance.vimaadmin.util.JwtUserExtractor;
 
@@ -55,6 +61,8 @@ public class AdminClaimsController {
 
     private final IAdminClaimsService adminClaimsService;
     private final IClaimsDocumentService claimsDocumentService;
+    private final IClaimQueryService claimQueryService;
+    private final IClaimSettlementService claimSettlementService;
     private final JwtUserExtractor jwtUserExtractor;
 
     /** GET /api/v1/admin/claims - List all claims with filters. */
@@ -163,6 +171,75 @@ public class AdminClaimsController {
     @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'VIMA_ADMIN', 'HR_ADMIN')")
     public ResponseEntity<ResponseDto<java.util.List<ClaimDetailsResponse.ClaimAuditLogDto>>> getAuditLog(@PathVariable UUID claimId) {
         return adminClaimsService.getAuditLog(claimId);
+    }
+
+    /** POST /api/v1/admin/claims/{claimId}/queries - Create query record (claim status -> QUERY_RAISED). */
+    @PostMapping("/{claimId}/queries")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'VIMA_ADMIN', 'HR_ADMIN')")
+    public ResponseEntity<ResponseDto<com.vimainsurance.vimaadmin.dto.claim.QueryCreateResponse>> createQuery(
+            @PathVariable UUID claimId,
+            @Valid @RequestBody QueryCreateRequest request) {
+        return claimQueryService.createQuery(claimId, request);
+    }
+
+    /** PUT /api/v1/admin/claims/{claimId}/queries/{queryId}/respond - Record query response (claim status -> QUERY_RESPONDED). */
+    @PutMapping("/{claimId}/queries/{queryId}/respond")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'VIMA_ADMIN', 'HR_ADMIN')")
+    public ResponseEntity<ResponseDto<Void>> respondToQuery(
+            @PathVariable UUID claimId,
+            @PathVariable UUID queryId,
+            @Valid @RequestBody QueryResponseRequest request) {
+        return claimQueryService.respondToQuery(claimId, queryId, request);
+    }
+
+    /** GET /api/v1/admin/claims/{claimId}/queries - List all queries for claim. */
+    @GetMapping("/{claimId}/queries")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'VIMA_ADMIN', 'HR_ADMIN')")
+    public ResponseEntity<ResponseDto<java.util.List<com.vimainsurance.vimaadmin.dto.claim.ClaimQueryDto>>> listQueries(@PathVariable UUID claimId) {
+        return claimQueryService.listQueries(claimId);
+    }
+
+    /** POST /api/v1/admin/claims/{claimId}/settlement - Record settlement (claim status -> SETTLED). */
+    @PostMapping("/{claimId}/settlement")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'VIMA_ADMIN', 'HR_ADMIN')")
+    public ResponseEntity<ResponseDto<com.vimainsurance.vimaadmin.dto.claim.SettlementResponse>> recordSettlement(
+            @PathVariable UUID claimId,
+            @Valid @RequestBody SettlementRequest request) {
+        return claimSettlementService.recordSettlement(claimId, request);
+    }
+
+    /** PUT /api/v1/admin/claims/{claimId}/settlement - Update settlement. */
+    @PutMapping("/{claimId}/settlement")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'VIMA_ADMIN', 'HR_ADMIN')")
+    public ResponseEntity<ResponseDto<com.vimainsurance.vimaadmin.dto.claim.SettlementResponse>> updateSettlement(
+            @PathVariable UUID claimId,
+            @Valid @RequestBody SettlementRequest request) {
+        return claimSettlementService.updateSettlement(claimId, request);
+    }
+
+    /** POST /api/v1/admin/claims/{claimId}/deductions - Add deduction line item. */
+    @PostMapping("/{claimId}/deductions")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'VIMA_ADMIN', 'HR_ADMIN')")
+    public ResponseEntity<ResponseDto<com.vimainsurance.vimaadmin.dto.claim.ClaimDeductionDto>> addDeduction(
+            @PathVariable UUID claimId,
+            @Valid @RequestBody DeductionRequest request) {
+        return claimSettlementService.addDeduction(claimId, request);
+    }
+
+    /** GET /api/v1/admin/claims/{claimId}/deductions - List deductions. */
+    @GetMapping("/{claimId}/deductions")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'VIMA_ADMIN', 'HR_ADMIN')")
+    public ResponseEntity<ResponseDto<java.util.List<com.vimainsurance.vimaadmin.dto.claim.ClaimDeductionDto>>> listDeductions(@PathVariable UUID claimId) {
+        return claimSettlementService.listDeductions(claimId);
+    }
+
+    /** DELETE /api/v1/admin/claims/{claimId}/deductions/{deductionId} - Remove deduction. */
+    @DeleteMapping("/{claimId}/deductions/{deductionId}")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'VIMA_ADMIN', 'HR_ADMIN')")
+    public ResponseEntity<ResponseDto<Void>> removeDeduction(
+            @PathVariable UUID claimId,
+            @PathVariable UUID deductionId) {
+        return claimSettlementService.removeDeduction(claimId, deductionId);
     }
 
     /**

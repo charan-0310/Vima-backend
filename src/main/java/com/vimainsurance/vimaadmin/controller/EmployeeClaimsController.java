@@ -26,7 +26,9 @@ import com.vimainsurance.vimaadmin.dto.claim.ClaimSubmissionRequest;
 import com.vimainsurance.vimaadmin.dto.claim.ClaimSummaryDto;
 import com.vimainsurance.vimaadmin.dto.claim.DocumentUploadResponse;
 import com.vimainsurance.vimaadmin.dto.claim.EmployeeClaimSubmitResponseDto;
+import com.vimainsurance.vimaadmin.dto.claim.EmployeeResponseRequest;
 import com.vimainsurance.vimaadmin.enums.DocumentType;
+import com.vimainsurance.vimaadmin.service.IClaimQueryService;
 import com.vimainsurance.vimaadmin.service.IClaimsDocumentService;
 import com.vimainsurance.vimaadmin.service.IEmployeeClaimsService;
 import com.vimainsurance.vimaadmin.util.JwtUserExtractor;
@@ -51,6 +53,7 @@ public class EmployeeClaimsController {
 
     private final IEmployeeClaimsService employeeClaimsService;
     private final IClaimsDocumentService claimsDocumentService;
+    private final IClaimQueryService claimQueryService;
     private final JwtUserExtractor jwtUserExtractor;
 
     /**
@@ -113,6 +116,27 @@ public class EmployeeClaimsController {
     @PreAuthorize("hasAnyRole('VIMA_ADMIN', 'HR_ADMIN', 'EMPLOYEE')")
     public ResponseEntity<ResponseDto<String>> cancelClaim(@PathVariable UUID claimId) {
         return employeeClaimsService.cancelClaim(claimId);
+    }
+
+    /**
+     * GET /api/v1/claims/{claimId}/queries - List queries for this claim (employee's own claims only).
+     */
+    @GetMapping("/{claimId}/queries")
+    @PreAuthorize("hasAnyRole('VIMA_ADMIN', 'HR_ADMIN', 'EMPLOYEE')")
+    public ResponseEntity<ResponseDto<java.util.List<com.vimainsurance.vimaadmin.dto.claim.ClaimQueryDto>>> getClaimQueries(@PathVariable UUID claimId) {
+        return claimQueryService.listQueriesForEmployee(claimId);
+    }
+
+    /**
+     * POST /api/v1/claims/{claimId}/queries/{queryId}/employee-response - Employee adds remarks/docs for query (no status change).
+     */
+    @PostMapping("/{claimId}/queries/{queryId}/employee-response")
+    @PreAuthorize("hasAnyRole('VIMA_ADMIN', 'HR_ADMIN', 'EMPLOYEE')")
+    public ResponseEntity<ResponseDto<Void>> addEmployeeQueryResponse(
+            @PathVariable UUID claimId,
+            @PathVariable UUID queryId,
+            @Valid @RequestBody EmployeeResponseRequest request) {
+        return claimQueryService.addEmployeeResponse(claimId, queryId, request);
     }
 
     /**
