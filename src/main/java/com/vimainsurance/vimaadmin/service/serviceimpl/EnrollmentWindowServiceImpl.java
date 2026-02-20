@@ -3,6 +3,7 @@ package com.vimainsurance.vimaadmin.service.serviceimpl;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
@@ -132,6 +133,35 @@ public class EnrollmentWindowServiceImpl implements IEnrollmentWindowService {
             TransactionUtil.markRollbackOnly();
             logger.error("[correlationId:{}] Exception in EnrollmentWindow create: {}", MDC.get("correlationId"), e.getMessage(), e);
             return responseObj.render(responseObj.formErrorResponse(Constants.RECORD_NOT_CREATED));
+        }
+    }
+
+    @Override
+    public ResponseEntity<ResponseDto<List<String>>> validateEmployees(UUID organizationId, List<SelfEmployeeEnrollmentRequestDto> selfEmployeeEnrollmentRequestDtos) {
+        logger.info("[correlationId:{}] EnrollmentWindow validateEmployees called for organization {}", MDC.get("correlationId"), organizationId);
+        BaseResponse<List<String>> responseObj = new BaseResponse<>();
+        try {
+            Optional<Organization> orgOpt = organizationRepository.findByOrganizationId(organizationId);
+            if (orgOpt.isEmpty()) {
+                return responseObj.render(responseObj.formErrorResponse("Organization not found"));
+            }
+            jwtUserExtractor.validateOrganizationAccess(organizationId);
+
+            if (selfEmployeeEnrollmentRequestDtos == null || selfEmployeeEnrollmentRequestDtos.isEmpty()) {
+                return responseObj.render(responseObj.formSuccessResponse(Constants.SUCCESS, Collections.emptyList()));
+            }
+
+            List<String> errors = validateSelfEmployeeEnrollmentRequest(selfEmployeeEnrollmentRequestDtos, organizationId);
+            if (!errors.isEmpty()) {
+                return responseObj.render(new ResponseDto<>(400, "Validation failed", errors));
+            }
+            return responseObj.render(responseObj.formSuccessResponse(Constants.SUCCESS, Collections.emptyList()));
+        } catch (OrganizationAccessDeniedException e) {
+            logger.warn("[correlationId:{}] Organization access denied: {}", MDC.get("correlationId"));
+            return responseObj.render(responseObj.formErrorResponse(403, e.getMessage()));
+        } catch (Exception e) {
+            logger.error("[correlationId:{}] Exception in EnrollmentWindow validateEmployees: {}", MDC.get("correlationId"), e.getMessage(), e);
+            return responseObj.render(responseObj.formErrorResponse("Validation request failed"));
         }
     }
 

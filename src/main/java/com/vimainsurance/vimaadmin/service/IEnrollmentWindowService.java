@@ -16,6 +16,12 @@ public interface IEnrollmentWindowService {
 
     ResponseEntity<ResponseDto<EnrollmentWindowResponseDto>> create(EnrollmentWindowRequestDto requestDto);
 
+    /**
+     * Validate employees for enrollment (no window or employees created).
+     * Returns success with empty payload when valid, or error with payload = list of error messages.
+     */
+    ResponseEntity<ResponseDto<List<String>>> validateEmployees(UUID organizationId, List<SelfEmployeeEnrollmentRequestDto> selfEmployeeEnrollmentRequestDtos);
+
     ResponseEntity<ResponseDto<EnrollmentWindowResponseDto>> uploadEmployees(UUID windowId, List<SelfEmployeeEnrollmentRequestDto> selfEmployeeEnrollmentRequestDtos, MultipartFile file);
 
     ResponseEntity<ResponseDto<List<EnrollmentWindowResponseDto>>> getAllWithFilters(

@@ -682,7 +682,26 @@ public class PolicyServiceImpl implements IPolicyService {
             policy.setCoverageType(CoverageType.valueOf(requestDto.getCoverageType()));
             policy.setStatus(PolicyStatus.valueOf(requestDto.getStatus()));
             policy.setCoveredIndividuals(Arrays.asList(organizationId));
-            policy.setSumInsured(requestDto.getSumInsured());
+
+            // GMC: sum_insured = coverage amount; no multiplier.
+            // GPA/GTL: MULTIPLIER → sum_insured_multiplier set, sum_insured null; FIXED → sum_insured set, sum_insured_multiplier null.
+            ProductType productType = policy.getProductType();
+            if (productType == ProductType.GMC) {
+                policy.setSumInsured(requestDto.getSumInsured());
+                policy.setSumInsuredMultiplier(null);
+            } else if (productType == ProductType.GPA || productType == ProductType.GTL) {
+                if ("FIXED".equalsIgnoreCase(requestDto.getSumInsuredOption())) {
+                    policy.setSumInsured(requestDto.getSumInsured());
+                    policy.setSumInsuredMultiplier(null);
+                } else {
+                    policy.setSumInsuredMultiplier(requestDto.getSumInsuredMultiplier());
+                    policy.setSumInsured(null);
+                }
+            } else {
+                policy.setSumInsured(requestDto.getSumInsured());
+                policy.setSumInsuredMultiplier(null);
+            }
+
             policy.setPremiumAmount(requestDto.getPremiumAmount());
             policy.setStartDate(requestDto.getStartDate());
             policy.setEndDate(requestDto.getEndDate());
