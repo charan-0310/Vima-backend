@@ -1,16 +1,19 @@
 package com.vimainsurance.vimaadmin.util;
 
+import java.time.Instant;
+import java.time.LocalDateTime;
+import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
 
-import jakarta.ws.rs.core.Response;
 import org.keycloak.OAuth2Constants;
+import org.keycloak.admin.client.CreatedResponseUtil;
 import org.keycloak.admin.client.Keycloak;
 import org.keycloak.admin.client.KeycloakBuilder;
-import org.keycloak.admin.client.CreatedResponseUtil;
+import org.keycloak.admin.client.resource.UserResource;
 import org.keycloak.representations.idm.CredentialRepresentation;
 import org.keycloak.representations.idm.GroupRepresentation;
 import org.keycloak.representations.idm.RoleRepresentation;
@@ -20,8 +23,12 @@ import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
+import com.vimainsurance.vimaadmin.dto.AdminUserResponseDto;
+import com.vimainsurance.vimaadmin.dto.AuthentikPaginatedResponse;
 import com.vimainsurance.vimaadmin.dto.OrganizationDto;
 import com.vimainsurance.vimaadmin.dto.RoleDto;
+
+import jakarta.ws.rs.core.Response;
 
 /**
  * Keycloak Admin API utility. Provides getRoles() and getOrganizations() compatible
@@ -145,6 +152,63 @@ public class KeyCloakUtil {
     }
 
     /**
+     * Create a top-level group in Keycloak with the given name.
+     * Used when creating an organization so that HR_ADMIN etc. can be assigned to ORG_* groups.
+     *
+     * @param groupName Group name (e.g. "ORG_ACME_CORP")
+     * @return Created group ID, or null if config missing or creation failed
+     */
+    public String createGroup(String groupName) {
+        return createGroup(groupName, null);
+    }
+
+    /**
+     * Create a top-level group in Keycloak with the given name and optional attributes.
+     *
+     * @param groupName  Group name (e.g. "ORG_ACME_CORP")
+     * @param attributes Optional attributes (e.g. Map.of("organization_id", List.of(uuid)))
+     * @return Created group ID, or null if config missing or creation failed
+     */
+    public String createGroup(String groupName, Map<String, List<String>> attributes) {
+        if (groupName == null || groupName.isBlank()) {
+            logger.warn("createGroup: groupName is blank");
+            return null;
+        }
+        if (!isConfigPresent()) {
+            logger.warn("Keycloak config missing; cannot create group");
+            return null;
+        }
+        Keycloak keycloak = null;
+        try {
+            keycloak = getKeycloakClient();
+            GroupRepresentation group = new GroupRepresentation();
+            group.setName(groupName.trim());
+            if (attributes != null && !attributes.isEmpty()) {
+                group.setAttributes(attributes);
+            }
+            try (Response response = keycloak.realm(realm).groups().add(group)) {
+                if (response.getStatus() == 201) {
+                    String createdId = CreatedResponseUtil.getCreatedId(response);
+                    logger.info("Created Keycloak group {} with id {}", groupName, createdId);
+                    return createdId;
+                }
+                if (response.getStatus() == 409) {
+                    logger.debug("Keycloak group {} already exists", groupName);
+                    return getGroupIdByName(groupName);
+                }
+                String body = response.readEntity(String.class);
+                logger.warn("Keycloak createGroup failed: status={}, body={}", response.getStatus(), body);
+                return null;
+            }
+        } catch (Exception e) {
+            logger.error("Failed to create group in Keycloak: {}", e.getMessage(), e);
+            return null;
+        } finally {
+            if (keycloak != null) keycloak.close();
+        }
+    }
+
+    /**
      * Get group ID by group name (e.g. "ORG_MAIN", "ROLE_VIMA_ADMIN").
      * Used to resolve role/org names to Keycloak group IDs when creating users.
      * For realm roles we use realm.roles() by name; this is for groups only.
@@ -168,6 +232,149 @@ public class KeyCloakUtil {
         } finally {
             if (keycloak != null) keycloak.close();
         }
+    }
+
+    /**
+     * Get users from Keycloak with pagination (1-based page).
+     * Returns same structure as AuthentikUtil.getUsers for drop-in use.
+     */
+    public AuthentikPaginatedResponse<AdminUserResponseDto> getUsers(Integer page, Integer pageSize) {
+        return getUsersWithFilters(null, null, null, null, page, pageSize);
+    }
+
+    /**
+     * Get users from Keycloak with search, filters, and pagination.
+     * Keycloak supports: first (offset), max (page size), search (username/first/last/email), enabled.
+     * ordering and groupsByName are not applied by Keycloak API (ordering could be done in-memory; group filter would require extra calls).
+     *
+     * @param search       Search term (Keycloak searches username, firstName, lastName, email)
+     * @param isActive     Filter by enabled status
+     * @param ordering     Ignored by Keycloak API
+     * @param groupsByName Ignored in this implementation
+     * @param page         1-based page number
+     * @param pageSize     Page size
+     */
+    public AuthentikPaginatedResponse<AdminUserResponseDto> getUsersWithFilters(
+            String search, Boolean isActive, String ordering, List<String> groupsByName,
+            Integer page, Integer pageSize) {
+        if (!isConfigPresent()) {
+            throw new IllegalStateException("Keycloak config missing; cannot get users");
+        }
+        if (page == null || page < 1) page = 1;
+        if (pageSize == null || pageSize < 1) pageSize = 25;
+        int first = (page - 1) * pageSize;
+        int max = pageSize;
+
+        Keycloak keycloak = null;
+        try {
+            keycloak = getKeycloakClient();
+            var usersResource = keycloak.realm(realm).users();
+            List<UserRepresentation> userList;
+            int totalCount;
+            if (search != null && !search.trim().isEmpty()) {
+                userList = usersResource.search(search.trim(), isActive, first, max);
+                totalCount = usersResource.count(search.trim(), null, null, null, null, null, isActive, null);
+            } else {
+                userList = usersResource.list(first, max);
+                totalCount = usersResource.count();
+            }
+            if (userList == null) userList = List.of();
+
+            List<AdminUserResponseDto> results = new ArrayList<>();
+            for (UserRepresentation ur : userList) {
+                AdminUserResponseDto dto = mapUserRepresentationToDto(keycloak, ur);
+                if (dto != null) results.add(dto);
+            }
+
+            int totalPages = (totalCount + pageSize - 1) / pageSize;
+            AuthentikPaginatedResponse<AdminUserResponseDto> response = new AuthentikPaginatedResponse<>();
+            response.setResults(results);
+            AuthentikPaginatedResponse.PaginationInfo pagination = new AuthentikPaginatedResponse.PaginationInfo();
+            pagination.setCount(totalCount);
+            pagination.setCurrent(page);
+            pagination.setTotalPages(totalPages);
+            pagination.setNext(page < totalPages ? page + 1 : null);
+            pagination.setPrevious(page > 1 ? page - 1 : null);
+            pagination.setStartIndex(first + 1);
+            pagination.setEndIndex(Math.min(first + results.size(), totalCount));
+            response.setPagination(pagination);
+            return response;
+        } catch (Exception e) {
+            logger.error("Failed to get users from Keycloak", e);
+            throw new RuntimeException("Failed to get users from Keycloak: " + e.getMessage(), e);
+        } finally {
+            if (keycloak != null) keycloak.close();
+        }
+    }
+
+    /**
+     * Get all users from Keycloak by fetching all pages (same signature as AuthentikUtil.getAllUsers).
+     *
+     * @return List of all users
+     */
+    public List<AdminUserResponseDto> getAllUsers() {
+        List<AdminUserResponseDto> allUsers = new ArrayList<>();
+        int currentPage = 1;
+        int pageSize = 100;
+
+        while (true) {
+            AuthentikPaginatedResponse<AdminUserResponseDto> response = getUsers(currentPage, pageSize);
+            if (response.getResults() == null || response.getResults().isEmpty()) {
+                break;
+            }
+            allUsers.addAll(response.getResults());
+            if (response.getPagination() != null && response.getPagination().getNext() != null && response.getPagination().getNext() > 0) {
+                currentPage = response.getPagination().getNext();
+            } else {
+                break;
+            }
+        }
+        return allUsers;
+    }
+
+    /**
+     * Map Keycloak UserRepresentation to AdminUserResponseDto. Optionally enriches with realm roles and group names.
+     */
+    private AdminUserResponseDto mapUserRepresentationToDto(Keycloak keycloak, UserRepresentation ur) {
+        if (ur == null) return null;
+        AdminUserResponseDto dto = new AdminUserResponseDto();
+        dto.setUsername(ur.getUsername());
+        dto.setEmail(ur.getEmail());
+        String first = ur.getFirstName() != null ? ur.getFirstName() : "";
+        String last = ur.getLastName() != null ? ur.getLastName() : "";
+        dto.setFullName((first + " " + last).trim().isEmpty() ? null : (first + " " + last).trim());
+        dto.setIsActive(ur.isEnabled());
+        dto.setOauthProvider("keycloak");
+        dto.setOauthProviderId(ur.getId());
+        if (ur.getCreatedTimestamp() != null) {
+            dto.setCreatedAt(LocalDateTime.ofInstant(Instant.ofEpochMilli(ur.getCreatedTimestamp()), ZoneId.systemDefault()));
+        }
+        dto.setRoles(new ArrayList<>());
+        dto.setOrganizations(new ArrayList<>());
+        if (keycloak != null && ur.getId() != null) {
+            try {
+                UserResource userResource = keycloak.realm(realm).users().get(ur.getId());
+                List<RoleRepresentation> realmRoles = userResource.roles().realmLevel().listEffective();
+                if (realmRoles != null) {
+                    for (RoleRepresentation rr : realmRoles) {
+                        if (rr != null && rr.getName() != null) {
+                            dto.getRoles().add(rr.getName().startsWith(ROLE_PREFIX) ? rr.getName() : ROLE_PREFIX + rr.getName());
+                        }
+                    }
+                }
+                List<GroupRepresentation> groups = userResource.groups();
+                if (groups != null) {
+                    for (GroupRepresentation g : groups) {
+                        if (g != null && g.getName() != null && g.getName().startsWith(ORG_PREFIX)) {
+                            dto.getOrganizations().add(g.getName());
+                        }
+                    }
+                }
+            } catch (Exception e) {
+                logger.debug("Could not enrich user {} with roles/groups: {}", ur.getUsername(), e.getMessage());
+            }
+        }
+        return dto;
     }
 
     /**

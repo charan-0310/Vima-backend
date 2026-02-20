@@ -308,11 +308,11 @@ public class AdminUserServiceImpl implements IAdminUserService {
             
             if (page == -1 && rec == -1) {
                 // Get all users
-                dtos = authentikUtil.getAllUsers();
-                totalRecords = dtos.size();
+                dtos = keyCloakUtil.getAllUsers();
+                totalRecords = dtos != null ? dtos.size() : 0;
             } else {
-                // Get paginated users (convert 0-based page to 1-based for Authentik API)
-                AuthentikPaginatedResponse<AdminUserResponseDto> paginatedResponse = authentikUtil.getUsers(page + 1, rec);
+                // Get paginated users (convert 0-based page to 1-based for keycloak API)
+                AuthentikPaginatedResponse<AdminUserResponseDto> paginatedResponse = keyCloakUtil.getUsers(page + 1, rec);
                 dtos = paginatedResponse.getResults();
                 if (paginatedResponse.getPagination() != null && paginatedResponse.getPagination().getCount() != null) {
                     totalRecords = paginatedResponse.getPagination().getCount();
@@ -335,64 +335,51 @@ public class AdminUserServiceImpl implements IAdminUserService {
                 search, role, organization, isActive, page, rec, sortBy, sortDirection);
         BaseResponse<AdminUsersFilteredResponseDto> responseObj = new BaseResponse<>();
         try {
-            // Map sortBy to Authentik ordering field name
+            // Map sortBy to ordering field name (Keycloak ignores; used for API compatibility)
             String ordering = mapSortByToAuthentikOrdering(sortBy, sortDirection);
-            
-            // Prepare groups_by_name list for Authentik (supports both role and organization)
+
+            // Prepare groups list (Keycloak getUsersWithFilters ignores groupsByName; role/org filter applied in-memory below)
             List<String> groupsByName = new ArrayList<>();
             if (role != null && !role.trim().isEmpty()) {
                 String roleName = role.trim();
-                // If role doesn't start with ROLE_, add it
-                if (!roleName.startsWith("ROLE_")) {
-                    groupsByName.add("ROLE_" + roleName);
-                } else {
-                    groupsByName.add(roleName);
-                }
+                groupsByName.add(roleName.startsWith("ROLE_") ? roleName : "ROLE_" + roleName);
             }
             if (organization != null && !organization.trim().isEmpty()) {
                 String orgName = organization.trim();
-                // If organization doesn't start with ORG_, add it
-                if (!orgName.startsWith("ORG_")) {
-                    groupsByName.add("ORG_" + orgName);
-                } else {
-                    groupsByName.add(orgName);
-                }
+                groupsByName.add(orgName.startsWith("ORG_") ? orgName : "ORG_" + orgName);
             }
-            
-            // Use Authentik search for username/email/name
-            // Organization names will be searched in-memory since Authentik's search doesn't include groups
-            String authenticSearch = search;
-            
+
+            String keycloakSearch = search != null ? search.trim() : null;
+
             List<AdminUserResponseDto> dtos;
             long totalRecords;
-            
+
             if (page == -1 && rec == -1) {
-                // Get all users with filters from Authentik (fetch all pages)
-                dtos = getAllUsersWithFiltersFromAuthentik(authenticSearch, isActive, ordering, groupsByName, search);
+                dtos = getAllUsersWithFiltersFromKeycloak(keycloakSearch, isActive, ordering, groupsByName, search);
                 totalRecords = dtos.size();
             } else {
-                // Get paginated users with filters from Authentik (convert 0-based page to 1-based)
-                AuthentikPaginatedResponse<AdminUserResponseDto> paginatedResponse = 
-                    authentikUtil.getUsersWithFilters(authenticSearch, isActive, ordering, groupsByName, page + 1, rec);
+                AuthentikPaginatedResponse<AdminUserResponseDto> paginatedResponse =
+                        keyCloakUtil.getUsersWithFilters(keycloakSearch, isActive, ordering, groupsByName, page + 1, rec);
                 dtos = paginatedResponse.getResults();
-                
-                // Apply organization search filter in-memory (for partial matches)
-                // This ensures we catch users whose organization names contain the search term
-                if (search != null && !search.trim().isEmpty()) {
+                if (dtos == null) dtos = new ArrayList<>();
+
+                // In-memory: search in org names, and filter by role/org if requested
+                if ((search != null && !search.trim().isEmpty()) || !groupsByName.isEmpty()) {
                     dtos = dtos.stream()
                             .filter(user -> matchesSearchInAllFields(user, search))
+                            .filter(user -> matchesRoleAndOrganization(user, role, organization))
                             .collect(Collectors.toList());
                 }
-                
+
                 if (paginatedResponse.getPagination() != null && paginatedResponse.getPagination().getCount() != null) {
                     totalRecords = paginatedResponse.getPagination().getCount();
                 } else {
-                    totalRecords = dtos != null ? dtos.size() : 0;
+                    totalRecords = dtos.size();
                 }
             }
-            
-            // Get all filtered users for statistics calculation (without pagination)
-            List<AdminUserResponseDto> allFilteredUsers = getAllUsersWithFiltersFromAuthentik(authenticSearch, isActive, ordering, groupsByName, search);
+
+            // All filtered users for statistics (Keycloak)
+            List<AdminUserResponseDto> allFilteredUsers = getAllUsersWithFiltersFromKeycloak(keycloakSearch, isActive, ordering, groupsByName, search);
             
             // Calculate statistics based on filtered results
             Long totalUsers = (long) allFilteredUsers.size();
@@ -488,6 +475,76 @@ public class AdminUserServiceImpl implements IAdminUserService {
         
         // Return true if matches any field (standard fields OR organization)
         return matchesStandardFields || matchesOrganization;
+    }
+
+    /**
+     * Get all users with filters from Keycloak by fetching all pages.
+     * Role/organization filter applied in-memory (Keycloak API does not support groupsByName).
+     */
+    private List<AdminUserResponseDto> getAllUsersWithFiltersFromKeycloak(
+            String search, Boolean isActive, String ordering, List<String> groupsByName, String originalSearch) {
+        List<AdminUserResponseDto> allUsers = new ArrayList<>();
+        int currentPage = 1;
+        int pageSize = 100;
+
+        while (true) {
+            AuthentikPaginatedResponse<AdminUserResponseDto> response =
+                    keyCloakUtil.getUsersWithFilters(search, isActive, ordering, groupsByName, currentPage, pageSize);
+            if (response.getResults() == null || response.getResults().isEmpty()) {
+                break;
+            }
+            List<AdminUserResponseDto> filteredResults = response.getResults();
+            if (originalSearch != null && !originalSearch.trim().isEmpty()) {
+                filteredResults = filteredResults.stream()
+                        .filter(user -> matchesSearchInAllFields(user, originalSearch))
+                        .collect(Collectors.toList());
+            }
+            filteredResults = filteredResults.stream()
+                    .filter(user -> matchesRoleAndOrganization(user, resolveRoleFromGroups(groupsByName), resolveOrgFromGroups(groupsByName)))
+                    .collect(Collectors.toList());
+            allUsers.addAll(filteredResults);
+            if (response.getPagination() != null && response.getPagination().getNext() != null && response.getPagination().getNext() > 0) {
+                currentPage = response.getPagination().getNext();
+            } else {
+                break;
+            }
+        }
+        return allUsers;
+    }
+
+    private String resolveRoleFromGroups(List<String> groupsByName) {
+        if (groupsByName == null) return null;
+        return groupsByName.stream()
+                .filter(g -> g != null && g.startsWith("ROLE_"))
+                .findFirst()
+                .orElse(null);
+    }
+
+    private String resolveOrgFromGroups(List<String> groupsByName) {
+        if (groupsByName == null) return null;
+        return groupsByName.stream()
+                .filter(g -> g != null && g.startsWith("ORG_"))
+                .findFirst()
+                .orElse(null);
+    }
+
+    /**
+     * True if user has the requested role and organization (null/empty means no filter).
+     */
+    private boolean matchesRoleAndOrganization(AdminUserResponseDto user, String role, String organization) {
+        if (role != null && !role.trim().isEmpty()) {
+            String roleNorm = role.trim().startsWith("ROLE_") ? role.trim() : "ROLE_" + role.trim();
+            boolean hasRole = user.getRoles() != null && user.getRoles().stream()
+                    .anyMatch(r -> r != null && r.equals(roleNorm));
+            if (!hasRole) return false;
+        }
+        if (organization != null && !organization.trim().isEmpty()) {
+            String orgNorm = organization.trim().startsWith("ORG_") ? organization.trim() : "ORG_" + organization.trim();
+            boolean hasOrg = user.getOrganizations() != null && user.getOrganizations().stream()
+                    .anyMatch(o -> o != null && o.equals(orgNorm));
+            if (!hasOrg) return false;
+        }
+        return true;
     }
 
     /**
