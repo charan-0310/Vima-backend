@@ -112,10 +112,11 @@ public class EnrollmentWindowsController {
     }
 
     /**
-     * Update an enrollment window
+     * Update an enrollment window (e.g. inline date edit on details page).
+     * HR_ADMIN may update only their organization's windows (enforced by tenant filter).
      */
     @PutMapping("/{id}")
-    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'VIMA_ADMIN')")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'VIMA_ADMIN', 'HR_ADMIN')")
     public ResponseEntity<ResponseDto<EnrollmentWindowResponseDto>> update(
             @PathVariable UUID id,
             @RequestBody EnrollmentWindowRequestDto requestDto) {
