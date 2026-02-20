@@ -507,8 +507,8 @@ public class EnrollmentWindowServiceImpl implements IEnrollmentWindowService {
 
     /**
      * Validates self-service employee enrollment requests (supports bulk).
-     * Uses batch DB lookups for existing employee numbers and emails, then validates each row.
-     * Returns a list of validation error messages; empty list means all valid.
+     * CSV can have multiple rows per employee (self + dependents); we only flag each distinct
+     * employee ID once. "Already exists" means in the organization (DB), not duplicate rows in the file.
      */
     private List<String> validateSelfEmployeeEnrollmentRequest(List<SelfEmployeeEnrollmentRequestDto> requestDtos, UUID organizationId) {
         List<String> errors = new ArrayList<>();
@@ -532,21 +532,22 @@ public class EnrollmentWindowServiceImpl implements IEnrollmentWindowService {
                 .collect(Collectors.toSet());
 
         LocalDate today = LocalDate.now();
-        Set<String> seenEmployeeIds = new HashSet<>();
-        Set<String> seenEmails = new HashSet<>();
+        // Report "already in organization" only once per employee ID (CSV has multiple rows per employee: self + dependents)
+        Set<String> reportedEmployeeIds = new HashSet<>();
+        Set<String> reportedEmails = new HashSet<>();
         for (int i = 0; i < requestDtos.size(); i++) {
             SelfEmployeeEnrollmentRequestDto dto = requestDtos.get(i);
             int row = i + 1;
             String prefix = requestDtos.size() > 1 ? "Row " + row + " (" + dto.getEmployeeId() + "): " : "";
 
-            if (existingEmployeeIds.contains(dto.getEmployeeId()) || !seenEmployeeIds.add(dto.getEmployeeId())) {
-                errors.add(prefix + "Employee " + dto.getEmployeeId() + " already exists");
+            if (existingEmployeeIds.contains(dto.getEmployeeId()) && reportedEmployeeIds.add(dto.getEmployeeId())) {
+                errors.add(prefix + "Employee " + dto.getEmployeeId() + " already exists in the organization");
             }
             if (dto.getDateOfBirth() != null && dto.getDateOfBirth().isAfter(today)) {
                 errors.add(prefix + "Date of birth cannot be in the future");
             }
-            if (existingEmails.contains(dto.getEmail()) || !seenEmails.add(dto.getEmail())) {
-                errors.add(prefix + "Email already " + dto.getEmail() + " exists");
+            if (existingEmails.contains(dto.getEmail()) && reportedEmails.add(dto.getEmail())) {
+                errors.add(prefix + "Email " + dto.getEmail() + " already exists in the organization");
             }
         }
         return errors;
