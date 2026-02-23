@@ -16,8 +16,6 @@ import java.util.UUID;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Collectors;
 
-import com.vimainsurance.vimaadmin.dto.*;
-import com.vimainsurance.vimaadmin.entity.*;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.slf4j.MDC;
@@ -37,7 +35,19 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
 
+import com.vimainsurance.vimaadmin.dto.BaseResponse;
+import com.vimainsurance.vimaadmin.dto.DocumentResponseDto;
+import com.vimainsurance.vimaadmin.dto.EmployeeOnboardingRequestDto;
+import com.vimainsurance.vimaadmin.dto.EmployeeOnboardingResponseDto;
+import com.vimainsurance.vimaadmin.dto.EndorsementRequestDto;
+import com.vimainsurance.vimaadmin.dto.EndorsementResponseDto;
+import com.vimainsurance.vimaadmin.dto.HealthIdUploadDto;
+import com.vimainsurance.vimaadmin.dto.ResponseDto;
+import com.vimainsurance.vimaadmin.entity.AdminUser;
 import com.vimainsurance.vimaadmin.entity.Deals;
+import com.vimainsurance.vimaadmin.entity.Document;
+import com.vimainsurance.vimaadmin.entity.Endorsement;
+import com.vimainsurance.vimaadmin.entity.Organization;
 import com.vimainsurance.vimaadmin.enums.AccountStatus;
 import com.vimainsurance.vimaadmin.enums.DocumentCategory;
 import com.vimainsurance.vimaadmin.enums.DocumentEntityType;
@@ -51,17 +61,16 @@ import com.vimainsurance.vimaadmin.repository.IDocumentRepository;
 import com.vimainsurance.vimaadmin.repository.IEndorsementRepository;
 import com.vimainsurance.vimaadmin.repository.IOrganizationRepository;
 import com.vimainsurance.vimaadmin.service.IDocumentService;
+import com.vimainsurance.vimaadmin.service.IEmailService;
 import com.vimainsurance.vimaadmin.service.IEndorsementService;
 import com.vimainsurance.vimaadmin.service.IS3Service;
 import com.vimainsurance.vimaadmin.specification.EndorsementSpecification;
 import com.vimainsurance.vimaadmin.util.Constants;
 import com.vimainsurance.vimaadmin.util.EnvironmentUtil;
 import com.vimainsurance.vimaadmin.util.JwtUserExtractor;
-import com.vimainsurance.vimaadmin.util.TenantContext;
-import com.vimainsurance.vimaadmin.util.AuthentikUtil;
+import com.vimainsurance.vimaadmin.util.KeyCloakUtil;
 import com.vimainsurance.vimaadmin.util.PasswordGenerator;
-import com.vimainsurance.vimaadmin.service.IEmailService;
-import com.vimainsurance.vimaadmin.dto.EmployeeOnboardingResponseDto;
+import com.vimainsurance.vimaadmin.util.TenantContext;
 
 @Service
 public class EndorsementServiceImpl implements IEndorsementService {
@@ -96,7 +105,7 @@ public class EndorsementServiceImpl implements IEndorsementService {
     private IS3Service s3Service;
 
     @Autowired
-    private AuthentikUtil authentikUtil;
+    private KeyCloakUtil keycloakUtil;
 
     @Autowired
     private IEmailService emailService;
@@ -869,7 +878,7 @@ public class EndorsementServiceImpl implements IEndorsementService {
             }
             
             String orgName = "ORG_" + organization.getOrganizationName().trim().replace(" ", "_").toUpperCase();
-            String groupId = authentikUtil.getGroupIdByName(orgName);
+            String groupId = keycloakUtil.getGroupIdByName(orgName);
             if(groupId == null || groupId.isEmpty()) {
                 return responseObj.render(responseObj.formErrorResponse("No groups found"));
             }
@@ -905,7 +914,7 @@ public class EndorsementServiceImpl implements IEndorsementService {
             try {
                 if(deal.getRelationship().equals("SELF")) {
                     String password = PasswordGenerator.generateRandomPassword();
-                    authentikUtil.createUser(deal.getFullName(), deal.getEmail().toLowerCase(), deal.getEmail().toLowerCase(), 
+                    keycloakUtil.createUser(deal.getFullName(), deal.getEmail().toLowerCase(), deal.getEmail().toLowerCase(), 
                         "ROLE_EMPLOYEE", Arrays.asList(orgName), true, password, deal.getIndividualId().toString());
                     // emailService.sendWelcomeEmail(deal.getEmail().toLowerCase(), deal.getFullName(), deal.getEmail().toLowerCase(), password);
                     successCount.incrementAndGet();
