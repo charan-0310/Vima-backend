@@ -12,7 +12,6 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.nullable;
 import org.mockito.InjectMocks;
@@ -41,6 +40,7 @@ import com.vimainsurance.vimaadmin.service.IEmailService;
 import com.vimainsurance.vimaadmin.util.AuthentikUtil;
 import com.vimainsurance.vimaadmin.util.Constants;
 import com.vimainsurance.vimaadmin.util.IdGenerator;
+import com.vimainsurance.vimaadmin.util.KeyCloakUtil;
 
 @ExtendWith(MockitoExtension.class)
 @MockitoSettings(strictness = Strictness.LENIENT)
@@ -60,6 +60,9 @@ class AdminUserServiceImplTest {
 
     @Mock
     private AuthentikUtil authentikUtil;
+
+    @Mock
+    private KeyCloakUtil keyCloakUtil;
 
     @InjectMocks
     private AdminUserServiceImpl adminUserService;
@@ -107,7 +110,7 @@ class AdminUserServiceImplTest {
         when(adminUserRepository.findByUsername(requestDto.getUsername())).thenReturn(Optional.empty());
         when(adminUserRepository.findByEmail(requestDto.getEmail())).thenReturn(Optional.empty());
         when(adminUserRepository.save(any(AdminUser.class))).thenReturn(adminUser);
-        when(authentikUtil.createUser(anyString(), anyString(), anyString(), anyString(), any(), anyBoolean(), nullable(String.class), anyString())).thenReturn("TempPassword123");
+        when(keyCloakUtil.createUser(anyString(), anyString(), anyString(), anyString(), any(), any(Boolean.class), nullable(String.class), anyString())).thenReturn("TempPassword123");
         
         ResponseEntity<ResponseDto<String>> response = adminUserService.createAdminUser(requestDto);
         
@@ -115,7 +118,7 @@ class AdminUserServiceImplTest {
         assertEquals(Constants.SUCCESS, response.getBody().getMessage());
         assertNotNull(response.getBody().getPayload());
         assertEquals("User created successfully", response.getBody().getPayload());
-        verify(authentikUtil, times(1)).createUser(anyString(), anyString(), anyString(), anyString(), any(), anyBoolean(), nullable(String.class), anyString());
+        verify(keyCloakUtil, times(1)).createUser(anyString(), anyString(), anyString(), anyString(), any(), any(Boolean.class), nullable(String.class), anyString());
     }
 
     @Test
@@ -146,7 +149,7 @@ class AdminUserServiceImplTest {
         when(adminUserRepository.findByUsername(requestDto.getUsername())).thenReturn(Optional.empty());
         when(adminUserRepository.findByEmail(requestDto.getEmail())).thenReturn(Optional.empty());
         when(adminUserRepository.save(any(AdminUser.class))).thenReturn(adminUser);
-        doThrow(new RuntimeException("Database error")).when(authentikUtil).createUser(anyString(), anyString(), anyString(), anyString(), any(), anyBoolean(), nullable(String.class), anyString());
+        doThrow(new RuntimeException("Database error")).when(keyCloakUtil).createUser(anyString(), anyString(), anyString(), anyString(), any(), any(Boolean.class), nullable(String.class), anyString());
 
         ResponseEntity<ResponseDto<String>> response = adminUserService.createAdminUser(requestDto);
         
@@ -161,7 +164,7 @@ class AdminUserServiceImplTest {
         when(adminUserRepository.save(any(AdminUser.class))).thenReturn(adminUser);
         String responseBody = "{\"username\":[\"This field must be unique.\"]}";
         doThrow(new HttpClientErrorException(HttpStatus.BAD_REQUEST, "Bad Request", responseBody.getBytes(java.nio.charset.StandardCharsets.UTF_8), java.nio.charset.StandardCharsets.UTF_8))
-                .when(authentikUtil).createUser(anyString(), anyString(), anyString(), anyString(), any(), anyBoolean(), nullable(String.class), anyString());
+                .when(keyCloakUtil).createUser(anyString(), anyString(), anyString(), anyString(), any(), any(Boolean.class), nullable(String.class), anyString());
 
         ResponseEntity<ResponseDto<String>> response = adminUserService.createAdminUser(requestDto);
         
@@ -333,7 +336,7 @@ class AdminUserServiceImplTest {
         dto.setEmail("test@example.com");
         List<AdminUserResponseDto> users = Collections.singletonList(dto);
         
-        when(authentikUtil.getAllUsers()).thenReturn(users);
+        when(keyCloakUtil.getAllUsers()).thenReturn(users);
         
         ResponseEntity<ResponseDto<List<AdminUserResponseDto>>> response = adminUserService.getAllAdminUsers(-1, -1);
         
@@ -341,12 +344,12 @@ class AdminUserServiceImplTest {
         assertEquals(Constants.SUCCESS, response.getBody().getMessage());
         assertEquals(1, response.getBody().getPayload().size());
         assertEquals(1L, response.getBody().getTotalRecords());
-        verify(authentikUtil, times(1)).getAllUsers();
+        verify(keyCloakUtil, times(1)).getAllUsers();
     }
 
     @Test
     void testGetAllAdminUsers_GetAll_EmptyList() {
-        when(authentikUtil.getAllUsers()).thenReturn(Collections.emptyList());
+        when(keyCloakUtil.getAllUsers()).thenReturn(Collections.emptyList());
         
         ResponseEntity<ResponseDto<List<AdminUserResponseDto>>> response = adminUserService.getAllAdminUsers(-1, -1);
         
@@ -354,7 +357,7 @@ class AdminUserServiceImplTest {
         assertEquals(Constants.SUCCESS, response.getBody().getMessage());
         assertEquals(0, response.getBody().getPayload().size());
         assertEquals(0L, response.getBody().getTotalRecords());
-        verify(authentikUtil, times(1)).getAllUsers();
+        verify(keyCloakUtil, times(1)).getAllUsers();
     }
 
     @Test
@@ -372,7 +375,7 @@ class AdminUserServiceImplTest {
         paginationInfo.setTotalPages(1);
         paginatedResponse.setPagination(paginationInfo);
         
-        when(authentikUtil.getUsers(1, 10)).thenReturn(paginatedResponse);
+        when(keyCloakUtil.getUsers(1, 10)).thenReturn(paginatedResponse);
         
         ResponseEntity<ResponseDto<List<AdminUserResponseDto>>> response = adminUserService.getAllAdminUsers(0, 10);
         
@@ -380,7 +383,7 @@ class AdminUserServiceImplTest {
         assertEquals(Constants.SUCCESS, response.getBody().getMessage());
         assertEquals(1, response.getBody().getPayload().size());
         assertEquals(10L, response.getBody().getTotalRecords());
-        verify(authentikUtil, times(1)).getUsers(1, 10);
+        verify(keyCloakUtil, times(1)).getUsers(1, 10);
     }
 
     @Test
@@ -391,7 +394,7 @@ class AdminUserServiceImplTest {
         paginationInfo.setCount(0);
         paginatedResponse.setPagination(paginationInfo);
         
-        when(authentikUtil.getUsers(1, 10)).thenReturn(paginatedResponse);
+        when(keyCloakUtil.getUsers(1, 10)).thenReturn(paginatedResponse);
         
         ResponseEntity<ResponseDto<List<AdminUserResponseDto>>> response = adminUserService.getAllAdminUsers(0, 10);
         
@@ -403,7 +406,7 @@ class AdminUserServiceImplTest {
 
     @Test
     void testGetAllAdminUsers_Exception() {
-        when(authentikUtil.getAllUsers()).thenThrow(new RuntimeException("Authentik error"));
+        when(keyCloakUtil.getAllUsers()).thenThrow(new RuntimeException("Authentik error"));
         
         ResponseEntity<ResponseDto<List<AdminUserResponseDto>>> response = adminUserService.getAllAdminUsers(-1, -1);
         
@@ -533,14 +536,14 @@ class AdminUserServiceImplTest {
         when(adminUserRepository.findByUsername(requestDto.getUsername())).thenReturn(Optional.empty());
         when(adminUserRepository.findByEmail(requestDto.getEmail())).thenReturn(Optional.empty());
         when(adminUserRepository.save(any(AdminUser.class))).thenReturn(adminUser);
-        when(authentikUtil.createUser(anyString(), anyString(), anyString(), anyString(), any(), anyBoolean(), nullable(String.class), anyString())).thenReturn("TempPassword123");
+        when(keyCloakUtil.createUser(anyString(), anyString(), anyString(), anyString(), any(), any(Boolean.class), nullable(String.class), anyString())).thenReturn("TempPassword123");
         
         adminUserService.createAdminUser(requestDto);
         
         verify(adminUserRepository, times(1)).findByUsername(requestDto.getUsername());
         verify(adminUserRepository, times(1)).findByEmail(requestDto.getEmail());
         verify(adminUserRepository, times(1)).save(any(AdminUser.class));
-        verify(authentikUtil, times(1)).createUser(anyString(), anyString(), anyString(), anyString(), any(), anyBoolean(), nullable(String.class), anyString());
+        verify(keyCloakUtil, times(1)).createUser(anyString(), anyString(), anyString(), anyString(), any(), any(Boolean.class), nullable(String.class), anyString());
     }
 
     @Test
