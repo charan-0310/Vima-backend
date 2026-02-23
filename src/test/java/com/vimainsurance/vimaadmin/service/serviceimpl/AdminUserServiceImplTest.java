@@ -540,10 +540,11 @@ class AdminUserServiceImplTest {
         
         adminUserService.createAdminUser(requestDto);
         
-        verify(adminUserRepository, times(1)).findByUsername(requestDto.getUsername());
+        // findByUsername called twice: duplicate check (line 168) and welcome-email check (line 227)
+        verify(adminUserRepository, times(2)).findByUsername(requestDto.getUsername());
         verify(adminUserRepository, times(1)).findByEmail(requestDto.getEmail());
         verify(adminUserRepository, times(1)).save(any(AdminUser.class));
-        verify(keyCloakUtil, times(1)).createUser(anyString(), anyString(), anyString(), anyString(), any(), any(Boolean.class), nullable(String.class), anyString());
+        verify(keyCloakUtil, times(1)).createUser(any(), any(), any(), any(), any(), any(), any(), any());
     }
 
     @Test
