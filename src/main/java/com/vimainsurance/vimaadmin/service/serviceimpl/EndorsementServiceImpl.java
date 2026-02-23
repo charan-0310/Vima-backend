@@ -916,7 +916,7 @@ public class EndorsementServiceImpl implements IEndorsementService {
                     String password = PasswordGenerator.generateRandomPassword();
                     keycloakUtil.createUser(deal.getFullName(), deal.getEmail().toLowerCase(), deal.getEmail().toLowerCase(), 
                         "ROLE_EMPLOYEE", Arrays.asList(orgName), true, password, deal.getIndividualId().toString());
-                    // emailService.sendWelcomeEmail(deal.getEmail().toLowerCase(), deal.getFullName(), deal.getEmail().toLowerCase(), password);
+                    emailService.sendWelcomeEmail(deal.getEmail().toLowerCase(), deal.getFullName(), deal.getEmail().toLowerCase(), password);
                     successCount.incrementAndGet();
                     successUsers.add(deal.getEmail());
                 } 
