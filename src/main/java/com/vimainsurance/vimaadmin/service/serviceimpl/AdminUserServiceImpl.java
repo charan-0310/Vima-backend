@@ -194,7 +194,7 @@ public class AdminUserServiceImpl implements IAdminUserService {
 
             // Create user in Authentik first
             try {
-                keyCloakUtil.createUser(
+                password = keyCloakUtil.createUser(
                     requestDto.getFullName(),
                     requestDto.getUsername(),
                     requestDto.getEmail(),
@@ -224,9 +224,9 @@ public class AdminUserServiceImpl implements IAdminUserService {
             // user.setPasswordHash(PasswordEncoder.encodePassword(randomPassword));
             // user.setCreatedAt(LocalDateTime.now());
             // AdminUser saved = adminUserRepository.save(user);
-            // if(adminUserRepository.findByUsername(requestDto.getUsername()).isPresent()){
-            //     emailService.sendWelcomeEmail(requestDto.getEmail(), requestDto.getUsername(), randomPassword);
-            // }
+            if(adminUserRepository.findByUsername(requestDto.getUsername()).isPresent()){
+                emailService.sendWelcomeEmail(requestDto.getEmail(), requestDto.getUsername(), requestDto.getEmail(), password);
+            }
             return responseObj.render(responseObj.formSuccessResponse(Constants.SUCCESS, "User created successfully"));
         } catch (Exception e) {
             logger.error("Error creating admin user", e);
