@@ -132,7 +132,13 @@ public class ClaimsServiceImpl implements IClaimsService {
         }
 
         InsurerAdapter adapter = adapterFactory.getAdapter(claim);
+        if (adapter == null) {
+            throw new BadRequestException("No insurer adapter available for this claim");
+        }
         InsurerSubmissionResult result = adapter.submitToInsurer(claim);
+        if (result == null) {
+            throw new BadRequestException("Insurer adapter returned no result");
+        }
 
         ClaimStatus oldStatus = claim.getInternalStatus();
         ClaimStatus newStatus = result.isRequiresManualSubmission() ? ClaimStatus.APPROVED_FOR_SUBMISSION : ClaimStatus.SUBMITTED_TO_INSURER;

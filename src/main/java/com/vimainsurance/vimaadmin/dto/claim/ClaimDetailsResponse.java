@@ -126,6 +126,8 @@ public class ClaimDetailsResponse {
         private String courierName;
         private String podNumber;
         private Integer numDocumentsAttached;
+        private String employeeRemarks;
+        private LocalDateTime employeeResponseAt;
     }
 
     @Data

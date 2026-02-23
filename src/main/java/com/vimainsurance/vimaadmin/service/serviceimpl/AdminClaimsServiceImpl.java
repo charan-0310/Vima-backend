@@ -102,6 +102,10 @@ public class AdminClaimsServiceImpl implements IAdminClaimsService {
             return ResponseEntity.ok(new ResponseDto<>("Submit to insurer completed", result));
         } catch (BadRequestException e) {
             return ResponseEntity.badRequest().body(new ResponseDto<>(400, e.getMessage()));
+        } catch (Exception e) {
+            log.error("Submit to insurer failed for claimId={}", claimId, e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(new ResponseDto<>(500, "Submit to insurer failed. Please try again or contact support."));
         }
     }
 

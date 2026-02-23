@@ -50,6 +50,9 @@ public class InsurerAdapterFactory {
                 return adapter;
             }
         }
-        throw new IllegalStateException("ManualInsurerAdapter not found");
+        if (!adapters.isEmpty()) {
+            return adapters.get(0);
+        }
+        throw new IllegalStateException("No InsurerAdapter beans found. Ensure ManualInsurerAdapter is registered.");
     }
 }

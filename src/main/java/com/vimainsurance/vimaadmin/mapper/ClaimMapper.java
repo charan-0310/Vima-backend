@@ -155,6 +155,8 @@ public final class ClaimMapper {
         dto.setCourierName(q.getCourierName());
         dto.setPodNumber(q.getPodNumber());
         dto.setNumDocumentsAttached(q.getNumDocumentsAttached());
+        dto.setEmployeeRemarks(q.getEmployeeRemarks());
+        dto.setEmployeeResponseAt(q.getEmployeeResponseAt());
         return dto;
     }
 
