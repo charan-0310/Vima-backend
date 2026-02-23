@@ -1,0 +1,221 @@
+/* ===========================
+   HARD RESET
+=========================== */
+
+/* Remove Keycloak default backgrounds */
+.login-pf-page,
+.login-pf body,
+.pf-c-page,
+.pf-c-page__main,
+.card-pf {
+    background: none !important;
+    background-image: none !important;
+}
+
+/* Custom gradient background */
+html, body {
+    height: 100%;
+    margin: 0;
+    padding: 0;
+    background: linear-gradient(135deg, #f5f7fb 0%, #e0e7ff 100%) !important;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+}
+
+/* Remove unwanted wrappers */
+.login-pf body,
+.login-pf-page,
+.card-pf,
+#kc-content-wrapper,
+#kc-content {
+    background: transparent !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    box-shadow: none !important;
+}
+
+/* Hide realm top bar */
+#kc-header,
+#kc-header-wrapper,
+.pf-c-page__header {
+    display: none !important;
+}
+
+/* ===========================
+   CENTER LAYOUT
+=========================== */
+
+#kc-content {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+}
+
+/* ===========================
+   HEADER
+=========================== */
+
+.modern-header {
+    text-align: center;
+    margin-bottom: 30px;
+}
+
+
+.modern-header h2 {
+    font-size: 24px;
+    font-weight: 600;
+    margin: 0 0 4px 0;
+    color: #111827;
+}
+
+.modern-header p {
+    font-size: 14px;
+    color: #6b7280;
+}
+
+
+/* Make wrapper a flex column */
+#kc-form-wrapper {
+    display: flex;
+    flex-direction: column;
+    align-items: center;   /* center logo */
+}
+
+/* Keep form full width */
+#kc-form-wrapper form {
+    width: 100%;
+}
+
+/* Center the logo */
+.modern-logo {
+    display: block;
+    width: 130px;
+    margin: 0 auto 30px auto;
+}
+
+
+/* ===========================
+   CARD
+=========================== */
+
+#kc-form-wrapper {
+    background: #ffffff;
+    padding: 40px;
+    border-radius: 18px;
+    box-shadow: 0 25px 70px rgba(0, 0, 0, 0.08);
+    width: 400px;
+    max-width: 90%;
+}
+
+/* ===========================
+   INPUTS
+=========================== */
+
+.pf-c-form-control {
+    border-radius: 12px !important;
+    border: 1px solid #d1d5db !important;
+    padding: 12px 14px !important;
+    font-size: 14px;
+    box-shadow: none !important;
+    transition: all 0.2s ease;
+}
+
+/* Focus effect */
+.pf-c-form-control:focus {
+    border: 1px solid #2563eb !important;
+    box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.15) !important;
+}
+
+/* ===========================
+   CUSTOM PASSWORD FIELD
+=========================== */
+
+.custom-password-wrapper {
+    position: relative;
+    width: 100%;
+}
+
+.custom-password-wrapper input {
+    width: 100%;
+    padding: 12px 50px 12px 14px !important;
+    border-radius: 12px !important;
+}
+
+/* Eye button inside input */
+.custom-password-toggle {
+    position: absolute;
+    right: 16px;
+    top: 50%;
+    transform: translateY(-50%);
+    background: transparent;
+    border: none;
+    padding: 0;
+    cursor: pointer;
+}
+
+/* Eye icon styling */
+.custom-password-toggle i {
+    font-size: 16px;
+    color: #6b7280;
+    transition: color 0.2s ease;
+}
+
+.custom-password-toggle:hover i {
+    color: #2563eb;
+}
+
+.custom-password-toggle:focus {
+    outline: none;
+}
+
+
+
+/* ===========================
+   BUTTON
+=========================== */
+
+.pf-c-button.pf-m-primary {
+    background: linear-gradient(135deg, #3b82f6, #2563eb) !important;
+    border: none !important;
+    border-radius: 12px !important;
+    padding: 12px !important;
+    font-weight: 600 !important;
+    transition: all 0.2s ease;
+}
+
+.pf-c-button.pf-m-primary:hover {
+    box-shadow: 0 10px 25px rgba(37, 99, 235, 0.25);
+    transform: translateY(-1px);
+}
+
+/* ===========================
+   RESPONSIVE
+=========================== */
+
+@media (max-width: 480px) {
+    #kc-form-wrapper {
+        padding: 30px 20px;
+    }
+}
+
+/* ===========================
+   EXECUTE ACTIONS
+=========================== */
+
+.modern-action-item {
+    padding: 12px 0;
+    font-size: 14px;
+    color: #374151;
+}
+
+.modern-button-wrapper {
+    margin-top: 20px;
+    text-align: center;
+}
+
+.modern-container {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    min-height: 60vh;
+}
