@@ -3,6 +3,7 @@ package com.vimainsurance.vimaadmin.service.serviceimpl;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
@@ -132,6 +133,35 @@ public class EnrollmentWindowServiceImpl implements IEnrollmentWindowService {
             TransactionUtil.markRollbackOnly();
             logger.error("[correlationId:{}] Exception in EnrollmentWindow create: {}", MDC.get("correlationId"), e.getMessage(), e);
             return responseObj.render(responseObj.formErrorResponse(Constants.RECORD_NOT_CREATED));
+        }
+    }
+
+    @Override
+    public ResponseEntity<ResponseDto<List<String>>> validateEmployees(UUID organizationId, List<SelfEmployeeEnrollmentRequestDto> selfEmployeeEnrollmentRequestDtos) {
+        logger.info("[correlationId:{}] EnrollmentWindow validateEmployees called for organization {}", MDC.get("correlationId"), organizationId);
+        BaseResponse<List<String>> responseObj = new BaseResponse<>();
+        try {
+            Optional<Organization> orgOpt = organizationRepository.findByOrganizationId(organizationId);
+            if (orgOpt.isEmpty()) {
+                return responseObj.render(responseObj.formErrorResponse("Organization not found"));
+            }
+            jwtUserExtractor.validateOrganizationAccess(organizationId);
+
+            if (selfEmployeeEnrollmentRequestDtos == null || selfEmployeeEnrollmentRequestDtos.isEmpty()) {
+                return responseObj.render(responseObj.formSuccessResponse(Constants.SUCCESS, Collections.emptyList()));
+            }
+
+            List<String> errors = validateSelfEmployeeEnrollmentRequest(selfEmployeeEnrollmentRequestDtos, organizationId);
+            if (!errors.isEmpty()) {
+                return responseObj.render(new ResponseDto<>(400, "Validation failed", errors));
+            }
+            return responseObj.render(responseObj.formSuccessResponse(Constants.SUCCESS, Collections.emptyList()));
+        } catch (OrganizationAccessDeniedException e) {
+            logger.warn("[correlationId:{}] Organization access denied: {}", MDC.get("correlationId"));
+            return responseObj.render(responseObj.formErrorResponse(403, e.getMessage()));
+        } catch (Exception e) {
+            logger.error("[correlationId:{}] Exception in EnrollmentWindow validateEmployees: {}", MDC.get("correlationId"), e.getMessage(), e);
+            return responseObj.render(responseObj.formErrorResponse("Validation request failed"));
         }
     }
 
@@ -477,8 +507,8 @@ public class EnrollmentWindowServiceImpl implements IEnrollmentWindowService {
 
     /**
      * Validates self-service employee enrollment requests (supports bulk).
-     * Uses batch DB lookups for existing employee numbers and emails, then validates each row.
-     * Returns a list of validation error messages; empty list means all valid.
+     * CSV can have multiple rows per employee (self + dependents); we only flag each distinct
+     * employee ID once. "Already exists" means in the organization (DB), not duplicate rows in the file.
      */
     private List<String> validateSelfEmployeeEnrollmentRequest(List<SelfEmployeeEnrollmentRequestDto> requestDtos, UUID organizationId) {
         List<String> errors = new ArrayList<>();
@@ -502,21 +532,22 @@ public class EnrollmentWindowServiceImpl implements IEnrollmentWindowService {
                 .collect(Collectors.toSet());
 
         LocalDate today = LocalDate.now();
-        Set<String> seenEmployeeIds = new HashSet<>();
-        Set<String> seenEmails = new HashSet<>();
+        // Report "already in organization" only once per employee ID (CSV has multiple rows per employee: self + dependents)
+        Set<String> reportedEmployeeIds = new HashSet<>();
+        Set<String> reportedEmails = new HashSet<>();
         for (int i = 0; i < requestDtos.size(); i++) {
             SelfEmployeeEnrollmentRequestDto dto = requestDtos.get(i);
             int row = i + 1;
             String prefix = requestDtos.size() > 1 ? "Row " + row + " (" + dto.getEmployeeId() + "): " : "";
 
-            if (existingEmployeeIds.contains(dto.getEmployeeId()) || !seenEmployeeIds.add(dto.getEmployeeId())) {
-                errors.add(prefix + "Employee " + dto.getEmployeeId() + " already exists");
+            if (existingEmployeeIds.contains(dto.getEmployeeId()) && reportedEmployeeIds.add(dto.getEmployeeId())) {
+                errors.add(prefix + "Employee " + dto.getEmployeeId() + " already exists in the organization");
             }
             if (dto.getDateOfBirth() != null && dto.getDateOfBirth().isAfter(today)) {
                 errors.add(prefix + "Date of birth cannot be in the future");
             }
-            if (existingEmails.contains(dto.getEmail()) || !seenEmails.add(dto.getEmail())) {
-                errors.add(prefix + "Email already " + dto.getEmail() + " exists");
+            if (existingEmails.contains(dto.getEmail()) && reportedEmails.add(dto.getEmail())) {
+                errors.add(prefix + "Email " + dto.getEmail() + " already exists in the organization");
             }
         }
         return errors;

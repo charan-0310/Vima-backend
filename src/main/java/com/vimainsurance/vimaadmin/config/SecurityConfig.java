@@ -45,13 +45,12 @@ import com.vimainsurance.vimaadmin.util.JwtUserExtractor;
 
 /**
  * Spring Security Configuration
- * 
- * This backend only validates JWT tokens issued by Authentik.
+ *
+ * JWT tokens are validated via Spring Security OAuth2 Resource Server using the configured issuer-uri.
+ * - Dev/Prod: Authentik (issuer-uri from application-dev.properties / application-prod.properties).
+ * - UAT: Keycloak (issuer-uri from application-uat.properties: keycloak.auth-server-url + keycloak.realm).
+ *
  * React performs login and token exchange - no login endpoints or callback endpoints are required here.
- * 
- * JWT tokens are validated against the configured issuer-uri (http://localhost:9000/application/o/vima/)
- * using Spring Security OAuth2 Resource Server.
- * 
  * All endpoints under /api/** are secured and require a valid JWT token.
  * Public endpoints: /health, /actuator/**, /public/**
  */
@@ -201,7 +200,7 @@ public class SecurityConfig {
                             // All other requests require authentication
                             .anyRequest().authenticated()
                     )
-                    // Enable OAuth2 Resource Server for JWT validation
+                    // OAuth2 Resource Server: JWT validation (Authentik for dev/prod, Keycloak for UAT - issuer-uri is profile-specific in application-*.properties)
                     .oauth2ResourceServer(oauth2 -> oauth2
                             .jwt(jwt -> jwt
                                     .jwtAuthenticationConverter(jwtAuthenticationConverter)
