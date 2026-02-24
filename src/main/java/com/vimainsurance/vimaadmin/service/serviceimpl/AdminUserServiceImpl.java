@@ -92,6 +92,7 @@ public class AdminUserServiceImpl implements IAdminUserService {
             401, "Authentication failed. Please try again later.",
             403, "Access denied. Please contact administrator.",
             404, "Resource not found. Please try again.",
+            409, "Email already exists.",
             500, "Server error. Please try again later."
     );
 
@@ -107,6 +108,10 @@ public class AdminUserServiceImpl implements IAdminUserService {
             if (statusCode == 400) {
                 String fieldMessage = parseAuthentikValidationErrors(httpEx.getResponseBodyAsString());
                 return fieldMessage != null ? fieldMessage : (statusMessage != null ? statusMessage : "Invalid request. Please check the provided data and try again.");
+            }
+            if (statusCode == 409) {
+                String keycloakMessage = parseKeycloakErrorMessage(httpEx.getResponseBodyAsString());
+                return keycloakMessage != null ? keycloakMessage : (statusMessage != null ? statusMessage : "Email already exists.");
             }
             return statusMessage != null ? statusMessage : "Failed to create user. Please try again.";
         }
@@ -141,6 +146,29 @@ public class AdminUserServiceImpl implements IAdminUserService {
             Map.Entry<String, List<String>> firstError = errors.entrySet().iterator().next();
             List<String> messages = firstError.getValue();
             return (messages != null && !messages.isEmpty()) ? messages.get(0) : null;
+        } catch (Exception ex) {
+            return null;
+        }
+    }
+
+    /**
+     * Parses Keycloak error response JSON and returns user-friendly message.
+     * Expects format: {"errorMessage":"User exists with same email"} or similar.
+     */
+    private String parseKeycloakErrorMessage(String responseBody) {
+        if (responseBody == null || responseBody.isBlank()) {
+            return null;
+        }
+        try {
+            Map<String, Object> map = OBJECT_MAPPER.readValue(responseBody, new TypeReference<>() {});
+            if (map == null) return null;
+            Object msg = map.get("errorMessage");
+            if (msg instanceof String s && !s.isBlank()) {
+                if (s.contains("same email") || s.contains("email")) return "Email must be unique.";
+                if (s.contains("same username") || s.contains("username")) return "Username must be unique.";
+                return s;
+            }
+            return null;
         } catch (Exception ex) {
             return null;
         }
@@ -204,14 +232,14 @@ public class AdminUserServiceImpl implements IAdminUserService {
                     null,
                     saved.getId().toString()
                 );
-                logger.info("[correlationId:{}] User created successfully in Authentik: {}", MDC.get("correlationId"), requestDto.getUsername());
+                logger.info("[correlationId:{}] User created successfully in Keycloak: {}", MDC.get("correlationId"), requestDto.getUsername());
             } catch (Exception e) {
                 try {
                     TransactionAspectSupport.currentTransactionStatus().setRollbackOnly();
                 } catch (Exception txEx) {
                     // No active transaction (e.g. in unit tests) - ignore
                 }
-                logger.error("[correlationId:{}] Error creating user in Authentik: {}", MDC.get("correlationId"), e.getMessage(), e);
+                logger.error("[correlationId:{}] Error creating user in Ke: {}", MDC.get("correlationId"), e.getMessage(), e);
                 String userMessage = getAuthentikUserFriendlyMessage(e);
                 return responseObj.render(responseObj.formErrorResponse(userMessage));
             }

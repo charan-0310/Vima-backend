@@ -1,5 +1,6 @@
 package com.vimainsurance.vimaadmin.util;
 
+import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
@@ -21,7 +22,9 @@ import org.keycloak.representations.idm.UserRepresentation;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Component;
+import org.springframework.web.client.HttpClientErrorException;
 
 import com.vimainsurance.vimaadmin.dto.AdminUserResponseDto;
 import com.vimainsurance.vimaadmin.dto.AuthentikPaginatedResponse;
@@ -422,8 +425,8 @@ public class KeyCloakUtil {
             if (individualId != null && !individualId.isBlank()) {
                 user.setAttributes(Map.of("user_id", List.of(individualId.trim())));
             }
-            // Require update password and update profile on first login (no verify email)
-            user.setRequiredActions(List.of("UPDATE_PASSWORD", "UPDATE_PROFILE"));
+            // Require user to update password on first login only
+            user.setRequiredActions(List.of("UPDATE_PASSWORD"));
 
             // Create password and attach to user so user is created with password in one request
             String passwordToSet = (temporaryPassword != null && !temporaryPassword.isBlank())
@@ -436,19 +439,31 @@ public class KeyCloakUtil {
             user.setCredentials(Collections.singletonList(cred));
 
             try (Response response = realmResource.users().create(user)) {
-                if (response.getStatus() == 400) {
-                    String body = response.readEntity(String.class);
+                int status = response.getStatus();
+                String body = response.readEntity(String.class);
+                if (status == 400) {
                     logger.error("Keycloak create user 400: {}", body);
-                    throw new RuntimeException("Keycloak rejected user creation (400). Often: duplicate username/email or invalid data. Details: " + (body != null ? body : "none"));
+                    throw new HttpClientErrorException(HttpStatus.BAD_REQUEST, "Bad Request",
+                            body != null ? body.getBytes(StandardCharsets.UTF_8) : null, StandardCharsets.UTF_8);
                 }
-                if (response.getStatus() != 201) {
-                    String body = response.readEntity(String.class);
-                    throw new RuntimeException("Keycloak create user failed: status=" + response.getStatus() + ", body=" + body);
+                if (status == 409) {
+                    logger.error("Keycloak create user 409: {}", body);
+                    throw new HttpClientErrorException(HttpStatus.CONFLICT, "Conflict",
+                            body != null ? body.getBytes(StandardCharsets.UTF_8) : null, StandardCharsets.UTF_8);
+                }
+                if (status != 201) {
+                    throw new RuntimeException("Keycloak create user failed: status=" + status + ", body=" + body);
                 }
                 String userId = CreatedResponseUtil.getCreatedId(response);
                 if (userId == null || userId.isBlank()) {
                     throw new RuntimeException("Failed to get created user id from Keycloak");
                 }
+
+                // Override required actions after create (realm default actions may have been applied)
+                UserResource userResource = realmResource.users().get(userId);
+                UserRepresentation createdUser = userResource.toRepresentation();
+                createdUser.setRequiredActions(List.of("UPDATE_PASSWORD"));
+                userResource.update(createdUser);
 
                 // Assign realm role (Keycloak realm role name: VIMA_ADMIN; we accept ROLE_VIMA_ADMIN or VIMA_ADMIN)
                 if (role != null && !role.trim().isEmpty()) {
