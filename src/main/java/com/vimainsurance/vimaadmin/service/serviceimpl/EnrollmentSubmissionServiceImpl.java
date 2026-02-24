@@ -212,6 +212,7 @@ public class EnrollmentSubmissionServiceImpl implements IEnrollmentSubmissionSer
         EnrollmentSubmission saved = enrollmentSubmissionRepository.saveAndFlush(entity);
 
         employee.setEnrollmentStatus(entity.getStatus());
+        employee.setEnrollmentSubmission(saved);
         dealsRepository.save(employee);
 
         UUID id = saved.getId();
