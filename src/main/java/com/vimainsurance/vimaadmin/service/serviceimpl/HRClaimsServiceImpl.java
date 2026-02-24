@@ -98,7 +98,8 @@ public class HRClaimsServiceImpl implements IHRClaimsService {
                 + claimRepository.count(ClaimSpecification.withFiltersAndStatus(filters, ClaimStatus.PAYMENT_PENDING));
         long settled = claimRepository.count(ClaimSpecification.withFiltersAndStatus(filters, ClaimStatus.SETTLED));
         long rejected = claimRepository.count(ClaimSpecification.withFiltersAndStatus(filters, ClaimStatus.REJECTED))
-                + claimRepository.count(ClaimSpecification.withFiltersAndStatus(filters, ClaimStatus.REJECTED_BY_ADMIN));
+                + claimRepository.count(ClaimSpecification.withFiltersAndStatus(filters, ClaimStatus.REJECTED_BY_ADMIN))
+                + claimRepository.count(ClaimSpecification.withFiltersAndStatus(filters, ClaimStatus.INTIMATION_REJECTED));
 
         BigDecimal totalClaimAmount = organizationIds != null && !organizationIds.isEmpty()
                 ? claimRepository.sumClaimAmountByOrganizationIdIn(organizationIds)

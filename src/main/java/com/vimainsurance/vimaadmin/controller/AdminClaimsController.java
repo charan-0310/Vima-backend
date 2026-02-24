@@ -1,6 +1,7 @@
 package com.vimainsurance.vimaadmin.controller;
 
 import java.time.LocalDate;
+import java.util.Arrays;
 import java.util.UUID;
 
 import org.springframework.data.domain.PageRequest;
@@ -84,9 +85,17 @@ public class AdminClaimsController {
         filters.setOrganizationId(organizationId);
         filters.setIsDeleted(false);
         if (status != null && !status.isBlank()) {
-            try {
-                filters.setInternalStatus(ClaimStatus.fromValue(status.trim()));
-            } catch (IllegalArgumentException ignored) {}
+            String statusVal = status.trim();
+            if ("REJECTED".equalsIgnoreCase(statusVal)) {
+                filters.setInternalStatusIn(Arrays.asList(
+                        ClaimStatus.REJECTED,
+                        ClaimStatus.REJECTED_BY_ADMIN,
+                        ClaimStatus.INTIMATION_REJECTED));
+            } else {
+                try {
+                    filters.setInternalStatus(ClaimStatus.fromValue(statusVal));
+                } catch (IllegalArgumentException ignored) {}
+            }
         }
         if (claimType != null && !claimType.isBlank()) {
             try {

@@ -18,6 +18,8 @@ public class ClaimListFilters {
     private UUID employeeId;
     private Long policyId;
     private ClaimStatus internalStatus;
+    /** When set, filter by any of these statuses (OR). Used e.g. for "Rejected" tab = REJECTED + REJECTED_BY_ADMIN + INTIMATION_REJECTED. */
+    private List<ClaimStatus> internalStatusIn;
     private ClaimType claimType;
     private String claimNumber;
     /** Search by claim number or member name (partial match). */

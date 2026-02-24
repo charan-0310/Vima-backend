@@ -1,6 +1,7 @@
 package com.vimainsurance.vimaadmin.service.serviceimpl;
 
 import java.time.temporal.ChronoUnit;
+import java.util.Arrays;
 import java.util.List;
 import java.util.UUID;
 
@@ -137,8 +138,12 @@ public class AdminClaimsServiceImpl implements IAdminClaimsService {
                 + claimRepository.count(ClaimSpecification.withFiltersAndStatus(filters, ClaimStatus.PAYMENT_PENDING));
         long queryRaised = claimRepository.count(ClaimSpecification.withFiltersAndStatus(filters, ClaimStatus.QUERY_RAISED));
         long settled = claimRepository.count(ClaimSpecification.withFiltersAndStatus(filters, ClaimStatus.SETTLED));
-        long rejected = claimRepository.count(ClaimSpecification.withFiltersAndStatus(filters, ClaimStatus.REJECTED))
-                + claimRepository.count(ClaimSpecification.withFiltersAndStatus(filters, ClaimStatus.REJECTED_BY_ADMIN));
+        // Rejected bucket: all claims with status REJECTED, REJECTED_BY_ADMIN, or INTIMATION_REJECTED (single query, enum-safe)
+        List<ClaimStatus> rejectedStatuses = Arrays.asList(
+                ClaimStatus.REJECTED,
+                ClaimStatus.REJECTED_BY_ADMIN,
+                ClaimStatus.INTIMATION_REJECTED);
+        long rejected = claimRepository.count(ClaimSpecification.withFiltersAndStatusIn(filters, rejectedStatuses));
 
         List<Claim> claims = claimRepository.findAll(baseSpec, Pageable.unpaged()).getContent();
         double avgProcessingDays = 0;
