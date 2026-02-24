@@ -422,6 +422,8 @@ public class KeyCloakUtil {
             if (individualId != null && !individualId.isBlank()) {
                 user.setAttributes(Map.of("user_id", List.of(individualId.trim())));
             }
+            // Require update password and update profile on first login (no verify email)
+            user.setRequiredActions(List.of("UPDATE_PASSWORD", "UPDATE_PROFILE"));
 
             // Create password and attach to user so user is created with password in one request
             String passwordToSet = (temporaryPassword != null && !temporaryPassword.isBlank())

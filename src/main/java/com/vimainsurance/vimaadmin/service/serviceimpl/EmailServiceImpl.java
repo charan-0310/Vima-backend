@@ -253,6 +253,7 @@ public class EmailServiceImpl implements IEmailService {
                         "userFullName", userFullName,
                         "username", username,
                         "temporaryPassword", password,
+                        "baseUrl", baseUrl,
                         COMPANY_NAME_KEY, COMPANY_NAME
                 ))
                 .build();
