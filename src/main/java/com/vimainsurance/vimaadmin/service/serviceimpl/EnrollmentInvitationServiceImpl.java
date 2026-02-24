@@ -569,8 +569,8 @@ public class EnrollmentInvitationServiceImpl implements IEnrollmentInvitation {
             // Use the larger of employees vs invitations as the total
             int totalEmployees = Math.max(allEmployees.size(), invitations.size());
 
-            // Count as invited if they have an invitation (including PENDING: invitation exists, link was created even if status wasn't updated to SENT)
-            long invitedCount = invitations.size();
+            // Count as "invited" only SENT or later — PENDING = not yet sent, so pending_invite = total - invitedCount shows "Send Invitations"
+            long invitedCount = invitations.stream().filter(inv -> inv.getStatus() != null && inv.getStatus() != EnrollementStatus.PENDING).count();
             long openedCount = invitations.stream().filter(inv -> inv.getStatus() == EnrollementStatus.OPENED || inv.getStatus() == EnrollementStatus.IN_PROGRESS || inv.getStatus() == EnrollementStatus.COMPLETED).count();
             // Include COMPLETED/ENDORSED so finalized windows show correct counts (finalize sets submission to COMPLETED)
             long submittedCount = submissions.stream().filter(s -> s.getStatus() == EnrollementStatus.SUBMITTED || s.getStatus() == EnrollementStatus.APPROVED || s.getStatus() == EnrollementStatus.COMPLETED || s.getStatus() == EnrollementStatus.ENDORSED).count();
