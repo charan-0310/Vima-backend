@@ -19,6 +19,7 @@ import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.RequestPart;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.multipart.MultipartFile;
 
@@ -209,7 +210,7 @@ public class AdminClaimsController {
     }
 
     /** POST /api/v1/admin/claims/{claimId}/settlement - Record settlement (claim status -> SETTLED). */
-    @PostMapping("/{claimId}/settlement")
+    @PostMapping(value = "/{claimId}/settlement", consumes = MediaType.APPLICATION_JSON_VALUE)
     @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'VIMA_ADMIN', 'HR_ADMIN')")
     public ResponseEntity<ResponseDto<com.vimainsurance.vimaadmin.dto.claim.SettlementResponse>> recordSettlement(
             @PathVariable UUID claimId,
@@ -218,12 +219,32 @@ public class AdminClaimsController {
     }
 
     /** PUT /api/v1/admin/claims/{claimId}/settlement - Update settlement. */
-    @PutMapping("/{claimId}/settlement")
+    @PutMapping(value = "/{claimId}/settlement", consumes = MediaType.APPLICATION_JSON_VALUE)
     @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'VIMA_ADMIN', 'HR_ADMIN')")
     public ResponseEntity<ResponseDto<com.vimainsurance.vimaadmin.dto.claim.SettlementResponse>> updateSettlement(
             @PathVariable UUID claimId,
             @Valid @RequestBody SettlementRequest request) {
         return claimSettlementService.updateSettlement(claimId, request);
+    }
+
+    /** POST /api/v1/admin/claims/{claimId}/settlement (multipart) - Record settlement with optional document. */
+    @PostMapping(value = "/{claimId}/settlement", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'VIMA_ADMIN', 'HR_ADMIN')")
+    public ResponseEntity<ResponseDto<com.vimainsurance.vimaadmin.dto.claim.SettlementResponse>> recordSettlementWithDocument(
+            @PathVariable UUID claimId,
+            @Valid @RequestPart("request") SettlementRequest request,
+            @RequestPart(value = "document", required = false) MultipartFile document) {
+        return claimSettlementService.recordSettlementWithDocument(claimId, request, document);
+    }
+
+    /** PUT /api/v1/admin/claims/{claimId}/settlement (multipart) - Update settlement with optional document. */
+    @PutMapping(value = "/{claimId}/settlement", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'VIMA_ADMIN', 'HR_ADMIN')")
+    public ResponseEntity<ResponseDto<com.vimainsurance.vimaadmin.dto.claim.SettlementResponse>> updateSettlementWithDocument(
+            @PathVariable UUID claimId,
+            @Valid @RequestPart("request") SettlementRequest request,
+            @RequestPart(value = "document", required = false) MultipartFile document) {
+        return claimSettlementService.updateSettlementWithDocument(claimId, request, document);
     }
 
     /** POST /api/v1/admin/claims/{claimId}/deductions - Add deduction line item. */
