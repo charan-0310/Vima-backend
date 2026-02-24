@@ -10,6 +10,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.multipart.MultipartFile;
 
 import com.vimainsurance.vimaadmin.dto.EmailRequest;
 import com.vimainsurance.vimaadmin.dto.ResponseDto;
@@ -21,11 +22,13 @@ import com.vimainsurance.vimaadmin.entity.Claim;
 import com.vimainsurance.vimaadmin.entity.ClaimDeduction;
 import com.vimainsurance.vimaadmin.entity.ClaimSettlement;
 import com.vimainsurance.vimaadmin.enums.ClaimStatus;
+import com.vimainsurance.vimaadmin.enums.DocumentType;
 import com.vimainsurance.vimaadmin.exception.BadRequestException;
 import com.vimainsurance.vimaadmin.repository.IClaimDeductionRepository;
 import com.vimainsurance.vimaadmin.repository.IClaimRepository;
 import com.vimainsurance.vimaadmin.repository.IClaimSettlementRepository;
 import com.vimainsurance.vimaadmin.service.IClaimSettlementService;
+import com.vimainsurance.vimaadmin.service.IClaimsDocumentService;
 import com.vimainsurance.vimaadmin.service.IEmailService;
 import com.vimainsurance.vimaadmin.service.claim.ClaimAuditService;
 import com.vimainsurance.vimaadmin.service.claim.ClaimStatusTransitionValidator;
@@ -48,6 +51,7 @@ public class ClaimSettlementServiceImpl implements IClaimSettlementService {
     private final ClaimStatusTransitionValidator statusValidator;
     private final ClaimAuditService auditService;
     private final IEmailService emailService;
+    private final IClaimsDocumentService claimsDocumentService;
     private final JwtUserExtractor jwtUserExtractor;
 
     @Override
@@ -107,6 +111,19 @@ public class ClaimSettlementServiceImpl implements IClaimSettlementService {
 
     @Override
     @Transactional
+    public ResponseEntity<ResponseDto<SettlementResponse>> recordSettlementWithDocument(UUID claimId, SettlementRequest request, MultipartFile document) {
+        ResponseEntity<ResponseDto<SettlementResponse>> result = recordSettlement(claimId, request);
+        if (result.getStatusCode().is2xxSuccessful() && result.getBody() != null && result.getBody().getPayload() != null
+                && document != null && !document.isEmpty()) {
+            UUID adminId = jwtUserExtractor.getCurrentUserId();
+            String role = jwtUserExtractor.getCurrentUserRole() != null ? jwtUserExtractor.getCurrentUserRole().getValue() : "ADMIN";
+            claimsDocumentService.uploadClaimsDocuments(new MultipartFile[] { document }, claimId, DocumentType.SETTLEMENT_DOCUMENT, adminId, role);
+        }
+        return result;
+    }
+
+    @Override
+    @Transactional
     public ResponseEntity<ResponseDto<SettlementResponse>> updateSettlement(UUID claimId, SettlementRequest request) {
         Claim claim = claimRepository.findById(claimId)
                 .orElseThrow(() -> new BadRequestException("Claim not found"));
@@ -141,6 +158,18 @@ public class ClaimSettlementServiceImpl implements IClaimSettlementService {
                 .amountPaid(settlement.getAmountPaid())
                 .build();
         return ResponseEntity.ok(new ResponseDto<>("Success", response));
+    }
+
+    @Override
+    @Transactional
+    public ResponseEntity<ResponseDto<SettlementResponse>> updateSettlementWithDocument(UUID claimId, SettlementRequest request, MultipartFile document) {
+        ResponseEntity<ResponseDto<SettlementResponse>> result = updateSettlement(claimId, request);
+        if (result.getStatusCode().is2xxSuccessful() && document != null && !document.isEmpty()) {
+            UUID adminId = jwtUserExtractor.getCurrentUserId();
+            String role = jwtUserExtractor.getCurrentUserRole() != null ? jwtUserExtractor.getCurrentUserRole().getValue() : "ADMIN";
+            claimsDocumentService.uploadClaimsDocuments(new MultipartFile[] { document }, claimId, DocumentType.SETTLEMENT_DOCUMENT, adminId, role);
+        }
+        return result;
     }
 
     @Override
