@@ -37,6 +37,8 @@ public class EmployeeInsuranceResponseDto {
     private LocalDate validUntil; // policy end date
     private PolicyStatus policyStatus;
     private BigDecimal sumInsured;
+    /** For GPA/GTL multiplier mode: 1–5. When set, display as "N× CTC". */
+    private Integer sumInsuredMultiplier;
     private BigDecimal premiumAmount;
     private LocalDate policyStartDate;
     private String healthId;
@@ -99,6 +101,8 @@ public class EmployeeInsuranceResponseDto {
         private LocalDate validUntil;
         private PolicyStatus policyStatus;
         private BigDecimal sumInsured;
+        /** For GPA/GTL multiplier mode: 1–5. When set, display as "N× CTC". */
+        private Integer sumInsuredMultiplier;
         private BigDecimal premiumAmount;
         private LocalDate policyStartDate;
         private String tpaOrganizationName;

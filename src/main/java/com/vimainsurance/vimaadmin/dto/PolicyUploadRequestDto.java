@@ -24,6 +24,10 @@ public class PolicyUploadRequestDto {
     private String coverageType;
     private String status;
     private BigDecimal sumInsured;
+    /** For GPA/GTL: 1-5 when sumInsuredOption=MULTIPLIER; stored in sum_insured_multiplier. */
+    private Integer sumInsuredMultiplier;
+    /** For GPA/GTL only: MULTIPLIER (default) or FIXED. FIXED = use sumInsured as actual amount. */
+    private String sumInsuredOption;
     private BigDecimal premiumAmount;
     private LocalDate startDate;
     private LocalDate endDate;

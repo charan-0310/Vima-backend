@@ -224,7 +224,7 @@ public class CorrelationIdFilter extends OncePerRequestFilter {
         user.setRole(role);
         
         // Set OAuth provider information
-        user.setOauthProvider("Authentik");
+        user.setOauthProvider("Keycloak");
         if (subject != null) {
             user.setOauthProviderId(subject);
         }

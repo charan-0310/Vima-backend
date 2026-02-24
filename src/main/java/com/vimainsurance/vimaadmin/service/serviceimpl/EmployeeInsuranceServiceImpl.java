@@ -85,6 +85,7 @@ public class EmployeeInsuranceServiceImpl implements IEmployeeInsuranceService {
         for (Policy policy : orgPolicies) {
             List<EmployeeInsuranceResponseDto.CoveredMemberDto> coveredForPolicy = coveredMembersForPolicy(allMembers, policy);
             List<EmployeeInsuranceResponseDto.NomineeDto> nomineesForPolicy = nomineesForPolicy(employee.getIndividualId(), policy);
+            Integer multiplier = resolveSumInsuredMultiplier(policy);
             policyDetails.add(EmployeeInsuranceResponseDto.PolicyDetailDto.builder()
                     .insuranceType(policy.getProductType() != null ? policy.getProductType().getValue() : null)
                     .coverageType(policy.getCoverageType() != null ? policy.getCoverageType().getValue() : null)
@@ -94,6 +95,7 @@ public class EmployeeInsuranceServiceImpl implements IEmployeeInsuranceService {
                     .validUntil(policy.getEndDate())
                     .policyStatus(policy.getStatus())
                     .sumInsured(policy.getSumInsured())
+                    .sumInsuredMultiplier(multiplier)
                     .premiumAmount(policy.getPremiumAmount())
                     .policyStartDate(policy.getStartDate())
                     .tpaOrganizationName(policy.getTpaOrganizationName())
@@ -136,6 +138,7 @@ public class EmployeeInsuranceServiceImpl implements IEmployeeInsuranceService {
                 .validUntil(primaryPolicy != null ? primaryPolicy.getEndDate() : null)
                 .policyStatus(primaryPolicy != null ? primaryPolicy.getStatus() : null)
                 .sumInsured(primaryPolicy != null ? primaryPolicy.getSumInsured() : null)
+                .sumInsuredMultiplier(primaryPolicy != null ? resolveSumInsuredMultiplier(primaryPolicy) : null)
                 .premiumAmount(primaryPolicy != null ? primaryPolicy.getPremiumAmount() : null)
                 .policyStartDate(primaryPolicy != null ? primaryPolicy.getStartDate() : null)
                 .tpaOrganizationName(primaryPolicy != null ? primaryPolicy.getTpaOrganizationName() : null)
@@ -145,6 +148,28 @@ public class EmployeeInsuranceServiceImpl implements IEmployeeInsuranceService {
                 .policies(policyDetails)
                 .build();
 
+    }
+
+    /**
+     * Resolve sum insured multiplier for response. Uses policy.getSumInsuredMultiplier() when set.
+     * For legacy GPA/GTL policies that stored multiplier in sum_insured (1–5), returns that value so frontend can show "N× CTC".
+     */
+    private Integer resolveSumInsuredMultiplier(Policy policy) {
+        if (policy.getSumInsuredMultiplier() != null) {
+            return policy.getSumInsuredMultiplier();
+        }
+        if ((policy.getProductType() == ProductType.GPA || policy.getProductType() == ProductType.GTL)
+                && policy.getSumInsured() != null) {
+            try {
+                int v = policy.getSumInsured().intValue();
+                if (v >= 1 && v <= 5) {
+                    return v;
+                }
+            } catch (Exception ignored) {
+                // ignore
+            }
+        }
+        return null;
     }
 
     /**

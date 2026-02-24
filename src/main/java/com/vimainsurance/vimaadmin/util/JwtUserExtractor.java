@@ -17,6 +17,7 @@ import com.vimainsurance.vimaadmin.entity.AdminUser;
 import com.vimainsurance.vimaadmin.enums.UserRole;
 import com.vimainsurance.vimaadmin.exception.OrganizationAccessDeniedException;
 import com.vimainsurance.vimaadmin.repository.IAdminUserRepository;
+import org.springframework.beans.factory.annotation.Value;
 
 /**
  * Helper component to extract user details from JWT tokens issued by Authentik.
@@ -31,6 +32,9 @@ public class JwtUserExtractor {
 
     @Autowired
     private IAdminUserRepository adminUserRepository;
+
+    @Value("${keycloak.client-id}")
+    private String keycloakClientId;
 
     /**
      * Get the current JWT token from the security context
@@ -146,8 +150,19 @@ public class JwtUserExtractor {
                     });
                 }
             }
+            Map<String, Object> resourceAccess = jwt.getClaimAsMap("resource_access");
+            Map<String, Object> clientAccess = (Map<String, Object>) resourceAccess.get(keycloakClientId);
+            if (clientAccess != null) {
+                Object clientRoles = clientAccess.get("roles");
+                if (clientRoles instanceof List) {
+                    ((List<?>) clientRoles).forEach(item -> {
+                        if (item instanceof String) {
+                            groups.add((String) item);
+                        }
+                    });
+                }
+            }
         }
-        
         return groups;
     }
 

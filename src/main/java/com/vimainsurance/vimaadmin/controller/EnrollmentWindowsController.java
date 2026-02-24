@@ -28,6 +28,7 @@ import com.vimainsurance.vimaadmin.dto.EnrollmentWindowResponseDto;
 import com.vimainsurance.vimaadmin.dto.EnrollmentWindowStatsDto;
 import com.vimainsurance.vimaadmin.dto.ResponseDto;
 import com.vimainsurance.vimaadmin.dto.SelfEmployeeEnrollmentRequestDto;
+import com.vimainsurance.vimaadmin.dto.ValidateEmployeesRequestDto;
 import com.vimainsurance.vimaadmin.service.IEnrollmentWindowService;
 
 /**
@@ -51,6 +52,20 @@ public class EnrollmentWindowsController {
     public ResponseEntity<ResponseDto<EnrollmentWindowResponseDto>> create(@RequestBody EnrollmentWindowRequestDto requestDto) {
         logger.info("[correlationId:{}] POST /api/admin/enrollment-windows called", MDC.get("correlationId"));
         return enrollmentWindowService.create(requestDto);
+    }
+
+    /**
+     * Validate employees for enrollment (no window or employees created).
+     * Use before create + upload to avoid creating a window when validation would fail.
+     */
+    @PostMapping(value = "/validate-employees", consumes = MediaType.APPLICATION_JSON_VALUE, produces = MediaType.APPLICATION_JSON_VALUE)
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'VIMA_ADMIN', 'HR_ADMIN')")
+    public ResponseEntity<ResponseDto<List<String>>> validateEmployees(@RequestBody ValidateEmployeesRequestDto requestDto) {
+        logger.info("[correlationId:{}] POST /api/admin/enrollment-windows/validate-employees called", MDC.get("correlationId"));
+        List<SelfEmployeeEnrollmentRequestDto> dtos = requestDto.getSelfEmployeeEnrollmentRequestDtos();
+        return enrollmentWindowService.validateEmployees(
+                requestDto.getOrganizationId(),
+                dtos != null ? dtos : List.of());
     }
 
     /**
@@ -97,10 +112,11 @@ public class EnrollmentWindowsController {
     }
 
     /**
-     * Update an enrollment window
+     * Update an enrollment window (e.g. inline date edit on details page).
+     * HR_ADMIN may update only their organization's windows (enforced by tenant filter).
      */
     @PutMapping("/{id}")
-    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'VIMA_ADMIN')")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'VIMA_ADMIN', 'HR_ADMIN')")
     public ResponseEntity<ResponseDto<EnrollmentWindowResponseDto>> update(
             @PathVariable UUID id,
             @RequestBody EnrollmentWindowRequestDto requestDto) {

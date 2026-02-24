@@ -228,6 +228,13 @@
             <version>8.7.0</version>
         </dependency>
 
+        <!-- KeyCloak-->
+		<dependency>
+			<groupId>org.keycloak</groupId>
+			<artifactId>keycloak-admin-client</artifactId>
+			<version>26.0.0</version>
+        </dependency>
+		
     </dependencies>
 
 	<build>
