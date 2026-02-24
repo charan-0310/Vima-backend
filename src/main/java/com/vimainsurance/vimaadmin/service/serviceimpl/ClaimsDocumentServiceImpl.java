@@ -59,7 +59,8 @@ public class ClaimsDocumentServiceImpl implements IClaimsDocumentService {
 
     private static final Set<DocumentType> ADMIN_EXTRA_DOC_TYPES = Set.of(
             DocumentType.CLAIM_LETTER_APPROVAL, DocumentType.CLAIM_LETTER_REJECTION,
-            DocumentType.CLAIM_LETTER_QUERY, DocumentType.CLAIM_LETTER_PAID);
+            DocumentType.CLAIM_LETTER_QUERY, DocumentType.CLAIM_LETTER_PAID,
+            DocumentType.SETTLEMENT_DOCUMENT);
 
     private final IClaimRepository claimRepository;
     private final IDocumentRepository documentRepository;
