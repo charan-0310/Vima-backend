@@ -465,8 +465,8 @@ public class EnrollmentWindowServiceImpl implements IEnrollmentWindowService {
             List<com.vimainsurance.vimaadmin.entity.EnrollmentSubmission> submissions =
                     enrollmentSubmissionRepository.findAllByEnrollmentWindow_Id(id);
             long draft = submissions.stream().filter(s -> s.getStatus() == EnrollementStatus.DRAFT).count();
-            long submitted = submissions.stream().filter(s -> s.getStatus() == EnrollementStatus.SUBMITTED).count();
-            long approved = submissions.stream().filter(s -> s.getStatus() == EnrollementStatus.APPROVED).count();
+            long submitted = submissions.stream().filter(s -> s.getStatus() == EnrollementStatus.SUBMITTED || s.getStatus() == EnrollementStatus.APPROVED || s.getStatus() == EnrollementStatus.COMPLETED || s.getStatus() == EnrollementStatus.ENDORSED).count();
+            long approved = submissions.stream().filter(s -> s.getStatus() == EnrollementStatus.APPROVED || s.getStatus() == EnrollementStatus.ENDORSED || s.getStatus() == EnrollementStatus.COMPLETED).count();
             long rejected = submissions.stream().filter(s -> s.getStatus() == EnrollementStatus.REJECTED).count();
 
             EnrollmentWindowStatsDto stats = EnrollmentWindowStatsDto.builder()

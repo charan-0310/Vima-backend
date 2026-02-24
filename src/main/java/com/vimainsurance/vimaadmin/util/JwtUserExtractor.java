@@ -370,6 +370,31 @@ public class JwtUserExtractor {
         return getCurrentJwt().map(this::getCompanyId).orElse(null);
     }
 
+    /**
+     * Extract employee/individual ID from JWT (for employee portal claims).
+     * Reads "employee_id" or "individual_id" claim.
+     *
+     * @return UUID of current employee if present in token, null otherwise
+     */
+    public UUID getCurrentEmployeeId() {
+        return getCurrentJwt().map(this::getEmployeeId).orElse(null);
+    }
+
+    private UUID getEmployeeId(Jwt jwt) {
+        String idStr = jwt.getClaimAsString("user_id");
+        if (idStr == null) {
+            idStr = jwt.getClaimAsString("individual_id");
+        }
+        if (idStr == null || idStr.isBlank()) {
+            return null;
+        }
+        try {
+            return UUID.fromString(idStr);
+        } catch (IllegalArgumentException e) {
+            return null;
+        }
+    }
+
     public List<String> getOrganizations(Jwt jwt) {
         List<String> orgs = new ArrayList<>();
         Object claim = jwt.getClaim("organization_ids");

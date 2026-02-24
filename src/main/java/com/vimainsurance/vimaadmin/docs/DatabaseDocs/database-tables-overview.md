@@ -32,7 +32,7 @@ Core tenant table — every company/client in the system.
 | industry | VARCHAR | |
 | primary_contact_name | VARCHAR | |
 
-**Referenced by:** policies, endorsements, enrollment_windows, customers/individuals, admin_users
+**Referenced by:** policies, endorsements, enrollment_windows, customers/individuals, admin_users, claims (claims.claims)
 
 ---
 
@@ -127,6 +127,7 @@ Insurance policies issued to organizations/individuals.
 **Relationships:**
 - Belongs to → `organizations`, `customers` (primary_individual_id), `insurance_providers`
 - Has many → `nominees`, `motor_policy_details`
+- Referenced by → claims (claims.claims)
 
 ---
 
@@ -374,7 +375,203 @@ Master list of insurance companies.
 | updated_at | TIMESTAMP | |
 | product_type | VARCHAR | |
 
-**Referenced by:** policies
+**Referenced by:** policies, claims (claims.claims)
+
+---
+
+## Schema: `claims` (Claim Management)
+
+Claims and related data live under the `claims` schema. Claim numbers follow the pattern `VIMA-CLM-{YYYY}-{NNNN}`.
+
+---
+
+### 1. `claims.claims`
+
+Core claims table — one row per claim (draft, submitted, or settled).
+
+| Column | Type | Notes |
+|--------|------|-------|
+| **id** (PK) | UUID | |
+| claim_number | VARCHAR(100) | NOT NULL UNIQUE; format VIMA-CLM-YYYY-NNNN |
+| organization_id | UUID | FK → cpc.organizations |
+| policy_id | BIGINT | FK → cpc.policies |
+| employee_id | UUID | FK → cpc.customers |
+| member_id | VARCHAR(100) | |
+| member_type | VARCHAR(50) | |
+| member_name | VARCHAR(255) | |
+| member_dob | DATE | |
+| member_uhid | VARCHAR(100) | |
+| relationship | VARCHAR(50) | |
+| claim_type | VARCHAR(100) | |
+| claim_category | VARCHAR(100) | |
+| product_type | VARCHAR(100) | |
+| reason_for_admission | TEXT | |
+| diagnosis | TEXT | |
+| claim_amount | DECIMAL(18,2) | |
+| hospital_name | VARCHAR(255) | |
+| hospital_city | VARCHAR(100) | |
+| hospital_state | VARCHAR(100) | |
+| hospital_pincode | VARCHAR(20) | |
+| hospital_provider_code | VARCHAR(100) | |
+| is_network_hospital | BOOLEAN | |
+| date_of_admission | DATE | |
+| date_of_discharge | DATE | |
+| date_of_submission | DATE | |
+| bank_account_number | VARCHAR(50) | |
+| account_holder_name | VARCHAR(255) | |
+| ifsc_code | VARCHAR(20) | |
+| bank_branch_name | VARCHAR(255) | |
+| insurer_id | UUID | Nullable Phase 1 |
+| insurer_claim_ref | VARCHAR(100) | |
+| insurer_claim_number | VARCHAR(100) | |
+| insurer_inward_number | VARCHAR(100) | |
+| insurer_status | VARCHAR(100) | |
+| insurer_current_status | VARCHAR(100) | |
+| insurer_remarks | TEXT | |
+| rejection_reason | TEXT | |
+| internal_status | VARCHAR(50) | NOT NULL DEFAULT 'DRAFT' |
+| submission_source | VARCHAR(100) | |
+| parent_claim_id | UUID | FK → claims.claims (self) |
+| parent_insurer_claim_ref | VARCHAR(100) | |
+| abha_id | VARCHAR(100) | |
+| submitted_by | UUID | FK → admin.admin_users |
+| reviewed_by | UUID | FK → admin.admin_users |
+| reviewed_at | TIMESTAMPTZ | |
+| approved_by | UUID | FK → admin.admin_users |
+| approved_at | TIMESTAMPTZ | |
+| created_at | TIMESTAMPTZ | |
+| updated_at | TIMESTAMPTZ | |
+| is_deleted | BOOLEAN | NOT NULL DEFAULT FALSE |
+| version | INTEGER | NOT NULL DEFAULT 1 (optimistic locking) |
+
+**Relationships:**
+- Belongs to → `cpc.organizations`, `cpc.policies`, `cpc.customers` (employee_id), `admin.admin_users` (submitted_by, reviewed_by, approved_by)
+- Self-referencing → parent_claim_id
+- Has one → `claims.claim_settlement`
+- Has many → `claims.claim_queries`, `claims.claim_deductions`, `claims.claim_audit_log`
+
+---
+
+### 2. `claims.claim_settlement`
+
+Settlement details (1:1 with a claim).
+
+| Column | Type | Notes |
+|--------|------|-------|
+| **id** (PK) | UUID | |
+| claim_id | UUID | NOT NULL UNIQUE, FK → claims.claims ON DELETE CASCADE |
+| claimed_amount | DECIMAL(18,2) | |
+| gross_sanctioned_amount | DECIMAL(18,2) | |
+| net_sanctioned_amount | DECIMAL(18,2) | |
+| total_disallowed_amount | DECIMAL(18,2) | |
+| deduction_amount | DECIMAL(18,2) | |
+| copay_amount | DECIMAL(18,2) | |
+| amount_paid | DECIMAL(18,2) | |
+| payment_mode | VARCHAR(50) | |
+| cheque_number | VARCHAR(100) | |
+| cheque_date | DATE | |
+| payment_date | DATE | |
+| payment_reference | VARCHAR(255) | |
+| settlement_date | DATE | |
+| created_at | TIMESTAMPTZ | |
+| updated_at | TIMESTAMPTZ | |
+
+**Relationships:**
+- Belongs to → `claims.claims`
+
+---
+
+### 3. `claims.claim_queries`
+
+Queries and responses (1:N per claim); insurer_sys_id nullable in Phase 1.
+
+| Column | Type | Notes |
+|--------|------|-------|
+| **id** (PK) | UUID | |
+| claim_id | UUID | FK → claims.claims ON DELETE CASCADE |
+| insurer_sys_id | VARCHAR(100) | |
+| query_text | TEXT | |
+| query_date | DATE | |
+| query_status | VARCHAR(50) | NOT NULL DEFAULT 'OPEN' |
+| response_text | TEXT | |
+| response_date | DATE | |
+| responded_by | UUID | FK → admin.admin_users |
+| response_remark | TEXT | |
+| courier_name | VARCHAR(255) | |
+| pod_number | VARCHAR(100) | |
+| num_documents_attached | INTEGER | |
+| employee_remarks | TEXT | Employee remarks/docs for admin to forward |
+| employee_response_at | TIMESTAMPTZ | When employee submitted response |
+| created_at | TIMESTAMPTZ | |
+| updated_at | TIMESTAMPTZ | |
+
+**Relationships:**
+- Belongs to → `claims.claims`, `admin.admin_users` (responded_by)
+
+---
+
+### 4. `claims.claim_deductions`
+
+Deduction line items (1:N per claim).
+
+| Column | Type | Notes |
+|--------|------|-------|
+| **id** (PK) | UUID | |
+| claim_id | UUID | FK → claims.claims ON DELETE CASCADE |
+| insurer_sys_id | VARCHAR(100) | |
+| deduction_details | TEXT | |
+| deduction_amount | DECIMAL(18,2) | |
+| created_at | TIMESTAMPTZ | |
+| updated_at | TIMESTAMPTZ | |
+
+**Relationships:**
+- Belongs to → `claims.claims`
+
+---
+
+### 5. `claims.claim_audit_log`
+
+Audit trail (1:N per claim); correlation_id, api_endpoint, api_response_status for API tracing.
+
+| Column | Type | Notes |
+|--------|------|-------|
+| **id** (PK) | UUID | |
+| claim_id | UUID | FK → claims.claims ON DELETE CASCADE |
+| action | VARCHAR(100) | NOT NULL |
+| old_status | VARCHAR(100) | |
+| new_status | VARCHAR(100) | |
+| actor_id | UUID | FK → admin.admin_users |
+| actor_role | VARCHAR(100) | |
+| details | JSONB | |
+| correlation_id | VARCHAR(100) | |
+| api_endpoint | VARCHAR(500) | |
+| api_response_status | INTEGER | |
+| created_at | TIMESTAMPTZ | |
+
+**Relationships:**
+- Belongs to → `claims.claims`, `admin.admin_users` (actor_id)
+
+---
+
+### 6. `claims.claim_number_sequence`
+
+Sequence per year for claim numbers (VIMA-CLM-{YYYY}-{NNNN}).
+
+| Column | Type | Notes |
+|--------|------|-------|
+| **claim_year** (PK) | INTEGER | Year (e.g. 2026) |
+| next_sequence | INTEGER | NOT NULL DEFAULT 1 |
+| updated_at | TIMESTAMPTZ | |
+| version | INTEGER | NOT NULL DEFAULT 1 |
+
+Standalone table — no foreign keys. One row per year; next_sequence incremented when generating a new claim number.
+
+---
+
+### Document schema (claims-related)
+
+- **document.documents** (existing table) has claims-related columns: `synced_to_insurer`, `insurer_doc_ref`, `synced_at`.
+- **document.document_type_enum** includes claim document types: `CLAIM_LETTER_APPROVAL`, `CLAIM_LETTER_REJECTION`, `CLAIM_LETTER_QUERY`, `CLAIM_LETTER_PAID`, `QUERY_RESPONSE_DOC`.
 
 ---
 
@@ -648,13 +845,25 @@ organizations
  ├── enrollment_windows     (organization_id)
  ├── customers/individuals  (organization_id)
  ├── admin_users            (organization_id)  — HR Admins
- └── feature_flag_companies (organization_id)
+ ├── feature_flag_companies (organization_id)
+ └── claims.claims          (organization_id)
 
 policies
  ├── motor_policy_details   (policy_id)
  ├── nominees               (policy_id)
  ├── insurance_providers    (insurance_provider_id)
- └── customers              (primary_individual_id)
+ ├── customers              (primary_individual_id)
+ └── claims.claims          (policy_id)
+
+claims.claims
+ ├── claim_settlement       (claim_id)  — 1:1
+ ├── claim_queries          (claim_id)  — 1:N
+ ├── claim_deductions       (claim_id)  — 1:N
+ ├── claim_audit_log        (claim_id)  — 1:N
+ ├── organizations          (organization_id)
+ ├── policies               (policy_id)
+ ├── customers              (employee_id)
+ └── self-ref: parent       (parent_claim_id)
 
 endorsements
  ├── deal_endorsements      (endorsement_id)
@@ -673,6 +882,7 @@ customers (individuals)
  ├── enrollment_submissions (employee_id)
  ├── deal_endorsements      (individual_id)
  ├── nominees               (customer_id)
+ ├── claims.claims          (employee_id)
  └── self-ref: dependents   (primary_individual_id)
 
 feature_flags
@@ -691,8 +901,13 @@ incentive_packages
 
 admin_users
  ├── agent_targets          (agent_id)
+ ├── claims.claims          (submitted_by, reviewed_by, approved_by)
+ ├── claim_queries          (responded_by)
+ ├── claim_audit_log        (actor_id)
  └── self-ref: hierarchy    (reporting_to)
 ```
+
+For **data cleanup order** (fresh group insurance: companies, policies, enrollment, endorsements), see [data-cleanup-fresh-group-insurance.md](./data-cleanup-fresh-group-insurance.md) — includes DBeaver-ready SQL.
 
 ---
 
@@ -703,9 +918,10 @@ admin_users
 | **Core Business** | organizations, customers, policies, motor_policy_details, endorsements, deal_endorsements | 6 |
 | **Enrollment** | enrollment_windows, enrollment_invitations, enrollment_submissions, nominees | 4 |
 | **Quotes** | quotes, quote_companies | 2 |
+| **Claims** | claims.claims, claim_settlement, claim_queries, claim_deductions, claim_audit_log, claim_number_sequence | 6 |
 | **Users & Auth** | admin_users | 1 |
 | **Feature Flags** | feature_flags, feature_flag_companies, feature_flag_roles | 3 |
 | **Vendor Integration** | vendors, vendor_tokens, vendor_api_endpoints, vendor_api_headers | 4 |
 | **Sales & Incentives** | agent_targets, incentive_packages, incentive_rules, incentive_rule_slabs | 4 |
 | **External** | insurance_providers, zoho_token | 2 |
-| **Total** | | **26** |
+| **Total** | | **32** |
