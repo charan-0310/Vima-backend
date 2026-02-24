@@ -65,11 +65,10 @@ import com.vimainsurance.vimaadmin.service.IDocumentService;
 import com.vimainsurance.vimaadmin.service.IOrganizationService;
 import com.vimainsurance.vimaadmin.service.IS3Service;
 import com.vimainsurance.vimaadmin.specification.OrganizationSpecification;
-import com.vimainsurance.vimaadmin.util.KeyCloakUtil;
 import com.vimainsurance.vimaadmin.util.Constants;
 import com.vimainsurance.vimaadmin.util.CsvDealsReaderUtil;
-import com.vimainsurance.vimaadmin.util.EnvironmentUtil;
 import com.vimainsurance.vimaadmin.util.JwtUserExtractor;
+import com.vimainsurance.vimaadmin.util.KeyCloakUtil;
 
 @Service
 public class OrganizationServiceImpl implements IOrganizationService {
@@ -604,7 +603,7 @@ public class OrganizationServiceImpl implements IOrganizationService {
         dto.setFullName(deal.getFullName());
         dto.setSumInsured(deal.getSumInsured());
         dto.setHealthId(deal.getHealthId());
-        dto.setEnrollementStatus(deal.getEnrollmentSubmission() != null ? deal.getEnrollmentSubmission().getStatus().getValue() : null);
+        dto.setEnrollementStatus(deal.getEnrollmentWindow() != null ? "SELF" : null);
         return dto;
     }
 
