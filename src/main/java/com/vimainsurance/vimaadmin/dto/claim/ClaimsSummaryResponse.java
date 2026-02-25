@@ -17,6 +17,8 @@ public class ClaimsSummaryResponse {
     private long queryRaised;
     private long settled;
     private long closed;
+    /** Combined count for Settlement KPI: settled + closed. */
+    private long settlementClosedTotal;
     private long rejected;
     private double avgProcessingDays;
 }
