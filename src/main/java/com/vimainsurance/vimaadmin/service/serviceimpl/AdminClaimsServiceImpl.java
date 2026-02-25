@@ -169,6 +169,7 @@ public class AdminClaimsServiceImpl implements IAdminClaimsService {
                 + claimRepository.count(ClaimSpecification.withFiltersAndStatus(filters, ClaimStatus.PAYMENT_PENDING));
         long queryRaised = claimRepository.count(ClaimSpecification.withFiltersAndStatus(filters, ClaimStatus.QUERY_RAISED));
         long settled = claimRepository.count(ClaimSpecification.withFiltersAndStatus(filters, ClaimStatus.SETTLED));
+        long closed = claimRepository.count(ClaimSpecification.withFiltersAndStatus(filters, ClaimStatus.CLOSED));
         // Rejected bucket: all claims with status REJECTED, REJECTED_BY_ADMIN, or INTIMATION_REJECTED (single query, enum-safe)
         List<ClaimStatus> rejectedStatuses = Arrays.asList(
                 ClaimStatus.REJECTED,
@@ -196,6 +197,7 @@ public class AdminClaimsServiceImpl implements IAdminClaimsService {
                 .withInsurer(withInsurer)
                 .queryRaised(queryRaised)
                 .settled(settled)
+                .closed(closed)
                 .rejected(rejected)
                 .avgProcessingDays(avgProcessingDays)
                 .build();

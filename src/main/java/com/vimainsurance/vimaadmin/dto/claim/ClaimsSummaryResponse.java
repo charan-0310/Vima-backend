@@ -16,6 +16,7 @@ public class ClaimsSummaryResponse {
     private long withInsurer;
     private long queryRaised;
     private long settled;
+    private long closed;
     private long rejected;
     private double avgProcessingDays;
 }
