@@ -1,5 +1,7 @@
 package com.vimainsurance.vimaadmin.dto.claim;
 
+import java.time.LocalDate;
+
 import com.vimainsurance.vimaadmin.enums.ClaimStatus;
 
 import jakarta.validation.constraints.NotNull;
@@ -11,7 +13,7 @@ public class StatusUpdateRequest {
     @NotNull(message = "New status is required")
     private ClaimStatus newStatus;
 
-    /** Optional remark (e.g. rejection reason when transitioning to REJECTED / REJECTED_BY_ADMIN) */
+    /** Optional remark (e.g. rejection reason when transitioning to REJECTED / REJECTED_BY_ADMIN; query text for INFO_REQUESTED) */
     private String remark;
 
     /** Optional notes for audit (e.g. "Submitted via ICICI portal") */
@@ -22,4 +24,7 @@ public class StatusUpdateRequest {
 
     /** When transitioning to SUBMITTED_TO_INSURER or APPROVED, optional insurer claim number */
     private String insurerClaimNumber;
+
+    /** When transitioning to INFO_REQUESTED or REJECTED_BY_ADMIN, required due/follow-up date for the created query */
+    private LocalDate queryDueDate;
 }

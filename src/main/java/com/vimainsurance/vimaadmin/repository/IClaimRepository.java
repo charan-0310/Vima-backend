@@ -16,7 +16,15 @@ import com.vimainsurance.vimaadmin.entity.Claim;
 import com.vimainsurance.vimaadmin.enums.ClaimStatus;
 
 @Repository
-public interface IClaimRepository extends JpaRepository<Claim, UUID>, JpaSpecificationExecutor<Claim> {
+public interface IClaimRepository extends JpaRepository<Claim, UUID>, JpaSpecificationExecutor<Claim>, IClaimRepositoryCustom {
+
+    /** Single query with fetch of organization, employee, settlement to avoid N+1 on detail load. */
+    @Query("SELECT DISTINCT c FROM Claim c "
+           + "LEFT JOIN FETCH c.organization "
+           + "LEFT JOIN FETCH c.employee "
+           + "LEFT JOIN FETCH c.settlement "
+           + "WHERE c.id = :id")
+    Optional<Claim> findByIdWithOrganizationAndEmployeeAndSettlement(@Param("id") UUID id);
 
     List<Claim> findByEmployee_IndividualId(UUID employeeId);
 

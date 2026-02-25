@@ -31,7 +31,6 @@ import com.vimainsurance.vimaadmin.repository.IAdminUserRepository;
 import com.vimainsurance.vimaadmin.service.IClaimQueryService;
 import com.vimainsurance.vimaadmin.service.IEmailService;
 import com.vimainsurance.vimaadmin.service.claim.ClaimAuditService;
-import com.vimainsurance.vimaadmin.service.claim.ClaimStatusTransitionValidator;
 import com.vimainsurance.vimaadmin.util.JwtUserExtractor;
 
 import lombok.RequiredArgsConstructor;
@@ -42,27 +41,29 @@ import lombok.extern.slf4j.Slf4j;
 @RequiredArgsConstructor
 public class ClaimQueryServiceImpl implements IClaimQueryService {
 
-    private static final java.util.Set<ClaimStatus> ALLOWED_STATUSES_FOR_CREATE_QUERY =
-            java.util.EnumSet.of(ClaimStatus.SUBMITTED_TO_INSURER, ClaimStatus.IN_PROGRESS);
-
     private final IClaimRepository claimRepository;
     private final IClaimQueryRepository claimQueryRepository;
     private final IAdminUserRepository adminUserRepository;
-    private final ClaimStatusTransitionValidator statusValidator;
     private final ClaimAuditService auditService;
     private final InsurerAdapterFactory adapterFactory;
     private final IEmailService emailService;
     private final JwtUserExtractor jwtUserExtractor;
 
+    /**
+     * Create a query for the claim. Query creation is allowed for all claim statuses;
+     * no status-based validation is performed (any step, any status).
+     * Does not change claim status or workflow step; the claim remains in its current stage.
+     */
     @Override
     @Transactional
     public ResponseEntity<ResponseDto<QueryCreateResponse>> createQuery(UUID claimId, QueryCreateRequest request) {
         Claim claim = claimRepository.findById(claimId)
                 .orElseThrow(() -> new BadRequestException("Claim not found"));
-        if (!ALLOWED_STATUSES_FOR_CREATE_QUERY.contains(claim.getInternalStatus())) {
+        if (claim.getInternalStatus() == ClaimStatus.CLOSED) {
             return ResponseEntity.status(HttpStatus.BAD_REQUEST)
-                    .body(new ResponseDto<>("Claim status does not allow creating a query", null));
+                    .body(new ResponseDto<>(400, "Claim is closed and cannot be modified"));
         }
+        log.debug("createQuery claimId={} currentStatus={}", claimId, claim.getInternalStatus());
         ClaimQuery query = new ClaimQuery();
         query.setClaim(claim);
         query.setQueryText(request.getQueryText());
@@ -77,31 +78,35 @@ public class ClaimQueryServiceImpl implements IClaimQueryService {
         query.setQueryStatus(QueryStatus.OPEN);
         query = claimQueryRepository.save(query);
 
-        ClaimStatus oldStatus = claim.getInternalStatus();
-        claim.setInternalStatus(ClaimStatus.QUERY_RAISED);
-        claimRepository.save(claim);
-
+        // Do not change claim status when creating a query; claim remains in current workflow step.
+        ClaimStatus currentStatus = claim.getInternalStatus();
         String detail = request.getQueryText() != null && request.getQueryText().length() > 100
                 ? request.getQueryText().substring(0, 100) + "..." : (request.getQueryText() != null ? request.getQueryText() : "");
-        auditService.logAction(claimId, "QUERY_CREATED", oldStatus.getValue(), ClaimStatus.QUERY_RAISED.getValue(),
+        auditService.logAction(claimId, "QUERY_ADDED", currentStatus.getValue(), currentStatus.getValue(),
                 jwtUserExtractor.getCurrentUserId(), jwtUserExtractor.getCurrentUserRole() != null ? jwtUserExtractor.getCurrentUserRole().getValue() : "ADMIN",
                 "Query: " + detail);
-
         sendQueryRaisedEmail(claim);
 
         QueryCreateResponse response = QueryCreateResponse.builder()
                 .id(query.getId())
                 .queryStatus(QueryStatus.OPEN)
-                .claimStatus(ClaimStatus.QUERY_RAISED)
+                .claimStatus(currentStatus)
                 .build();
         return ResponseEntity.ok(new ResponseDto<>("Success", response));
     }
 
+    /**
+     * Record admin response to a query. Does not change claim status or workflow step (same as create query).
+     */
     @Override
     @Transactional
     public ResponseEntity<ResponseDto<Void>> respondToQuery(UUID claimId, UUID queryId, QueryResponseRequest request) {
         Claim claim = claimRepository.findById(claimId)
                 .orElseThrow(() -> new BadRequestException("Claim not found"));
+        if (claim.getInternalStatus() == ClaimStatus.CLOSED) {
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                    .body(new ResponseDto<>(400, "Claim is closed and cannot be modified"));
+        }
         ClaimQuery query = claimQueryRepository.findById(queryId)
                 .orElseThrow(() -> new BadRequestException("Query not found"));
         if (!query.getClaim().getId().equals(claimId)) {
@@ -124,12 +129,9 @@ public class ClaimQueryServiceImpl implements IClaimQueryService {
         InsurerAdapter adapter = adapterFactory.getAdapter(claim);
         adapter.respondToQuery(claim, query);
 
-        ClaimStatus oldStatus = claim.getInternalStatus();
-        statusValidator.validateTransition(oldStatus, ClaimStatus.QUERY_RESPONDED);
-        claim.setInternalStatus(ClaimStatus.QUERY_RESPONDED);
-        claimRepository.save(claim);
-
-        auditService.logAction(claimId, "QUERY_RESPONDED", oldStatus.getValue(), ClaimStatus.QUERY_RESPONDED.getValue(),
+        // Do not change claim status when responding to a query; claim remains in current workflow step (same as create query).
+        ClaimStatus currentStatus = claim.getInternalStatus();
+        auditService.logAction(claimId, "QUERY_RESPONDED", currentStatus.getValue(), currentStatus.getValue(),
                 adminId, jwtUserExtractor.getCurrentUserRole() != null ? jwtUserExtractor.getCurrentUserRole().getValue() : "ADMIN",
                 "Query response recorded");
 

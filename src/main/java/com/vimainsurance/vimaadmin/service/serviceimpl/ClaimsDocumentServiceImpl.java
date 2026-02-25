@@ -85,6 +85,10 @@ public class ClaimsDocumentServiceImpl implements IClaimsDocumentService {
             return ResponseEntity.status(HttpStatus.NOT_FOUND).body(new ResponseDto<>(404, "Claim not found"));
         }
         Claim claim = claimOpt.get();
+        if (claim.getInternalStatus() == ClaimStatus.CLOSED) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN)
+                    .body(new ResponseDto<>(403, "Claim is closed and cannot be modified"));
+        }
         boolean isAdmin = isAdminRole(role);
         if (!isAdmin) {
             if (!Objects.equals(claim.getEmployee().getIndividualId(), uploadedBy)) {
@@ -161,8 +165,12 @@ public class ClaimsDocumentServiceImpl implements IClaimsDocumentService {
     @Override
     @Transactional(rollbackFor = Exception.class)
     public ResponseEntity<ResponseDto<String>> deleteDocument(UUID claimId, UUID docId, UUID actorId) {
-        claimRepository.findById(claimId)
+        Claim claim = claimRepository.findById(claimId)
                 .orElseThrow(() -> new BadRequestException("Claim not found"));
+        if (claim.getInternalStatus() == ClaimStatus.CLOSED) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN)
+                    .body(new ResponseDto<>(403, "Claim is closed and cannot be modified"));
+        }
         Document doc = documentRepository.findByDocumentId(docId)
                 .orElseThrow(() -> new BadRequestException("Document not found"));
         if (!DocumentEntityType.CLAIM.equals(doc.getEntityType()) || !claimId.toString().equals(doc.getEntityId())) {

@@ -117,13 +117,23 @@ public class ClaimValidationService {
         }
     }
 
-    /** BR-CS-010: REJECTED / REJECTED_BY_ADMIN require rejection reason (remark or notes). */
+    /** BR-CS-010: REJECTED / REJECTED_BY_ADMIN require rejection reason (remark or notes). INFO_REQUESTED / REJECTED_BY_ADMIN also require query text and due date. */
     public void validateStatusUpdateRequest(com.vimainsurance.vimaadmin.dto.claim.StatusUpdateRequest request) {
         if (request.getNewStatus() == ClaimStatus.REJECTED || request.getNewStatus() == ClaimStatus.REJECTED_BY_ADMIN) {
             boolean hasReason = (request.getRemark() != null && !request.getRemark().isBlank())
                     || (request.getNotes() != null && !request.getNotes().isBlank());
             if (!hasReason) {
                 throw new BadRequestException("Rejection reason (remark or notes) is required when status is REJECTED or REJECTED_BY_ADMIN");
+            }
+        }
+        if (request.getNewStatus() == ClaimStatus.INFO_REQUESTED || request.getNewStatus() == ClaimStatus.REJECTED_BY_ADMIN) {
+            boolean hasQueryText = (request.getRemark() != null && !request.getRemark().isBlank())
+                    || (request.getNotes() != null && !request.getNotes().isBlank());
+            if (!hasQueryText) {
+                throw new BadRequestException("Query details (remark or notes) are required when status is Info Requested or Rejected by Admin");
+            }
+            if (request.getQueryDueDate() == null) {
+                throw new BadRequestException("Due date / follow-up date is required when status is Info Requested or Rejected by Admin");
             }
         }
     }

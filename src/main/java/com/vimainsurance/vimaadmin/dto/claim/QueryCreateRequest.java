@@ -19,4 +19,6 @@ public class QueryCreateRequest {
     private LocalDateTime queryDateTimestamp;
     /** Optional insurer system reference. */
     private String insurerSysId;
+    /** When true, only create the query record; do not change claim status (e.g. when status will be set to INFO_REQUESTED/REJECTED_BY_ADMIN via status API). */
+    private Boolean createOnlyWithoutStatusChange;
 }

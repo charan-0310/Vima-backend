@@ -11,13 +11,13 @@ import com.vimainsurance.vimaadmin.exception.InvalidStatusTransitionException;
 
 /**
  * Validates claim status transitions per PRD §15.2.
- * Terminal statuses: SETTLED, CLOSED, REJECTED_BY_ADMIN (no outgoing transitions).
+ * Terminal statuses (no outgoing transitions): CLOSED, REJECTED_BY_ADMIN.
+ * SETTLED can transition to CLOSED.
  */
 @Component
 public class ClaimStatusTransitionValidator {
 
     private static final Set<ClaimStatus> TERMINAL_STATUSES = EnumSet.of(
-            ClaimStatus.SETTLED,
             ClaimStatus.CLOSED,
             ClaimStatus.REJECTED_BY_ADMIN
     );
