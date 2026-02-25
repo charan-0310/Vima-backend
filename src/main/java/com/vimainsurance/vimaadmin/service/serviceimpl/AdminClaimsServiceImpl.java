@@ -23,6 +23,7 @@ import com.vimainsurance.vimaadmin.dto.claim.StatusUpdateResponse;
 import com.vimainsurance.vimaadmin.entity.Claim;
 import com.vimainsurance.vimaadmin.enums.ClaimStatus;
 import com.vimainsurance.vimaadmin.exception.BadRequestException;
+import com.vimainsurance.vimaadmin.exception.InvalidStatusTransitionException;
 import com.vimainsurance.vimaadmin.mapper.ClaimMapper;
 import com.vimainsurance.vimaadmin.repository.IClaimAuditLogRepository;
 import com.vimainsurance.vimaadmin.repository.IClaimRepository;
@@ -71,6 +72,10 @@ public class AdminClaimsServiceImpl implements IAdminClaimsService {
                     .body(new ResponseDto<>(401, "Authentication required. Admin context not found in token."));
         }
         Claim claim = claimRepository.findById(claimId).orElseThrow(() -> new BadRequestException("Claim not found"));
+        if (claim.getInternalStatus() == ClaimStatus.CLOSED) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN)
+                    .body(new ResponseDto<>(403, "Claim is closed and cannot be modified"));
+        }
         ClaimStatus oldStatus = claim.getInternalStatus();
         try {
             claimsService.updateStatus(claimId, request, actorId, actorRole);
@@ -85,12 +90,33 @@ public class AdminClaimsServiceImpl implements IAdminClaimsService {
         } catch (BadRequestException e) {
             log.warn("[admin-claims] changeStatus failed: {}", e.getMessage());
             return ResponseEntity.badRequest().body(new ResponseDto<>(400, e.getMessage()));
+        } catch (InvalidStatusTransitionException e) {
+            log.warn("[admin-claims] changeStatus invalid transition: {}", e.getMessage());
+            return ResponseEntity.badRequest().body(new ResponseDto<>(400, e.getMessage()));
+        } catch (Exception e) {
+            Throwable cause = e.getCause() != null ? e.getCause() : e;
+            if (cause instanceof InvalidStatusTransitionException) {
+                log.warn("[admin-claims] changeStatus invalid transition (wrapped): {}", cause.getMessage());
+                return ResponseEntity.badRequest().body(new ResponseDto<>(400, cause.getMessage()));
+            }
+            if (cause instanceof BadRequestException) {
+                log.warn("[admin-claims] changeStatus failed (wrapped): {}", cause.getMessage());
+                return ResponseEntity.badRequest().body(new ResponseDto<>(400, cause.getMessage()));
+            }
+            log.error("[admin-claims] changeStatus unexpected error for claimId={}", claimId, e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(new ResponseDto<>(500, "Status update failed. Please try again or contact support."));
         }
     }
 
     @Override
     @Transactional(rollbackFor = Exception.class)
     public ResponseEntity<ResponseDto<ClaimDetailsResponse>> updateInsurerRef(UUID claimId, InsurerRefRequest request) {
+        Claim claim = claimRepository.findById(claimId).orElseThrow(() -> new BadRequestException("Claim not found"));
+        if (claim.getInternalStatus() == ClaimStatus.CLOSED) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN)
+                    .body(new ResponseDto<>(403, "Claim is closed and cannot be modified"));
+        }
         ClaimDetailsResponse updated = claimsService.updateInsurerRef(claimId, request);
         return ResponseEntity.ok(new ResponseDto<>("Insurer reference updated", updated));
     }
@@ -98,6 +124,11 @@ public class AdminClaimsServiceImpl implements IAdminClaimsService {
     @Override
     @Transactional(rollbackFor = Exception.class)
     public ResponseEntity<ResponseDto<ClaimDetailsResponse>> submitToInsurer(UUID claimId) {
+        Claim claim = claimRepository.findById(claimId).orElseThrow(() -> new BadRequestException("Claim not found"));
+        if (claim.getInternalStatus() == ClaimStatus.CLOSED) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN)
+                    .body(new ResponseDto<>(403, "Claim is closed and cannot be modified"));
+        }
         try {
             ClaimDetailsResponse result = claimsService.submitToInsurer(claimId);
             return ResponseEntity.ok(new ResponseDto<>("Submit to insurer completed", result));

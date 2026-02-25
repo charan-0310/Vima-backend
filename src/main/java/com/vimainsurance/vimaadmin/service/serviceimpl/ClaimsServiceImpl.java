@@ -174,11 +174,15 @@ public class ClaimsServiceImpl implements IClaimsService {
         }
         claim.setInternalStatus(request.getNewStatus());
         claim = claimRepository.save(claim);
+
         String auditDetails = request.getNotes() != null && !request.getNotes().isBlank() ? request.getNotes() : request.getRemark();
         auditService.logAction(claimId, "STATUS_UPDATE", oldStatus.getValue(), request.getNewStatus().getValue(),
                 actorId, actorRole, auditDetails, null, null, null);
         log.info("[claimNumber={}] status {} -> {}", claim.getClaimNumber(), oldStatus, request.getNewStatus());
-        return toDetailsWithDocuments(claim);
+        // Reload with associations so mapper does not trigger lazy-load (avoids 500 in some environments)
+        Claim claimWithAssociations = claimRepository.findByIdWithOrganizationAndEmployeeAndSettlement(claimId)
+                .orElse(claim);
+        return toDetailsWithDocuments(claimWithAssociations);
     }
 
     @Override
@@ -200,7 +204,8 @@ public class ClaimsServiceImpl implements IClaimsService {
     @Override
     @Transactional(readOnly = true)
     public ClaimDetailsResponse getClaimDetails(UUID claimId) {
-        Claim claim = claimRepository.findById(claimId).orElseThrow(() -> new BadRequestException("Claim not found"));
+        Claim claim = claimRepository.findByIdWithOrganizationAndEmployeeAndSettlement(claimId)
+                .orElseThrow(() -> new BadRequestException("Claim not found"));
         List<com.vimainsurance.vimaadmin.entity.Document> documents = documentRepository.findByEntityTypeAndEntityId(
                 DocumentEntityType.CLAIM, claimId.toString());
         return ClaimMapper.toDetailsResponse(claim, documents);
@@ -210,8 +215,8 @@ public class ClaimsServiceImpl implements IClaimsService {
     @Transactional(readOnly = true)
     public Page<ClaimDetailsResponse> listClaims(ClaimListFilters filters, Pageable pageable) {
         Specification<Claim> spec = ClaimSpecification.withFilters(filters);
-        Page<Claim> page = claimRepository.findAll(spec, pageable);
-        return page.map(ClaimMapper::toListResponse);
+        Page<Claim> page = claimRepository.findAllWithOrganizationAndEmployee(spec, pageable);
+        return page.map(ClaimMapper::toListResponseLight);
     }
 
     /** When memberType is EMPLOYEE (self) and memberId is null, set memberId to the submitting employee's ID. */

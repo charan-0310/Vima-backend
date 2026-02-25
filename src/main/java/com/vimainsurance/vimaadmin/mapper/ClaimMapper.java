@@ -191,8 +191,44 @@ public final class ClaimMapper {
         return dto;
     }
 
+    /** Full list response (used when associations are already loaded to avoid N+1). */
     public static ClaimDetailsResponse toListResponse(Claim claim) {
         return toDetailsResponse(claim, new ArrayList<>());
+    }
+
+    /**
+     * Lightweight list response: only maps fields needed for list view and only accesses
+     * claim, organization, employee (no settlement, queries, deductions, auditLogs).
+     * Use with fetch-joined claims to avoid N+1 and avoid loading heavy associations.
+     */
+    public static ClaimDetailsResponse toListResponseLight(Claim claim) {
+        if (claim == null) return null;
+        ClaimDetailsResponse dto = new ClaimDetailsResponse();
+        dto.setId(claim.getId());
+        dto.setClaimNumber(claim.getClaimNumber());
+        if (claim.getOrganization() != null) {
+            dto.setOrganizationId(claim.getOrganization().getOrganizationId());
+            dto.setOrganizationName(claim.getOrganization().getOrganizationName());
+        }
+        dto.setPolicyId(claim.getPolicyId());
+        if (claim.getEmployee() != null) {
+            dto.setEmployeeId(claim.getEmployee().getIndividualId());
+            dto.setEmployeeName(claim.getEmployee().getFirstName() != null ? claim.getEmployee().getFirstName() + " " + (claim.getEmployee().getLastName() != null ? claim.getEmployee().getLastName() : "") : null);
+        }
+        dto.setMemberName(claim.getMemberName());
+        dto.setMemberType(claim.getMemberType());
+        dto.setRelationship(claim.getRelationship());
+        dto.setClaimType(claim.getClaimType());
+        dto.setClaimCategory(claim.getClaimCategory());
+        dto.setClaimAmount(claim.getClaimAmount());
+        dto.setHospitalName(claim.getHospitalName());
+        dto.setHospitalCity(claim.getHospitalCity());
+        dto.setDateOfSubmission(claim.getDateOfSubmission());
+        dto.setInternalStatus(claim.getInternalStatus());
+        dto.setDisplayStatus(toDisplayStatus(claim.getInternalStatus()));
+        dto.setCreatedAt(claim.getCreatedAt());
+        dto.setUpdatedAt(claim.getUpdatedAt());
+        return dto;
     }
 
     public static ClaimSummaryDto toSummaryDto(Claim claim) {

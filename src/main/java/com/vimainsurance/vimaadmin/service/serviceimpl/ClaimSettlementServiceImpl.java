@@ -59,6 +59,10 @@ public class ClaimSettlementServiceImpl implements IClaimSettlementService {
     public ResponseEntity<ResponseDto<SettlementResponse>> recordSettlement(UUID claimId, SettlementRequest request) {
         Claim claim = claimRepository.findById(claimId)
                 .orElseThrow(() -> new BadRequestException("Claim not found"));
+        if (claim.getInternalStatus() == ClaimStatus.CLOSED) {
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                    .body(new ResponseDto<>(400, "Claim is closed and cannot be modified"));
+        }
         if (!ALLOWED_STATUSES_FOR_SETTLEMENT.contains(claim.getInternalStatus())) {
             return ResponseEntity.status(HttpStatus.BAD_REQUEST)
                     .body(new ResponseDto<>("Claim must be APPROVED or PAYMENT_PENDING to record settlement", null));
@@ -129,7 +133,7 @@ public class ClaimSettlementServiceImpl implements IClaimSettlementService {
                 .orElseThrow(() -> new BadRequestException("Claim not found"));
         if (claim.getInternalStatus() == ClaimStatus.CLOSED) {
             return ResponseEntity.status(HttpStatus.BAD_REQUEST)
-                    .body(new ResponseDto<>("Cannot update settlement for closed claim", null));
+                    .body(new ResponseDto<>(400, "Claim is closed and cannot be modified"));
         }
         ClaimSettlement settlement = settlementRepository.findByClaim_Id(claimId)
                 .orElseThrow(() -> new BadRequestException("Settlement not found for this claim"));
@@ -177,6 +181,10 @@ public class ClaimSettlementServiceImpl implements IClaimSettlementService {
     public ResponseEntity<ResponseDto<ClaimDeductionDto>> addDeduction(UUID claimId, DeductionRequest request) {
         Claim claim = claimRepository.findById(claimId)
                 .orElseThrow(() -> new BadRequestException("Claim not found"));
+        if (claim.getInternalStatus() == ClaimStatus.CLOSED) {
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                    .body(new ResponseDto<>(400, "Claim is closed and cannot be modified"));
+        }
         ClaimDeduction deduction = new ClaimDeduction();
         deduction.setClaim(claim);
         deduction.setDeductionDetails(request.getDeductionDetails());
@@ -208,8 +216,12 @@ public class ClaimSettlementServiceImpl implements IClaimSettlementService {
             return ResponseEntity.status(HttpStatus.BAD_REQUEST)
                     .body(new ResponseDto<>("Deduction does not belong to this claim", null));
         }
-        deductionRepository.delete(deduction);
         Claim claim = claimRepository.findById(claimId).orElse(null);
+        if (claim != null && claim.getInternalStatus() == ClaimStatus.CLOSED) {
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                    .body(new ResponseDto<>(400, "Claim is closed and cannot be modified"));
+        }
+        deductionRepository.delete(deduction);
         if (claim != null) {
             auditService.logAction(claimId, "DEDUCTION_REMOVED", claim.getInternalStatus().getValue(), claim.getInternalStatus().getValue(),
                     jwtUserExtractor.getCurrentUserId(), jwtUserExtractor.getCurrentUserRole() != null ? jwtUserExtractor.getCurrentUserRole().getValue() : "ADMIN",
