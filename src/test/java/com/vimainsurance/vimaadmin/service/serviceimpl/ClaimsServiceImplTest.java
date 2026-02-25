@@ -273,7 +273,7 @@ class ClaimsServiceImplTest {
 
     @Test
     void getClaimDetails_found_returnsDetails() {
-        when(claimRepository.findById(claimId)).thenReturn(Optional.of(claim));
+        when(claimRepository.findByIdWithOrganizationAndEmployeeAndSettlement(claimId)).thenReturn(Optional.of(claim));
         when(documentRepository.findByEntityTypeAndEntityId(DocumentEntityType.CLAIM, claimId.toString())).thenReturn(Collections.emptyList());
 
         ClaimDetailsResponse response = claimsService.getClaimDetails(claimId);
@@ -285,7 +285,7 @@ class ClaimsServiceImplTest {
 
     @Test
     void getClaimDetails_notFound_throws() {
-        when(claimRepository.findById(claimId)).thenReturn(Optional.empty());
+        when(claimRepository.findByIdWithOrganizationAndEmployeeAndSettlement(claimId)).thenReturn(Optional.empty());
 
         assertThrows(BadRequestException.class, () -> claimsService.getClaimDetails(claimId));
     }
@@ -294,7 +294,7 @@ class ClaimsServiceImplTest {
     void listClaims_returnsPaginatedResults() {
         List<Claim> claims = List.of(claim);
         Page<Claim> page = new PageImpl<>(claims);
-        when(claimRepository.findAll(any(Specification.class), any(Pageable.class))).thenReturn(page);
+        when(claimRepository.findAllWithOrganizationAndEmployee(any(Specification.class), any(Pageable.class))).thenReturn(page);
 
         Page<ClaimDetailsResponse> result = claimsService.listClaims(new ClaimListFilters(), Pageable.unpaged());
 

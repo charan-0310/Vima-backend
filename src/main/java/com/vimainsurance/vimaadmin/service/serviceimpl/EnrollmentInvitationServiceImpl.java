@@ -664,7 +664,7 @@ public class EnrollmentInvitationServiceImpl implements IEnrollmentInvitation {
     private boolean sendEnrollmentInvitationEmail(String to, String employeeName, String magicLink) {
         try {
             EmailRequest req = EmailRequest.builder()
-                .to("rajaram.ganesan@kumaran.com")
+                .to(to)
                 .subject("Enrollment invitation - Vima Insurance")
                 .templateName("enrollment-invitation")
                 .templateVariables(java.util.Map.of(
@@ -683,7 +683,7 @@ public class EnrollmentInvitationServiceImpl implements IEnrollmentInvitation {
     private boolean sendEnrollmentReminderEmail(String to, String employeeName, String magicLink) {
         try {
             EmailRequest req = EmailRequest.builder()
-                .to("rajaram.ganesan@kumaran.com")
+                .to(to)
                 .subject("Reminder: Complete your enrollment - Vima Insurance")
                 .templateName("enrollment-invitation")
                 .templateVariables(java.util.Map.of(

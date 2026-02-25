@@ -65,11 +65,16 @@ class ClaimStatusTransitionValidatorTest {
     }
 
     @Test
-    void validateTransition_fromTerminalSettled_throws() {
+    void validateTransition_fromSettledToClosed_valid_doesNotThrow() {
+        assertDoesNotThrow(() -> validator.validateTransition(ClaimStatus.SETTLED, ClaimStatus.CLOSED));
+    }
+
+    @Test
+    void validateTransition_fromSettledToDraft_throws() {
         InvalidStatusTransitionException ex = assertThrows(InvalidStatusTransitionException.class,
-                () -> validator.validateTransition(ClaimStatus.SETTLED, ClaimStatus.CLOSED));
+                () -> validator.validateTransition(ClaimStatus.SETTLED, ClaimStatus.DRAFT));
         assertTrue(ex.getCurrentStatus() == ClaimStatus.SETTLED);
-        assertTrue(ex.getAllowedTransitions() != null && ex.getAllowedTransitions().isEmpty());
+        assertTrue(ex.getAllowedTransitions() != null && ex.getAllowedTransitions().contains(ClaimStatus.CLOSED));
     }
 
     @Test
@@ -95,8 +100,8 @@ class ClaimStatusTransitionValidatorTest {
     }
 
     @Test
-    void isTerminal_settled_returnsTrue() {
-        assertTrue(validator.isTerminal(ClaimStatus.SETTLED));
+    void isTerminal_settled_returnsFalse() {
+        assertFalse(validator.isTerminal(ClaimStatus.SETTLED));
     }
 
     @Test
