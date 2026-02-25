@@ -1,0 +1,27 @@
+version: "3.9"
+
+services:
+  keycloak:
+    image: quay.io/keycloak/keycloak:26.0.0
+    container_name: keycloak-dev
+    command:
+      - start-dev
+      - --spi-theme-cache-themes=false
+      - --spi-theme-cache-templates=false
+      - --http-enabled=true
+    environment:
+      KC_DB: postgres
+      KC_DB_URL: jdbc:postgresql://database-1.cncausigszky.ap-south-1.rds.amazonaws.com:5432/keycloak
+      KC_DB_USERNAME: vima_user
+      KC_DB_PASSWORD: REDACTED
+
+      KC_BOOTSTRAP_ADMIN_USERNAME: admin
+      KC_BOOTSTRAP_ADMIN_PASSWORD: admin123
+
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./themes:/opt/keycloak/themes
+      - ./providers:/opt/keycloak/providers
+
+    restart: unless-stopped

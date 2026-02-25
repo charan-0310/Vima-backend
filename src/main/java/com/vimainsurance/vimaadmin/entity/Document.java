@@ -99,6 +99,16 @@ public class Document {
     @Column(name = "notes", columnDefinition = "TEXT")
     private String notes;
 
+    // Insurer sync (Phase 2 claims)
+    @Column(name = "synced_to_insurer", nullable = false)
+    private Boolean syncedToInsurer = false;
+
+    @Column(name = "insurer_doc_ref", length = 255)
+    private String insurerDocRef;
+
+    @Column(name = "synced_at")
+    private LocalDateTime syncedAt;
+
     // Audit Fields
     @CreationTimestamp
     @Column(name = "created_at", nullable = false, updatable = false)

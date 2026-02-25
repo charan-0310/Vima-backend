@@ -32,7 +32,6 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
 
-import com.vimainsurance.vimaadmin.dto.AuthentikGroupCreationDto;
 import com.vimainsurance.vimaadmin.dto.BaseResponse;
 import com.vimainsurance.vimaadmin.dto.BulkEmployeeDeletionRequestDto;
 import com.vimainsurance.vimaadmin.dto.CsvValidationResponseDto;
@@ -66,11 +65,10 @@ import com.vimainsurance.vimaadmin.service.IDocumentService;
 import com.vimainsurance.vimaadmin.service.IOrganizationService;
 import com.vimainsurance.vimaadmin.service.IS3Service;
 import com.vimainsurance.vimaadmin.specification.OrganizationSpecification;
-import com.vimainsurance.vimaadmin.util.AuthentikUtil;
 import com.vimainsurance.vimaadmin.util.Constants;
 import com.vimainsurance.vimaadmin.util.CsvDealsReaderUtil;
-import com.vimainsurance.vimaadmin.util.EnvironmentUtil;
 import com.vimainsurance.vimaadmin.util.JwtUserExtractor;
+import com.vimainsurance.vimaadmin.util.KeyCloakUtil;
 
 @Service
 public class OrganizationServiceImpl implements IOrganizationService {
@@ -105,13 +103,13 @@ public class OrganizationServiceImpl implements IOrganizationService {
     private Environment environment;
 
     @Autowired
-    private AuthentikUtil authentikUtil;
-
-    @Autowired
     private IDealEndorsementRepository dealEndorsementRepository;
 
     @Autowired
     private IPolicyRepository policyRepository;
+
+    @Autowired
+    private KeyCloakUtil keycloakUtil;
 
     @Override
     @Transactional(rollbackFor = Exception.class)
@@ -138,11 +136,8 @@ public class OrganizationServiceImpl implements IOrganizationService {
                 org.setIndustry(Industry.fromValue(requestDto.getIndustry()));
             }
             Organization savedOrg = organizationRepository.save(org);
-            AuthentikGroupCreationDto authentikGroupCreationDto = new AuthentikGroupCreationDto();
-            authentikGroupCreationDto.setName("ORG_" + savedOrg.getOrganizationName().trim().toUpperCase().replaceAll("[^A-Z0-9]", "_"));
-            authentikGroupCreationDto.setIsSuperUser(false);
-            authentikGroupCreationDto.setAttributes(Map.of("organization_id", savedOrg.getOrganizationId().toString()));
-            authentikUtil.createGroup(authentikGroupCreationDto);
+            String orgGroupName = "ORG_" + savedOrg.getOrganizationName().trim().toUpperCase().replaceAll("[^A-Z0-9]", "_");
+            keycloakUtil.createGroup(orgGroupName, Map.of("organization_id", List.of(savedOrg.getOrganizationId().toString())));
             return responseObj.render(responseObj.formSuccessResponse(Constants.SUCCESS, Constants.SAVE_SUCCESS));
         } catch (Exception e) {
             logger.error("[correlationId:{}] Exception in Organization create: {}", MDC.get("correlationId"), e.getMessage(), e);
@@ -608,7 +603,7 @@ public class OrganizationServiceImpl implements IOrganizationService {
         dto.setFullName(deal.getFullName());
         dto.setSumInsured(deal.getSumInsured());
         dto.setHealthId(deal.getHealthId());
-        dto.setEnrollementStatus(deal.getEnrollmentSubmission() != null ? deal.getEnrollmentSubmission().getStatus().getValue() : null);
+        dto.setEnrollementStatus(deal.getEnrollmentWindow() != null ? "SELF" : null);
         return dto;
     }
 

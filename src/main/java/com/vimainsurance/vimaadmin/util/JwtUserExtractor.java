@@ -17,6 +17,7 @@ import com.vimainsurance.vimaadmin.entity.AdminUser;
 import com.vimainsurance.vimaadmin.enums.UserRole;
 import com.vimainsurance.vimaadmin.exception.OrganizationAccessDeniedException;
 import com.vimainsurance.vimaadmin.repository.IAdminUserRepository;
+import org.springframework.beans.factory.annotation.Value;
 
 /**
  * Helper component to extract user details from JWT tokens issued by Authentik.
@@ -31,6 +32,9 @@ public class JwtUserExtractor {
 
     @Autowired
     private IAdminUserRepository adminUserRepository;
+
+    @Value("${keycloak.client-id}")
+    private String keycloakClientId;
 
     /**
      * Get the current JWT token from the security context
@@ -146,8 +150,19 @@ public class JwtUserExtractor {
                     });
                 }
             }
+            Map<String, Object> resourceAccess = jwt.getClaimAsMap("resource_access");
+            Map<String, Object> clientAccess = (Map<String, Object>) resourceAccess.get(keycloakClientId);
+            if (clientAccess != null) {
+                Object clientRoles = clientAccess.get("roles");
+                if (clientRoles instanceof List) {
+                    ((List<?>) clientRoles).forEach(item -> {
+                        if (item instanceof String) {
+                            groups.add((String) item);
+                        }
+                    });
+                }
+            }
         }
-        
         return groups;
     }
 
@@ -353,6 +368,31 @@ public class JwtUserExtractor {
 
     public UUID getCurrentCompanyId() {
         return getCurrentJwt().map(this::getCompanyId).orElse(null);
+    }
+
+    /**
+     * Extract employee/individual ID from JWT (for employee portal claims).
+     * Reads "employee_id" or "individual_id" claim.
+     *
+     * @return UUID of current employee if present in token, null otherwise
+     */
+    public UUID getCurrentEmployeeId() {
+        return getCurrentJwt().map(this::getEmployeeId).orElse(null);
+    }
+
+    private UUID getEmployeeId(Jwt jwt) {
+        String idStr = jwt.getClaimAsString("user_id");
+        if (idStr == null) {
+            idStr = jwt.getClaimAsString("individual_id");
+        }
+        if (idStr == null || idStr.isBlank()) {
+            return null;
+        }
+        try {
+            return UUID.fromString(idStr);
+        } catch (IllegalArgumentException e) {
+            return null;
+        }
     }
 
     public List<String> getOrganizations(Jwt jwt) {

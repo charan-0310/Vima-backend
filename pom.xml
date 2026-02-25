@@ -228,10 +228,26 @@
             <version>8.7.0</version>
         </dependency>
 
+        <!-- KeyCloak-->
+		<dependency>
+			<groupId>org.keycloak</groupId>
+			<artifactId>keycloak-admin-client</artifactId>
+			<version>26.0.0</version>
+        </dependency>
+		
     </dependencies>
 
 	<build>
 		<plugins>
+			<plugin>
+				<groupId>org.flywaydb</groupId>
+				<artifactId>flyway-maven-plugin</artifactId>
+				<version>10.22.0</version>
+				<configuration>
+					<locations>filesystem:src/main/resources/db/migration</locations>
+					<!-- Pass -Dflyway.url=..., -Dflyway.user=..., -Dflyway.password=... when running repair -->
+				</configuration>
+			</plugin>
 			<plugin>
 				<groupId>org.springframework.boot</groupId>
 				<artifactId>spring-boot-maven-plugin</artifactId>

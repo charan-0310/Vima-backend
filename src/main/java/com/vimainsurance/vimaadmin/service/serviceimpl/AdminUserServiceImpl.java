@@ -37,6 +37,7 @@ import com.vimainsurance.vimaadmin.repository.IAdminUserRepository;
 import com.vimainsurance.vimaadmin.service.IAdminUserService;
 import com.vimainsurance.vimaadmin.service.IEmailService;
 import com.vimainsurance.vimaadmin.util.AuthentikUtil;
+import com.vimainsurance.vimaadmin.util.KeyCloakUtil;
 import com.vimainsurance.vimaadmin.util.Constants;
 import com.vimainsurance.vimaadmin.util.IdGenerator;
 import com.vimainsurance.vimaadmin.util.PasswordEncoder;
@@ -60,6 +61,9 @@ public class AdminUserServiceImpl implements IAdminUserService {
 
     @Autowired
     private AuthentikUtil authentikUtil;
+
+    @Autowired
+    private KeyCloakUtil keyCloakUtil;
 
     private AdminUserResponseDto mapToResponseDto(AdminUser user) {
         AdminUserResponseDto dto = new AdminUserResponseDto();
@@ -88,6 +92,7 @@ public class AdminUserServiceImpl implements IAdminUserService {
             401, "Authentication failed. Please try again later.",
             403, "Access denied. Please contact administrator.",
             404, "Resource not found. Please try again.",
+            409, "Email already exists.",
             500, "Server error. Please try again later."
     );
 
@@ -103,6 +108,10 @@ public class AdminUserServiceImpl implements IAdminUserService {
             if (statusCode == 400) {
                 String fieldMessage = parseAuthentikValidationErrors(httpEx.getResponseBodyAsString());
                 return fieldMessage != null ? fieldMessage : (statusMessage != null ? statusMessage : "Invalid request. Please check the provided data and try again.");
+            }
+            if (statusCode == 409) {
+                String keycloakMessage = parseKeycloakErrorMessage(httpEx.getResponseBodyAsString());
+                return keycloakMessage != null ? keycloakMessage : (statusMessage != null ? statusMessage : "Email already exists.");
             }
             return statusMessage != null ? statusMessage : "Failed to create user. Please try again.";
         }
@@ -137,6 +146,29 @@ public class AdminUserServiceImpl implements IAdminUserService {
             Map.Entry<String, List<String>> firstError = errors.entrySet().iterator().next();
             List<String> messages = firstError.getValue();
             return (messages != null && !messages.isEmpty()) ? messages.get(0) : null;
+        } catch (Exception ex) {
+            return null;
+        }
+    }
+
+    /**
+     * Parses Keycloak error response JSON and returns user-friendly message.
+     * Expects format: {"errorMessage":"User exists with same email"} or similar.
+     */
+    private String parseKeycloakErrorMessage(String responseBody) {
+        if (responseBody == null || responseBody.isBlank()) {
+            return null;
+        }
+        try {
+            Map<String, Object> map = OBJECT_MAPPER.readValue(responseBody, new TypeReference<>() {});
+            if (map == null) return null;
+            Object msg = map.get("errorMessage");
+            if (msg instanceof String s && !s.isBlank()) {
+                if (s.contains("same email") || s.contains("email")) return "Email must be unique.";
+                if (s.contains("same username") || s.contains("username")) return "Username must be unique.";
+                return s;
+            }
+            return null;
         } catch (Exception ex) {
             return null;
         }
@@ -190,24 +222,24 @@ public class AdminUserServiceImpl implements IAdminUserService {
 
             // Create user in Authentik first
             try {
-                authentikUtil.createUser(
+                password = keyCloakUtil.createUser(
                     requestDto.getFullName(),
                     requestDto.getUsername(),
                     requestDto.getEmail(),
                     requestDto.getRole(),
                     requestDto.getOrganizations(),
                     requestDto.getIsActive() != null ? requestDto.getIsActive() : true,
-                    password,
+                    null,
                     saved.getId().toString()
                 );
-                logger.info("[correlationId:{}] User created successfully in Authentik: {}", MDC.get("correlationId"), requestDto.getUsername());
+                logger.info("[correlationId:{}] User created successfully in Keycloak: {}", MDC.get("correlationId"), requestDto.getUsername());
             } catch (Exception e) {
                 try {
                     TransactionAspectSupport.currentTransactionStatus().setRollbackOnly();
                 } catch (Exception txEx) {
                     // No active transaction (e.g. in unit tests) - ignore
                 }
-                logger.error("[correlationId:{}] Error creating user in Authentik: {}", MDC.get("correlationId"), e.getMessage(), e);
+                logger.error("[correlationId:{}] Error creating user in Ke: {}", MDC.get("correlationId"), e.getMessage(), e);
                 String userMessage = getAuthentikUserFriendlyMessage(e);
                 return responseObj.render(responseObj.formErrorResponse(userMessage));
             }
@@ -220,9 +252,9 @@ public class AdminUserServiceImpl implements IAdminUserService {
             // user.setPasswordHash(PasswordEncoder.encodePassword(randomPassword));
             // user.setCreatedAt(LocalDateTime.now());
             // AdminUser saved = adminUserRepository.save(user);
-            // if(adminUserRepository.findByUsername(requestDto.getUsername()).isPresent()){
-            //     emailService.sendWelcomeEmail(requestDto.getEmail(), requestDto.getUsername(), randomPassword);
-            // }
+            if(adminUserRepository.findByUsername(requestDto.getUsername()).isPresent()){
+                emailService.sendWelcomeEmail(requestDto.getEmail(), requestDto.getUsername(), requestDto.getEmail(), password);
+            }
             return responseObj.render(responseObj.formSuccessResponse(Constants.SUCCESS, "User created successfully"));
         } catch (Exception e) {
             logger.error("Error creating admin user", e);
@@ -304,11 +336,11 @@ public class AdminUserServiceImpl implements IAdminUserService {
             
             if (page == -1 && rec == -1) {
                 // Get all users
-                dtos = authentikUtil.getAllUsers();
-                totalRecords = dtos.size();
+                dtos = keyCloakUtil.getAllUsers();
+                totalRecords = dtos != null ? dtos.size() : 0;
             } else {
-                // Get paginated users (convert 0-based page to 1-based for Authentik API)
-                AuthentikPaginatedResponse<AdminUserResponseDto> paginatedResponse = authentikUtil.getUsers(page + 1, rec);
+                // Get paginated users (convert 0-based page to 1-based for keycloak API)
+                AuthentikPaginatedResponse<AdminUserResponseDto> paginatedResponse = keyCloakUtil.getUsers(page + 1, rec);
                 dtos = paginatedResponse.getResults();
                 if (paginatedResponse.getPagination() != null && paginatedResponse.getPagination().getCount() != null) {
                     totalRecords = paginatedResponse.getPagination().getCount();
@@ -331,64 +363,51 @@ public class AdminUserServiceImpl implements IAdminUserService {
                 search, role, organization, isActive, page, rec, sortBy, sortDirection);
         BaseResponse<AdminUsersFilteredResponseDto> responseObj = new BaseResponse<>();
         try {
-            // Map sortBy to Authentik ordering field name
+            // Map sortBy to ordering field name (Keycloak ignores; used for API compatibility)
             String ordering = mapSortByToAuthentikOrdering(sortBy, sortDirection);
-            
-            // Prepare groups_by_name list for Authentik (supports both role and organization)
+
+            // Prepare groups list (Keycloak getUsersWithFilters ignores groupsByName; role/org filter applied in-memory below)
             List<String> groupsByName = new ArrayList<>();
             if (role != null && !role.trim().isEmpty()) {
                 String roleName = role.trim();
-                // If role doesn't start with ROLE_, add it
-                if (!roleName.startsWith("ROLE_")) {
-                    groupsByName.add("ROLE_" + roleName);
-                } else {
-                    groupsByName.add(roleName);
-                }
+                groupsByName.add(roleName.startsWith("ROLE_") ? roleName : "ROLE_" + roleName);
             }
             if (organization != null && !organization.trim().isEmpty()) {
                 String orgName = organization.trim();
-                // If organization doesn't start with ORG_, add it
-                if (!orgName.startsWith("ORG_")) {
-                    groupsByName.add("ORG_" + orgName);
-                } else {
-                    groupsByName.add(orgName);
-                }
+                groupsByName.add(orgName.startsWith("ORG_") ? orgName : "ORG_" + orgName);
             }
-            
-            // Use Authentik search for username/email/name
-            // Organization names will be searched in-memory since Authentik's search doesn't include groups
-            String authenticSearch = search;
-            
+
+            String keycloakSearch = search != null ? search.trim() : null;
+
             List<AdminUserResponseDto> dtos;
             long totalRecords;
-            
+
             if (page == -1 && rec == -1) {
-                // Get all users with filters from Authentik (fetch all pages)
-                dtos = getAllUsersWithFiltersFromAuthentik(authenticSearch, isActive, ordering, groupsByName, search);
+                dtos = getAllUsersWithFiltersFromKeycloak(keycloakSearch, isActive, ordering, groupsByName, search);
                 totalRecords = dtos.size();
             } else {
-                // Get paginated users with filters from Authentik (convert 0-based page to 1-based)
-                AuthentikPaginatedResponse<AdminUserResponseDto> paginatedResponse = 
-                    authentikUtil.getUsersWithFilters(authenticSearch, isActive, ordering, groupsByName, page + 1, rec);
+                AuthentikPaginatedResponse<AdminUserResponseDto> paginatedResponse =
+                        keyCloakUtil.getUsersWithFilters(keycloakSearch, isActive, ordering, groupsByName, page + 1, rec);
                 dtos = paginatedResponse.getResults();
-                
-                // Apply organization search filter in-memory (for partial matches)
-                // This ensures we catch users whose organization names contain the search term
-                if (search != null && !search.trim().isEmpty()) {
+                if (dtos == null) dtos = new ArrayList<>();
+
+                // In-memory: search in org names, and filter by role/org if requested
+                if ((search != null && !search.trim().isEmpty()) || !groupsByName.isEmpty()) {
                     dtos = dtos.stream()
                             .filter(user -> matchesSearchInAllFields(user, search))
+                            .filter(user -> matchesRoleAndOrganization(user, role, organization))
                             .collect(Collectors.toList());
                 }
-                
+
                 if (paginatedResponse.getPagination() != null && paginatedResponse.getPagination().getCount() != null) {
                     totalRecords = paginatedResponse.getPagination().getCount();
                 } else {
-                    totalRecords = dtos != null ? dtos.size() : 0;
+                    totalRecords = dtos.size();
                 }
             }
-            
-            // Get all filtered users for statistics calculation (without pagination)
-            List<AdminUserResponseDto> allFilteredUsers = getAllUsersWithFiltersFromAuthentik(authenticSearch, isActive, ordering, groupsByName, search);
+
+            // All filtered users for statistics (Keycloak)
+            List<AdminUserResponseDto> allFilteredUsers = getAllUsersWithFiltersFromKeycloak(keycloakSearch, isActive, ordering, groupsByName, search);
             
             // Calculate statistics based on filtered results
             Long totalUsers = (long) allFilteredUsers.size();
@@ -484,6 +503,76 @@ public class AdminUserServiceImpl implements IAdminUserService {
         
         // Return true if matches any field (standard fields OR organization)
         return matchesStandardFields || matchesOrganization;
+    }
+
+    /**
+     * Get all users with filters from Keycloak by fetching all pages.
+     * Role/organization filter applied in-memory (Keycloak API does not support groupsByName).
+     */
+    private List<AdminUserResponseDto> getAllUsersWithFiltersFromKeycloak(
+            String search, Boolean isActive, String ordering, List<String> groupsByName, String originalSearch) {
+        List<AdminUserResponseDto> allUsers = new ArrayList<>();
+        int currentPage = 1;
+        int pageSize = 100;
+
+        while (true) {
+            AuthentikPaginatedResponse<AdminUserResponseDto> response =
+                    keyCloakUtil.getUsersWithFilters(search, isActive, ordering, groupsByName, currentPage, pageSize);
+            if (response.getResults() == null || response.getResults().isEmpty()) {
+                break;
+            }
+            List<AdminUserResponseDto> filteredResults = response.getResults();
+            if (originalSearch != null && !originalSearch.trim().isEmpty()) {
+                filteredResults = filteredResults.stream()
+                        .filter(user -> matchesSearchInAllFields(user, originalSearch))
+                        .collect(Collectors.toList());
+            }
+            filteredResults = filteredResults.stream()
+                    .filter(user -> matchesRoleAndOrganization(user, resolveRoleFromGroups(groupsByName), resolveOrgFromGroups(groupsByName)))
+                    .collect(Collectors.toList());
+            allUsers.addAll(filteredResults);
+            if (response.getPagination() != null && response.getPagination().getNext() != null && response.getPagination().getNext() > 0) {
+                currentPage = response.getPagination().getNext();
+            } else {
+                break;
+            }
+        }
+        return allUsers;
+    }
+
+    private String resolveRoleFromGroups(List<String> groupsByName) {
+        if (groupsByName == null) return null;
+        return groupsByName.stream()
+                .filter(g -> g != null && g.startsWith("ROLE_"))
+                .findFirst()
+                .orElse(null);
+    }
+
+    private String resolveOrgFromGroups(List<String> groupsByName) {
+        if (groupsByName == null) return null;
+        return groupsByName.stream()
+                .filter(g -> g != null && g.startsWith("ORG_"))
+                .findFirst()
+                .orElse(null);
+    }
+
+    /**
+     * True if user has the requested role and organization (null/empty means no filter).
+     */
+    private boolean matchesRoleAndOrganization(AdminUserResponseDto user, String role, String organization) {
+        if (role != null && !role.trim().isEmpty()) {
+            String roleNorm = role.trim().startsWith("ROLE_") ? role.trim() : "ROLE_" + role.trim();
+            boolean hasRole = user.getRoles() != null && user.getRoles().stream()
+                    .anyMatch(r -> r != null && r.equals(roleNorm));
+            if (!hasRole) return false;
+        }
+        if (organization != null && !organization.trim().isEmpty()) {
+            String orgNorm = organization.trim().startsWith("ORG_") ? organization.trim() : "ORG_" + organization.trim();
+            boolean hasOrg = user.getOrganizations() != null && user.getOrganizations().stream()
+                    .anyMatch(o -> o != null && o.equals(orgNorm));
+            if (!hasOrg) return false;
+        }
+        return true;
     }
 
     /**
@@ -601,8 +690,8 @@ public class AdminUserServiceImpl implements IAdminUserService {
         BaseResponse<AuthentikGroupsResponseDto> responseObj = new BaseResponse<>();
         try {
             // Fetch roles and organizations separately and combine them
-            List<RoleDto> roles = authentikUtil.getRoles();
-            List<OrganizationDto> organizations = authentikUtil.getOrganizations();
+            List<RoleDto> roles = keyCloakUtil.getRoles();
+            List<OrganizationDto> organizations = keyCloakUtil.getOrganizations();
             
             AuthentikGroupsResponseDto groups = new AuthentikGroupsResponseDto();
             groups.setRoles(roles);
@@ -620,7 +709,7 @@ public class AdminUserServiceImpl implements IAdminUserService {
         logger.info("getRoles called");
         BaseResponse<List<RoleDto>> responseObj = new BaseResponse<>();
         try {
-            List<RoleDto> roles = authentikUtil.getRoles();
+            List<RoleDto> roles = keyCloakUtil.getRoles();
             return responseObj.render(responseObj.formSuccessResponse(Constants.SUCCESS, roles));
         } catch (Exception e) {
             logger.error("Error fetching roles from Authentik", e);
@@ -633,7 +722,7 @@ public class AdminUserServiceImpl implements IAdminUserService {
         logger.info("getOrganizations called");
         BaseResponse<List<OrganizationDto>> responseObj = new BaseResponse<>();
         try {
-            List<OrganizationDto> organizations = authentikUtil.getOrganizations();
+            List<OrganizationDto> organizations = keyCloakUtil.getOrganizations();
             return responseObj.render(responseObj.formSuccessResponse(Constants.SUCCESS, organizations));
         } catch (Exception e) {
             logger.error("Error fetching organizations from Authentik", e);
