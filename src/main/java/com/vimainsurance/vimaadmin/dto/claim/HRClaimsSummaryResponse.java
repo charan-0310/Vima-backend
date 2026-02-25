@@ -17,6 +17,9 @@ public class HRClaimsSummaryResponse {
     private long pendingReview;
     private long withInsurer;
     private long settled;
+    private long closed;
+    /** Combined count for Settlement KPI: settled + closed. */
+    private long settlementClosedTotal;
     private long rejected;
     private int avgTatDays;
     private BigDecimal totalClaimAmount;

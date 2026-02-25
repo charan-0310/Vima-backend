@@ -191,6 +191,7 @@ public class AdminClaimsServiceImpl implements IAdminClaimsService {
             avgProcessingDays = (double) sumDays / countWithDates;
         }
 
+        long settlementClosedTotal = settled + closed;
         ClaimsSummaryResponse summary = ClaimsSummaryResponse.builder()
                 .totalClaims(totalClaims)
                 .pendingReview(pendingReview)
@@ -198,6 +199,7 @@ public class AdminClaimsServiceImpl implements IAdminClaimsService {
                 .queryRaised(queryRaised)
                 .settled(settled)
                 .closed(closed)
+                .settlementClosedTotal(settlementClosedTotal)
                 .rejected(rejected)
                 .avgProcessingDays(avgProcessingDays)
                 .build();

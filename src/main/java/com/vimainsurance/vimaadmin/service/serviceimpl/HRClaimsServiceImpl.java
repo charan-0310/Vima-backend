@@ -97,6 +97,7 @@ public class HRClaimsServiceImpl implements IHRClaimsService {
                 + claimRepository.count(ClaimSpecification.withFiltersAndStatus(filters, ClaimStatus.APPROVED))
                 + claimRepository.count(ClaimSpecification.withFiltersAndStatus(filters, ClaimStatus.PAYMENT_PENDING));
         long settled = claimRepository.count(ClaimSpecification.withFiltersAndStatus(filters, ClaimStatus.SETTLED));
+        long closed = claimRepository.count(ClaimSpecification.withFiltersAndStatus(filters, ClaimStatus.CLOSED));
         long rejected = claimRepository.count(ClaimSpecification.withFiltersAndStatus(filters, ClaimStatus.REJECTED))
                 + claimRepository.count(ClaimSpecification.withFiltersAndStatus(filters, ClaimStatus.REJECTED_BY_ADMIN))
                 + claimRepository.count(ClaimSpecification.withFiltersAndStatus(filters, ClaimStatus.INTIMATION_REJECTED));
@@ -123,11 +124,14 @@ public class HRClaimsServiceImpl implements IHRClaimsService {
             avgTatDays = (int) Math.round((double) sumDays / countWithDates);
         }
 
+        long settlementClosedTotal = settled + closed;
         HRClaimsSummaryResponse summary = HRClaimsSummaryResponse.builder()
                 .totalClaims(totalClaims)
                 .pendingReview(pendingReview)
                 .withInsurer(withInsurer)
                 .settled(settled)
+                .closed(closed)
+                .settlementClosedTotal(settlementClosedTotal)
                 .rejected(rejected)
                 .avgTatDays(avgTatDays)
                 .totalClaimAmount(totalClaimAmount != null ? totalClaimAmount : BigDecimal.ZERO)
