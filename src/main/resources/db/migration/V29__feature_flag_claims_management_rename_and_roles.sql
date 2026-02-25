@@ -8,7 +8,9 @@ SET flag_key = 'claims-management',
 WHERE flag_key = 'claims';
 
 -- 2. Add roles for claims-management (flag_id from V28: a1b2c3d4-e5f6-4789-a012-3456789abcdf)
+-- Idempotent: skip if (role_name, flag_id) already exists (e.g. re-run or prod already had rows)
 INSERT INTO admin.feature_flag_roles (id, flag_id, role_name, is_active, actions)
 VALUES
   (gen_random_uuid(), 'a1b2c3d4-e5f6-4789-a012-3456789abcdf', 'ROLE_VIMA_ADMIN', TRUE, ARRAY['READ','WRITE','APPROVE']::permission_action[]),
-  (gen_random_uuid(), 'a1b2c3d4-e5f6-4789-a012-3456789abcdf', 'ROLE_HR_ADMIN', TRUE, ARRAY['READ']::permission_action[]);
+  (gen_random_uuid(), 'a1b2c3d4-e5f6-4789-a012-3456789abcdf', 'ROLE_HR_ADMIN', TRUE, ARRAY['READ']::permission_action[])
+ON CONFLICT (role_name, flag_id) DO NOTHING;

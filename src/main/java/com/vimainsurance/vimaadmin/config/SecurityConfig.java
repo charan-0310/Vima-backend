@@ -25,6 +25,7 @@ import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import java.io.IOException;
+import org.springframework.http.HttpMethod;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.oauth2.client.userinfo.OAuth2UserRequest;
@@ -164,6 +165,8 @@ public class SecurityConfig {
             // Note: TenantFilter will be added after OAuth2 Resource Server (line 198)
             // to ensure it can extract tenant from both headers/host AND JWT claims
             http.authorizeHttpRequests(auth -> auth
+                            // CORS preflight (OPTIONS) must be allowed without auth so browser gets CORS headers
+                            .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
                             // Public endpoints - no authentication required
                             .requestMatchers("/health", "/actuator/**", "/public/**").permitAll()
 
