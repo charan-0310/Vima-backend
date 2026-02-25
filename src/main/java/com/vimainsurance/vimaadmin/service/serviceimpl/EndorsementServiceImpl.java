@@ -877,14 +877,14 @@ public class EndorsementServiceImpl implements IEndorsementService {
                 return responseObj.render(responseObj.formErrorResponse(200,"No deals found to onboard"));
             }
             
-            String orgName = "ORG_" + organization.getOrganizationName().trim().replace(" ", "_").toUpperCase();
-            String groupId = keycloakUtil.getGroupIdByName(orgName);
+            String orgGroupName = "ORG_" + organization.getOrganizationName().trim().toUpperCase().replaceAll("[^A-Z0-9]", "_");
+            String groupId = keycloakUtil.getGroupIdByName(orgGroupName);
             if(groupId == null || groupId.isEmpty()) {
                 return responseObj.render(responseObj.formErrorResponse("No groups found"));
             }
             
             // Process deals for onboarding
-            processDealsForOnboarding(deals, orgName, successCount, failedCount, successUsers, failedUsers);
+            processDealsForOnboarding(deals, orgGroupName, successCount, failedCount, successUsers, failedUsers);
             
             if(failedCount.get() > 0) {
                 return responseObj.render(responseObj.formErrorResponse("Employee onboarding failed for some users. Failed: " + failedCount.get() + ", Failed users: " + failedUsers.toString()));
