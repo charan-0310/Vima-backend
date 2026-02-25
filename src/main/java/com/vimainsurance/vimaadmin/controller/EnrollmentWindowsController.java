@@ -128,7 +128,7 @@ public class EnrollmentWindowsController {
      * Manually activate a scheduled enrollment window
      */
     @PostMapping("/{id}/activate")
-    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'VIMA_ADMIN')")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'VIMA_ADMIN', 'HR_ADMIN')")
     public ResponseEntity<ResponseDto<String>> activate(@PathVariable UUID id) {
         logger.info("[correlationId:{}] POST /api/admin/enrollment-windows/{}/activate called", MDC.get("correlationId"), id);
         return enrollmentWindowService.activate(id);
@@ -138,7 +138,7 @@ public class EnrollmentWindowsController {
      * Close an enrollment window
      */
     @PostMapping("/{id}/close")
-    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'VIMA_ADMIN')")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'VIMA_ADMIN', 'HR_ADMIN')")
     public ResponseEntity<ResponseDto<String>> close(@PathVariable UUID id) {
         logger.info("[correlationId:{}] POST /api/admin/enrollment-windows/{}/close called", MDC.get("correlationId"), id);
         return enrollmentWindowService.close(id);

@@ -255,8 +255,8 @@ public class CorrelationIdFilter extends OncePerRequestFilter {
         updated = true;
         
         // Update OAuth provider info if not set
-        if (user.getOauthProvider() == null || !user.getOauthProvider().equals("Authentik")) {
-            user.setOauthProvider("Authentik");
+        if (user.getOauthProvider() == null || !user.getOauthProvider().equals("Keycloak")) {
+            user.setOauthProvider("Keycloak");
             updated = true;
         }
         
