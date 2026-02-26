@@ -599,6 +599,7 @@ public class OrganizationServiceImpl implements IOrganizationService {
         dto.setGender(deal.getGender());
         dto.setIsPrimaryMember(deal.getIsPrimaryMember());
         dto.setRelationship(deal.getRelationship());
+        dto.setActualRelationship(deal.getActualRelationship());
         dto.setOrganizationName(deal.getOrganization().getOrganizationName());
         dto.setFullName(deal.getFullName());
         dto.setSumInsured(deal.getSumInsured());

@@ -35,6 +35,7 @@ public class DealsResponseDto {
     private String accountStatus;
     private String employeeNumber;
     private String relationship;
+    private String actualRelationship;
     private String designation;
     private LocalDate dateOfJoining;
     private Boolean isPrimaryMember;

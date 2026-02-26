@@ -36,6 +36,9 @@ public class EmployeeUploadDto {
     public String deletionReason;
     public String healthId;
 
+    /** Original relationship (e.g. Son, Daughter) before frontend normalizes to CHILD1–CHILD4; optional. */
+    public String actualRelationship;
+
     public String getComparisonString() {
         return this.employeeId + this.relationship + this.name + this.dateOfBirth + this.gender + this.email + this.mobile + this.dateOfJoining + this.designation + this.department + this.maritalStatus + this.sumInsured;
     }

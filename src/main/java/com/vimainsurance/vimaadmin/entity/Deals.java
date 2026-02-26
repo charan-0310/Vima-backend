@@ -134,6 +134,10 @@ public class Deals {
     @Column(name = "relationship", length = 50)
     private String relationship;
 
+    /** Original relationship label (e.g. Son, Daughter) when relationship is CHILD1–CHILD4; for display/reporting. */
+    @Column(name = "actual_relationship", length = 50)
+    private String actualRelationship;
+
     @Column(name = "is_primary_member")
     private Boolean isPrimaryMember = true;
 

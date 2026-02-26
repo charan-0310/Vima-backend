@@ -73,6 +73,7 @@ public class EmployeeInsuranceResponseDto {
         private UUID individualId;
         private String fullName;
         private String relationship;
+        private String actualRelationship;
         private LocalDate dateOfBirth;
         private String gender;
         private String email;

@@ -477,6 +477,7 @@ public class DealsServiceImpl implements IDealsService{
         dealsResponseDto.setAccountStatus(deal.getStatus().getValue());
         dealsResponseDto.setEmployeeNumber(deal.getEmployeeNumber());
         dealsResponseDto.setRelationship(deal.getRelationship());
+        dealsResponseDto.setActualRelationship(deal.getActualRelationship());
         dealsResponseDto.setDesignation(deal.getDesignation());
         dealsResponseDto.setDateOfJoining(deal.getDateOfJoining());
         dealsResponseDto.setIsPrimaryMember(deal.getIsPrimaryMember());

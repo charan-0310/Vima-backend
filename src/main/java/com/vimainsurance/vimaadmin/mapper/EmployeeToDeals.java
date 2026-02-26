@@ -56,7 +56,11 @@ public class EmployeeToDeals {
         // Relationship - will be mapped to NomineeRelationship enum in EmployeeService
         // For now, keep the original relationship string (mapping happens in uploadEmployees)
         deals.setRelationship(employeeUploadDto.getRelationship() != null ? employeeUploadDto.getRelationship().trim() : null);
-        
+        // Actual relationship (e.g. Son, Daughter) when we normalize to CHILD1–CHILD4
+        if (employeeUploadDto.getActualRelationship() != null && !employeeUploadDto.getActualRelationship().isBlank()) {
+            deals.setActualRelationship(employeeUploadDto.getActualRelationship().trim());
+        }
+
         // Account Type - CORPORATE_EMPLOYEE for Self, CORPORATE_DEPENDENT for others
         String relationship = employeeUploadDto.getRelationship() != null ? 
             employeeUploadDto.getRelationship().trim() : "";
@@ -157,6 +161,10 @@ public class EmployeeToDeals {
         // Sum Insured
         existingDeal.setSumInsured(dto.getSumInsured() != null ? 
             dto.getSumInsured().trim() : null);
+        // Actual relationship (e.g. Son, Daughter)
+        if (dto.getActualRelationship() != null && !dto.getActualRelationship().isBlank()) {
+            existingDeal.setActualRelationship(dto.getActualRelationship().trim());
+        }
 
         // Update relationship from map if available
         if (relationshipMap != null) {

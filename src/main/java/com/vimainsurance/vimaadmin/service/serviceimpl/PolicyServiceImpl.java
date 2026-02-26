@@ -645,6 +645,7 @@ public class PolicyServiceImpl implements IPolicyService {
         responseDto.setLastName(deals.getLastName());
         responseDto.setDateOfBirth(deals.getDateOfBirth());
         responseDto.setRelationship(deals.getRelationship());
+        responseDto.setActualRelationship(deals.getActualRelationship());
         
         return responseDto;
     }
