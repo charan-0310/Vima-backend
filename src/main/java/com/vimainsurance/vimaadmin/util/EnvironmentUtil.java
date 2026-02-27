@@ -46,14 +46,14 @@ public class EnvironmentUtil {
         }
         String[] activeProfiles = environment.getActiveProfiles();
         for (String profile : activeProfiles) {
-            if ("dev".equalsIgnoreCase(profile)) {
+            if ("dev".equalsIgnoreCase(profile) || "test".equalsIgnoreCase(profile)) {
                 return true;
             }
         }
         // Also check default profile if no active profiles are set
         String[] defaultProfiles = environment.getDefaultProfiles();
         for (String profile : defaultProfiles) {
-            if ("dev".equalsIgnoreCase(profile)) {
+            if ("dev".equalsIgnoreCase(profile) || "test".equalsIgnoreCase(profile)) {
                 return true;
             }
         }

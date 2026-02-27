@@ -89,6 +89,20 @@ public class TenantFilter extends OncePerRequestFilter {
                 } else {
                     log.debug("[TenantFilter] jwtUserExtractor not available, skipping JWT augmentation");
                 }
+
+                // Fallback: if no roles were resolved from JWT (e.g. dev mode mock auth),
+                // read them from the SecurityContext authentication authorities
+                List<String> resolvedRoles = tenantMap.getOrDefault("Roles", Collections.emptyList());
+                if (resolvedRoles.isEmpty() && auth.getAuthorities() != null) {
+                    List<String> authRoles = auth.getAuthorities().stream()
+                            .map(a -> a.getAuthority())
+                            .filter(a -> a.startsWith("ROLE_"))
+                            .toList();
+                    if (!authRoles.isEmpty()) {
+                        tenantMap.put("Roles", authRoles);
+                        log.debug("[TenantFilter] resolved roles from authentication authorities: {}", authRoles);
+                    }
+                }
             }
 
             // If we resolved anything, set the context so downstream code (repositories, services) can use it

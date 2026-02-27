@@ -36,3 +36,6 @@ tokens/
 zoho_sdk_logger/
 ### VS Code ###
 .vscode/
+
+### Local profile configs with secrets ###
+application-test.properties
