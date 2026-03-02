@@ -31,8 +31,11 @@ class ClaimStatusTransitionValidatorTest {
     }
 
     @Test
-    void validateTransition_validFromDraftToClosed_doesNotThrow() {
-        assertDoesNotThrow(() -> validator.validateTransition(ClaimStatus.DRAFT, ClaimStatus.CLOSED));
+    void validateTransition_invalidFromDraftToClosed_throws() {
+        InvalidStatusTransitionException ex = assertThrows(InvalidStatusTransitionException.class,
+                () -> validator.validateTransition(ClaimStatus.DRAFT, ClaimStatus.CLOSED));
+        Set<ClaimStatus> allowed = ex.getAllowedTransitions();
+        assertTrue(allowed != null && allowed.contains(ClaimStatus.PENDING_REVIEW) && !allowed.contains(ClaimStatus.CLOSED));
     }
 
     @Test
@@ -40,9 +43,8 @@ class ClaimStatusTransitionValidatorTest {
         InvalidStatusTransitionException ex = assertThrows(InvalidStatusTransitionException.class,
                 () -> validator.validateTransition(ClaimStatus.DRAFT, ClaimStatus.SUBMITTED_TO_INSURER));
         assertTrue(ex.getMessage().contains("PENDING_REVIEW"));
-        assertTrue(ex.getMessage().contains("CLOSED"));
         Set<ClaimStatus> allowed = ex.getAllowedTransitions();
-        assertTrue(allowed != null && allowed.contains(ClaimStatus.PENDING_REVIEW) && allowed.contains(ClaimStatus.CLOSED));
+        assertTrue(allowed != null && allowed.contains(ClaimStatus.PENDING_REVIEW));
     }
 
     @Test
@@ -120,11 +122,11 @@ class ClaimStatusTransitionValidatorTest {
     }
 
     @Test
-    void getAllowedTransitions_draft_returnsPendingReviewAndClosed() {
+    void getAllowedTransitions_draft_returnsOnlyPendingReview() {
         Set<ClaimStatus> allowed = validator.getAllowedTransitions(ClaimStatus.DRAFT);
         assertTrue(allowed.contains(ClaimStatus.PENDING_REVIEW));
-        assertTrue(allowed.contains(ClaimStatus.CLOSED));
-        assertTrue(allowed.size() == 2);
+        assertFalse(allowed.contains(ClaimStatus.CLOSED));
+        assertTrue(allowed.size() == 1);
     }
 
     @Test
@@ -146,5 +148,26 @@ class ClaimStatusTransitionValidatorTest {
     @Test
     void validateTransitionRequirements_otherStatus_doesNotThrow() {
         assertDoesNotThrow(() -> validator.validateTransitionRequirements(ClaimStatus.DRAFT, false, false));
+    }
+
+    @Test
+    void validateTransition_fromQueryRaisedToQueryResponded_valid_doesNotThrow() {
+        assertDoesNotThrow(() -> validator.validateTransition(ClaimStatus.QUERY_RAISED, ClaimStatus.QUERY_RESPONDED));
+    }
+
+    @Test
+    void validateTransition_fromQueryRaisedToClosed_invalid_throws() {
+        InvalidStatusTransitionException ex = assertThrows(InvalidStatusTransitionException.class,
+                () -> validator.validateTransition(ClaimStatus.QUERY_RAISED, ClaimStatus.CLOSED));
+        Set<ClaimStatus> allowed = ex.getAllowedTransitions();
+        assertTrue(allowed != null && allowed.contains(ClaimStatus.QUERY_RESPONDED) && !allowed.contains(ClaimStatus.CLOSED));
+    }
+
+    @Test
+    void getAllowedTransitions_queryRaised_returnsOnlyQueryResponded() {
+        Set<ClaimStatus> allowed = validator.getAllowedTransitions(ClaimStatus.QUERY_RAISED);
+        assertTrue(allowed.contains(ClaimStatus.QUERY_RESPONDED));
+        assertFalse(allowed.contains(ClaimStatus.CLOSED));
+        assertTrue(allowed.size() == 1);
     }
 }

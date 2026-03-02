@@ -28,6 +28,9 @@ public final class ClaimMapper {
             dto.setOrganizationName(claim.getOrganization().getOrganizationName());
         }
         dto.setPolicyId(claim.getPolicyId());
+        dto.setPolicyNumber(claim.getPolicyNumber());
+        dto.setInsuranceProviderLogo(claim.getInsuranceProviderLogo());
+        dto.setValidUntil(claim.getValidUntil());
         if (claim.getEmployee() != null) {
             dto.setEmployeeId(claim.getEmployee().getIndividualId());
             dto.setEmployeeName(claim.getEmployee().getFirstName() != null ? claim.getEmployee().getFirstName() + " " + (claim.getEmployee().getLastName() != null ? claim.getEmployee().getLastName() : "") : null);
@@ -211,6 +214,9 @@ public final class ClaimMapper {
             dto.setOrganizationName(claim.getOrganization().getOrganizationName());
         }
         dto.setPolicyId(claim.getPolicyId());
+        dto.setPolicyNumber(claim.getPolicyNumber());
+        dto.setInsuranceProviderLogo(claim.getInsuranceProviderLogo());
+        dto.setValidUntil(claim.getValidUntil());
         if (claim.getEmployee() != null) {
             dto.setEmployeeId(claim.getEmployee().getIndividualId());
             dto.setEmployeeName(claim.getEmployee().getFirstName() != null ? claim.getEmployee().getFirstName() + " " + (claim.getEmployee().getLastName() != null ? claim.getEmployee().getLastName() : "") : null);
