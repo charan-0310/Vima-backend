@@ -4,6 +4,7 @@ import java.time.Instant;
 
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
@@ -31,6 +32,7 @@ public class AuditServiceImpl implements IAuditService {
 
     @Override
     @Async
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
     public void writeAsync(AuditEventPayload payload) {
         if (payload == null) {
             return;

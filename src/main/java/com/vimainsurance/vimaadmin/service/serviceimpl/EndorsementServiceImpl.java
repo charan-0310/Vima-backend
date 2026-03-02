@@ -35,6 +35,8 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
 
+import com.vimainsurance.vimaadmin.audit.AuditedOperation;
+import com.vimainsurance.vimaadmin.audit.AuditedOperation;
 import com.vimainsurance.vimaadmin.dto.BaseResponse;
 import com.vimainsurance.vimaadmin.dto.DocumentResponseDto;
 import com.vimainsurance.vimaadmin.dto.EmployeeOnboardingRequestDto;
@@ -112,6 +114,7 @@ public class EndorsementServiceImpl implements IEndorsementService {
 
     @Override
     @Transactional
+    @AuditedOperation(schemaName = "cpc", tableName = "endorsements", entityType = "ENDORSEMENT", action = "CREATE")
     public ResponseEntity<ResponseDto<String>> create(EndorsementRequestDto requestDto) {
         logger.info("[correlationId:{}] Endorsement create called", MDC.get("correlationId"));
         BaseResponse<String> responseObj = new BaseResponse<>();
@@ -160,6 +163,7 @@ public class EndorsementServiceImpl implements IEndorsementService {
 
     @Override
     @Transactional
+    @AuditedOperation(schemaName = "cpc", tableName = "endorsements", entityType = "ENDORSEMENT", action = "UPDATE")
     public ResponseEntity<ResponseDto<String>> update(EndorsementRequestDto requestDto) {
         logger.info("[correlationId:{}] Endorsement update called", MDC.get("correlationId"));
         BaseResponse<String> responseObj = new BaseResponse<>();
@@ -228,6 +232,7 @@ public class EndorsementServiceImpl implements IEndorsementService {
 
     @Override
     @Transactional
+    @AuditedOperation(schemaName = "cpc", tableName = "endorsements", entityType = "ENDORSEMENT", action = "DELETE")
     public ResponseEntity<ResponseDto<String>> delete(UUID endorsementId) {
         logger.info("[correlationId:{}] Endorsement delete called for {}", MDC.get("correlationId"), endorsementId);
         BaseResponse<String> responseObj = new BaseResponse<>();
@@ -426,6 +431,7 @@ public class EndorsementServiceImpl implements IEndorsementService {
 
     @Override
     @Transactional
+    @AuditedOperation(schemaName = "cpc", tableName = "endorsements", entityType = "ENDORSEMENT", action = "APPROVE")
     public ResponseEntity<ResponseDto<String>> approve(MultipartFile[] files, EndorsementRequestDto requestDto) {
         logger.info("[correlationId:{}] Endorsement approve called for {}", MDC.get("correlationId"), requestDto.getEndorsementId());
         BaseResponse<String> responseObj = new BaseResponse<>();
@@ -505,6 +511,7 @@ public class EndorsementServiceImpl implements IEndorsementService {
 
     @Override
     @Transactional
+    @AuditedOperation(schemaName = "cpc", tableName = "endorsements", entityType = "ENDORSEMENT", action = "UPDATE")
     public ResponseEntity<ResponseDto<String>> reject(UUID endorsementId) {
         logger.info("[correlationId:{}] Endorsement reject called for {}", MDC.get("correlationId"), endorsementId);
         BaseResponse<String> responseObj = new BaseResponse<>();
@@ -552,6 +559,7 @@ public class EndorsementServiceImpl implements IEndorsementService {
 
     @Override
     @Transactional
+    @AuditedOperation(schemaName = "cpc", tableName = "endorsements", entityType = "ENDORSEMENT", action = "APPROVE")
     public ResponseEntity<ResponseDto<String>> confirm(UUID endorsementId) {
         logger.info("[correlationId:{}] Endorsement confirm called for {}", MDC.get("correlationId"), endorsementId);
         BaseResponse<String> responseObj = new BaseResponse<>();
@@ -628,6 +636,7 @@ public class EndorsementServiceImpl implements IEndorsementService {
 
     @Override
     @Transactional
+    @AuditedOperation(schemaName = "cpc", tableName = "endorsements", entityType = "ENDORSEMENT", action = "BULK_APPROVE")
     public ResponseEntity<ResponseDto<String>> confirmSchedule() {
         logger.info("[correlationId:{}] Endorsement confirmSchedule called for all deals", MDC.get("correlationId"));
         BaseResponse<String> responseObj = new BaseResponse<>();
@@ -799,12 +808,14 @@ public class EndorsementServiceImpl implements IEndorsementService {
     
 
     @Override
+    @AuditedOperation(schemaName = "cpc", tableName = "endorsements", entityType = "ENDORSEMENT", action = "SUBMIT")
     public ResponseEntity<ResponseDto<EmployeeOnboardingResponseDto>> employeeOnboarding(UUID endorsementId) {
         EmployeeOnboardingRequestDto requestDto = new EmployeeOnboardingRequestDto();
         requestDto.setEndorsementId(endorsementId);
         return employeeOnboarding(requestDto);
     }
 
+    @AuditedOperation(schemaName = "cpc", tableName = "endorsements", entityType = "ENDORSEMENT", action = "SUBMIT")
     public ResponseEntity<ResponseDto<EmployeeOnboardingResponseDto>> employeeOnboarding(EmployeeOnboardingRequestDto requestDto) {
         logger.info("[correlationId:{}] Endorsement employeeOnboarding called for endorsementId: {}, individualIds: {}", 
             MDC.get("correlationId"), requestDto.getEndorsementId(), requestDto.getIndividualIds());
@@ -953,6 +964,7 @@ public class EndorsementServiceImpl implements IEndorsementService {
 
     @Override
     @Transactional
+    @AuditedOperation(schemaName = "cpc", tableName = "customers", entityType = "HEALTH_ID_UPLOAD", action = "BULK_UPDATE")
     public ResponseEntity<ResponseDto<List<HealthIdUploadDto>>> uploadHealthIds(UUID endorsementId, List<HealthIdUploadDto> healthIdList) {
         logger.info("[correlationId:{}] Upload health IDs called for endorsement: {}", MDC.get("correlationId"), endorsementId);
 
@@ -1079,6 +1091,7 @@ public class EndorsementServiceImpl implements IEndorsementService {
     }
 
     @Override
+    @AuditedOperation(schemaName = "cpc", tableName = "endorsements", entityType = "ENDORSEMENT", action = "UPDATE")
     public ResponseEntity<ResponseDto<String>> deactivateEndorsement(UUID endorsementId) {
         logger.info("[correlationId:{}] Deactivate endorsement called for endorsementId: {}", MDC.get("correlationId"), endorsementId);
         BaseResponse<String> responseObj = new BaseResponse<>();

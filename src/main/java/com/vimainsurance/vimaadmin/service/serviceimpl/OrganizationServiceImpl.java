@@ -148,6 +148,7 @@ public class OrganizationServiceImpl implements IOrganizationService {
     }
 
     @Override
+    @AuditedOperation(schemaName = "cpc", tableName = "organizations", entityType = "ORGANIZATION", action = "UPDATE")
     public ResponseEntity<ResponseDto<String>> update(OrganizationRequestDto requestDto) {
         logger.info("[correlationId:{}] Organization update called", MDC.get("correlationId"));
         BaseResponse<String> responseObj = new BaseResponse<>();
@@ -185,6 +186,7 @@ public class OrganizationServiceImpl implements IOrganizationService {
     }
 
     @Override
+    @AuditedOperation(schemaName = "cpc", tableName = "organizations", entityType = "ORGANIZATION", action = "DELETE")
     public ResponseEntity<ResponseDto<String>> delete(UUID organizationId) {
         logger.info("[correlationId:{}] Organization delete called for {}", MDC.get("correlationId"), organizationId);
         BaseResponse<String> responseObj = new BaseResponse<>();
@@ -331,6 +333,7 @@ public class OrganizationServiceImpl implements IOrganizationService {
     }
 
     @Override
+    @AuditedOperation(schemaName = "document", tableName = "documents", entityType = "ORGANIZATION_DOCUMENT", action = "CREATE")
     public ResponseEntity<ResponseDto<String>> uploadDocument(DocumentRequestDto requestDto, UUID organizationId) {
         logger.info("[correlationId:{}] uploadDocument called for organization {}", MDC.get("correlationId"), organizationId);
         BaseResponse<String> responseObj = new BaseResponse<>();
@@ -394,6 +397,7 @@ public class OrganizationServiceImpl implements IOrganizationService {
     }
 
     @Override
+    @AuditedOperation(schemaName = "document", tableName = "documents", entityType = "ORGANIZATION_DOCUMENT", action = "DELETE")
     public ResponseEntity<ResponseDto<String>> deleteDocument(UUID organizationId, String documentId) {
         logger.info("[correlationId:{}] deleteDocument called for document {}", MDC.get("correlationId"), documentId);
         BaseResponse<String> responseObj = new BaseResponse<>();
@@ -945,6 +949,7 @@ public class OrganizationServiceImpl implements IOrganizationService {
 
     @Override
     @Transactional(rollbackFor = Exception.class)
+    @AuditedOperation(schemaName = "cpc", tableName = "customers", entityType = "EMPLOYEE_UPLOAD", action = "BULK_CREATE")
     public ResponseEntity<ResponseDto<EmployeeUploadResponse>> uploadDealsFromCsv(MultipartFile file, UUID organizationId) {
         logger.info("[correlationId:{}] uploadDealsFromCsv called with organizationId: {}", MDC.get("correlationId"), organizationId);
         BaseResponse<EmployeeUploadResponse> responseObj = new BaseResponse<>();
@@ -1095,6 +1100,7 @@ public class OrganizationServiceImpl implements IOrganizationService {
     
     @Override
     @Transactional(rollbackFor = Exception.class)
+    @AuditedOperation(schemaName = "cpc", tableName = "customers", entityType = "EMPLOYEE_DELETE", action = "BULK_UPDATE")
     public ResponseEntity<ResponseDto<EmployeeUploadResponse>> deleteEmployeesFromCsv(MultipartFile file, UUID organizationId) {
         logger.info("[correlationId:{}] deleteEmployeesFromCsv called for organizationId: {}", 
             MDC.get("correlationId"), organizationId);
@@ -1308,6 +1314,7 @@ public class OrganizationServiceImpl implements IOrganizationService {
     
     @Override
     @Transactional(rollbackFor = Exception.class)
+    @AuditedOperation(schemaName = "cpc", tableName = "customers", entityType = "EMPLOYEE", action = "UPDATE")
     public ResponseEntity<ResponseDto<String>> deleteEmployee(String employeeId, UUID organizationId) {
         logger.info("[correlationId:{}] deleteEmployee called for employeeId: {}, organizationId: {}", 
             MDC.get("correlationId"), employeeId, organizationId);
@@ -1359,6 +1366,7 @@ public class OrganizationServiceImpl implements IOrganizationService {
     
     @Override
     @Transactional(rollbackFor = Exception.class)
+    @AuditedOperation(schemaName = "cpc", tableName = "customers", entityType = "EMPLOYEE", action = "BULK_DELETE")
     public ResponseEntity<ResponseDto<String>> bulkDeleteEmployees(BulkEmployeeDeletionRequestDto requestDto, UUID organizationId) {
         logger.info("[correlationId:{}] bulkDeleteEmployees called for {} employees, organizationId: {}", 
             MDC.get("correlationId"), requestDto.getEmployeeId() != null ? 1 : 0, organizationId);
@@ -1506,6 +1514,7 @@ public class OrganizationServiceImpl implements IOrganizationService {
 
     @Override
     @Transactional(rollbackFor = Exception.class)
+    @AuditedOperation(schemaName = "cpc", tableName = "customers", entityType = "EMPLOYEE", action = "BULK_DELETE")
     public ResponseEntity<ResponseDto<EmployeeUploadResponse>> delete(List<BulkEmployeeDeletionRequestDto> bulkEmployeeDeletionRequestDtoList, UUID organizationId, String uploadType, MultipartFile file) {
         logger.info("[correlationId:{}] delete called for {} employees, organizationId: {}", 
             MDC.get("correlationId"), bulkEmployeeDeletionRequestDtoList.size(), organizationId);

@@ -11,6 +11,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Service;
 
+import com.vimainsurance.vimaadmin.audit.AuditedOperation;
 import com.vimainsurance.vimaadmin.dto.ResponseDto;
 import com.vimainsurance.vimaadmin.dto.claim.ClaimDetailsResponse;
 import com.vimainsurance.vimaadmin.dto.claim.ClaimListFilters;
@@ -45,6 +46,7 @@ public class EmployeeClaimsServiceImpl implements IEmployeeClaimsService {
     private final JwtUserExtractor jwtUserExtractor;
 
     @Override
+    @AuditedOperation(schemaName = "claims", tableName = "claims", entityType = "CLAIM", action = "SUBMIT")
     public ResponseEntity<ResponseDto<EmployeeClaimSubmitResponseDto>> submitClaim(ClaimSubmissionRequest request) {
         UUID employeeId = jwtUserExtractor.getCurrentEmployeeId();
         if (employeeId == null) {
@@ -138,6 +140,7 @@ public class EmployeeClaimsServiceImpl implements IEmployeeClaimsService {
     }
 
     @Override
+    @AuditedOperation(schemaName = "claims", tableName = "claims", entityType = "CLAIM", action = "UPDATE")
     public ResponseEntity<ResponseDto<ClaimDetailsResponse>> updateDraftClaim(UUID claimId, ClaimSubmissionRequest request) {
         UUID employeeId = jwtUserExtractor.getCurrentEmployeeId();
         if (employeeId == null) {
@@ -157,6 +160,7 @@ public class EmployeeClaimsServiceImpl implements IEmployeeClaimsService {
     }
 
     @Override
+    @AuditedOperation(schemaName = "claims", tableName = "claims", entityType = "CLAIM", action = "UPDATE")
     public ResponseEntity<ResponseDto<String>> cancelClaim(UUID claimId) {
         UUID employeeId = jwtUserExtractor.getCurrentEmployeeId();
         if (employeeId == null) {

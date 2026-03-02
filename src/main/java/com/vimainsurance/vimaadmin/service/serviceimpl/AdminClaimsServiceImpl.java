@@ -13,6 +13,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import com.vimainsurance.vimaadmin.audit.AuditedOperation;
 import com.vimainsurance.vimaadmin.dto.ResponseDto;
 import com.vimainsurance.vimaadmin.dto.claim.ClaimDetailsResponse;
 import com.vimainsurance.vimaadmin.dto.claim.ClaimListFilters;
@@ -64,6 +65,7 @@ public class AdminClaimsServiceImpl implements IAdminClaimsService {
 
     @Override
     @Transactional(rollbackFor = Exception.class)
+    @AuditedOperation(schemaName = "claims", tableName = "claims", entityType = "CLAIM", action = "UPDATE")
     public ResponseEntity<ResponseDto<StatusUpdateResponse>> changeStatus(UUID claimId, StatusUpdateRequest request) {
         UUID actorId = jwtUserExtractor.getCurrentUserId();
         String actorRole = jwtUserExtractor.getCurrentUserRole() != null ? jwtUserExtractor.getCurrentUserRole().getValue() : "ADMIN";
@@ -111,6 +113,7 @@ public class AdminClaimsServiceImpl implements IAdminClaimsService {
 
     @Override
     @Transactional(rollbackFor = Exception.class)
+    @AuditedOperation(schemaName = "claims", tableName = "claims", entityType = "CLAIM", action = "UPDATE")
     public ResponseEntity<ResponseDto<ClaimDetailsResponse>> updateInsurerRef(UUID claimId, InsurerRefRequest request) {
         Claim claim = claimRepository.findById(claimId).orElseThrow(() -> new BadRequestException("Claim not found"));
         if (claim.getInternalStatus() == ClaimStatus.CLOSED) {
@@ -123,6 +126,7 @@ public class AdminClaimsServiceImpl implements IAdminClaimsService {
 
     @Override
     @Transactional(rollbackFor = Exception.class)
+    @AuditedOperation(schemaName = "claims", tableName = "claims", entityType = "CLAIM", action = "SUBMIT")
     public ResponseEntity<ResponseDto<ClaimDetailsResponse>> submitToInsurer(UUID claimId) {
         Claim claim = claimRepository.findById(claimId).orElseThrow(() -> new BadRequestException("Claim not found"));
         if (claim.getInternalStatus() == ClaimStatus.CLOSED) {

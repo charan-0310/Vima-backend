@@ -1,16 +1,19 @@
 package com.vimainsurance.vimaadmin.audit;
 
+import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 
+import org.slf4j.MDC;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationToken;
 import org.springframework.web.context.request.RequestContextHolder;
 import org.springframework.web.context.request.ServletRequestAttributes;
 
 import lombok.experimental.UtilityClass;
-import org.slf4j.MDC;
 
 /**
  * Supplies audit context from request thread (MDC, SecurityContext, HttpServletRequest).
@@ -36,15 +39,55 @@ public class AuditContextSupplier {
         return auth != null ? auth.getName() : null;
     }
 
+    /** Username from JWT (preferred_username or sub) for lookup when userId is not in ThreadLocal. */
+    public static String getUsername() {
+        Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+        if (auth instanceof JwtAuthenticationToken jwtAuth) {
+            String preferred = jwtAuth.getToken().getClaimAsString("preferred_username");
+            if (preferred != null && !preferred.isBlank()) {
+                return preferred;
+            }
+        }
+        return auth != null ? auth.getName() : null;
+    }
+
     public static String getUserRole() {
         Authentication auth = SecurityContextHolder.getContext().getAuthentication();
         if (auth instanceof JwtAuthenticationToken jwtAuth) {
-            var roles = jwtAuth.getToken().getClaimAsStringList("groups");
-            if (roles != null && !roles.isEmpty()) {
-                return roles.get(0);
-            }
+            List<String> roles = getRolesFromJwt(jwtAuth.getToken());
+            return roles == null || roles.isEmpty()
+                    ? null
+                    : roles.stream().filter(role -> role != null && role.startsWith("ROLE_")).findFirst().orElse(null);
         }
         return null;
+    }
+
+    /**
+     * Resolves roles from JWT: tries "groups" (Authentik), then "roles", then "realm_access.roles" (Keycloak-style).
+     */
+    private static List<String> getRolesFromJwt(Jwt jwt) {
+        Object groups = jwt.getClaim("groups");
+        if (groups instanceof List<?> list) {
+            List<String> out = list.stream().filter(String.class::isInstance).map(String.class::cast).toList();
+            if (!out.isEmpty()) {
+                return out;
+            }
+        }
+        Object rolesClaim = jwt.getClaim("roles");
+        if (rolesClaim instanceof List<?> list) {
+            List<String> out = list.stream().filter(String.class::isInstance).map(String.class::cast).toList();
+            if (!out.isEmpty()) {
+                return out;
+            }
+        }
+        Map<String, Object> realmAccess = jwt.getClaimAsMap("realm_access");
+        if (realmAccess != null) {
+            Object roles = realmAccess.get("roles");
+            if (roles instanceof List<?> list) {
+                return list.stream().filter(String.class::isInstance).map(String.class::cast).toList();
+            }
+        }
+        return List.of();
     }
 
     public static String getIpAddress() {

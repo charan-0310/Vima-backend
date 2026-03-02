@@ -743,6 +743,7 @@ public class EmployeeService {
     }
    }
 
+    @AuditedOperation(schemaName = "cpc", tableName = "customers", entityType = "EMPLOYEE", action = "BULK_DELETE")
     public EmployeeUploadResponse deleteEmployee(List<BulkEmployeeDeletionRequestDto> bulkEmployeeDeletionRequestDtoList, Organization organization, AdminUser adminUser, MultipartFile file, String uploadType) {
         try{
             Set<UUID> individualIdsToDelete = new HashSet<>();

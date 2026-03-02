@@ -27,6 +27,7 @@ import org.springframework.web.multipart.MultipartFile;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import com.vimainsurance.vimaadmin.audit.AuditedOperation;
 import com.vimainsurance.vimaadmin.dto.BaseResponse;
 import com.vimainsurance.vimaadmin.dto.EnrollmentWindowRequestDto;
 import com.vimainsurance.vimaadmin.dto.EnrollmentWindowResponseDto;
@@ -95,6 +96,7 @@ public class EnrollmentWindowServiceImpl implements IEnrollmentWindowService {
 
     @Override
     @Transactional(rollbackFor = Exception.class)
+    @AuditedOperation(schemaName = "cpc", tableName = "enrollment_windows", entityType = "ENROLLMENT_WINDOW", action = "CREATE")
     public ResponseEntity<ResponseDto<EnrollmentWindowResponseDto>> create(EnrollmentWindowRequestDto requestDto) {
         logger.info("[correlationId:{}] EnrollmentWindow create called", MDC.get("correlationId"));
         BaseResponse<EnrollmentWindowResponseDto> responseObj = new BaseResponse<>();
@@ -167,6 +169,7 @@ public class EnrollmentWindowServiceImpl implements IEnrollmentWindowService {
 
     @Override
     @Transactional(rollbackFor = Exception.class)
+    @AuditedOperation(schemaName = "cpc", tableName = "customers", entityType = "ENROLLMENT_EMPLOYEE", action = "BULK_CREATE")
     public ResponseEntity<ResponseDto<EnrollmentWindowResponseDto>> uploadEmployees(UUID windowId, List<SelfEmployeeEnrollmentRequestDto> selfEmployeeEnrollmentRequestDtos, MultipartFile file) {
         logger.info("[correlationId:{}] EnrollmentWindow uploadEmployees called for window {}", MDC.get("correlationId"), windowId);
         BaseResponse<EnrollmentWindowResponseDto> responseObj = new BaseResponse<>();
@@ -308,6 +311,7 @@ public class EnrollmentWindowServiceImpl implements IEnrollmentWindowService {
 
     @Override
     @Transactional
+    @AuditedOperation(schemaName = "cpc", tableName = "enrollment_windows", entityType = "ENROLLMENT_WINDOW", action = "UPDATE")
     public ResponseEntity<ResponseDto<EnrollmentWindowResponseDto>> update(UUID id, EnrollmentWindowRequestDto requestDto) {
         logger.info("[correlationId:{}] EnrollmentWindow update called for {}", MDC.get("correlationId"), id);
         BaseResponse<EnrollmentWindowResponseDto> responseObj = new BaseResponse<>();
@@ -355,6 +359,7 @@ public class EnrollmentWindowServiceImpl implements IEnrollmentWindowService {
 
     @Override
     @Transactional
+    @AuditedOperation(schemaName = "cpc", tableName = "enrollment_windows", entityType = "ENROLLMENT_WINDOW", action = "UPDATE")
     public ResponseEntity<ResponseDto<String>> activate(UUID id) {
         logger.info("[correlationId:{}] EnrollmentWindow activate called for {}", MDC.get("correlationId"), id);
         BaseResponse<String> responseObj = new BaseResponse<>();
@@ -386,6 +391,7 @@ public class EnrollmentWindowServiceImpl implements IEnrollmentWindowService {
 
     @Override
     @Transactional
+    @AuditedOperation(schemaName = "cpc", tableName = "enrollment_windows", entityType = "ENROLLMENT_WINDOW", action = "UPDATE")
     public ResponseEntity<ResponseDto<String>> close(UUID id) {
         logger.info("[correlationId:{}] EnrollmentWindow close called for {}", MDC.get("correlationId"), id);
         BaseResponse<String> responseObj = new BaseResponse<>();
@@ -420,6 +426,7 @@ public class EnrollmentWindowServiceImpl implements IEnrollmentWindowService {
 
     @Override
     @Transactional
+    @AuditedOperation(schemaName = "cpc", tableName = "enrollment_windows", entityType = "ENROLLMENT_WINDOW", action = "DELETE")
     public ResponseEntity<ResponseDto<String>> delete(UUID id) {
         logger.info("[correlationId:{}] EnrollmentWindow delete (soft) called for {}", MDC.get("correlationId"), id);
         BaseResponse<String> responseObj = new BaseResponse<>();

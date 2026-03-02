@@ -14,6 +14,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import com.vimainsurance.vimaadmin.audit.AuditedOperation;
 import com.vimainsurance.vimaadmin.dto.BaseResponse;
 import com.vimainsurance.vimaadmin.dto.EnrollmentSubmissionRequestDto;
 import com.vimainsurance.vimaadmin.dto.EnrollmentSubmissionResponseDto;
@@ -65,6 +66,7 @@ public class EnrollmentSubmissionServiceImpl implements IEnrollmentSubmissionSer
 
     @Override
     @Transactional
+    @AuditedOperation(schemaName = "cpc", tableName = "enrollment_submissions", entityType = "ENROLLMENT_SUBMISSION", action = "UPDATE")
     public ResponseEntity<ResponseDto<String>> insertOrUpdate(EnrollmentSubmissionRequestDto requestDto) {
         logger.info("[correlationId:{}] EnrollmentSubmission insertOrUpdate called", MDC.get("correlationId"));
         BaseResponse<String> responseObj = new BaseResponse<>();

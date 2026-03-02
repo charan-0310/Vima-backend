@@ -24,6 +24,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.vimainsurance.vimaadmin.audit.AuditedOperation;
 import com.vimainsurance.vimaadmin.dto.ApprovalRequest;
 import com.vimainsurance.vimaadmin.dto.BaseResponse;
 import com.vimainsurance.vimaadmin.dto.BulkApprovalRequest;
@@ -160,6 +161,7 @@ public class HRApprovalServiceImpl implements IHRApprovalService {
 
     @Override
     @Transactional(rollbackFor = Exception.class)
+    @AuditedOperation(schemaName = "cpc", tableName = "enrollment_submissions", entityType = "ENROLLMENT_SUBMISSION", action = "APPROVE")
     public ResponseEntity<ResponseDto<SubmissionDetailDto>> approve(UUID id, ApprovalRequest request) {
         BaseResponse<SubmissionDetailDto> responseObj = new BaseResponse<>();
         try {
@@ -209,6 +211,7 @@ public class HRApprovalServiceImpl implements IHRApprovalService {
 
     @Override
     @Transactional(rollbackFor = Exception.class)
+    @AuditedOperation(schemaName = "cpc", tableName = "enrollment_submissions", entityType = "ENROLLMENT_SUBMISSION", action = "UPDATE")
     public ResponseEntity<ResponseDto<SubmissionDetailDto>> reject(UUID id, RejectionRequest request) {
         BaseResponse<SubmissionDetailDto> responseObj = new BaseResponse<>();
         try {
@@ -257,6 +260,7 @@ public class HRApprovalServiceImpl implements IHRApprovalService {
 
     @Override
     @Transactional(rollbackFor = Exception.class)
+    @AuditedOperation(schemaName = "cpc", tableName = "enrollment_submissions", entityType = "ENROLLMENT_SUBMISSION", action = "BULK_APPROVE")
     public ResponseEntity<ResponseDto<List<SubmissionListItemDto>>> bulkApprove(BulkApprovalRequest request) {
         BaseResponse<List<SubmissionListItemDto>> responseObj = new BaseResponse<>();
         try {
@@ -303,6 +307,7 @@ public class HRApprovalServiceImpl implements IHRApprovalService {
 
     @Override
     @Transactional(rollbackFor = Exception.class)
+    @AuditedOperation(schemaName = "cpc", tableName = "enrollment_windows", entityType = "ENROLLMENT_WINDOW", action = "UPDATE")
     public ResponseEntity<ResponseDto<String>> finalizeEnrollmentWindow(UUID windowId) {
         BaseResponse<String> responseObj = new BaseResponse<>();
         try {
