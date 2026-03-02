@@ -26,6 +26,8 @@ public class ClaimDetailsResponse {
     private String organizationName;
     private Long policyId;
     private String policyNumber;
+    private String insuranceProviderLogo;
+    private LocalDate validUntil;
     private UUID employeeId;
     private String employeeName;
 

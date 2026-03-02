@@ -11,6 +11,7 @@ import com.vimainsurance.vimaadmin.dto.claim.ClaimDetailsResponse;
 import com.vimainsurance.vimaadmin.dto.claim.ClaimSubmissionRequest;
 import com.vimainsurance.vimaadmin.dto.claim.ClaimSummaryDto;
 import com.vimainsurance.vimaadmin.dto.claim.EmployeeClaimSubmitResponseDto;
+import com.vimainsurance.vimaadmin.dto.claim.EmployeeClaimsSummaryResponse;
 
 /**
  * Employee-facing claims API: submit, list own claims, get details, update draft, cancel.
@@ -48,4 +49,9 @@ public interface IEmployeeClaimsService {
      * Cancel a DRAFT or PENDING_REVIEW claim. Returns 403 if not owned by current employee.
      */
     ResponseEntity<ResponseDto<String>> cancelClaim(UUID claimId);
+
+    /**
+     * Get summary for current employee's claims (total count, total paid from settled claims).
+     */
+    ResponseEntity<ResponseDto<EmployeeClaimsSummaryResponse>> getMyClaimsSummary();
 }

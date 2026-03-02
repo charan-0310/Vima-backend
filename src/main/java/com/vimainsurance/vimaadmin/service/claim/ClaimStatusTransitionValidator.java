@@ -23,7 +23,7 @@ public class ClaimStatusTransitionValidator {
     );
 
     private static final Map<ClaimStatus, Set<ClaimStatus>> VALID_TRANSITIONS = Map.ofEntries(
-            Map.entry(ClaimStatus.DRAFT, EnumSet.of(ClaimStatus.PENDING_REVIEW, ClaimStatus.CLOSED)),
+            Map.entry(ClaimStatus.DRAFT, EnumSet.of(ClaimStatus.PENDING_REVIEW)),
             Map.entry(ClaimStatus.PENDING_REVIEW, EnumSet.of(ClaimStatus.DRAFT, ClaimStatus.INFO_REQUESTED,
                     ClaimStatus.APPROVED_FOR_SUBMISSION, ClaimStatus.REJECTED_BY_ADMIN)),
             Map.entry(ClaimStatus.INFO_REQUESTED, EnumSet.of(ClaimStatus.DRAFT, ClaimStatus.PENDING_REVIEW)),
@@ -33,7 +33,7 @@ public class ClaimStatusTransitionValidator {
             Map.entry(ClaimStatus.SUBMISSION_FAILED, EnumSet.of(ClaimStatus.APPROVED_FOR_SUBMISSION, ClaimStatus.DRAFT)),
             Map.entry(ClaimStatus.INTIMATION_REJECTED, EnumSet.of(ClaimStatus.CLOSED)),
             Map.entry(ClaimStatus.IN_PROGRESS, EnumSet.of(ClaimStatus.QUERY_RAISED, ClaimStatus.APPROVED, ClaimStatus.REJECTED, ClaimStatus.SETTLED)),
-            Map.entry(ClaimStatus.QUERY_RAISED, EnumSet.of(ClaimStatus.QUERY_RESPONDED, ClaimStatus.CLOSED)),
+            Map.entry(ClaimStatus.QUERY_RAISED, EnumSet.of(ClaimStatus.QUERY_RESPONDED)),
             Map.entry(ClaimStatus.QUERY_RESPONDED, EnumSet.of(ClaimStatus.IN_PROGRESS, ClaimStatus.QUERY_RAISED, ClaimStatus.APPROVED, ClaimStatus.REJECTED)),
             Map.entry(ClaimStatus.APPROVED, EnumSet.of(ClaimStatus.PAYMENT_PENDING, ClaimStatus.SETTLED)),
             Map.entry(ClaimStatus.PAYMENT_PENDING, EnumSet.of(ClaimStatus.SETTLED)),

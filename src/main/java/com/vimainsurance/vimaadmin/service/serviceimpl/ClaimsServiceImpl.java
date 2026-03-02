@@ -240,6 +240,9 @@ public class ClaimsServiceImpl implements IClaimsService {
         claim.setReasonForAdmission(request.getReasonForAdmission());
         claim.setDiagnosis(request.getDiagnosis());
         claim.setClaimAmount(request.getClaimAmount());
+        claim.setInsuranceProviderLogo(request.getInsuranceProviderLogo());
+        claim.setPolicyNumber(request.getPolicyNumber());
+        claim.setValidUntil(request.getValidUntil());
         claim.setHospitalName(request.getHospitalName());
         claim.setHospitalCity(request.getHospitalCity());
         claim.setHospitalState(request.getHospitalState());
