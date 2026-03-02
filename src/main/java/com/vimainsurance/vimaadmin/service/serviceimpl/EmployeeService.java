@@ -18,6 +18,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import com.vimainsurance.vimaadmin.audit.AuditedOperation;
 import com.vimainsurance.vimaadmin.entity.Organization;
 import com.vimainsurance.vimaadmin.dto.BulkEmployeeDeletionRequestDto;
 import com.vimainsurance.vimaadmin.dto.EmployeeUploadDto;
@@ -362,6 +363,7 @@ public class EmployeeService {
 
 
     
+    @AuditedOperation(schemaName = "cpc", tableName = "customers", entityType = "EMPLOYEE_UPLOAD", action = "BULK_UPLOAD")
     @Transactional(rollbackFor = Exception.class)
     public EmployeeUploadResponse uploadEmployees(List<EmployeeUploadDto> employeeUploadDtoList, Organization organization, AdminUser adminUser, MultipartFile file, String uploadType) {
         try {

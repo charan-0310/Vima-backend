@@ -32,6 +32,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
 
+import com.vimainsurance.vimaadmin.audit.AuditedOperation;
 import com.vimainsurance.vimaadmin.dto.BaseResponse;
 import com.vimainsurance.vimaadmin.dto.BulkEmployeeDeletionRequestDto;
 import com.vimainsurance.vimaadmin.dto.CsvValidationResponseDto;
@@ -113,6 +114,7 @@ public class OrganizationServiceImpl implements IOrganizationService {
 
     @Override
     @Transactional(rollbackFor = Exception.class)
+    @AuditedOperation(schemaName = "cpc", tableName = "organizations", entityType = "ORGANIZATION", action = "CREATE")
     public ResponseEntity<ResponseDto<String>> create(OrganizationRequestDto requestDto) {
         logger.info("[correlationId:{}] Organization create called", MDC.get("correlationId"));
         BaseResponse<String> responseObj = new BaseResponse<>();
@@ -1458,12 +1460,14 @@ public class OrganizationServiceImpl implements IOrganizationService {
         MDC.get("correlationId"), employeeUploadDtoList.size(), organizationId);
     BaseResponse<EmployeeUploadResponse> responseObj = new BaseResponse<>();
     try {
+        com.vimainsurance.vimaadmin.audit.AuditContextSupplier.setActionSource(com.vimainsurance.vimaadmin.audit.ActionSource.BULK);
         jwtUserExtractor.validateOrganizationAccess(organizationId);
         Organization organization = organizationRepository.findByOrganizationId(organizationId).orElseThrow(() -> new RuntimeException("Organization not found"));
         EmployeeUploadResponse employeeUploadResponse = new EmployeeUploadResponse();
         AdminUser adminuser = null;
             String username = jwtUserExtractor.getCurrentUsername();
             adminuser = adminUserRepository.findByUsername(username).orElseThrow(() -> new RuntimeException("Admin user not found"));
+        com.vimainsurance.vimaadmin.audit.AuditContextSupplier.setCurrentUserId(adminuser != null ? adminuser.getId() : null);
         employeeUploadResponse = employeeService.uploadEmployees(employeeUploadDtoList, organization, adminuser, file, uploadType);
         String responseMessage = (employeeUploadResponse.getMessage() != null && !employeeUploadResponse.getMessage().isEmpty())
                 ? employeeUploadResponse.getMessage() : Constants.SUCCESS;
@@ -1476,6 +1480,10 @@ public class OrganizationServiceImpl implements IOrganizationService {
     catch (Exception e) {
         logger.error("[correlationId:{}] Exception in uploadEmployees: {}", MDC.get("correlationId"), e.getMessage(), e);
         return responseObj.render(responseObj.formErrorResponse("Error Occured while uploading employees"));
+    }
+    finally {
+        com.vimainsurance.vimaadmin.audit.AuditContextSupplier.clearCurrentUserId();
+        com.vimainsurance.vimaadmin.audit.AuditContextSupplier.clearActionSource();
     }
 }
 
