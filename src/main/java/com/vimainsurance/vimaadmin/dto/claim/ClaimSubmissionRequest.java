@@ -24,6 +24,13 @@ public class ClaimSubmissionRequest {
     @NotNull(message = "Policy ID is required")
     private Long policyId;
 
+    /** Display name / logo label for the insurance provider (e.g. "Star Health"). */
+    private String insuranceProviderLogo;
+    /** Policy number (e.g. "GMC-2026-CHN-00123"). */
+    private String policyNumber;
+    /** Policy validity end date (ISO date). */
+    private LocalDate validUntil;
+
     private String memberId;
     private MemberType memberType;
     private String memberName;

@@ -12,6 +12,7 @@ import com.vimainsurance.vimaadmin.dto.claim.QueryCreateRequest;
 import com.vimainsurance.vimaadmin.dto.claim.QueryCreateResponse;
 import com.vimainsurance.vimaadmin.dto.claim.QueryResponseRequest;
 
+
 /** Service for claim query lifecycle: create, respond, list (admin and employee). */
 public interface IClaimQueryService {
 

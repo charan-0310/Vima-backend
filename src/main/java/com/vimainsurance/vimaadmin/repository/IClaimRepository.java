@@ -56,4 +56,12 @@ public interface IClaimRepository extends JpaRepository<Claim, UUID>, JpaSpecifi
     @Query("SELECT COALESCE(SUM(s.amountPaid), 0) FROM Claim c JOIN c.settlement s WHERE c.organization.organizationId IN :orgIds "
            + "AND c.isDeleted = false AND c.internalStatus = com.vimainsurance.vimaadmin.enums.ClaimStatus.SETTLED")
     BigDecimal sumSettledAmountByOrganizationIdIn(@Param("orgIds") List<UUID> orgIds);
+
+    /** Sum of settlement amountPaid for current employee's claims with status SETTLED. */
+    @Query("SELECT COALESCE(SUM(s.amountPaid), 0) FROM Claim c JOIN c.settlement s WHERE c.employee.individualId = :employeeId "
+           + "AND c.isDeleted = false AND c.internalStatus = com.vimainsurance.vimaadmin.enums.ClaimStatus.SETTLED")
+    BigDecimal sumSettledAmountByEmployeeId(@Param("employeeId") UUID employeeId);
+
+    /** Count claims for current employee (non-deleted). */
+    long countByEmployee_IndividualIdAndIsDeleted(UUID employeeId, boolean isDeleted);
 }

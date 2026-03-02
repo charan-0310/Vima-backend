@@ -26,6 +26,7 @@ import com.vimainsurance.vimaadmin.dto.claim.ClaimSubmissionRequest;
 import com.vimainsurance.vimaadmin.dto.claim.ClaimSummaryDto;
 import com.vimainsurance.vimaadmin.dto.claim.DocumentUploadResponse;
 import com.vimainsurance.vimaadmin.dto.claim.EmployeeClaimSubmitResponseDto;
+import com.vimainsurance.vimaadmin.dto.claim.EmployeeClaimsSummaryResponse;
 import com.vimainsurance.vimaadmin.dto.claim.EmployeeResponseRequest;
 import com.vimainsurance.vimaadmin.enums.DocumentType;
 import com.vimainsurance.vimaadmin.service.IClaimQueryService;
@@ -65,6 +66,15 @@ public class EmployeeClaimsController {
     public ResponseEntity<ResponseDto<EmployeeClaimSubmitResponseDto>> submitClaim(
             @Valid @RequestBody ClaimSubmissionRequest request) {
         return employeeClaimsService.submitClaim(request);
+    }
+
+    /**
+     * GET /api/v1/claims/summary - Summary for current employee's claims (total count, total paid from settled).
+     */
+    @GetMapping("/summary")
+    @PreAuthorize("hasAnyRole('VIMA_ADMIN', 'HR_ADMIN', 'EMPLOYEE')")
+    public ResponseEntity<ResponseDto<EmployeeClaimsSummaryResponse>> getMyClaimsSummary() {
+        return employeeClaimsService.getMyClaimsSummary();
     }
 
     /**
