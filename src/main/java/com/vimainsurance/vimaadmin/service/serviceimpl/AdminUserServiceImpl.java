@@ -21,6 +21,7 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.interceptor.TransactionAspectSupport;
 import org.springframework.web.client.HttpStatusCodeException;
 
+import com.vimainsurance.vimaadmin.audit.AuditedOperation;
 import com.vimainsurance.vimaadmin.dto.AdminUserRequestDto;
 import com.vimainsurance.vimaadmin.dto.AdminUserResponseDto;
 import com.vimainsurance.vimaadmin.dto.AdminUsersFilteredResponseDto;
@@ -189,6 +190,7 @@ public class AdminUserServiceImpl implements IAdminUserService {
 
     @Override
     @Transactional(rollbackFor = Exception.class)
+    @AuditedOperation(schemaName = "admin", tableName = "admin_users", entityType = "ADMIN_USER", action = "CREATE")
     public ResponseEntity<ResponseDto<String>> createAdminUser(AdminUserRequestDto requestDto) {
         logger.info("[correlationId:{}] createAdminUser called", MDC.get("correlationId"));
         BaseResponse<String> responseObj = new BaseResponse<>();
@@ -263,6 +265,7 @@ public class AdminUserServiceImpl implements IAdminUserService {
     }
 
     @Override
+    @AuditedOperation(schemaName = "admin", tableName = "admin_users", entityType = "ADMIN_USER", action = "UPDATE")
     public ResponseEntity<ResponseDto<AdminUserResponseDto>> updateAdminUser(String username, AdminUserRequestDto requestDto) {
         logger.info("updateAdminUser called for username: {}", username);
         BaseResponse<AdminUserResponseDto> responseObj = new BaseResponse<>();
@@ -292,6 +295,7 @@ public class AdminUserServiceImpl implements IAdminUserService {
     }
 
     @Override
+    @AuditedOperation(schemaName = "admin", tableName = "admin_users", entityType = "ADMIN_USER", action = "DELETE")
     public ResponseEntity<ResponseDto<String>> deleteAdminUser(String username) {
         logger.info("deleteAdminUser called for username: {}", username);
         BaseResponse<String> responseObj = new BaseResponse<>();

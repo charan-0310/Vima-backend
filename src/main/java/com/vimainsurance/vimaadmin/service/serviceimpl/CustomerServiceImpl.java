@@ -32,6 +32,7 @@ import org.springframework.core.io.InputStreamResource;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 
+import com.vimainsurance.vimaadmin.audit.AuditedOperation;
 import com.vimainsurance.vimaadmin.dto.BaseResponse;
 import com.vimainsurance.vimaadmin.dto.ConvertToDealRequestDto;
 import com.vimainsurance.vimaadmin.dto.CustomerRequestDto;
@@ -143,6 +144,7 @@ public class CustomerServiceImpl implements ICustomerService{
     private JwtUserExtractor jwtUserExtractor;
 
     @Override
+    @AuditedOperation(schemaName = "admin", tableName = "customers", entityType = "CUSTOMER", action = "CREATE")
     public ResponseEntity<ResponseDto<String>> create(CustomerRequestDto requestDto, String username) {
         logger.info("[correlationId:{}] create called", MDC.get("correlationId"));
         BaseResponse<String> responseObj = new BaseResponse<>();
@@ -194,6 +196,7 @@ public class CustomerServiceImpl implements ICustomerService{
     }
 
     @Override
+    @AuditedOperation(schemaName = "admin", tableName = "customers", entityType = "CUSTOMER", action = "UPDATE")
     public ResponseEntity<ResponseDto<String>> update(CustomerRequestDto requestDto) {
         logger.info("[correlationId:{}] update called", MDC.get("correlationId"));
         BaseResponse<String> responseObj = new BaseResponse<>();
@@ -226,6 +229,7 @@ public class CustomerServiceImpl implements ICustomerService{
     }
     
     @Override
+    @AuditedOperation(schemaName = "admin", tableName = "customers", entityType = "CUSTOMER", action = "DELETE")
     public ResponseEntity<ResponseDto<String>> delete(CustomerRequestDto requestDto) {
         logger.info("[correlationId:{}] delete called", MDC.get("correlationId"));
         BaseResponse<String> responseObj = new BaseResponse<>();
@@ -247,6 +251,7 @@ public class CustomerServiceImpl implements ICustomerService{
     }
 
     @Override
+    @AuditedOperation(schemaName = "admin", tableName = "customers", entityType = "CUSTOMER", action = "UPDATE")
     public ResponseEntity<ResponseDto<String>> updatePipelineStatus(String username, String customerId, CustomerPipelineRequestDto requestDto) {
         Optional<AdminUser> agentOpt = adminUserRepository.findByUsername(username);
         if (agentOpt.isEmpty()) {
@@ -636,6 +641,7 @@ public class CustomerServiceImpl implements ICustomerService{
     }
 
     @Override
+    @AuditedOperation(schemaName = "admin", tableName = "customers", entityType = "CUSTOMER", action = "BULK_DELETE")
     public ResponseEntity<ResponseDto<String>> bulkDelete(CustomerBulkDeleteRequestDto requestDto) {
         logger.info("[correlationId:{}] bulkDelete called for username: {} with customerIds: {}", 
             MDC.get("correlationId"), requestDto.getUsername(), String.join(",", requestDto.getCustomerIds()));
@@ -698,6 +704,7 @@ public class CustomerServiceImpl implements ICustomerService{
 
 
     @Override
+    @AuditedOperation(schemaName = "document", tableName = "documents", entityType = "CUSTOMER_DOCUMENT", action = "CREATE")
     public ResponseEntity<ResponseDto<String>> uploadDocument(DocumentRequestDto requestDto, String customerId) {
         logger.info("[correlationId:{}] uploadDocument called", MDC.get("correlationId"));
         BaseResponse<String> responseObj = new BaseResponse<>();
@@ -764,6 +771,7 @@ public class CustomerServiceImpl implements ICustomerService{
     }
 
     @Override
+    @AuditedOperation(schemaName = "document", tableName = "documents", entityType = "CUSTOMER_DOCUMENT", action = "DELETE")
     public ResponseEntity<ResponseDto<String>> deleteDocument(String documentId) {
         logger.info("[correlationId:{}] deleteDocument called", MDC.get("correlationId"));
         BaseResponse<String> responseObj = new BaseResponse<>();
@@ -788,6 +796,7 @@ public class CustomerServiceImpl implements ICustomerService{
 
     @Override
     @Transactional(rollbackFor = Exception.class)
+    @AuditedOperation(schemaName = "cpc", tableName = "customers", entityType = "DEAL", action = "CREATE")
     public ResponseEntity<ResponseDto<String>> customerToDeals(ConvertToDealRequestDto requestDto, String custId) {
         logger.info("[correlationId:{}] customerToDeals called", MDC.get("correlationId"));
         BaseResponse<String> responseObj = new BaseResponse<>();

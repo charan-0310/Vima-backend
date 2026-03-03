@@ -10,6 +10,8 @@ import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
+import com.vimainsurance.vimaadmin.audit.AuditContextSupplier;
+import com.vimainsurance.vimaadmin.audit.ActionSource;
 import com.vimainsurance.vimaadmin.service.IEnrollmentInvitation;
 
 /**
@@ -41,12 +43,14 @@ public class ReminderEmailSender {
         String correlationId = UUID.randomUUID().toString();
         MDC.put("correlationId", correlationId);
         try {
+            AuditContextSupplier.setActionSource(ActionSource.SYSTEM);
             logger.info("[correlationId:{}] Starting scheduled enrollment reminder job", correlationId);
             enrollmentInvitationService.runScheduledReminders();
             logger.info("[correlationId:{}] Completed scheduled enrollment reminder job", correlationId);
         } catch (Exception e) {
             logger.error("[correlationId:{}] Error in scheduled enrollment reminders: {}", correlationId, e.getMessage(), e);
         } finally {
+            AuditContextSupplier.clearActionSource();
             MDC.clear();
         }
     }

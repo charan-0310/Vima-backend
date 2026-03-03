@@ -58,6 +58,7 @@ import com.vimainsurance.vimaadmin.service.IDocumentService;
 import com.vimainsurance.vimaadmin.service.IPolicyService;
 import com.vimainsurance.vimaadmin.util.Constants;
 import com.vimainsurance.vimaadmin.util.JwtUserExtractor;
+import com.vimainsurance.vimaadmin.audit.AuditedOperation;
 import com.vimainsurance.vimaadmin.util.PolicyValidationUtil;
 /**
  * Service implementation for Policy operations
@@ -97,6 +98,7 @@ public class PolicyServiceImpl implements IPolicyService {
 
     @Override
     @Transactional(rollbackFor = Exception.class)
+    @AuditedOperation(schemaName = "cpc", tableName = "policies", entityType = "POLICY", action = "CREATE")
     public ResponseEntity<ResponseDto<String>> createPolicy(PolicyRequestDto requestDto) {
         logger.info("[correlationId:{}] createPolicy called", MDC.get("correlationId"));
         BaseResponse<String> responseObj = new BaseResponse<>();
@@ -221,6 +223,7 @@ public class PolicyServiceImpl implements IPolicyService {
     }
 
     @Override
+    @AuditedOperation(schemaName = "cpc", tableName = "policies", entityType = "POLICY", action = "UPDATE")
     public ResponseEntity<ResponseDto<String>> updatePolicy(Long policyId, PolicyRequestDto requestDto) {
         logger.info("[correlationId:{}] updatePolicy called for ID: {}", MDC.get("correlationId"), policyId);
         BaseResponse<String> responseObj = new BaseResponse<>();
@@ -497,6 +500,7 @@ public class PolicyServiceImpl implements IPolicyService {
     }
 
     @Override
+    @AuditedOperation(schemaName = "cpc", tableName = "policies", entityType = "POLICY", action = "UPDATE")
     public ResponseEntity<ResponseDto<String>> updatePolicyStatus(Long policyId, String status) {
         logger.info("[correlationId:{}] updatePolicyStatus called for ID: {} to status: {}", 
                    MDC.get("correlationId"), policyId, status);
@@ -521,6 +525,7 @@ public class PolicyServiceImpl implements IPolicyService {
     }
 
     @Override
+    @AuditedOperation(schemaName = "cpc", tableName = "policies", entityType = "POLICY", action = "DELETE")
     public ResponseEntity<ResponseDto<String>> deletePolicy(Long policyId) {
         logger.info("[correlationId:{}] deletePolicy called for ID: {}", MDC.get("correlationId"), policyId);
         BaseResponse<String> responseObj = new BaseResponse<>();
@@ -654,6 +659,7 @@ public class PolicyServiceImpl implements IPolicyService {
     
     @Override
     @Transactional(rollbackFor = Exception.class)
+    @AuditedOperation(schemaName = "cpc", tableName = "policies", entityType = "POLICY", action = "CREATE")
     public ResponseEntity<ResponseDto<String>> uploadPolicyForOrganization(UUID organizationId, PolicyUploadRequestDto requestDto) {
         logger.info("[correlationId:{}] uploadPolicyForOrganization called for organizationId: {}", MDC.get("correlationId"), organizationId);
         BaseResponse<String> responseObj = new BaseResponse<>();
