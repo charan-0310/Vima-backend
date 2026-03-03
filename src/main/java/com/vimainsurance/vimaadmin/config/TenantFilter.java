@@ -3,6 +3,7 @@ package com.vimainsurance.vimaadmin.config;
 import java.io.IOException;
 import java.util.*;
 
+import com.vimainsurance.vimaadmin.audit.AuditContextSupplier;
 import com.vimainsurance.vimaadmin.util.JwtUserExtractor;
 import com.vimainsurance.vimaadmin.util.TenantContext;
 
@@ -116,6 +117,9 @@ public class TenantFilter extends OncePerRequestFilter {
             filterChain.doFilter(request, response);
         } finally {
             TenantContext.clear(); // CRITICAL: Prevent memory leaks
+            AuditContextSupplier.clearOrganizationId();
+            AuditContextSupplier.clearCurrentUserId();
+            AuditContextSupplier.clearActionSource();
         }
 
     }

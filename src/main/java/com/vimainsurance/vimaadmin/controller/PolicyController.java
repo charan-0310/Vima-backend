@@ -25,6 +25,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
+import com.vimainsurance.vimaadmin.annotation.CurrentOrganization;
 import com.vimainsurance.vimaadmin.dto.PolicyRequestDto;
 import com.vimainsurance.vimaadmin.dto.PolicyResponseDto;
 import com.vimainsurance.vimaadmin.dto.PolicyUploadRequestDto;
@@ -105,7 +106,7 @@ public class PolicyController {
      * Get policies by organization ID
      */
     @GetMapping("/organization/{organizationId}")
-    public ResponseEntity<ResponseDto<List<PolicyResponseDto>>> getPoliciesByOrganizationId(@PathVariable UUID organizationId) {
+    public ResponseEntity<ResponseDto<List<PolicyResponseDto>>> getPoliciesByOrganizationId(@CurrentOrganization UUID organizationId) {
         return policyService.getPoliciesByOrganizationId(organizationId);
     }
 
@@ -116,7 +117,7 @@ public class PolicyController {
         produces = MediaType.APPLICATION_JSON_VALUE)
     @PreAuthorize("hasAnyRole('VIMA_ADMIN', 'SALES_MANAGER', 'SUPER_ADMIN', 'ADMIN')")
     public ResponseEntity<ResponseDto<String>> uploadPolicyForOrganization(
-            @PathVariable UUID organizationId,
+            @CurrentOrganization UUID organizationId,
             @ModelAttribute PolicyUploadRequestDto requestDto) {
         logger.info("[correlationId:{}] /policies/organization/{} (POST) endpoint called", MDC.get("correlationId"), organizationId);
         return policyService.uploadPolicyForOrganization(organizationId, requestDto);

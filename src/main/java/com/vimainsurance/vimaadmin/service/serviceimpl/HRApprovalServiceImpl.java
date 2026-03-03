@@ -62,7 +62,9 @@ import com.vimainsurance.vimaadmin.service.IDocumentService;
 import com.vimainsurance.vimaadmin.service.IEmailService;
 import com.vimainsurance.vimaadmin.service.IHRApprovalService;
 import com.vimainsurance.vimaadmin.specification.EnrollmentSubmissionSpecification;
+import com.vimainsurance.vimaadmin.audit.AuditContextSupplier;
 import com.vimainsurance.vimaadmin.util.JwtUserExtractor;
+import com.vimainsurance.vimaadmin.util.OrganizationAccessHelper;
 import com.vimainsurance.vimaadmin.util.TenantContext;
 import com.vimainsurance.vimaadmin.util.TransactionUtil;
 
@@ -88,6 +90,8 @@ public class HRApprovalServiceImpl implements IHRApprovalService {
     private IEmailService emailService;
     @Autowired
     private JwtUserExtractor jwtUserExtractor;
+    @Autowired(required = false)
+    private OrganizationAccessHelper organizationAccessHelper;
     @Autowired
     private INomineeRepository nomineeRepository;
     @Autowired
@@ -149,7 +153,7 @@ public class HRApprovalServiceImpl implements IHRApprovalService {
             if (orgId == null) {
                 return responseObj.render(responseObj.formErrorResponse(403, "Submission has no organization"));
             }
-            jwtUserExtractor.validateOrganizationAccess(orgId);
+            if (organizationAccessHelper != null) { organizationAccessHelper.validateAndSetContext(orgId); } else if (jwtUserExtractor != null) { jwtUserExtractor.validateOrganizationAccess(orgId); AuditContextSupplier.setOrganizationId(orgId); }
 
             SubmissionDetailDto dto = toDetailDto(sub);
             return responseObj.render(responseObj.formSuccessResponse("Enrollment detail", dto));
@@ -175,7 +179,7 @@ public class HRApprovalServiceImpl implements IHRApprovalService {
             if (orgId == null) {
                 return responseObj.render(responseObj.formErrorResponse(403, "Submission has no organization"));
             }
-            jwtUserExtractor.validateOrganizationAccess(orgId);
+            if (organizationAccessHelper != null) { organizationAccessHelper.validateAndSetContext(orgId); } else if (jwtUserExtractor != null) { jwtUserExtractor.validateOrganizationAccess(orgId); AuditContextSupplier.setOrganizationId(orgId); }
             if (sub.getStatus() != EnrollementStatus.SUBMITTED) {
                 return responseObj.render(responseObj.formErrorResponse(400,
                         "Only submitted enrollments can be approved; current status: " + sub.getStatus()));
@@ -225,7 +229,7 @@ public class HRApprovalServiceImpl implements IHRApprovalService {
             if (orgId == null) {
                 return responseObj.render(responseObj.formErrorResponse(403, "Submission has no organization"));
             }
-            jwtUserExtractor.validateOrganizationAccess(orgId);
+            if (organizationAccessHelper != null) { organizationAccessHelper.validateAndSetContext(orgId); } else if (jwtUserExtractor != null) { jwtUserExtractor.validateOrganizationAccess(orgId); AuditContextSupplier.setOrganizationId(orgId); }
             if (sub.getStatus() != EnrollementStatus.SUBMITTED) {
                 return responseObj.render(responseObj.formErrorResponse(400,
                         "Only submitted enrollments can be rejected; current status: " + sub.getStatus()));
@@ -279,7 +283,7 @@ public class HRApprovalServiceImpl implements IHRApprovalService {
                 if (orgId == null) {
                     throw new IllegalArgumentException("Submission " + id + " has no organization");
                 }
-                jwtUserExtractor.validateOrganizationAccess(orgId);
+                if (organizationAccessHelper != null) { organizationAccessHelper.validateAndSetContext(orgId); } else if (jwtUserExtractor != null) { jwtUserExtractor.validateOrganizationAccess(orgId); AuditContextSupplier.setOrganizationId(orgId); }
                 if (sub.getStatus() != EnrollementStatus.SUBMITTED) {
                     throw new IllegalArgumentException("Submission " + id + " is not in SUBMITTED status");
                 }

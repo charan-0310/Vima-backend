@@ -45,7 +45,6 @@ import com.vimainsurance.vimaadmin.enums.PaymentFrequency;
 import com.vimainsurance.vimaadmin.enums.PolicyStatus;
 import com.vimainsurance.vimaadmin.enums.ProductType;
 import com.vimainsurance.vimaadmin.enums.UserRole;
-import com.vimainsurance.vimaadmin.exception.OrganizationAccessDeniedException;
 import com.vimainsurance.vimaadmin.exception.BadRequestException;
 import com.vimainsurance.vimaadmin.repository.IAdminUserRepository;
 import com.vimainsurance.vimaadmin.repository.IDealsRepository;
@@ -408,7 +407,6 @@ public class PolicyServiceImpl implements IPolicyService {
         BaseResponse<List<PolicyResponseDto>> responseObj = new BaseResponse<>();
         
         try {
-            jwtUserExtractor.validateOrganizationAccess(organizationId);
             List<Policy> policies = policyRepository.findByOrganizationId(organizationId);
             Long employeesCount = dealsRepository.countByOrganizationIdAndRelationshipSelf(organizationId);
             Long dependentsCount = dealsRepository.countByOrganizationIdAndRelationshipNonSelf(organizationId);
@@ -421,9 +419,6 @@ public class PolicyServiceImpl implements IPolicyService {
                 })
                 .collect(Collectors.toList());
             return responseObj.render(responseObj.formSuccessResponse(Constants.SUCCESS, responseDtos));
-        } catch (OrganizationAccessDeniedException e) {
-            logger.warn("[correlationId:{}] Organization access denied for organizationId: {}", MDC.get("correlationId"), organizationId);
-            return responseObj.render(responseObj.formErrorResponse(403, "Organization access denied"));
         } catch (Exception e) {
             logger.error("[correlationId:{}] Exception in getPoliciesByOrganizationId: {}", MDC.get("correlationId"), e.getMessage(), e);
             return responseObj.render(responseObj.formErrorResponse(e.getMessage()));

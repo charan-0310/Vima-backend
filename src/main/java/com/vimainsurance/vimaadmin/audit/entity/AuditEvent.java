@@ -59,6 +59,9 @@ public class AuditEvent {
     @Column(name = "user_id")
     private UUID userId;
 
+    @Column(name = "organization_id")
+    private UUID organizationId;
+
     @Column(name = "user_email", length = 255)
     private String userEmail;
 

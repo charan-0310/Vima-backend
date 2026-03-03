@@ -22,6 +22,7 @@ public class AuditEventPayload {
     String oldSnapshot;
     String newSnapshot;
     UUID userId;
+    UUID organizationId;
     String userEmail;
     String userRole;
     String correlationId;

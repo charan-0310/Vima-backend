@@ -55,7 +55,6 @@ import com.vimainsurance.vimaadmin.enums.DocumentCategory;
 import com.vimainsurance.vimaadmin.enums.DocumentEntityType;
 import com.vimainsurance.vimaadmin.enums.DocumentType;
 import com.vimainsurance.vimaadmin.enums.EndorsementType;
-import com.vimainsurance.vimaadmin.exception.OrganizationAccessDeniedException;
 import com.vimainsurance.vimaadmin.mapper.EndorsementMapper;
 import com.vimainsurance.vimaadmin.repository.IAdminUserRepository;
 import com.vimainsurance.vimaadmin.repository.IDealsRepository;
@@ -71,6 +70,7 @@ import com.vimainsurance.vimaadmin.util.Constants;
 import com.vimainsurance.vimaadmin.util.EnvironmentUtil;
 import com.vimainsurance.vimaadmin.util.JwtUserExtractor;
 import com.vimainsurance.vimaadmin.util.KeyCloakUtil;
+import com.vimainsurance.vimaadmin.util.OrganizationAccessHelper;
 import com.vimainsurance.vimaadmin.util.PasswordGenerator;
 import com.vimainsurance.vimaadmin.util.TenantContext;
 
@@ -103,6 +103,9 @@ public class EndorsementServiceImpl implements IEndorsementService {
     @Autowired
     private JwtUserExtractor jwtUserExtractor;
 
+    @Autowired(required = false)
+    private OrganizationAccessHelper organizationAccessHelper;
+
     @Autowired
     private IS3Service s3Service;
 
@@ -119,7 +122,11 @@ public class EndorsementServiceImpl implements IEndorsementService {
         logger.info("[correlationId:{}] Endorsement create called", MDC.get("correlationId"));
         BaseResponse<String> responseObj = new BaseResponse<>();
         try {
-            // Validate organization
+            if (requestDto.getOrganizationId() != null) {
+                if (organizationAccessHelper != null) {
+                    organizationAccessHelper.validateAndSetContext(requestDto.getOrganizationId());
+                }
+            }
             Optional<Organization> orgOpt = organizationRepository.findById(requestDto.getOrganizationId());
             if (orgOpt.isEmpty()) {
                 return responseObj.render(responseObj.formErrorResponse("Organization not found"));
@@ -176,7 +183,13 @@ public class EndorsementServiceImpl implements IEndorsementService {
             if (opt.isEmpty()) {
                 return responseObj.render(responseObj.formErrorResponse(Constants.RECORD_NOT_FOUND_MESSAGE));
             }
-            jwtUserExtractor.validateOrganizationAccess(opt.get().getOrganization().getOrganizationId());
+            UUID orgId = opt.get().getOrganization().getOrganizationId();
+            if (organizationAccessHelper != null) {
+                organizationAccessHelper.validateAndSetContext(orgId);
+            } else if (jwtUserExtractor != null) {
+                jwtUserExtractor.validateOrganizationAccess(orgId);
+                com.vimainsurance.vimaadmin.audit.AuditContextSupplier.setOrganizationId(orgId);
+            }
             Endorsement endorsement = opt.get();
 
             // Validate organization if provided
@@ -259,12 +272,15 @@ public class EndorsementServiceImpl implements IEndorsementService {
             if (opt.isEmpty()) {
                 return responseObj.render(responseObj.formErrorResponse(Constants.RECORD_NOT_FOUND_MESSAGE));
             }
-            jwtUserExtractor.validateOrganizationAccess(opt.get().getOrganization().getOrganizationId());
+            UUID orgId = opt.get().getOrganization().getOrganizationId();
+            if (organizationAccessHelper != null) {
+                organizationAccessHelper.validateAndSetContext(orgId);
+            } else if (jwtUserExtractor != null) {
+                jwtUserExtractor.validateOrganizationAccess(orgId);
+                com.vimainsurance.vimaadmin.audit.AuditContextSupplier.setOrganizationId(orgId);
+            }
             EndorsementResponseDto dto = EndorsementMapper.mapToResponseDto(opt.get());
             return responseObj.render(responseObj.formSuccessResponse(Constants.SUCCESS, dto));
-        } catch (OrganizationAccessDeniedException e) {
-            logger.warn("[correlationId:{}] Organization access denied: {}", MDC.get("correlationId"));
-            return responseObj.render(responseObj.formErrorResponse(403, e.getMessage()));
         } catch (Exception e) {
             logger.error("[correlationId:{}] Exception in Endorsement getById: {}", MDC.get("correlationId"), e.getMessage(), e);
             return responseObj.render(responseObj.formErrorResponse(Constants.RECORD_NOT_FOUND_MESSAGE));
@@ -447,11 +463,16 @@ public class EndorsementServiceImpl implements IEndorsementService {
             if (orgOpt.isEmpty()) {
                 return responseObj.render(responseObj.formErrorResponse("Organization not found"));
             }
-            jwtUserExtractor.validateOrganizationAccess(orgOpt.get().getOrganizationId());
-
+            UUID orgId = orgOpt.get().getOrganizationId();
+            if (organizationAccessHelper != null) {
+                organizationAccessHelper.validateAndSetContext(orgId);
+            } else if (jwtUserExtractor != null) {
+                jwtUserExtractor.validateOrganizationAccess(orgId);
+                com.vimainsurance.vimaadmin.audit.AuditContextSupplier.setOrganizationId(orgId);
+            }
             Organization organization = orgOpt.get();
             AdminUser uploadedBy = null;
-            if(EnvironmentUtil.isProductionEnvironment(environment)) {
+            if (EnvironmentUtil.isProductionEnvironment(environment)) {
                 String username = jwtUserExtractor.getCurrentUsername();
                 Optional<AdminUser> uploadedByOpt = adminUserRepository.findByUsername(username);
             if (uploadedByOpt.isEmpty()) {
@@ -497,9 +518,6 @@ public class EndorsementServiceImpl implements IEndorsementService {
             endorsementRepository.save(endorsement);
 
             return responseObj.render(responseObj.formSuccessResponse(Constants.SUCCESS, "Endorsement approved successfully"));
-        } catch (OrganizationAccessDeniedException e) {
-            logger.warn("[correlationId:{}] Organization access denied: {}", MDC.get("correlationId"));
-            return responseObj.render(responseObj.formErrorResponse(403, e.getMessage()));
         } catch (IllegalArgumentException e) {
             logger.error("[correlationId:{}] Invalid confirmation method value: {}", MDC.get("correlationId"), requestDto.getConfirmationMethod());
             return responseObj.render(responseObj.formErrorResponse("Invalid confirmation method value: " + requestDto.getConfirmationMethod()));
@@ -572,7 +590,13 @@ public class EndorsementServiceImpl implements IEndorsementService {
             if (orgOpt.isEmpty()) {
                 return responseObj.render(responseObj.formErrorResponse("Organization not found"));
             }
-            jwtUserExtractor.validateOrganizationAccess(orgOpt.get().getOrganizationId());
+            UUID orgId = orgOpt.get().getOrganizationId();
+            if (organizationAccessHelper != null) {
+                organizationAccessHelper.validateAndSetContext(orgId);
+            } else if (jwtUserExtractor != null) {
+                jwtUserExtractor.validateOrganizationAccess(orgId);
+                com.vimainsurance.vimaadmin.audit.AuditContextSupplier.setOrganizationId(orgId);
+            }
             // Check if there are any deals that need confirmation
             List<Deals> deals = dealsRepository.findByEndorsementId(endorsementId);
             if(deals.isEmpty()) {
@@ -623,11 +647,8 @@ public class EndorsementServiceImpl implements IEndorsementService {
                     MDC.get("correlationId"), activatedCount, deactivatedCount, endorsementId);
             }
             
-            return responseObj.render(responseObj.formSuccessResponse(Constants.SUCCESS, 
+            return responseObj.render(responseObj.formSuccessResponse(Constants.SUCCESS,
                 "Endorsement confirmed successfully. Activated: " + activatedCount + ", Deactivated: " + deactivatedCount));
-        } catch (OrganizationAccessDeniedException e) {
-            logger.warn("[correlationId:{}] Organization access denied: {}", MDC.get("correlationId"));
-            return responseObj.render(responseObj.formErrorResponse(403, e.getMessage()));
         } catch (Exception e) {
             logger.error("[correlationId:{}] Exception in Endorsement confirm: {}", MDC.get("correlationId"), e.getMessage(), e);
             return responseObj.render(responseObj.formErrorResponse("Failed to confirm endorsement!"));
@@ -736,8 +757,14 @@ public class EndorsementServiceImpl implements IEndorsementService {
             if (opt.isEmpty()) {
                 return responseObj.render(responseObj.formErrorResponse(Constants.RECORD_NOT_FOUND_MESSAGE));
             }
-            jwtUserExtractor.validateOrganizationAccess(opt.get().getOrganization().getOrganizationId());
-            if(page == -1 && rec == -1) {
+            UUID orgId = opt.get().getOrganization().getOrganizationId();
+            if (organizationAccessHelper != null) {
+                organizationAccessHelper.validateAndSetContext(orgId);
+            } else if (jwtUserExtractor != null) {
+                jwtUserExtractor.validateOrganizationAccess(orgId);
+                com.vimainsurance.vimaadmin.audit.AuditContextSupplier.setOrganizationId(orgId);
+            }
+            if (page == -1 && rec == -1) {
                 logger.info("[correlationId:{}] Getting all documents for entity: {}", MDC.get("correlationId"), endorsementId);
                 List<Document> documents = documentRepository.findByEntityId(endorsementId);
                 List<DocumentResponseDto> documentResponseDtos = documents.stream()
@@ -765,10 +792,7 @@ public class EndorsementServiceImpl implements IEndorsementService {
                     .collect(Collectors.toList()));
             }    
             return responseObj.render(responseObj.formSuccessResponse(Constants.SUCCESS, documentResponseDtos, documents.getTotalElements()));
-        } catch(OrganizationAccessDeniedException e) {
-            logger.warn("[correlationId:{}] Organization access denied: {}", MDC.get("correlationId"));
-            return responseObj.render(responseObj.formErrorResponse(403, e.getMessage()));
-        } catch(Exception e){
+        } catch (Exception e) {
             logger.error("[correlationId:{}] Error getting documents: {}", MDC.get("correlationId"), e.getMessage());
             return responseObj.render(responseObj.formErrorResponse("Error getting documents: " + e.getMessage()));
         }
@@ -785,7 +809,13 @@ public class EndorsementServiceImpl implements IEndorsementService {
             if (orgOpt.isEmpty()) {
                 return ResponseEntity.status(HttpStatus.NOT_FOUND).build();
             }
-            jwtUserExtractor.validateOrganizationAccess(orgOpt.get().getOrganizationId());
+            UUID orgId = orgOpt.get().getOrganizationId();
+            if (organizationAccessHelper != null) {
+                organizationAccessHelper.validateAndSetContext(orgId);
+            } else if (jwtUserExtractor != null) {
+                jwtUserExtractor.validateOrganizationAccess(orgId);
+                com.vimainsurance.vimaadmin.audit.AuditContextSupplier.setOrganizationId(orgId);
+            }
             Optional<Document> documentOpt = documentRepository.findByDocumentId(UUID.fromString(documentId));
             if(documentOpt.isEmpty()){
                 return ResponseEntity.status(HttpStatus.NOT_FOUND).build();
@@ -797,15 +827,11 @@ public class EndorsementServiceImpl implements IEndorsementService {
                 .header("Access-Control-Expose-Headers", "content-disposition")
                 .contentType(MediaType.parseMediaType(document.getMimeType()))
                 .body(new InputStreamResource(downloadUrl));
-        } catch(OrganizationAccessDeniedException e) {
-            logger.warn("[correlationId:{}] Organization access denied: {}", MDC.get("correlationId"));
-            return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
-        } catch(Exception e){
+        } catch (Exception e) {
             logger.error("[correlationId:{}] Error downloading document: {}", MDC.get("correlationId"), e.getMessage());
             return ResponseEntity.status(HttpStatus.NOT_FOUND).build();
         }
     }
-    
 
     @Override
     @AuditedOperation(schemaName = "cpc", tableName = "endorsements", entityType = "ENDORSEMENT", action = "SUBMIT")
@@ -841,16 +867,21 @@ public class EndorsementServiceImpl implements IEndorsementService {
                 if (opt.isEmpty()) {
                     return responseObj.render(responseObj.formErrorResponse(Constants.RECORD_NOT_FOUND_MESSAGE));
                 }
-                if(!opt.get().getStatus().equals(AccountStatus.COMPLETED)) {
+                if (!opt.get().getStatus().equals(AccountStatus.COMPLETED)) {
                     return responseObj.render(responseObj.formErrorResponse(200, "Endorsement not completed yet"));
                 }
-                jwtUserExtractor.validateOrganizationAccess(opt.get().getOrganization().getOrganizationId());
-                Optional<Organization> orgOpt = organizationRepository.findById(opt.get().getOrganization().getOrganizationId());
+                UUID endorsementOrgId = opt.get().getOrganization().getOrganizationId();
+                if (organizationAccessHelper != null) {
+                    organizationAccessHelper.validateAndSetContext(endorsementOrgId);
+                } else if (jwtUserExtractor != null) {
+                    jwtUserExtractor.validateOrganizationAccess(endorsementOrgId);
+                    com.vimainsurance.vimaadmin.audit.AuditContextSupplier.setOrganizationId(endorsementOrgId);
+                }
+                Optional<Organization> orgOpt = organizationRepository.findById(endorsementOrgId);
                 if (orgOpt.isEmpty()) {
                     return responseObj.render(responseObj.formErrorResponse("Organization not found"));
                 }
                 organization = orgOpt.get();
-                jwtUserExtractor.validateOrganizationAccess(organization.getOrganizationId());
                 deals = dealsRepository.findByEndorsementId(requestDto.getEndorsementId());
             } else {
                 // Handle individualIds case
@@ -865,7 +896,12 @@ public class EndorsementServiceImpl implements IEndorsementService {
                 if (organizationId == null) {
                     return responseObj.render(responseObj.formErrorResponse("Deals must belong to an organization"));
                 }
-                jwtUserExtractor.validateOrganizationAccess(organizationId);
+                if (organizationAccessHelper != null) {
+                    organizationAccessHelper.validateAndSetContext(organizationId);
+                } else if (jwtUserExtractor != null) {
+                    jwtUserExtractor.validateOrganizationAccess(organizationId);
+                    com.vimainsurance.vimaadmin.audit.AuditContextSupplier.setOrganizationId(organizationId);
+                }
                 Optional<Organization> orgOpt = organizationRepository.findById(organizationId);
                 if (orgOpt.isEmpty()) {
                     return responseObj.render(responseObj.formErrorResponse("Organization not found"));
@@ -906,9 +942,6 @@ public class EndorsementServiceImpl implements IEndorsementService {
             employeeOnboardingResponseDto.setSuccessCount(successCount.get());
             employeeOnboardingResponseDto.setFailedCount(failedCount.get());
             return responseObj.render(responseObj.formSuccessResponse(Constants.SUCCESS, employeeOnboardingResponseDto));
-        } catch (OrganizationAccessDeniedException e) {
-            logger.warn("[correlationId:{}] Organization access denied: {}", MDC.get("correlationId"), e.getMessage());
-            return responseObj.render(responseObj.formErrorResponse(403, e.getMessage()));
         } catch (Exception e) {
             logger.error("[correlationId:{}] Exception in Endorsement employeeOnboarding: {}", MDC.get("correlationId"), e.getMessage(), e);
             return responseObj.render(responseObj.formErrorResponse("Failed to complete employee onboarding!"));
