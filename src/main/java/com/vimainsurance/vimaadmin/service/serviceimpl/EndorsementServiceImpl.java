@@ -232,7 +232,7 @@ public class EndorsementServiceImpl implements IEndorsementService {
             // Update entity from DTO
             EndorsementMapper.updateEntityFromDto(endorsement, requestDto, organization, document, uploadedBy);
             endorsementRepository.save(endorsement);
-
+            com.vimainsurance.vimaadmin.audit.AuditContextSupplier.setNewSnapshotEntity(endorsement);
             return responseObj.render(responseObj.formSuccessResponse(Constants.SUCCESS, Constants.UPDATE_SUCCESS));
         } catch (IllegalArgumentException e) {
             logger.error("[correlationId:{}] Invalid enum value in Endorsement update: {}", MDC.get("correlationId"), e.getMessage(), e);
@@ -543,7 +543,7 @@ public class EndorsementServiceImpl implements IEndorsementService {
             endorsement.setStatus(AccountStatus.REJECTED);
             endorsement.setUpdatedAt(LocalDateTime.now());
             endorsementRepository.save(endorsement);
-
+            com.vimainsurance.vimaadmin.audit.AuditContextSupplier.setNewSnapshotEntity(endorsement);
             return responseObj.render(responseObj.formSuccessResponse(Constants.SUCCESS, "Endorsement rejected successfully"));
         } catch (Exception e) {
             logger.error("[correlationId:{}] Exception in Endorsement reject: {}", MDC.get("correlationId"), e.getMessage(), e);
@@ -1140,6 +1140,7 @@ public class EndorsementServiceImpl implements IEndorsementService {
             endorsement.setStatus(AccountStatus.INACTIVE);
             endorsement.setUpdatedAt(LocalDateTime.now());
             endorsementRepository.save(endorsement);
+            com.vimainsurance.vimaadmin.audit.AuditContextSupplier.setNewSnapshotEntity(endorsement);
             return responseObj.render(responseObj.formSuccessResponse("Deactivation of endorsement is completed successfully."));
         } catch (Exception e) {
             logger.error("[correlationId:{}] Exception in Endorsement deactivateEndorsement: {}", MDC.get("correlationId"), e.getMessage(), e);

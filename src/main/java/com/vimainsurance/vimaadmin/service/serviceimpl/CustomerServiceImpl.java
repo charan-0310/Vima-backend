@@ -218,6 +218,7 @@ public class CustomerServiceImpl implements ICustomerService{
                 customer.setStatus(requestDto.getStatus());
                 customer.setNotes(requestDto.getNotes());
                 customerRepository.save(customer);
+                com.vimainsurance.vimaadmin.audit.AuditContextSupplier.setNewSnapshotEntity(customer);
             } else {
                 return responseObj.render(responseObj.formErrorResponse(Constants.UPDATE_FAILED));
             }

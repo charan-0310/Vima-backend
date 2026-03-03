@@ -346,6 +346,7 @@ public class EnrollmentWindowServiceImpl implements IEnrollmentWindowService {
 
             EnrollmentWindowMapper.updateEntityFromDto(entity, requestDto, organization);
             entity = enrollmentWindowsRepository.save(entity);
+            AuditContextSupplier.setNewSnapshotEntity(entity);
             EnrollmentWindowResponseDto dto = EnrollmentWindowMapper.mapToResponseDto(entity);
             return responseObj.render(responseObj.formSuccessResponse(Constants.SUCCESS, dto));
         } catch (IllegalArgumentException e) {
@@ -379,6 +380,7 @@ public class EnrollmentWindowServiceImpl implements IEnrollmentWindowService {
             entity.setStatus(EnrollementStatus.ACTIVE);
             entity.setClosedAt(null);
             enrollmentWindowsRepository.save(entity);
+            AuditContextSupplier.setNewSnapshotEntity(entity);
             return responseObj.render(responseObj.formSuccessResponse(Constants.SUCCESS, "Enrollment window activated successfully"));
         } catch (Exception e) {
             logger.error("[correlationId:{}] Exception in EnrollmentWindow activate: {}", MDC.get("correlationId"), e.getMessage(), e);
@@ -411,6 +413,7 @@ public class EnrollmentWindowServiceImpl implements IEnrollmentWindowService {
             entity.setStatus(EnrollementStatus.CLOSED);
             entity.setClosedAt(LocalDateTime.now());
             enrollmentWindowsRepository.save(entity);
+            AuditContextSupplier.setNewSnapshotEntity(entity);
             return responseObj.render(responseObj.formSuccessResponse(Constants.SUCCESS, "Enrollment window closed successfully"));
         } catch (Exception e) {
             logger.error("[correlationId:{}] Exception in EnrollmentWindow close: {}", MDC.get("correlationId"), e.getMessage(), e);

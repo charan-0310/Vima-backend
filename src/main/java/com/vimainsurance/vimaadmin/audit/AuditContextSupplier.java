@@ -153,4 +153,23 @@ public class AuditContextSupplier {
     public static void clearActionSource() {
         ACTION_SOURCE.remove();
     }
+
+    /**
+     * For UPDATE (and similar) audited operations: set the saved entity here before returning
+     * so the audit aspect can use it as new_snapshot instead of the method's return value.
+     * Call {@link #clearNewSnapshotEntity()} or rely on request cleanup (e.g. TenantFilter) to avoid leaks.
+     */
+    private static final ThreadLocal<Object> NEW_SNAPSHOT_ENTITY = new ThreadLocal<>();
+
+    public static void setNewSnapshotEntity(Object entity) {
+        NEW_SNAPSHOT_ENTITY.set(entity);
+    }
+
+    public static Object getNewSnapshotEntity() {
+        return NEW_SNAPSHOT_ENTITY.get();
+    }
+
+    public static void clearNewSnapshotEntity() {
+        NEW_SNAPSHOT_ENTITY.remove();
+    }
 }

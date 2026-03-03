@@ -302,8 +302,8 @@ public class PolicyServiceImpl implements IPolicyService {
             }
 
             policyRepository.save(policy);
+            com.vimainsurance.vimaadmin.audit.AuditContextSupplier.setNewSnapshotEntity(policy);
             logger.info("[correlationId:{}] Policy updated successfully", MDC.get("correlationId"));
-            
             return responseObj.render(responseObj.formSuccessResponse(Constants.SUCCESS, Constants.UPDATE_SUCCESS));
         } catch (BadRequestException e) {
             logger.error("[correlationId:{}] Validation error in updatePolicy: {}", MDC.get("correlationId"), e.getMessage());
@@ -510,7 +510,7 @@ public class PolicyServiceImpl implements IPolicyService {
             Policy policy = policyOpt.get();
             policy.setStatus(PolicyStatus.fromValue(status));
             policyRepository.save(policy);
-            
+            com.vimainsurance.vimaadmin.audit.AuditContextSupplier.setNewSnapshotEntity(policy);
             logger.info("[correlationId:{}] Policy status updated successfully", MDC.get("correlationId"));
             return responseObj.render(responseObj.formSuccessResponse(Constants.SUCCESS, "Policy status updated successfully"));
         } catch (Exception e) {

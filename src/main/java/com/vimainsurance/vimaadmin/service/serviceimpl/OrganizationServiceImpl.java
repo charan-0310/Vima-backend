@@ -184,6 +184,7 @@ public class OrganizationServiceImpl implements IOrganizationService {
             }
             org.setUpdatedAt(java.time.LocalDateTime.now());
             organizationRepository.save(org);
+            AuditContextSupplier.setNewSnapshotEntity(org);
             return responseObj.render(responseObj.formSuccessResponse(Constants.SUCCESS, Constants.UPDATE_SUCCESS));
         } catch (Exception e) {
             logger.error("[correlationId:{}] Exception in Organization update: {}", MDC.get("correlationId"), e.getMessage(), e);

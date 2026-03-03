@@ -57,8 +57,20 @@ public class AuditAspect {
         try {
             // For update actions, prefer entity ID from method args (DTO/path param); fall back to result
             String entityId = resolveEntityId(auditedOperation.action(), joinPoint, result);
-            String newSnapshot = truncateSnapshot(toJsonSafe(result));
-            String oldSnapshot = isUpdateAction(auditedOperation.action())
+            boolean isUpdate = isUpdateAction(auditedOperation.action());
+            // For update: use saved entity from context (set by service) as new_snapshot when present
+            String newSnapshot;
+            Object newSnapshotEntity = AuditContextSupplier.getNewSnapshotEntity();
+            if (isUpdate && newSnapshotEntity != null) {
+                try {
+                    newSnapshot = truncateSnapshot(toJsonSafe(newSnapshotEntity));
+                } finally {
+                    AuditContextSupplier.clearNewSnapshotEntity();
+                }
+            } else {
+                newSnapshot = truncateSnapshot(toJsonSafe(result));
+            }
+            String oldSnapshot = isUpdate
                     ? truncateSnapshot(requestPayloadSnapshot(joinPoint))
                     : null;
             String schemaName = auditedOperation.schemaName().isBlank() ? null : auditedOperation.schemaName();
