@@ -42,7 +42,7 @@ import com.vimainsurance.vimaadmin.enums.AccountStatus;
 import com.vimainsurance.vimaadmin.enums.DocumentCategory;
 import com.vimainsurance.vimaadmin.enums.EnrollementStatus;
 import com.vimainsurance.vimaadmin.enums.NomineeRelationship;
-import com.vimainsurance.vimaadmin.exception.OrganizationAccessDeniedException;
+import com.vimainsurance.vimaadmin.audit.AuditContextSupplier;
 import com.vimainsurance.vimaadmin.mapper.EnrollmentWindowMapper;
 import com.vimainsurance.vimaadmin.repository.IAdminUserRepository;
 import com.vimainsurance.vimaadmin.repository.IDealsRepository;
@@ -55,6 +55,7 @@ import com.vimainsurance.vimaadmin.service.IHRApprovalService;
 import com.vimainsurance.vimaadmin.specification.EnrollmentWindowSpecification;
 import com.vimainsurance.vimaadmin.util.Constants;
 import com.vimainsurance.vimaadmin.util.JwtUserExtractor;
+import com.vimainsurance.vimaadmin.util.OrganizationAccessHelper;
 import com.vimainsurance.vimaadmin.util.TenantContext;
 import com.vimainsurance.vimaadmin.util.TransactionUtil;
 import com.vimainsurance.vimaadmin.service.IDocumentService;
@@ -91,8 +92,21 @@ public class EnrollmentWindowServiceImpl implements IEnrollmentWindowService {
     @Autowired
     private JwtUserExtractor jwtUserExtractor;
 
+    @Autowired(required = false)
+    private OrganizationAccessHelper organizationAccessHelper;
+
     @Autowired
     private IDocumentService documentService;
+
+    private void validateAndSetOrganizationContext(UUID organizationId) {
+        if (organizationId == null) return;
+        if (organizationAccessHelper != null) {
+            organizationAccessHelper.validateAndSetContext(organizationId);
+        } else if (jwtUserExtractor != null) {
+            jwtUserExtractor.validateOrganizationAccess(organizationId);
+            AuditContextSupplier.setOrganizationId(organizationId);
+        }
+    }
 
     @Override
     @Transactional(rollbackFor = Exception.class)
@@ -105,12 +119,18 @@ public class EnrollmentWindowServiceImpl implements IEnrollmentWindowService {
                     && !requestDto.getEndDate().isAfter(requestDto.getStartDate())) {
                 return responseObj.render(responseObj.formErrorResponse("End date must be after start date"));
             }
+            if (requestDto.getOrganizationId() != null) {
+                if (organizationAccessHelper != null) {
+                    organizationAccessHelper.validateAndSetContext(requestDto.getOrganizationId());
+                } else if (jwtUserExtractor != null) {
+                    validateAndSetOrganizationContext(requestDto.getOrganizationId());
+                    AuditContextSupplier.setOrganizationId(requestDto.getOrganizationId());
+                }
+            }
             Optional<Organization> orgOpt = organizationRepository.findByOrganizationId(requestDto.getOrganizationId());
             if (orgOpt.isEmpty()) {
                 return responseObj.render(responseObj.formErrorResponse("Organization not found"));
             }
-            jwtUserExtractor.validateOrganizationAccess(orgOpt.get().getOrganizationId());
-
             String username = jwtUserExtractor.getCurrentUsername();
             Optional<AdminUser> createdByOpt = adminUserRepository.findByUsername(username);
             if (createdByOpt.isEmpty()) {
@@ -123,10 +143,6 @@ public class EnrollmentWindowServiceImpl implements IEnrollmentWindowService {
 
             logger.info("[correlationId:{}] EnrollmentWindow created successfully", MDC.get("correlationId"));
             return responseObj.render(responseObj.formSuccessResponse(Constants.SUCCESS, dto));
-        } catch (OrganizationAccessDeniedException e) {
-            TransactionUtil.markRollbackOnly();
-            logger.warn("[correlationId:{}] Organization access denied: {}", MDC.get("correlationId"));
-            return responseObj.render(responseObj.formErrorResponse(403, e.getMessage()));
         } catch (IllegalArgumentException e) {
             TransactionUtil.markRollbackOnly();
             logger.error("[correlationId:{}] Invalid value in EnrollmentWindow create: {}", MDC.get("correlationId"), e.getMessage());
@@ -147,7 +163,7 @@ public class EnrollmentWindowServiceImpl implements IEnrollmentWindowService {
             if (orgOpt.isEmpty()) {
                 return responseObj.render(responseObj.formErrorResponse("Organization not found"));
             }
-            jwtUserExtractor.validateOrganizationAccess(organizationId);
+            validateAndSetOrganizationContext(organizationId);
 
             if (selfEmployeeEnrollmentRequestDtos == null || selfEmployeeEnrollmentRequestDtos.isEmpty()) {
                 return responseObj.render(responseObj.formSuccessResponse(Constants.SUCCESS, Collections.emptyList()));
@@ -158,9 +174,6 @@ public class EnrollmentWindowServiceImpl implements IEnrollmentWindowService {
                 return responseObj.render(new ResponseDto<>(400, "Validation failed", errors));
             }
             return responseObj.render(responseObj.formSuccessResponse(Constants.SUCCESS, Collections.emptyList()));
-        } catch (OrganizationAccessDeniedException e) {
-            logger.warn("[correlationId:{}] Organization access denied: {}", MDC.get("correlationId"));
-            return responseObj.render(responseObj.formErrorResponse(403, e.getMessage()));
         } catch (Exception e) {
             logger.error("[correlationId:{}] Exception in EnrollmentWindow validateEmployees: {}", MDC.get("correlationId"), e.getMessage(), e);
             return responseObj.render(responseObj.formErrorResponse("Validation request failed"));
@@ -183,7 +196,7 @@ public class EnrollmentWindowServiceImpl implements IEnrollmentWindowService {
             if (organization == null) {
                 return responseObj.render(responseObj.formErrorResponse("Organization not found for window"));
             }
-            jwtUserExtractor.validateOrganizationAccess(organization.getOrganizationId());
+            validateAndSetOrganizationContext(organization.getOrganizationId());
 
             List<String> errors = validateSelfEmployeeEnrollmentRequest(selfEmployeeEnrollmentRequestDtos, organization.getOrganizationId());
             if (!errors.isEmpty()) {
@@ -204,10 +217,6 @@ public class EnrollmentWindowServiceImpl implements IEnrollmentWindowService {
 
             EnrollmentWindowResponseDto dto = EnrollmentWindowMapper.mapToResponseDto(window);
             return responseObj.render(responseObj.formSuccessResponse(Constants.SUCCESS, dto));
-        } catch (OrganizationAccessDeniedException e) {
-            TransactionUtil.markRollbackOnly();
-            logger.warn("[correlationId:{}] Organization access denied: {}", MDC.get("correlationId"));
-            return responseObj.render(responseObj.formErrorResponse(403, e.getMessage()));
         } catch (Exception e) {
             TransactionUtil.markRollbackOnly();
             logger.error("[correlationId:{}] Exception in EnrollmentWindow uploadEmployees: {}", MDC.get("correlationId"), e.getMessage(), e);
@@ -228,7 +237,7 @@ public class EnrollmentWindowServiceImpl implements IEnrollmentWindowService {
             List<UUID> organizationIds = new ArrayList<>();
             if (organizationId != null) {
                 // Explicit query param: filter only by this org (and enforce access)
-                jwtUserExtractor.validateOrganizationAccess(organizationId);
+                validateAndSetOrganizationContext(organizationId);
                 organizationIds.add(organizationId);
             } else {
                 // No org param: use tenant context (orgs the user has access to)
@@ -276,9 +285,6 @@ public class EnrollmentWindowServiceImpl implements IEnrollmentWindowService {
             }
 
             return responseObj.render(responseObj.formSuccessResponse(Constants.SUCCESS, out, pageResult.getTotalElements()));
-        } catch (OrganizationAccessDeniedException e) {
-            logger.warn("[correlationId:{}] Organization access denied: {}", MDC.get("correlationId"));
-            return responseObj.render(responseObj.formErrorResponse(403, e.getMessage()));
         } catch (IllegalArgumentException e) {
             logger.error("[correlationId:{}] Invalid value in getAllWithFilters: {}", MDC.get("correlationId"), e.getMessage());
             return responseObj.render(responseObj.formErrorResponse("Invalid value: " + e.getMessage()));
@@ -297,12 +303,9 @@ public class EnrollmentWindowServiceImpl implements IEnrollmentWindowService {
             if (opt.isEmpty()) {
                 return responseObj.render(responseObj.formErrorResponse(Constants.RECORD_NOT_FOUND_MESSAGE));
             }
-            jwtUserExtractor.validateOrganizationAccess(opt.get().getOrganization().getOrganizationId());
+            validateAndSetOrganizationContext(opt.get().getOrganization().getOrganizationId());
             EnrollmentWindowResponseDto dto = EnrollmentWindowMapper.mapToResponseDto(opt.get());
             return responseObj.render(responseObj.formSuccessResponse(Constants.SUCCESS, dto));
-        } catch (OrganizationAccessDeniedException e) {
-            logger.warn("[correlationId:{}] Organization access denied: {}", MDC.get("correlationId"));
-            return responseObj.render(responseObj.formErrorResponse(403, e.getMessage()));
         } catch (Exception e) {
             logger.error("[correlationId:{}] Exception in EnrollmentWindow getById: {}", MDC.get("correlationId"), e.getMessage(), e);
             return responseObj.render(responseObj.formErrorResponse(Constants.RECORD_NOT_FOUND_MESSAGE));
@@ -321,7 +324,7 @@ public class EnrollmentWindowServiceImpl implements IEnrollmentWindowService {
                 return responseObj.render(responseObj.formErrorResponse(Constants.RECORD_NOT_FOUND_MESSAGE));
             }
             EnrollmentWindows entity = opt.get();
-            jwtUserExtractor.validateOrganizationAccess(entity.getOrganization().getOrganizationId());
+            validateAndSetOrganizationContext(entity.getOrganization().getOrganizationId());
 
             if (entity.getStatus() == EnrollementStatus.CANCELLED) {
                 return responseObj.render(responseObj.formErrorResponse("Cannot update a cancelled enrollment window"));
@@ -337,7 +340,7 @@ public class EnrollmentWindowServiceImpl implements IEnrollmentWindowService {
                 if (orgOpt.isEmpty()) {
                     return responseObj.render(responseObj.formErrorResponse("Organization not found"));
                 }
-                jwtUserExtractor.validateOrganizationAccess(orgOpt.get().getOrganizationId());
+                validateAndSetOrganizationContext(orgOpt.get().getOrganizationId());
                 organization = orgOpt.get();
             }
 
@@ -345,9 +348,6 @@ public class EnrollmentWindowServiceImpl implements IEnrollmentWindowService {
             entity = enrollmentWindowsRepository.save(entity);
             EnrollmentWindowResponseDto dto = EnrollmentWindowMapper.mapToResponseDto(entity);
             return responseObj.render(responseObj.formSuccessResponse(Constants.SUCCESS, dto));
-        } catch (OrganizationAccessDeniedException e) {
-            logger.warn("[correlationId:{}] Organization access denied: {}", MDC.get("correlationId"));
-            return responseObj.render(responseObj.formErrorResponse(403, e.getMessage()));
         } catch (IllegalArgumentException e) {
             logger.error("[correlationId:{}] Invalid value in EnrollmentWindow update: {}", MDC.get("correlationId"), e.getMessage());
             return responseObj.render(responseObj.formErrorResponse("Invalid value: " + e.getMessage()));
@@ -369,7 +369,7 @@ public class EnrollmentWindowServiceImpl implements IEnrollmentWindowService {
                 return responseObj.render(responseObj.formErrorResponse(Constants.RECORD_NOT_FOUND_MESSAGE));
             }
             EnrollmentWindows entity = opt.get();
-            jwtUserExtractor.validateOrganizationAccess(entity.getOrganization().getOrganizationId());
+            validateAndSetOrganizationContext(entity.getOrganization().getOrganizationId());
             if (entity.getStatus() == EnrollementStatus.CANCELLED) {
                 return responseObj.render(responseObj.formErrorResponse("Cannot activate a cancelled enrollment window"));
             }
@@ -380,9 +380,6 @@ public class EnrollmentWindowServiceImpl implements IEnrollmentWindowService {
             entity.setClosedAt(null);
             enrollmentWindowsRepository.save(entity);
             return responseObj.render(responseObj.formSuccessResponse(Constants.SUCCESS, "Enrollment window activated successfully"));
-        } catch (OrganizationAccessDeniedException e) {
-            logger.warn("[correlationId:{}] Organization access denied: {}", MDC.get("correlationId"));
-            return responseObj.render(responseObj.formErrorResponse(403, e.getMessage()));
         } catch (Exception e) {
             logger.error("[correlationId:{}] Exception in EnrollmentWindow activate: {}", MDC.get("correlationId"), e.getMessage(), e);
             return responseObj.render(responseObj.formErrorResponse("Failed to activate enrollment window"));
@@ -401,7 +398,7 @@ public class EnrollmentWindowServiceImpl implements IEnrollmentWindowService {
                 return responseObj.render(responseObj.formErrorResponse(Constants.RECORD_NOT_FOUND_MESSAGE));
             }
             EnrollmentWindows entity = opt.get();
-            jwtUserExtractor.validateOrganizationAccess(entity.getOrganization().getOrganizationId());
+            validateAndSetOrganizationContext(entity.getOrganization().getOrganizationId());
             if (entity.getStatus() == EnrollementStatus.CANCELLED) {
                 return responseObj.render(responseObj.formErrorResponse("Window is already cancelled"));
             }
@@ -415,9 +412,6 @@ public class EnrollmentWindowServiceImpl implements IEnrollmentWindowService {
             entity.setClosedAt(LocalDateTime.now());
             enrollmentWindowsRepository.save(entity);
             return responseObj.render(responseObj.formSuccessResponse(Constants.SUCCESS, "Enrollment window closed successfully"));
-        } catch (OrganizationAccessDeniedException e) {
-            logger.warn("[correlationId:{}] Organization access denied: {}", MDC.get("correlationId"));
-            return responseObj.render(responseObj.formErrorResponse(403, e.getMessage()));
         } catch (Exception e) {
             logger.error("[correlationId:{}] Exception in EnrollmentWindow close: {}", MDC.get("correlationId"), e.getMessage(), e);
             return responseObj.render(responseObj.formErrorResponse("Failed to close enrollment window"));
@@ -436,16 +430,13 @@ public class EnrollmentWindowServiceImpl implements IEnrollmentWindowService {
                 return responseObj.render(responseObj.formErrorResponse(Constants.RECORD_NOT_FOUND_MESSAGE));
             }
             EnrollmentWindows entity = opt.get();
-            jwtUserExtractor.validateOrganizationAccess(entity.getOrganization().getOrganizationId());
+            validateAndSetOrganizationContext(entity.getOrganization().getOrganizationId());
             if (entity.getStatus() == EnrollementStatus.CANCELLED) {
                 return responseObj.render(responseObj.formSuccessResponse(Constants.SUCCESS, "Enrollment window is already deleted"));
             }
             entity.setStatus(EnrollementStatus.CANCELLED);
             enrollmentWindowsRepository.save(entity);
             return responseObj.render(responseObj.formSuccessResponse(Constants.SUCCESS, Constants.DELETE_MESSAGE));
-        } catch (OrganizationAccessDeniedException e) {
-            logger.warn("[correlationId:{}] Organization access denied: {}", MDC.get("correlationId"));
-            return responseObj.render(responseObj.formErrorResponse(403, e.getMessage()));
         } catch (Exception e) {
             logger.error("[correlationId:{}] Exception in EnrollmentWindow delete: {}", MDC.get("correlationId"), e.getMessage(), e);
             return responseObj.render(responseObj.formErrorResponse(Constants.DELETE_FAILED));
@@ -461,7 +452,7 @@ public class EnrollmentWindowServiceImpl implements IEnrollmentWindowService {
             if (opt.isEmpty()) {
                 return responseObj.render(responseObj.formErrorResponse(Constants.RECORD_NOT_FOUND_MESSAGE));
             }
-            jwtUserExtractor.validateOrganizationAccess(opt.get().getOrganization().getOrganizationId());
+            validateAndSetOrganizationContext(opt.get().getOrganization().getOrganizationId());
 
             List<com.vimainsurance.vimaadmin.entity.EnrollmentInvitation> invitations =
                     enrollmentInvitationRepository.findAllByEnrollmentWindow_Id(id);
@@ -488,9 +479,6 @@ public class EnrollmentWindowServiceImpl implements IEnrollmentWindowService {
                     .submissionRejectedCount(rejected)
                     .build();
             return responseObj.render(responseObj.formSuccessResponse(Constants.SUCCESS, stats));
-        } catch (OrganizationAccessDeniedException e) {
-            logger.warn("[correlationId:{}] Organization access denied: {}", MDC.get("correlationId"));
-            return responseObj.render(responseObj.formErrorResponse(403, e.getMessage()));
         } catch (Exception e) {
             logger.error("[correlationId:{}] Exception in EnrollmentWindow getStats: {}", MDC.get("correlationId"), e.getMessage(), e);
             return responseObj.render(responseObj.formErrorResponse(Constants.RECORD_NOT_FOUND_MESSAGE));

@@ -20,6 +20,8 @@ import org.hibernate.type.SqlTypes;
 
 import com.vimainsurance.vimaadmin.enums.Industry;
 
+import com.vimainsurance.vimaadmin.audit.AuditIdentifiable;
+
 @Getter
 @Setter
 @NoArgsConstructor
@@ -27,12 +29,22 @@ import com.vimainsurance.vimaadmin.enums.Industry;
 @Data
 @Entity
 @Table(name = "organizations", schema = "cpc")
-public class Organization {
+public class Organization implements AuditIdentifiable {
 
     @Id
     @GeneratedValue
     @Column(name = "organization_id", columnDefinition = "UUID", updatable = false, nullable = false)
     private UUID organizationId;
+
+    @Override
+    public String getAuditEntityId() {
+        return organizationId != null ? organizationId.toString() : null;
+    }
+
+    @Override
+    public UUID getAuditOrganizationId() {
+        return organizationId;
+    }
 
     @Column(name = "organization_name", nullable = false)
     private String organizationName;

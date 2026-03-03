@@ -36,6 +36,7 @@ public class AuditEventWriter {
                 .oldSnapshot(p.getOldSnapshot())
                 .newSnapshot(p.getNewSnapshot())
                 .userId(p.getUserId())
+                .organizationId(p.getOrganizationId())
                 .userEmail(p.getUserEmail())
                 .userRole(p.getUserRole())
                 .correlationId(p.getCorrelationId())

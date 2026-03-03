@@ -18,9 +18,12 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.vimainsurance.vimaadmin.entity.AdminUser;
 import com.vimainsurance.vimaadmin.repository.IAdminUserRepository;
+import com.vimainsurance.vimaadmin.util.JwtUserExtractor;
 
 import jakarta.servlet.ServletRequest;
 import jakarta.servlet.ServletResponse;
+
+import org.springframework.beans.factory.annotation.Autowired;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -44,6 +47,9 @@ public class AuditAspect {
     private final ObjectMapper objectMapper;
     private final IAdminUserRepository adminUserRepository;
 
+    @Autowired(required = false)
+    private JwtUserExtractor jwtUserExtractor;
+
     @AfterReturning(
             pointcut = "@annotation(auditedOperation)",
             returning = "result")
@@ -57,6 +63,7 @@ public class AuditAspect {
             String schemaName = auditedOperation.schemaName().isBlank() ? null : auditedOperation.schemaName();
             String tableName = auditedOperation.tableName().isBlank() ? null : auditedOperation.tableName();
             UUID userId = resolveUserId();
+            UUID organizationId = resolveOrganizationId(joinPoint, result);
             AuditEventPayload payload = AuditEventPayload.builder()
                     .schemaName(schemaName)
                     .tableName(tableName)
@@ -66,6 +73,7 @@ public class AuditAspect {
                     .oldSnapshot(oldSnapshot)
                     .newSnapshot(newSnapshot)
                     .userId(userId)
+                    .organizationId(organizationId)
                     .userEmail(AuditContextSupplier.getUserEmail())
                     .userRole(AuditContextSupplier.getUserRole())
                     .correlationId(AuditContextSupplier.getCorrelationId())
@@ -77,6 +85,48 @@ public class AuditAspect {
         } catch (Exception e) {
             log.warn("[audit] aspect failed to build or enqueue audit event: {}", e.getMessage());
         }
+    }
+
+    /**
+     * Resolve organization ID for audit: result/args implementing AuditIdentifiable, then ThreadLocal, then JWT.
+     * No reflection; no TenantFilter/TenantContext.
+     */
+    private UUID resolveOrganizationId(JoinPoint joinPoint, Object result) {
+        if (result instanceof AuditIdentifiable identifiable) {
+            UUID orgId = identifiable.getAuditOrganizationId();
+            if (orgId != null) {
+                return orgId;
+            }
+        }
+        Object[] args = joinPoint.getArgs();
+        if (args != null) {
+            for (Object arg : args) {
+                if (arg == null || arg instanceof MultipartFile || arg instanceof ServletRequest || arg instanceof ServletResponse) {
+                    continue;
+                }
+                if (arg instanceof AuditIdentifiable identifiable) {
+                    UUID orgId = identifiable.getAuditOrganizationId();
+                    if (orgId != null) {
+                        return orgId;
+                    }
+                }
+            }
+        }
+        UUID fromContext = AuditContextSupplier.getOrganizationId();
+        if (fromContext != null) {
+            return fromContext;
+        }
+        if (jwtUserExtractor != null) {
+            List<String> orgs = jwtUserExtractor.getCurrentOrganizations();
+            if (orgs != null && !orgs.isEmpty()) {
+                try {
+                    return UUID.fromString(orgs.get(0).trim());
+                } catch (Exception ignored) {
+                    // ignore parse failure
+                }
+            }
+        }
+        return null;
     }
 
     /** Resolve userId: ThreadLocal first, then findByUsername from JWT. */

@@ -120,6 +120,24 @@ public class AuditContextSupplier {
     }
 
     /**
+     * Optional: set by caller when the audited method only has a UUID organizationId (e.g. delete(UUID organizationId)).
+     * Read by the audit aspect in the same request thread.
+     */
+    private static final ThreadLocal<UUID> CURRENT_ORGANIZATION_ID = new ThreadLocal<>();
+
+    public static void setOrganizationId(UUID organizationId) {
+        CURRENT_ORGANIZATION_ID.set(organizationId);
+    }
+
+    public static UUID getOrganizationId() {
+        return CURRENT_ORGANIZATION_ID.get();
+    }
+
+    public static void clearOrganizationId() {
+        CURRENT_ORGANIZATION_ID.remove();
+    }
+
+    /**
      * ActionSource from thread local (set by caller for BULK, SYSTEM, ENROLLMENT).
      */
     private static final ThreadLocal<ActionSource> ACTION_SOURCE = ThreadLocal.withInitial(() -> ActionSource.WEB);

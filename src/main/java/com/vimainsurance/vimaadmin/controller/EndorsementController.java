@@ -34,6 +34,7 @@ import com.vimainsurance.vimaadmin.dto.EmployeeOnboardingResponseDto;
 import com.vimainsurance.vimaadmin.dto.ResponseDto;
 import com.vimainsurance.vimaadmin.service.IEndorsementService;
 import com.vimainsurance.vimaadmin.service.IOrganizationService;
+import com.vimainsurance.vimaadmin.annotation.CurrentOrganization;
 
 /**
  * Controller for Endorsement operations
@@ -107,7 +108,7 @@ public class EndorsementController {
     @GetMapping("/organization/{organizationId}")
     @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'VIMA_ADMIN', 'SALES_MANAGER')")
     public ResponseEntity<ResponseDto<List<EndorsementResponseDto>>> getByOrganizationId(
-            @PathVariable UUID organizationId) {
+            @CurrentOrganization UUID organizationId) {
         logger.info("[correlationId:{}] /endorsements/organization/{} (GET) endpoint called", MDC.get("correlationId"), organizationId);
         return endorsementService.getByOrganizationId(organizationId);
     }
