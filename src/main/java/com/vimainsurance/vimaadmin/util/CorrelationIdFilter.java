@@ -13,6 +13,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.slf4j.MDC;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.oauth2.jwt.Jwt;
@@ -42,6 +43,10 @@ import jakarta.servlet.http.HttpServletResponse;
  * 
  * This backend only validates JWT tokens issued by Authentik.
  * React performs login and token exchange - no login endpoints or callback endpoints are required here.
+ *
+ * When running with dev/test profile, Spring Security uses mock authentication (principal "dev-user")
+ * instead of JWT. In that case this filter ensures a corresponding AdminUser row exists so that
+ * services that look up the current user by username (e.g. policy upload) do not fail with "Agent not found".
  */
 @Component
 public class CorrelationIdFilter extends OncePerRequestFilter {
@@ -189,11 +194,50 @@ public class CorrelationIdFilter extends OncePerRequestFilter {
                             MDC.get(MDC_CORRELATION_ID_KEY), email, user.getUsername());
                     }
                 }
+            } else if (authentication instanceof UsernamePasswordAuthenticationToken
+                    && "dev-user".equals(authentication.getName())) {
+                // Dev/test profile: mock auth uses principal "dev-user" — ensure it exists in admin_users
+                ensureDevUserExists();
             }
         } catch (Exception e) {
             // Log error but don't fail the request - allow authentication to proceed
             logger.error("[correlationId:{}] Error syncing AdminUser from Authentik JWT", 
                 MDC.get(MDC_CORRELATION_ID_KEY), e);
+        }
+    }
+
+    /**
+     * Ensure admin_users has a row for the mock "dev-user" used in dev/test profile.
+     * This allows code that looks up the current user by username (e.g. PolicyServiceImpl) to succeed.
+     */
+    private void ensureDevUserExists() {
+        if (adminUserRepository == null || idGenerator == null) {
+            return;
+        }
+        try {
+            Optional<AdminUser> existing = adminUserRepository.findByUsername("dev-user");
+            if (existing.isPresent()) {
+                AdminUser u = existing.get();
+                u.setLastLogin(LocalDateTime.now());
+                adminUserRepository.save(u);
+                return;
+            }
+            AdminUser user = new AdminUser();
+            user.setUsername("dev-user");
+            user.setEmail("dev-user@local");
+            user.setFullName("Dev/Test User");
+            user.setRole("SUPER_ADMIN");
+            user.setAgentId(idGenerator.generateVimaId());
+            user.setIsActive(true);
+            user.setLastLogin(LocalDateTime.now());
+            user.setCreatedAt(LocalDateTime.now());
+            user.setOauthProvider("local");
+            adminUserRepository.save(user);
+            logger.info("[correlationId:{}] Created AdminUser for dev/test mock user: dev-user", 
+                MDC.get(MDC_CORRELATION_ID_KEY));
+        } catch (Exception e) {
+            logger.warn("[correlationId:{}] Could not ensure dev-user in admin_users: {}", 
+                MDC.get(MDC_CORRELATION_ID_KEY), e.getMessage());
         }
     }
 

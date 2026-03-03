@@ -659,24 +659,22 @@ public class PolicyServiceImpl implements IPolicyService {
         logger.info("[correlationId:{}] uploadPolicyForOrganization called for organizationId: {}", MDC.get("correlationId"), organizationId);
         BaseResponse<String> responseObj = new BaseResponse<>();
         try {
-            // Get current user
-            final String currentUsername = jwtUserExtractor.extractCurrentUsername();
-            Optional<AdminUser> adminUser = adminUserRepository.findByUsername(currentUsername);
-            if(adminUser.isEmpty()){
-                return responseObj.render(responseObj.formErrorResponse("Agent not found"));
+            // Agent is required only when uploading documents (for uploadedBy). Without files, Keycloak-only users (e.g. e2e-vima-admin) can create policies.
+            AdminUser agent = null;
+            if (requestDto.getFiles() != null && requestDto.getFiles().length > 0) {
+                final String currentUsername = jwtUserExtractor.extractCurrentUsername();
+                Optional<AdminUser> adminUser = adminUserRepository.findByUsername(currentUsername);
+                if (adminUser.isEmpty()) {
+                    return responseObj.render(responseObj.formErrorResponse("Agent not found"));
+                }
+                agent = adminUser.get();
             }
-            AdminUser agent = adminUser.get();
-            
-            // For organization policies, try to find a primary individual from the organization
-            // If not found, we'll use organizationId as primaryIndividualId directly
-           
-                 
-            
+
             // Create Policy entity
             Policy policy = new Policy();
             policy.setPolicyNumber(requestDto.getPolicyNumber());
-            // Use organizationId as primaryIndividualId as per requirement
-            policy.setPrimaryIndividualId(organizationId);
+            // Organization policies: no primary individual required (company may have no customers/employees yet)
+            policy.setPrimaryIndividualId(null);
             policy.setInsuranceProviderId(insuranceProviderRepository.findByProviderCode(requestDto.getProviderCode())
                 .orElseThrow(() -> new RuntimeException("Insurance provider not found")).getProviderId());
             policy.setOrganizationId(organizationId);
@@ -728,8 +726,8 @@ public class PolicyServiceImpl implements IPolicyService {
             Policy savedPolicy = policyRepository.save(policy);
             logger.info("[correlationId:{}] Policy saved with ID: {}", MDC.get("correlationId"), savedPolicy.getPolicyId());
             
-            // Upload documents if provided
-            if (requestDto.getFiles() != null && requestDto.getFiles().length > 0) {
+            // Upload documents if provided (agent already looked up above when files present)
+            if (requestDto.getFiles() != null && requestDto.getFiles().length > 0 && agent != null) {
                 DocumentRequestDto documentRequest = new DocumentRequestDto();
                 documentRequest.setFiles(requestDto.getFiles());
                 documentRequest.setDocumentType(requestDto.getDocumentType());

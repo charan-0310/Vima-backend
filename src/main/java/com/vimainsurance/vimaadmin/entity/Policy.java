@@ -41,7 +41,7 @@ public class Policy {
     private String policyNumber;
 
     // Relationships
-    @Column(name = "primary_individual_id", nullable = false)
+    @Column(name = "primary_individual_id")
     private UUID primaryIndividualId;
 
     @Column(name = "insurance_provider_id", nullable = false)
