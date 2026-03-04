@@ -3,6 +3,7 @@ package com.vimainsurance.vimaadmin.config;
 import java.io.IOException;
 import java.util.*;
 
+import com.vimainsurance.vimaadmin.audit.AuditContextSupplier;
 import com.vimainsurance.vimaadmin.util.JwtUserExtractor;
 import com.vimainsurance.vimaadmin.util.TenantContext;
 
@@ -89,6 +90,20 @@ public class TenantFilter extends OncePerRequestFilter {
                 } else {
                     log.debug("[TenantFilter] jwtUserExtractor not available, skipping JWT augmentation");
                 }
+
+                // Fallback: if no roles were resolved from JWT (e.g. dev mode mock auth),
+                // read them from the SecurityContext authentication authorities
+                List<String> resolvedRoles = tenantMap.getOrDefault("Roles", Collections.emptyList());
+                if (resolvedRoles.isEmpty() && auth.getAuthorities() != null) {
+                    List<String> authRoles = auth.getAuthorities().stream()
+                            .map(a -> a.getAuthority())
+                            .filter(a -> a.startsWith("ROLE_"))
+                            .toList();
+                    if (!authRoles.isEmpty()) {
+                        tenantMap.put("Roles", authRoles);
+                        log.debug("[TenantFilter] resolved roles from authentication authorities: {}", authRoles);
+                    }
+                }
             }
 
             // If we resolved anything, set the context so downstream code (repositories, services) can use it
@@ -102,6 +117,11 @@ public class TenantFilter extends OncePerRequestFilter {
             filterChain.doFilter(request, response);
         } finally {
             TenantContext.clear(); // CRITICAL: Prevent memory leaks
+            AuditContextSupplier.clearOrganizationId();
+            AuditContextSupplier.clearCurrentUserId();
+            AuditContextSupplier.clearActionSource();
+            AuditContextSupplier.clearOldSnapshotJson();
+            AuditContextSupplier.clearNewSnapshotEntity();
         }
 
     }

@@ -30,6 +30,7 @@ public class OrganizationEmployeeDto {
     private String gender;
     private Boolean isPrimaryMember;
     private String relationship; // Relationship to primary member (for dependents)
+    private String actualRelationship; // Original label e.g. Son, Daughter when relationship is CHILD1–CHILD4
     private String organizationName;
     private Integer dependentCount; // Number of dependents for this employee
     private String healthId;

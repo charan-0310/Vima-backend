@@ -10,6 +10,7 @@ import java.util.Set;
 import java.util.stream.Collectors;
 import java.util.Objects;
 
+import com.vimainsurance.vimaadmin.audit.AuditedOperation;
 import com.vimainsurance.vimaadmin.dto.BaseResponse;
 import com.vimainsurance.vimaadmin.dto.DealsDashboardResponseDto;
 import com.vimainsurance.vimaadmin.dto.DealsRequestDto;
@@ -117,6 +118,7 @@ public class DealsServiceImpl implements IDealsService{
     private JwtUserExtractor jwtUserExtractor;
 
     @Override
+    @AuditedOperation(schemaName = "cpc", tableName = "customers", entityType = "DEAL", action = "CREATE")
     public ResponseEntity<ResponseDto<String>> createDeals(DealsRequestDto dealsRequestDto) {
         logger.info("[correlationId:{}] createDeals called", MDC.get("correlationId"));
         BaseResponse<String> responseObj = new BaseResponse<>();
@@ -163,6 +165,7 @@ public class DealsServiceImpl implements IDealsService{
     }
 
     @Override
+    @AuditedOperation(schemaName = "cpc", tableName = "customers", entityType = "DEAL", action = "UPDATE")
     public ResponseEntity<ResponseDto<String>> updateDeals(UUID individualId,
             DealsRequestDto dealsRequestDto) {
         BaseResponse<String> responseObj = new BaseResponse<>();
@@ -335,6 +338,7 @@ public class DealsServiceImpl implements IDealsService{
     }
 
     @Override
+    @AuditedOperation(schemaName = "cpc", tableName = "customers", entityType = "DEAL", action = "DELETE")
     public ResponseEntity<ResponseDto<String>> deleteDeals(UUID individualId) {
         BaseResponse<String> responseObj = new BaseResponse<>();
         try{
@@ -375,6 +379,7 @@ public class DealsServiceImpl implements IDealsService{
     }
 
     @Override
+    @AuditedOperation(schemaName = "document", tableName = "documents", entityType = "DEAL_DOCUMENT", action = "CREATE")
     public ResponseEntity<ResponseDto<String>> uploadDocument(DocumentRequestDto requestDto, UUID individualId) {
         logger.info("[correlationId:{}] uploadDocument called", MDC.get("correlationId"));
         BaseResponse<String> responseObj = new BaseResponse<>();
@@ -417,6 +422,7 @@ public class DealsServiceImpl implements IDealsService{
     }
 
     @Override
+    @AuditedOperation(schemaName = "document", tableName = "documents", entityType = "DEAL_DOCUMENT", action = "DELETE")
     public ResponseEntity<ResponseDto<String>> deleteDocument(String documentId) {
         logger.info("[correlationId:{}] deleteDocument called", MDC.get("correlationId"));
         BaseResponse<String> responseObj = new BaseResponse<>();
@@ -477,6 +483,7 @@ public class DealsServiceImpl implements IDealsService{
         dealsResponseDto.setAccountStatus(deal.getStatus().getValue());
         dealsResponseDto.setEmployeeNumber(deal.getEmployeeNumber());
         dealsResponseDto.setRelationship(deal.getRelationship());
+        dealsResponseDto.setActualRelationship(deal.getActualRelationship());
         dealsResponseDto.setDesignation(deal.getDesignation());
         dealsResponseDto.setDateOfJoining(deal.getDateOfJoining());
         dealsResponseDto.setIsPrimaryMember(deal.getIsPrimaryMember());
@@ -552,6 +559,7 @@ public class DealsServiceImpl implements IDealsService{
 
     @Override
     @Transactional(rollbackFor = Exception.class)
+    @AuditedOperation(schemaName = "cpc", tableName = "policies", entityType = "POLICY", action = "CREATE")
     public ResponseEntity<ResponseDto<String>> uploadPolicyWithDetails(PolicyUploadRequestDto requestDto) {
         logger.info("[correlationId:{}] uploadPolicyWithDetails called", MDC.get("correlationId"));
         BaseResponse<String> responseObj = new BaseResponse<>();

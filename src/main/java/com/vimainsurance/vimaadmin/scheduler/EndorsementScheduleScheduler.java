@@ -10,6 +10,8 @@ import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
+import com.vimainsurance.vimaadmin.audit.AuditContextSupplier;
+import com.vimainsurance.vimaadmin.audit.ActionSource;
 import com.vimainsurance.vimaadmin.config.EndorsementSchedulerConfig;
 import com.vimainsurance.vimaadmin.service.IEndorsementService;
 
@@ -53,17 +55,16 @@ public class EndorsementScheduleScheduler {
     public void confirmEndorsementSchedule() {
         String correlationId = UUID.randomUUID().toString();
         MDC.put("correlationId", correlationId);
-        
         try {
+            AuditContextSupplier.setActionSource(ActionSource.SYSTEM);
             logger.info("[correlationId:{}] Starting scheduled endorsement confirmation", correlationId);
-            
             endorsementService.confirmSchedule();
-            
             logger.info("[correlationId:{}] Completed scheduled endorsement confirmation", correlationId);
         } catch (Exception e) {
-            logger.error("[correlationId:{}] Error in scheduled endorsement confirmation: {}", 
+            logger.error("[correlationId:{}] Error in scheduled endorsement confirmation: {}",
                 correlationId, e.getMessage(), e);
         } finally {
+            AuditContextSupplier.clearActionSource();
             MDC.clear();
         }
     }

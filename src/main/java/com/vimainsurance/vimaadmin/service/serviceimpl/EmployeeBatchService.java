@@ -49,12 +49,12 @@ public class EmployeeBatchService {
                 individual_id, first_name, last_name, full_name, email, phone,
                 date_of_birth, gender, pan_number, aadhaar_number, address, city,
                 state, pincode, account_type, status, organization_id, employee_number,
-                primary_individual_id, relationship, is_primary_member, designation,
+                primary_individual_id, relationship, actual_relationship, is_primary_member, designation,
                 date_of_joining, username, password_hash, preferred_language, lead_id,
                 cust_id, created_at, updated_at, marital_status, sum_insured
             ) VALUES (
                 gen_random_uuid(), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?::cpc.account_type_enum,
-                ?::cpc.account_status_enum, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+                ?::cpc.account_status_enum, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
             )
             """;
 
@@ -118,6 +118,8 @@ public class EmployeeBatchService {
                     }
                     // relationship
                     ps.setString(paramIndex++, deal.getRelationship());
+                    // actual_relationship
+                    ps.setString(paramIndex++, deal.getActualRelationship());
                     // is_primary_member
                     Boolean isPrimaryMember = deal.getIsPrimaryMember();
                     boolean isPrimary = (isPrimaryMember != null) ? Boolean.TRUE.equals(isPrimaryMember) : false;
@@ -206,7 +208,7 @@ public class EmployeeBatchService {
                 first_name = ?, last_name = ?, full_name = ?, email = ?, phone = ?,
                 date_of_birth = ?, gender = ?, designation = ?, date_of_joining = ?,
                 account_type = ?::cpc.account_type_enum, status = ?::cpc.account_status_enum,
-                organization_id = ?, employee_number = ?, relationship = ?,
+                organization_id = ?, employee_number = ?, relationship = ?, actual_relationship = ?,
                 is_primary_member = ?, updated_at = ?, marital_status = ?, sum_insured = ?
             WHERE individual_id = ?
             """;
@@ -261,6 +263,8 @@ public class EmployeeBatchService {
                     ps.setString(paramIndex++, deal.getEmployeeNumber());
                     // relationship
                     ps.setString(paramIndex++, deal.getRelationship());
+                    // actual_relationship
+                    ps.setString(paramIndex++, deal.getActualRelationship());
                     // is_primary_member
                     Boolean isPrimaryMember = deal.getIsPrimaryMember();
                     boolean isPrimary = (isPrimaryMember != null) ? Boolean.TRUE.equals(isPrimaryMember) : false;

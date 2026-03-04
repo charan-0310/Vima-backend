@@ -30,6 +30,7 @@ public class ReportExportRowDto {
     private LocalDate dateOfBirth;
     private String gender;
     private String relationship;
+    private String actualRelationship;
     private Boolean isPrimaryMember;
     private LocalDate exitDate;
     private LocalDate coverageEndDate;

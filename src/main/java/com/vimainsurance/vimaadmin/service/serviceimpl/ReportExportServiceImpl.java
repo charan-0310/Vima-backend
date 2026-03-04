@@ -360,6 +360,7 @@ public class ReportExportServiceImpl implements IReportExportService {
                 .employeeNumber(deal.getEmployeeNumber())
                 .firstName(deal.getFirstName())
                 .relationship(deal.getRelationship())
+                .actualRelationship(deal.getActualRelationship())
                 .fullName(deal.getFullName())
                 .dateOfBirth(deal.getDateOfBirth())
                 .gender(deal.getGender())

@@ -1,5 +1,6 @@
 package com.vimainsurance.vimaadmin.service.serviceimpl;
 
+import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.Objects;
 import java.util.UUID;
@@ -10,12 +11,14 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Service;
 
+import com.vimainsurance.vimaadmin.audit.AuditedOperation;
 import com.vimainsurance.vimaadmin.dto.ResponseDto;
 import com.vimainsurance.vimaadmin.dto.claim.ClaimDetailsResponse;
 import com.vimainsurance.vimaadmin.dto.claim.ClaimListFilters;
 import com.vimainsurance.vimaadmin.dto.claim.ClaimSubmissionRequest;
 import com.vimainsurance.vimaadmin.dto.claim.ClaimSummaryDto;
 import com.vimainsurance.vimaadmin.dto.claim.EmployeeClaimSubmitResponseDto;
+import com.vimainsurance.vimaadmin.dto.claim.EmployeeClaimsSummaryResponse;
 import com.vimainsurance.vimaadmin.entity.Claim;
 import com.vimainsurance.vimaadmin.enums.ClaimStatus;
 import com.vimainsurance.vimaadmin.enums.SubmissionSource;
@@ -43,6 +46,7 @@ public class EmployeeClaimsServiceImpl implements IEmployeeClaimsService {
     private final JwtUserExtractor jwtUserExtractor;
 
     @Override
+    @AuditedOperation(schemaName = "claims", tableName = "claims", entityType = "CLAIM", action = "SUBMIT")
     public ResponseEntity<ResponseDto<EmployeeClaimSubmitResponseDto>> submitClaim(ClaimSubmissionRequest request) {
         UUID employeeId = jwtUserExtractor.getCurrentEmployeeId();
         if (employeeId == null) {
@@ -136,6 +140,7 @@ public class EmployeeClaimsServiceImpl implements IEmployeeClaimsService {
     }
 
     @Override
+    @AuditedOperation(schemaName = "claims", tableName = "claims", entityType = "CLAIM", action = "UPDATE")
     public ResponseEntity<ResponseDto<ClaimDetailsResponse>> updateDraftClaim(UUID claimId, ClaimSubmissionRequest request) {
         UUID employeeId = jwtUserExtractor.getCurrentEmployeeId();
         if (employeeId == null) {
@@ -155,6 +160,7 @@ public class EmployeeClaimsServiceImpl implements IEmployeeClaimsService {
     }
 
     @Override
+    @AuditedOperation(schemaName = "claims", tableName = "claims", entityType = "CLAIM", action = "UPDATE")
     public ResponseEntity<ResponseDto<String>> cancelClaim(UUID claimId) {
         UUID employeeId = jwtUserExtractor.getCurrentEmployeeId();
         if (employeeId == null) {
@@ -171,6 +177,26 @@ public class EmployeeClaimsServiceImpl implements IEmployeeClaimsService {
             }
             return ResponseEntity.badRequest().body(new ResponseDto<>(400, e.getMessage()));
         }
+    }
+
+    @Override
+    public ResponseEntity<ResponseDto<EmployeeClaimsSummaryResponse>> getMyClaimsSummary() {
+        UUID employeeId = jwtUserExtractor.getCurrentEmployeeId();
+        if (employeeId == null) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                    .body(new ResponseDto<>(401, "Authentication required. Employee context not found in token."));
+        }
+        long totalClaims = claimRepository.countByEmployee_IndividualIdAndIsDeleted(employeeId, false);
+        BigDecimal totalPaid = claimRepository.sumSettledAmountByEmployeeId(employeeId);
+        if (totalPaid == null) {
+            totalPaid = BigDecimal.ZERO;
+        }
+        EmployeeClaimsSummaryResponse summary = EmployeeClaimsSummaryResponse.builder()
+                .totalClaims(totalClaims)
+                .totalPaid(totalPaid)
+                .totalPending(BigDecimal.ZERO)
+                .build();
+        return ResponseEntity.ok(new ResponseDto<>("Success", summary));
     }
 
     private void resolveOrganizationFromPolicy(ClaimSubmissionRequest request) {

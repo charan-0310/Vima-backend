@@ -16,8 +16,8 @@ VALUES  ('11112222-3333-4444-5555-666677778888', 'group-insurance','Access to gr
 INSERT INTO admin.feature_flags (flag_id, flag_key, description, parent_flag_id, is_active)
 VALUES  ('9999aaaa-bbbb-cccc-dddd-eeeeffff0000', 'group-insurance.claims','Claims management functionality','11112222-3333-4444-5555-666677778888', FALSE);
 
-INSERT INTO admin.feature_flags(flag_key, description, parent_flag_id, is_active)
-VALUES ( 'group-insurance.overview', 'Overview insurance functionality', '11112222-3333-4444-5555-666677778888', FALSE);
+INSERT INTO admin.feature_flags(flag_id, flag_key, description, parent_flag_id, is_active)
+VALUES ('7cf35b8a-a76a-44ef-bf92-bca9ca82bea7', 'group-insurance.overview', 'Overview insurance functionality', '11112222-3333-4444-5555-666677778888', FALSE);
 
 INSERT INTO admin.feature_flags (flag_id, flag_key, description, is_active)
 VALUES  ('f0e1d2c3-b4a5-9607-1827-374657485960', 'endorsement','Enable endorsement functionality', FALSE);

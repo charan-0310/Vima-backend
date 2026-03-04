@@ -45,7 +45,6 @@ import com.vimainsurance.vimaadmin.enums.PaymentFrequency;
 import com.vimainsurance.vimaadmin.enums.PolicyStatus;
 import com.vimainsurance.vimaadmin.enums.ProductType;
 import com.vimainsurance.vimaadmin.enums.UserRole;
-import com.vimainsurance.vimaadmin.exception.OrganizationAccessDeniedException;
 import com.vimainsurance.vimaadmin.exception.BadRequestException;
 import com.vimainsurance.vimaadmin.repository.IAdminUserRepository;
 import com.vimainsurance.vimaadmin.repository.IDealsRepository;
@@ -58,7 +57,10 @@ import com.vimainsurance.vimaadmin.service.IDocumentService;
 import com.vimainsurance.vimaadmin.service.IPolicyService;
 import com.vimainsurance.vimaadmin.util.Constants;
 import com.vimainsurance.vimaadmin.util.JwtUserExtractor;
+import com.vimainsurance.vimaadmin.audit.AuditContextSupplier;
+import com.vimainsurance.vimaadmin.audit.AuditedOperation;
 import com.vimainsurance.vimaadmin.util.PolicyValidationUtil;
+import com.fasterxml.jackson.databind.ObjectMapper;
 /**
  * Service implementation for Policy operations
  */
@@ -94,9 +96,12 @@ public class PolicyServiceImpl implements IPolicyService {
     @Autowired
     private IDocumentService documentService;
 
+    @Autowired
+    private ObjectMapper objectMapper;
 
     @Override
     @Transactional(rollbackFor = Exception.class)
+    @AuditedOperation(schemaName = "cpc", tableName = "policies", entityType = "POLICY", action = "CREATE")
     public ResponseEntity<ResponseDto<String>> createPolicy(PolicyRequestDto requestDto) {
         logger.info("[correlationId:{}] createPolicy called", MDC.get("correlationId"));
         BaseResponse<String> responseObj = new BaseResponse<>();
@@ -221,6 +226,7 @@ public class PolicyServiceImpl implements IPolicyService {
     }
 
     @Override
+    @AuditedOperation(schemaName = "cpc", tableName = "policies", entityType = "POLICY", action = "UPDATE")
     public ResponseEntity<ResponseDto<String>> updatePolicy(Long policyId, PolicyRequestDto requestDto) {
         logger.info("[correlationId:{}] updatePolicy called for ID: {}", MDC.get("correlationId"), policyId);
         BaseResponse<String> responseObj = new BaseResponse<>();
@@ -235,7 +241,11 @@ public class PolicyServiceImpl implements IPolicyService {
             }
 
             Policy policy = policyOpt.get();
-            
+            try {
+                AuditContextSupplier.setOldSnapshotJson(objectMapper.writeValueAsString(policy));
+            } catch (Exception e) {
+                logger.warn("[correlationId:{}] Could not serialize policy for audit old snapshot: {}", MDC.get("correlationId"), e.getMessage());
+            }
             // Check if policy number is being changed and if it already exists
             if (!policy.getPolicyNumber().equals(requestDto.getPolicyNumber()) && 
                 policyRepository.existsByPolicyNumber(requestDto.getPolicyNumber())) {
@@ -300,8 +310,8 @@ public class PolicyServiceImpl implements IPolicyService {
             }
 
             policyRepository.save(policy);
+            com.vimainsurance.vimaadmin.audit.AuditContextSupplier.setNewSnapshotEntity(policy);
             logger.info("[correlationId:{}] Policy updated successfully", MDC.get("correlationId"));
-            
             return responseObj.render(responseObj.formSuccessResponse(Constants.SUCCESS, Constants.UPDATE_SUCCESS));
         } catch (BadRequestException e) {
             logger.error("[correlationId:{}] Validation error in updatePolicy: {}", MDC.get("correlationId"), e.getMessage());
@@ -405,7 +415,6 @@ public class PolicyServiceImpl implements IPolicyService {
         BaseResponse<List<PolicyResponseDto>> responseObj = new BaseResponse<>();
         
         try {
-            jwtUserExtractor.validateOrganizationAccess(organizationId);
             List<Policy> policies = policyRepository.findByOrganizationId(organizationId);
             Long employeesCount = dealsRepository.countByOrganizationIdAndRelationshipSelf(organizationId);
             Long dependentsCount = dealsRepository.countByOrganizationIdAndRelationshipNonSelf(organizationId);
@@ -418,9 +427,6 @@ public class PolicyServiceImpl implements IPolicyService {
                 })
                 .collect(Collectors.toList());
             return responseObj.render(responseObj.formSuccessResponse(Constants.SUCCESS, responseDtos));
-        } catch (OrganizationAccessDeniedException e) {
-            logger.warn("[correlationId:{}] Organization access denied for organizationId: {}", MDC.get("correlationId"), organizationId);
-            return responseObj.render(responseObj.formErrorResponse(403, "Organization access denied"));
         } catch (Exception e) {
             logger.error("[correlationId:{}] Exception in getPoliciesByOrganizationId: {}", MDC.get("correlationId"), e.getMessage(), e);
             return responseObj.render(responseObj.formErrorResponse(e.getMessage()));
@@ -497,6 +503,7 @@ public class PolicyServiceImpl implements IPolicyService {
     }
 
     @Override
+    @AuditedOperation(schemaName = "cpc", tableName = "policies", entityType = "POLICY", action = "UPDATE")
     public ResponseEntity<ResponseDto<String>> updatePolicyStatus(Long policyId, String status) {
         logger.info("[correlationId:{}] updatePolicyStatus called for ID: {} to status: {}", 
                    MDC.get("correlationId"), policyId, status);
@@ -511,7 +518,7 @@ public class PolicyServiceImpl implements IPolicyService {
             Policy policy = policyOpt.get();
             policy.setStatus(PolicyStatus.fromValue(status));
             policyRepository.save(policy);
-            
+            com.vimainsurance.vimaadmin.audit.AuditContextSupplier.setNewSnapshotEntity(policy);
             logger.info("[correlationId:{}] Policy status updated successfully", MDC.get("correlationId"));
             return responseObj.render(responseObj.formSuccessResponse(Constants.SUCCESS, "Policy status updated successfully"));
         } catch (Exception e) {
@@ -521,6 +528,7 @@ public class PolicyServiceImpl implements IPolicyService {
     }
 
     @Override
+    @AuditedOperation(schemaName = "cpc", tableName = "policies", entityType = "POLICY", action = "DELETE")
     public ResponseEntity<ResponseDto<String>> deletePolicy(Long policyId) {
         logger.info("[correlationId:{}] deletePolicy called for ID: {}", MDC.get("correlationId"), policyId);
         BaseResponse<String> responseObj = new BaseResponse<>();
@@ -645,6 +653,7 @@ public class PolicyServiceImpl implements IPolicyService {
         responseDto.setLastName(deals.getLastName());
         responseDto.setDateOfBirth(deals.getDateOfBirth());
         responseDto.setRelationship(deals.getRelationship());
+        responseDto.setActualRelationship(deals.getActualRelationship());
         
         return responseDto;
     }
@@ -653,28 +662,27 @@ public class PolicyServiceImpl implements IPolicyService {
     
     @Override
     @Transactional(rollbackFor = Exception.class)
+    @AuditedOperation(schemaName = "cpc", tableName = "policies", entityType = "POLICY", action = "CREATE")
     public ResponseEntity<ResponseDto<String>> uploadPolicyForOrganization(UUID organizationId, PolicyUploadRequestDto requestDto) {
         logger.info("[correlationId:{}] uploadPolicyForOrganization called for organizationId: {}", MDC.get("correlationId"), organizationId);
         BaseResponse<String> responseObj = new BaseResponse<>();
         try {
-            // Get current user
-            final String currentUsername = jwtUserExtractor.extractCurrentUsername();
-            Optional<AdminUser> adminUser = adminUserRepository.findByUsername(currentUsername);
-            if(adminUser.isEmpty()){
-                return responseObj.render(responseObj.formErrorResponse("Agent not found"));
+            // Agent is required only when uploading documents (for uploadedBy). Without files, Keycloak-only users (e.g. e2e-vima-admin) can create policies.
+            AdminUser agent = null;
+            if (requestDto.getFiles() != null && requestDto.getFiles().length > 0) {
+                final String currentUsername = jwtUserExtractor.extractCurrentUsername();
+                Optional<AdminUser> adminUser = adminUserRepository.findByUsername(currentUsername);
+                if (adminUser.isEmpty()) {
+                    return responseObj.render(responseObj.formErrorResponse("Agent not found"));
+                }
+                agent = adminUser.get();
             }
-            AdminUser agent = adminUser.get();
-            
-            // For organization policies, try to find a primary individual from the organization
-            // If not found, we'll use organizationId as primaryIndividualId directly
-           
-                 
-            
+
             // Create Policy entity
             Policy policy = new Policy();
             policy.setPolicyNumber(requestDto.getPolicyNumber());
-            // Use organizationId as primaryIndividualId as per requirement
-            policy.setPrimaryIndividualId(organizationId);
+            // Organization policies: no primary individual required (company may have no customers/employees yet)
+            policy.setPrimaryIndividualId(null);
             policy.setInsuranceProviderId(insuranceProviderRepository.findByProviderCode(requestDto.getProviderCode())
                 .orElseThrow(() -> new RuntimeException("Insurance provider not found")).getProviderId());
             policy.setOrganizationId(organizationId);
@@ -726,8 +734,8 @@ public class PolicyServiceImpl implements IPolicyService {
             Policy savedPolicy = policyRepository.save(policy);
             logger.info("[correlationId:{}] Policy saved with ID: {}", MDC.get("correlationId"), savedPolicy.getPolicyId());
             
-            // Upload documents if provided
-            if (requestDto.getFiles() != null && requestDto.getFiles().length > 0) {
+            // Upload documents if provided (agent already looked up above when files present)
+            if (requestDto.getFiles() != null && requestDto.getFiles().length > 0 && agent != null) {
                 DocumentRequestDto documentRequest = new DocumentRequestDto();
                 documentRequest.setFiles(requestDto.getFiles());
                 documentRequest.setDocumentType(requestDto.getDocumentType());

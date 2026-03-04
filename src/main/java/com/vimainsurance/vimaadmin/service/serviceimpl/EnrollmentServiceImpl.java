@@ -244,6 +244,7 @@ public class EnrollmentServiceImpl implements IEnrollmentService {
         dto.setPincode(deal.getPincode());
         dto.setEmployeeNumber(deal.getEmployeeNumber());
         dto.setRelationship(deal.getRelationship());
+        dto.setActualRelationship(deal.getActualRelationship());
         dto.setDesignation(deal.getDesignation());
         dto.setDateOfJoining(deal.getDateOfJoining());
         dto.setIsPrimaryMember(deal.getIsPrimaryMember());

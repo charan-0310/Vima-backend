@@ -242,6 +242,7 @@ public class EmployeeInsuranceServiceImpl implements IEmployeeInsuranceService {
                         deal.getFullName() : ((deal.getFirstName() != null ? deal.getFirstName().trim() : "") +
                         " " + (deal.getLastName() != null ? deal.getLastName().trim() : "")).trim())
                 .relationship(deal.getRelationship())
+                .actualRelationship(deal.getActualRelationship())
                 .dateOfBirth(deal.getDateOfBirth())
                 .gender(deal.getGender())
                 .email(deal.getEmail())

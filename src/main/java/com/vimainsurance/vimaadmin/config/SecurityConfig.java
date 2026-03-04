@@ -89,27 +89,31 @@ public class SecurityConfig {
     private String contextPath;
     
     /**
-     * Filter to set up mock authentication in dev mode
-     * This allows @PreAuthorize checks to pass without actual JWT tokens
+     * Filter to set up mock authentication when no JWT (dev and test profiles).
+     * Dev: all roles so local development has full access.
+     * Test: single role ROLE_VIMA_ADMIN so auth/me and feature flags match e2e expectations (no JWT in test).
      */
-    private static class DevAuthenticationFilter extends OncePerRequestFilter {
+    private class DevAuthenticationFilter extends OncePerRequestFilter {
         @Override
         protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain filterChain)
                 throws ServletException, IOException {
             if (SecurityContextHolder.getContext().getAuthentication() == null) {
-                // Create a mock authentication with all authorities
-                UsernamePasswordAuthenticationToken auth = new UsernamePasswordAuthenticationToken(
-                    "dev-user",
-                    null,
-                    Arrays.asList(
-                        new SimpleGrantedAuthority("SUPER_ADMIN"),
-                        new SimpleGrantedAuthority("ADMIN"),
-                        new SimpleGrantedAuthority("VIMA_ADMIN"),
-                        new SimpleGrantedAuthority("SALES_MANAGER"),
-                        new SimpleGrantedAuthority("SALES_AGENT"),
-                        new SimpleGrantedAuthority("HR_ADMIN"),
+                boolean isTestProfile = Arrays.stream(environment.getActiveProfiles()).anyMatch("test"::equalsIgnoreCase);
+                java.util.List<SimpleGrantedAuthority> authorities = isTestProfile
+                    ? Arrays.asList(new SimpleGrantedAuthority("ROLE_VIMA_ADMIN"))
+                    : Arrays.asList(
+                        new SimpleGrantedAuthority("ROLE_SUPER_ADMIN"),
+                        new SimpleGrantedAuthority("ROLE_ADMIN"),
+                        new SimpleGrantedAuthority("ROLE_VIMA_ADMIN"),
+                        new SimpleGrantedAuthority("ROLE_SALES_MANAGER"),
+                        new SimpleGrantedAuthority("ROLE_SALES_AGENT"),
+                        new SimpleGrantedAuthority("ROLE_HR_ADMIN"),
                         new SimpleGrantedAuthority("ROLE_EMPLOYEE")
-                    )
+                    );
+                UsernamePasswordAuthenticationToken auth = new UsernamePasswordAuthenticationToken(
+                    isTestProfile ? "e2e-vima-admin" : "dev-user",
+                    null,
+                    authorities
                 );
                 SecurityContextHolder.getContext().setAuthentication(auth);
             }
@@ -147,19 +151,16 @@ public class SecurityConfig {
             .csrf(csrf -> csrf.disable());
 
         if (isDevProfile) {
-            // Ensure tenant is resolved early in the chain for both environments
-            // Add tenant filter before security filters so DB resolvers and auth can read tenant
-            http.addFilterBefore(tenantFilter(), UsernamePasswordAuthenticationFilter.class);
-
             // Dev mode: bypass all authentication but set up a mock authentication
             // so @PreAuthorize checks pass
             http.authorizeHttpRequests(auth -> auth
                     .anyRequest().permitAll()
             );
 
-            // Add a filter to set up mock authentication in dev mode.
-            // Place DevAuthenticationFilter after TenantFilter so tenant info is available to the mock auth.
-            http.addFilterAfter(new DevAuthenticationFilter(), TenantFilter.class);
+            // DevAuthenticationFilter must run BEFORE TenantFilter so that
+            // TenantFilter can read roles from the mock authentication context.
+            http.addFilterBefore(new DevAuthenticationFilter(), UsernamePasswordAuthenticationFilter.class);
+            http.addFilterAfter(tenantFilter(), DevAuthenticationFilter.class);
         } else {
             // Production mode: normal security
             // Note: TenantFilter will be added after OAuth2 Resource Server (line 198)

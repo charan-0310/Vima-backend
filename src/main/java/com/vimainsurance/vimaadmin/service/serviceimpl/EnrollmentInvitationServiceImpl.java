@@ -19,10 +19,12 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.vimainsurance.vimaadmin.audit.AuditedOperation;
 import com.vimainsurance.vimaadmin.config.AsyncConfig;
 import com.vimainsurance.vimaadmin.dto.ActivateWindowResponseDto;
 import com.vimainsurance.vimaadmin.dto.BaseResponse;
@@ -78,6 +80,7 @@ public class EnrollmentInvitationServiceImpl implements IEnrollmentInvitation {
 
     @Override
     @Transactional
+    @AuditedOperation(schemaName = "cpc", tableName = "enrollment_invitations", entityType = "ENROLLMENT_INVITATION", action = "CREATE")
     public ResponseEntity<ResponseDto<EnrollmentInvitationResponseDto>> sendInvitation(UUID employeeId, UUID windowId) {
         BaseResponse<EnrollmentInvitationResponseDto> responseObj = new BaseResponse<>();
         try {
@@ -140,7 +143,8 @@ public class EnrollmentInvitationServiceImpl implements IEnrollmentInvitation {
     }
 
     @Override
-    @Transactional
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
+    @AuditedOperation(schemaName = "cpc", tableName = "enrollment_invitations", entityType = "ENROLLMENT_INVITATION", action = "BULK_CREATE")
     public ResponseEntity<ResponseDto<IEnrollmentInvitation.BulkInvitationResult>> sendBulkInvitations(List<UUID> employeeIds, UUID windowId) {
         BaseResponse<IEnrollmentInvitation.BulkInvitationResult> responseObj = new BaseResponse<>();
         try {
@@ -204,6 +208,7 @@ public class EnrollmentInvitationServiceImpl implements IEnrollmentInvitation {
 
     @Override
     @Transactional
+    @AuditedOperation(schemaName = "cpc", tableName = "enrollment_invitations", entityType = "ENROLLMENT_INVITATION", action = "BULK_UPDATE")
     public ResponseEntity<ResponseDto<IEnrollmentInvitation.ReminderResult>> sendReminders(UUID windowId, List<UUID> employeeIds) {
         BaseResponse<IEnrollmentInvitation.ReminderResult> responseObj = new BaseResponse<>();
         try {
@@ -251,6 +256,7 @@ public class EnrollmentInvitationServiceImpl implements IEnrollmentInvitation {
 
     @Override
     @Transactional
+    @AuditedOperation(schemaName = "cpc", tableName = "enrollment_invitations", entityType = "ENROLLMENT_REMINDER_JOB", action = "SYSTEM")
     public void runScheduledReminders() {
         List<EnrollementStatus> reminderStatuses = List.of(EnrollementStatus.SENT, EnrollementStatus.OPENED, EnrollementStatus.IN_PROGRESS);
         List<EnrollmentInvitation> eligible = invitationRepository.findEligibleForReminder(reminderStatuses, LocalDateTime.now());
@@ -320,6 +326,7 @@ public class EnrollmentInvitationServiceImpl implements IEnrollmentInvitation {
 
     @Override
     @Transactional
+    @AuditedOperation(schemaName = "cpc", tableName = "enrollment_invitations", entityType = "ENROLLMENT_INVITATION", action = "UPDATE")
     public ResponseEntity<ResponseDto<EnrollmentInvitationResponseDto>> extendDeadline(UUID invitationId, LocalDateTime newExpiresAt) {
         BaseResponse<EnrollmentInvitationResponseDto> responseObj = new BaseResponse<>();
         try {
@@ -339,6 +346,7 @@ public class EnrollmentInvitationServiceImpl implements IEnrollmentInvitation {
 
     @Override
     @Transactional
+    @AuditedOperation(schemaName = "cpc", tableName = "enrollment_invitations", entityType = "ENROLLMENT_INVITATION", action = "UPDATE")
     public ResponseEntity<ResponseDto<EnrollmentInvitationResponseDto>> extendDeadlineByEmployeeAndWindow(UUID employeeId, UUID windowId, LocalDateTime newExpiresAt) {
         BaseResponse<EnrollmentInvitationResponseDto> responseObj = new BaseResponse<>();
         try {
@@ -361,6 +369,7 @@ public class EnrollmentInvitationServiceImpl implements IEnrollmentInvitation {
 
     @Override
     @Transactional
+    @AuditedOperation(schemaName = "cpc", tableName = "enrollment_invitations", entityType = "ENROLLMENT_INVITATION", action = "BULK_UPDATE")
     public ResponseEntity<ResponseDto<ExtendDeadlineResultDto>> extendDeadlineForEmployees(List<UUID> employeeIds, UUID windowId, LocalDateTime newExpiresAt) {
         BaseResponse<ExtendDeadlineResultDto> responseObj = new BaseResponse<>();
         try {
@@ -423,6 +432,7 @@ public class EnrollmentInvitationServiceImpl implements IEnrollmentInvitation {
 
     @Override
     @Transactional
+    @AuditedOperation(schemaName = "cpc", tableName = "enrollment_invitations", entityType = "ENROLLMENT_INVITATION", action = "UPDATE")
     public ResponseEntity<ResponseDto<InvitationLinkResponseDto>> getInvitationLink(UUID invitationId) {
         BaseResponse<InvitationLinkResponseDto> responseObj = new BaseResponse<>();
         try {
@@ -453,6 +463,7 @@ public class EnrollmentInvitationServiceImpl implements IEnrollmentInvitation {
 
     @Override
     @Transactional
+    @AuditedOperation(schemaName = "cpc", tableName = "enrollment_invitations", entityType = "ENROLLMENT_INVITATION", action = "UPDATE")
     public ResponseEntity<ResponseDto<ResendInvitationResponseDto>> resendActivationLink(UUID invitationId) {
         BaseResponse<ResendInvitationResponseDto> responseObj = new BaseResponse<>();
         try {
@@ -496,6 +507,7 @@ public class EnrollmentInvitationServiceImpl implements IEnrollmentInvitation {
 
     @Override
     @Transactional
+    @AuditedOperation(schemaName = "cpc", tableName = "enrollment_windows", entityType = "ENROLLMENT_WINDOW", action = "UPDATE")
     public ResponseEntity<ResponseDto<ActivateWindowResponseDto>> activateWindowAndSendInvites(UUID windowId) {
         BaseResponse<ActivateWindowResponseDto> responseObj = new BaseResponse<>();
         try {

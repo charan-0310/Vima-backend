@@ -10,6 +10,7 @@ import org.springframework.data.jpa.domain.Specification;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import com.vimainsurance.vimaadmin.audit.AuditedOperation;
 import com.vimainsurance.vimaadmin.adapter.InsurerAdapter;
 import com.vimainsurance.vimaadmin.adapter.InsurerAdapterFactory;
 import com.vimainsurance.vimaadmin.dto.claim.ClaimDetailsResponse;
@@ -61,6 +62,7 @@ public class ClaimsServiceImpl implements IClaimsService {
 
     @Override
     @Transactional(rollbackFor = Exception.class)
+    @AuditedOperation(schemaName = "claims", tableName = "claims", entityType = "CLAIM", action = "SUBMIT")
     public ClaimDetailsResponse submitClaim(ClaimSubmissionRequest request, UUID employeeId) {
         log.info("[claim] submitClaim employeeId={}", employeeId);
         validationService.validateSubmission(request, employeeId);
@@ -92,6 +94,7 @@ public class ClaimsServiceImpl implements IClaimsService {
 
     @Override
     @Transactional(rollbackFor = Exception.class)
+    @AuditedOperation(schemaName = "claims", tableName = "claims", entityType = "CLAIM", action = "UPDATE")
     public ClaimDetailsResponse updateDraftClaim(UUID claimId, ClaimSubmissionRequest request, UUID employeeId) {
         log.info("[claim] updateDraftClaim claimId={}, claimNumber={}", claimId, claimRepository.findById(claimId).map(Claim::getClaimNumber).orElse("?"));
         Claim claim = claimRepository.findById(claimId).orElseThrow(() -> new BadRequestException("Claim not found"));
@@ -111,6 +114,7 @@ public class ClaimsServiceImpl implements IClaimsService {
 
     @Override
     @Transactional(rollbackFor = Exception.class)
+    @AuditedOperation(schemaName = "claims", tableName = "claims", entityType = "CLAIM", action = "UPDATE")
     public void cancelClaim(UUID claimId, UUID employeeId) {
         Claim claim = claimRepository.findById(claimId).orElseThrow(() -> new BadRequestException("Claim not found"));
         validationService.validateEmployeeCanCancel(claim, employeeId);
@@ -125,6 +129,7 @@ public class ClaimsServiceImpl implements IClaimsService {
 
     @Override
     @Transactional(rollbackFor = Exception.class)
+    @AuditedOperation(schemaName = "claims", tableName = "claims", entityType = "CLAIM", action = "SUBMIT")
     public ClaimDetailsResponse submitToInsurer(UUID claimId) {
         Claim claim = claimRepository.findById(claimId).orElseThrow(() -> new BadRequestException("Claim not found"));
         if (claim.getInternalStatus() != ClaimStatus.APPROVED_FOR_SUBMISSION) {
@@ -157,6 +162,7 @@ public class ClaimsServiceImpl implements IClaimsService {
 
     @Override
     @Transactional(rollbackFor = Exception.class)
+    @AuditedOperation(schemaName = "claims", tableName = "claims", entityType = "CLAIM", action = "UPDATE")
     public ClaimDetailsResponse updateStatus(UUID claimId, StatusUpdateRequest request, UUID actorId, String actorRole) {
         Claim claim = claimRepository.findById(claimId).orElseThrow(() -> new BadRequestException("Claim not found"));
         ClaimStatus oldStatus = claim.getInternalStatus();
@@ -187,6 +193,7 @@ public class ClaimsServiceImpl implements IClaimsService {
 
     @Override
     @Transactional(rollbackFor = Exception.class)
+    @AuditedOperation(schemaName = "claims", tableName = "claims", entityType = "CLAIM", action = "UPDATE")
     public ClaimDetailsResponse updateInsurerRef(UUID claimId, InsurerRefRequest request) {
         Claim claim = claimRepository.findById(claimId).orElseThrow(() -> new BadRequestException("Claim not found"));
         if (request.getInsurerId() != null) claim.setInsurerId(request.getInsurerId());
@@ -240,6 +247,9 @@ public class ClaimsServiceImpl implements IClaimsService {
         claim.setReasonForAdmission(request.getReasonForAdmission());
         claim.setDiagnosis(request.getDiagnosis());
         claim.setClaimAmount(request.getClaimAmount());
+        claim.setInsuranceProviderLogo(request.getInsuranceProviderLogo());
+        claim.setPolicyNumber(request.getPolicyNumber());
+        claim.setValidUntil(request.getValidUntil());
         claim.setHospitalName(request.getHospitalName());
         claim.setHospitalCity(request.getHospitalCity());
         claim.setHospitalState(request.getHospitalState());

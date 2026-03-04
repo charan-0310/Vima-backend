@@ -58,6 +58,13 @@ public class Claim {
     @Column(name = "policy_id", nullable = false)
     private Long policyId;
 
+    @Column(name = "insurance_provider_logo", length = 200)
+    private String insuranceProviderLogo;
+    @Column(name = "policy_number", length = 100)
+    private String policyNumber;
+    @Column(name = "valid_until")
+    private LocalDate validUntil;
+
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "employee_id", nullable = false, referencedColumnName = "individual_id")
     private Deals employee;

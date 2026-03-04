@@ -6,6 +6,7 @@ import org.springframework.boot.context.properties.EnableConfigurationProperties
 import org.springframework.scheduling.annotation.EnableAsync;
 import org.springframework.scheduling.annotation.EnableScheduling;
 
+import com.vimainsurance.vimaadmin.config.AuditReplayConfig;
 import com.vimainsurance.vimaadmin.config.CsvDealsHeaderProperties;
 import com.vimainsurance.vimaadmin.config.EndorsementSchedulerConfig;
 import com.vimainsurance.vimaadmin.config.VendorMasterDataConfig;
@@ -16,7 +17,8 @@ import com.vimainsurance.vimaadmin.config.VendorMasterDataConfig;
 @EnableConfigurationProperties({
 		VendorMasterDataConfig.class,
 		CsvDealsHeaderProperties.class,
-		EndorsementSchedulerConfig.class
+		EndorsementSchedulerConfig.class,
+		AuditReplayConfig.class
 })
 public class VimaadminApplication {
 
