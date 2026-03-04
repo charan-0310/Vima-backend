@@ -604,7 +604,12 @@ public class OrganizationServiceImpl implements IOrganizationService {
         dto.setFullName(deal.getFullName());
         dto.setSumInsured(deal.getSumInsured());
         dto.setHealthId(deal.getHealthId());
-        dto.setEnrollementStatus(deal.getEnrollmentWindow() != null ? "SELF" : null);
+        // Self-enrollment: expose actual enrollment status (ACTIVE, APPROVED, PENDING, etc.); admin-enrolled: null
+        if (deal.getEnrollmentWindow() != null && deal.getEnrollmentStatus() != null) {
+            dto.setEnrollementStatus(deal.getEnrollmentStatus().name());
+        } else {
+            dto.setEnrollementStatus(deal.getEnrollmentWindow() != null ? "PENDING" : null);
+        }
         return dto;
     }
 

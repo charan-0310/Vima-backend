@@ -26,5 +26,8 @@ public class EnrollmentOrganizationPolicyDto {
 
     private String coverageType;
 
+    /** For GPA/GTL: CTC multiplier (e.g. 3 for 3x CTC). When set and sumInsured is null/zero, UI shows "Nx CTC". */
+    private Integer sumInsuredMultiplier;
+
     private String insurerName;
 }
