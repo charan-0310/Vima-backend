@@ -42,6 +42,7 @@ import com.vimainsurance.vimaadmin.dto.DocumentResponseDto;
 import com.vimainsurance.vimaadmin.dto.ManualAddEmployeesRequestDto;
 import com.vimainsurance.vimaadmin.dto.ManualDeleteEmployeesRequestDto;
 import com.vimainsurance.vimaadmin.dto.EmployeeUploadDto;
+import com.vimainsurance.vimaadmin.exception.OrganizationAccessDeniedException;
 import com.vimainsurance.vimaadmin.dto.EmployeeUploadResponse;
 import com.vimainsurance.vimaadmin.dto.OrganizationEmployeeDto;
 import com.vimainsurance.vimaadmin.dto.OrganizationRequestDto;
