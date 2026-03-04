@@ -17,9 +17,10 @@ public class AuditReplayConfig {
 
     /**
      * Cron expression (default: every 10 minutes).
-     * Example: "0 */10 * * * *" = every 10 minutes.
-    **/
-    private String cronExpression = "0 */10 * * * *";
+     * Example: "0 * * * * *" = every minute.
+    * @since 1.0.0
+    */
+    private String cronExpression = "0 * * * * *";
 
     /**
      * Max number of pending events to process per run.
