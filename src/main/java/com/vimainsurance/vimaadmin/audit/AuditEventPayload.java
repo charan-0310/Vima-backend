@@ -5,6 +5,7 @@ import java.util.UUID;
 
 import lombok.Builder;
 import lombok.Value;
+import lombok.extern.jackson.Jacksonized;
 
 /**
  * Immutable payload for an audit event (captured in request thread, passed to async writer).
@@ -12,6 +13,7 @@ import lombok.Value;
  */
 @Value
 @Builder
+@Jacksonized
 public class AuditEventPayload {
 
     String schemaName;

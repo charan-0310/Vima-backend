@@ -155,6 +155,25 @@ public class AuditContextSupplier {
     }
 
     /**
+     * For UPDATE (and similar) audited operations: set the prior DB state as JSON (serialize the entity
+     * right after load, before mutating). The aspect uses this as old_snapshot when present. Use this
+     * so the same entity reference can be mutated and saved without losing the "before" state.
+     */
+    private static final ThreadLocal<String> OLD_SNAPSHOT_JSON = new ThreadLocal<>();
+
+    public static void setOldSnapshotJson(String json) {
+        OLD_SNAPSHOT_JSON.set(json);
+    }
+
+    public static String getOldSnapshotJson() {
+        return OLD_SNAPSHOT_JSON.get();
+    }
+
+    public static void clearOldSnapshotJson() {
+        OLD_SNAPSHOT_JSON.remove();
+    }
+
+    /**
      * For UPDATE (and similar) audited operations: set the saved entity here before returning
      * so the audit aspect can use it as new_snapshot instead of the method's return value.
      * Call {@link #clearNewSnapshotEntity()} or rely on request cleanup (e.g. TenantFilter) to avoid leaks.

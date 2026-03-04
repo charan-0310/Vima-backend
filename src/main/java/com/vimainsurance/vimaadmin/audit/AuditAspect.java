@@ -70,9 +70,18 @@ public class AuditAspect {
             } else {
                 newSnapshot = truncateSnapshot(toJsonSafe(result));
             }
-            String oldSnapshot = isUpdate
-                    ? truncateSnapshot(requestPayloadSnapshot(joinPoint))
-                    : null;
+            // For update: prefer prior DB state JSON (set by service before mutating) as old_snapshot; fall back to request payload
+            String oldSnapshot;
+            String oldSnapshotJson = AuditContextSupplier.getOldSnapshotJson();
+            if (isUpdate && oldSnapshotJson != null && !oldSnapshotJson.isBlank()) {
+                try {
+                    oldSnapshot = truncateSnapshot(oldSnapshotJson);
+                } finally {
+                    AuditContextSupplier.clearOldSnapshotJson();
+                }
+            } else {
+                oldSnapshot = isUpdate ? truncateSnapshot(requestPayloadSnapshot(joinPoint)) : null;
+            }
             String schemaName = auditedOperation.schemaName().isBlank() ? null : auditedOperation.schemaName();
             String tableName = auditedOperation.tableName().isBlank() ? null : auditedOperation.tableName();
             UUID userId = resolveUserId();

@@ -17,16 +17,26 @@ import com.vimainsurance.vimaadmin.repository.IFeatureFlagRepository;
 import com.vimainsurance.vimaadmin.repository.IFeatureFlagCompanyRepository;
 import com.vimainsurance.vimaadmin.repository.FeatureFlagRoleRepository;
 import com.vimainsurance.vimaadmin.repository.IOrganizationRepository;
+import com.vimainsurance.vimaadmin.audit.AuditContextSupplier;
+import com.vimainsurance.vimaadmin.audit.AuditedOperation;
 import com.vimainsurance.vimaadmin.service.FeatureFlagService;
 import com.vimainsurance.vimaadmin.util.TenantContext;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import com.vimainsurance.vimaadmin.util.JwtUserExtractor;
+import com.vimainsurance.vimaadmin.repository.IAdminUserRepository;
+import com.vimainsurance.vimaadmin.entity.AdminUser;
+import java.util.Optional;
+import com.vimainsurance.vimaadmin.exception.OrganizationAccessDeniedException;
 
 @Slf4j
 @Service
 public class FeatureFlagServiceImpl implements FeatureFlagService {
+
+    @Autowired
+    private JwtUserExtractor jwtUserExtractor;
 
     @Autowired
     private IFeatureFlagRepository featureFlagRepository;
@@ -40,10 +50,26 @@ public class FeatureFlagServiceImpl implements FeatureFlagService {
     @Autowired
     private IOrganizationRepository iOrganizationRepository;
 
+    @Autowired
+    private IAdminUserRepository adminUserRepository;
+
 
     @Override
     @Transactional(readOnly = true)
     public List<FeatureFlagResponseDto> findAllMatchedFeatureFlags() {
+
+
+        String username = jwtUserExtractor.getCurrentUsername();
+        if (username == null) {
+            log.warn("No username found in JWT token");
+            return List.of();
+        }
+
+        Optional<AdminUser> adminUser = adminUserRepository.findByUsername(username);
+        if (adminUser.isEmpty()) {
+            log.warn("No admin user found for username: {}", username);
+            throw new OrganizationAccessDeniedException("No admin user found for username: " + username);
+        }
 
 
         // Fetch flags with roles and companies to avoid N+1
@@ -408,6 +434,7 @@ public class FeatureFlagServiceImpl implements FeatureFlagService {
 
     @Override
     @Transactional
+    @AuditedOperation(schemaName = "admin", tableName = "feature_flag_roles", entityType = "FEATURE_FLAG_ROLE", action = "UPDATE")
     public void updateFeatureFlagRoles(String roleName, FeatureFlagUpdateDto updateDto) {
         log.info("Updating feature flag roles for roleName: {} with {} updates",
                 roleName, updateDto.getUpdates().size());
@@ -515,6 +542,7 @@ public class FeatureFlagServiceImpl implements FeatureFlagService {
 
     @Override
     @Transactional
+    @AuditedOperation(schemaName = "admin", tableName = "feature_flag_companies", entityType = "FEATURE_FLAG_COMPANY", action = "UPDATE")
     public void updateFeatureFlagCompanies(String organizationId, FeatureFlagUpdateDto updateDto) {
         log.info("Updating feature flag companies for organizationId: {} with {} updates",
                 organizationId, updateDto.getUpdates().size());
@@ -526,6 +554,7 @@ public class FeatureFlagServiceImpl implements FeatureFlagService {
             log.error("Invalid organizationId format: {}", organizationId);
             throw new IllegalArgumentException("Invalid organizationId format: " + organizationId);
         }
+        AuditContextSupplier.setOrganizationId(orgId);
 
         List<UUID> flagIds = updateDto.getUpdates().stream()
                 .map(FeatureFlagUpdateItemDto::getId)
