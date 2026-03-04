@@ -120,6 +120,8 @@ public class TenantFilter extends OncePerRequestFilter {
             AuditContextSupplier.clearOrganizationId();
             AuditContextSupplier.clearCurrentUserId();
             AuditContextSupplier.clearActionSource();
+            AuditContextSupplier.clearOldSnapshotJson();
+            AuditContextSupplier.clearNewSnapshotEntity();
         }
 
     }

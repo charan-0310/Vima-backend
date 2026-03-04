@@ -35,7 +35,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
 
-import com.vimainsurance.vimaadmin.audit.AuditedOperation;
+import com.vimainsurance.vimaadmin.audit.AuditContextSupplier;
 import com.vimainsurance.vimaadmin.audit.AuditedOperation;
 import com.vimainsurance.vimaadmin.dto.BaseResponse;
 import com.vimainsurance.vimaadmin.dto.DocumentResponseDto;
@@ -73,6 +73,8 @@ import com.vimainsurance.vimaadmin.util.KeyCloakUtil;
 import com.vimainsurance.vimaadmin.util.OrganizationAccessHelper;
 import com.vimainsurance.vimaadmin.util.PasswordGenerator;
 import com.vimainsurance.vimaadmin.util.TenantContext;
+
+import com.fasterxml.jackson.databind.ObjectMapper;
 
 @Service
 public class EndorsementServiceImpl implements IEndorsementService {
@@ -114,6 +116,9 @@ public class EndorsementServiceImpl implements IEndorsementService {
 
     @Autowired
     private IEmailService emailService;
+
+    @Autowired
+    private ObjectMapper objectMapper;
 
     @Override
     @Transactional
@@ -229,10 +234,15 @@ public class EndorsementServiceImpl implements IEndorsementService {
                 }
                 uploadedBy = uploadedByOpt.get();
             }
+            try {
+                AuditContextSupplier.setOldSnapshotJson(objectMapper.writeValueAsString(endorsement));
+            } catch (Exception e) {
+                logger.warn("[correlationId:{}] Could not serialize endorsement for audit old snapshot: {}", MDC.get("correlationId"), e.getMessage());
+            }
             // Update entity from DTO
             EndorsementMapper.updateEntityFromDto(endorsement, requestDto, organization, document, uploadedBy);
             endorsementRepository.save(endorsement);
-
+            com.vimainsurance.vimaadmin.audit.AuditContextSupplier.setNewSnapshotEntity(endorsement);
             return responseObj.render(responseObj.formSuccessResponse(Constants.SUCCESS, Constants.UPDATE_SUCCESS));
         } catch (IllegalArgumentException e) {
             logger.error("[correlationId:{}] Invalid enum value in Endorsement update: {}", MDC.get("correlationId"), e.getMessage(), e);
@@ -540,10 +550,15 @@ public class EndorsementServiceImpl implements IEndorsementService {
             }
 
             Endorsement endorsement = opt.get();
+            try {
+                AuditContextSupplier.setOldSnapshotJson(objectMapper.writeValueAsString(endorsement));
+            } catch (Exception e) {
+                logger.warn("[correlationId:{}] Could not serialize endorsement for audit old snapshot: {}", MDC.get("correlationId"), e.getMessage());
+            }
             endorsement.setStatus(AccountStatus.REJECTED);
             endorsement.setUpdatedAt(LocalDateTime.now());
             endorsementRepository.save(endorsement);
-
+            com.vimainsurance.vimaadmin.audit.AuditContextSupplier.setNewSnapshotEntity(endorsement);
             return responseObj.render(responseObj.formSuccessResponse(Constants.SUCCESS, "Endorsement rejected successfully"));
         } catch (Exception e) {
             logger.error("[correlationId:{}] Exception in Endorsement reject: {}", MDC.get("correlationId"), e.getMessage(), e);
@@ -1134,12 +1149,18 @@ public class EndorsementServiceImpl implements IEndorsementService {
                 return responseObj.render(responseObj.formSuccessResponse("Endorsement not found or already deactivated.s"));
             }
             Endorsement endorsement = opt.get();
+            try {
+                AuditContextSupplier.setOldSnapshotJson(objectMapper.writeValueAsString(endorsement));
+            } catch (Exception e) {
+                logger.warn("[correlationId:{}] Could not serialize endorsement for audit old snapshot: {}", MDC.get("correlationId"), e.getMessage());
+            }
             if(endorsement.getStatus() == AccountStatus.INACTIVE) {
                 return responseObj.render(responseObj.formSuccessResponse("Endorsement is already deactivated."));
             }
             endorsement.setStatus(AccountStatus.INACTIVE);
             endorsement.setUpdatedAt(LocalDateTime.now());
             endorsementRepository.save(endorsement);
+            com.vimainsurance.vimaadmin.audit.AuditContextSupplier.setNewSnapshotEntity(endorsement);
             return responseObj.render(responseObj.formSuccessResponse("Deactivation of endorsement is completed successfully."));
         } catch (Exception e) {
             logger.error("[correlationId:{}] Exception in Endorsement deactivateEndorsement: {}", MDC.get("correlationId"), e.getMessage(), e);

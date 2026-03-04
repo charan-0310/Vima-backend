@@ -43,6 +43,7 @@ import com.vimainsurance.vimaadmin.enums.DocumentCategory;
 import com.vimainsurance.vimaadmin.enums.EnrollementStatus;
 import com.vimainsurance.vimaadmin.enums.NomineeRelationship;
 import com.vimainsurance.vimaadmin.audit.AuditContextSupplier;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.vimainsurance.vimaadmin.mapper.EnrollmentWindowMapper;
 import com.vimainsurance.vimaadmin.repository.IAdminUserRepository;
 import com.vimainsurance.vimaadmin.repository.IDealsRepository;
@@ -97,6 +98,9 @@ public class EnrollmentWindowServiceImpl implements IEnrollmentWindowService {
 
     @Autowired
     private IDocumentService documentService;
+
+    @Autowired
+    private ObjectMapper objectMapper;
 
     private void validateAndSetOrganizationContext(UUID organizationId) {
         if (organizationId == null) return;
@@ -325,7 +329,11 @@ public class EnrollmentWindowServiceImpl implements IEnrollmentWindowService {
             }
             EnrollmentWindows entity = opt.get();
             validateAndSetOrganizationContext(entity.getOrganization().getOrganizationId());
-
+            try {
+                AuditContextSupplier.setOldSnapshotJson(objectMapper.writeValueAsString(entity));
+            } catch (Exception e) {
+                logger.warn("[correlationId:{}] Could not serialize enrollment window for audit old snapshot: {}", MDC.get("correlationId"), e.getMessage());
+            }
             if (entity.getStatus() == EnrollementStatus.CANCELLED) {
                 return responseObj.render(responseObj.formErrorResponse("Cannot update a cancelled enrollment window"));
             }
@@ -346,6 +354,7 @@ public class EnrollmentWindowServiceImpl implements IEnrollmentWindowService {
 
             EnrollmentWindowMapper.updateEntityFromDto(entity, requestDto, organization);
             entity = enrollmentWindowsRepository.save(entity);
+            AuditContextSupplier.setNewSnapshotEntity(entity);
             EnrollmentWindowResponseDto dto = EnrollmentWindowMapper.mapToResponseDto(entity);
             return responseObj.render(responseObj.formSuccessResponse(Constants.SUCCESS, dto));
         } catch (IllegalArgumentException e) {
@@ -370,6 +379,11 @@ public class EnrollmentWindowServiceImpl implements IEnrollmentWindowService {
             }
             EnrollmentWindows entity = opt.get();
             validateAndSetOrganizationContext(entity.getOrganization().getOrganizationId());
+            try {
+                AuditContextSupplier.setOldSnapshotJson(objectMapper.writeValueAsString(entity));
+            } catch (Exception e) {
+                logger.warn("[correlationId:{}] Could not serialize enrollment window for audit old snapshot: {}", MDC.get("correlationId"), e.getMessage());
+            }
             if (entity.getStatus() == EnrollementStatus.CANCELLED) {
                 return responseObj.render(responseObj.formErrorResponse("Cannot activate a cancelled enrollment window"));
             }
@@ -379,6 +393,7 @@ public class EnrollmentWindowServiceImpl implements IEnrollmentWindowService {
             entity.setStatus(EnrollementStatus.ACTIVE);
             entity.setClosedAt(null);
             enrollmentWindowsRepository.save(entity);
+            AuditContextSupplier.setNewSnapshotEntity(entity);
             return responseObj.render(responseObj.formSuccessResponse(Constants.SUCCESS, "Enrollment window activated successfully"));
         } catch (Exception e) {
             logger.error("[correlationId:{}] Exception in EnrollmentWindow activate: {}", MDC.get("correlationId"), e.getMessage(), e);
@@ -399,6 +414,11 @@ public class EnrollmentWindowServiceImpl implements IEnrollmentWindowService {
             }
             EnrollmentWindows entity = opt.get();
             validateAndSetOrganizationContext(entity.getOrganization().getOrganizationId());
+            try {
+                AuditContextSupplier.setOldSnapshotJson(objectMapper.writeValueAsString(entity));
+            } catch (Exception e) {
+                logger.warn("[correlationId:{}] Could not serialize enrollment window for audit old snapshot: {}", MDC.get("correlationId"), e.getMessage());
+            }
             if (entity.getStatus() == EnrollementStatus.CANCELLED) {
                 return responseObj.render(responseObj.formErrorResponse("Window is already cancelled"));
             }
@@ -411,6 +431,7 @@ public class EnrollmentWindowServiceImpl implements IEnrollmentWindowService {
             entity.setStatus(EnrollementStatus.CLOSED);
             entity.setClosedAt(LocalDateTime.now());
             enrollmentWindowsRepository.save(entity);
+            AuditContextSupplier.setNewSnapshotEntity(entity);
             return responseObj.render(responseObj.formSuccessResponse(Constants.SUCCESS, "Enrollment window closed successfully"));
         } catch (Exception e) {
             logger.error("[correlationId:{}] Exception in EnrollmentWindow close: {}", MDC.get("correlationId"), e.getMessage(), e);

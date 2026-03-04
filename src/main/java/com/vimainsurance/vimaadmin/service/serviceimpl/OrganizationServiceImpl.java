@@ -75,6 +75,8 @@ import com.vimainsurance.vimaadmin.util.JwtUserExtractor;
 import com.vimainsurance.vimaadmin.util.KeyCloakUtil;
 import com.vimainsurance.vimaadmin.util.OrganizationAccessHelper;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
+
 @Service
 public class OrganizationServiceImpl implements IOrganizationService {
 
@@ -118,6 +120,9 @@ public class OrganizationServiceImpl implements IOrganizationService {
 
     @Autowired
     private KeyCloakUtil keycloakUtil;
+
+    @Autowired
+    private ObjectMapper objectMapper;
 
     @Override
     @Transactional(rollbackFor = Exception.class)
@@ -174,6 +179,11 @@ public class OrganizationServiceImpl implements IOrganizationService {
                 return responseObj.render(responseObj.formErrorResponse(Constants.RECORD_NOT_FOUND_MESSAGE));
             }
             Organization org = opt.get();
+            try {
+                AuditContextSupplier.setOldSnapshotJson(objectMapper.writeValueAsString(org));
+            } catch (Exception e) {
+                logger.warn("[correlationId:{}] Could not serialize organization for audit old snapshot: {}", MDC.get("correlationId"), e.getMessage());
+            }
             if (requestDto.getOrganizationName() != null) org.setOrganizationName(requestDto.getOrganizationName());
             if (requestDto.getGstin() != null) org.setGstin(requestDto.getGstin());
             if (requestDto.getPanNumber() != null) org.setPanNumber(requestDto.getPanNumber());
@@ -187,6 +197,7 @@ public class OrganizationServiceImpl implements IOrganizationService {
             }
             org.setUpdatedAt(java.time.LocalDateTime.now());
             organizationRepository.save(org);
+            AuditContextSupplier.setNewSnapshotEntity(org);
             return responseObj.render(responseObj.formSuccessResponse(Constants.SUCCESS, Constants.UPDATE_SUCCESS));
         } catch (Exception e) {
             logger.error("[correlationId:{}] Exception in Organization update: {}", MDC.get("correlationId"), e.getMessage(), e);

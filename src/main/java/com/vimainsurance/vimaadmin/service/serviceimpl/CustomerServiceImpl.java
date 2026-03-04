@@ -32,6 +32,7 @@ import org.springframework.core.io.InputStreamResource;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 
+import com.vimainsurance.vimaadmin.audit.AuditContextSupplier;
 import com.vimainsurance.vimaadmin.audit.AuditedOperation;
 import com.vimainsurance.vimaadmin.dto.BaseResponse;
 import com.vimainsurance.vimaadmin.dto.ConvertToDealRequestDto;
@@ -81,6 +82,7 @@ import com.vimainsurance.vimaadmin.util.IdGenerator;
 import com.vimainsurance.vimaadmin.util.JwtUserExtractor;
 import com.vimainsurance.vimaadmin.util.SlackNotificationUtil;
 import com.vimainsurance.vimaadmin.repository.IDealsRepository;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.vimainsurance.vimaadmin.dto.NomineeRequestDto;
 import com.vimainsurance.vimaadmin.enums.Gender;
 import com.vimainsurance.vimaadmin.enums.NomineeRelationship;
@@ -143,6 +145,9 @@ public class CustomerServiceImpl implements ICustomerService{
     @Autowired
     private JwtUserExtractor jwtUserExtractor;
 
+    @Autowired
+    private ObjectMapper objectMapper;
+
     @Override
     @AuditedOperation(schemaName = "admin", tableName = "customers", entityType = "CUSTOMER", action = "CREATE")
     public ResponseEntity<ResponseDto<String>> create(CustomerRequestDto requestDto, String username) {
@@ -204,6 +209,11 @@ public class CustomerServiceImpl implements ICustomerService{
             Optional<Customer> existCustomer = customerRepository.findByCustId(requestDto.getCustId());
             if(existCustomer.isPresent()){
                 Customer customer = existCustomer.get();
+                try {
+                    AuditContextSupplier.setOldSnapshotJson(objectMapper.writeValueAsString(customer));
+                } catch (Exception e) {
+                    logger.warn("[correlationId:{}] Could not serialize customer for audit old snapshot: {}", MDC.get("correlationId"), e.getMessage());
+                }
                 customer.setFullName(requestDto.getFullName());
                 customer.setDateOfBirth(requestDto.getDateOfBirth());
                 customer.setGender(requestDto.getGender());
@@ -218,6 +228,7 @@ public class CustomerServiceImpl implements ICustomerService{
                 customer.setStatus(requestDto.getStatus());
                 customer.setNotes(requestDto.getNotes());
                 customerRepository.save(customer);
+                com.vimainsurance.vimaadmin.audit.AuditContextSupplier.setNewSnapshotEntity(customer);
             } else {
                 return responseObj.render(responseObj.formErrorResponse(Constants.UPDATE_FAILED));
             }

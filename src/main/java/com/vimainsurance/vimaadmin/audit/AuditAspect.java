@@ -55,11 +55,33 @@ public class AuditAspect {
             returning = "result")
     public void afterReturning(JoinPoint joinPoint, AuditedOperation auditedOperation, Object result) {
         try {
-            String entityId = resolveEntityId(result);
-            String newSnapshot = truncateSnapshot(toJsonSafe(result));
-            String oldSnapshot = isUpdateAction(auditedOperation.action())
-                    ? truncateSnapshot(requestPayloadSnapshot(joinPoint))
-                    : null;
+            // For update actions, prefer entity ID from method args (DTO/path param); fall back to result
+            String entityId = resolveEntityId(auditedOperation.action(), joinPoint, result);
+            boolean isUpdate = isUpdateAction(auditedOperation.action());
+            // For update: use saved entity from context (set by service) as new_snapshot when present
+            String newSnapshot;
+            Object newSnapshotEntity = AuditContextSupplier.getNewSnapshotEntity();
+            if (isUpdate && newSnapshotEntity != null) {
+                try {
+                    newSnapshot = truncateSnapshot(toJsonSafe(newSnapshotEntity));
+                } finally {
+                    AuditContextSupplier.clearNewSnapshotEntity();
+                }
+            } else {
+                newSnapshot = truncateSnapshot(toJsonSafe(result));
+            }
+            // For update: prefer prior DB state JSON (set by service before mutating) as old_snapshot; fall back to request payload
+            String oldSnapshot;
+            String oldSnapshotJson = AuditContextSupplier.getOldSnapshotJson();
+            if (isUpdate && oldSnapshotJson != null && !oldSnapshotJson.isBlank()) {
+                try {
+                    oldSnapshot = truncateSnapshot(oldSnapshotJson);
+                } finally {
+                    AuditContextSupplier.clearOldSnapshotJson();
+                }
+            } else {
+                oldSnapshot = isUpdate ? truncateSnapshot(requestPayloadSnapshot(joinPoint)) : null;
+            }
             String schemaName = auditedOperation.schemaName().isBlank() ? null : auditedOperation.schemaName();
             String tableName = auditedOperation.tableName().isBlank() ? null : auditedOperation.tableName();
             UUID userId = resolveUserId();
@@ -197,7 +219,75 @@ public class AuditAspect {
         return json.substring(0, MAX_SNAPSHOT_CHARS) + " [truncated, total " + json.length() + " chars]";
     }
 
-    private static String resolveEntityId(Object result) {
+    /**
+     * Resolves entity ID for the audit event. For update-type actions, first tries method arguments
+     * (DTO/path params) so the updated entity ID is recorded; then falls back to the return value.
+     */
+    private String resolveEntityId(String action, JoinPoint joinPoint, Object result) {
+        if (isUpdateAction(action)) {
+            String fromArgs = resolveEntityIdFromArgs(joinPoint);
+            if (fromArgs != null && !fromArgs.isBlank()) {
+                return fromArgs;
+            }
+        }
+        return resolveEntityIdFromResult(result);
+    }
+
+    /**
+     * Extracts entity ID from method arguments (e.g. DTO with getEndorsementId(), UUID path param).
+     * Used for update actions so the audit row stores the ID of the entity being updated.
+     */
+    private static String resolveEntityIdFromArgs(JoinPoint joinPoint) {
+        Object[] args = joinPoint.getArgs();
+        if (args == null) {
+            return null;
+        }
+        for (Object arg : args) {
+            if (arg == null || arg instanceof MultipartFile || arg instanceof ServletRequest || arg instanceof ServletResponse) {
+                continue;
+            }
+            if (arg instanceof AuditIdentifiable identifiable) {
+                String id = identifiable.getAuditEntityId();
+                if (id != null && !id.isBlank()) {
+                    return id;
+                }
+            }
+            if (arg instanceof UUID uuid) {
+                return uuid.toString();
+            }
+            if (arg instanceof Long l) {
+                return l.toString();
+            }
+            String fromGetter = getEntityIdFromBean(arg);
+            if (fromGetter != null) {
+                return fromGetter;
+            }
+        }
+        return null;
+    }
+
+    /** Try entity ID getters on a DTO/entity: getId(), getEndorsementId(), getOrganizationId(), etc. */
+    private static String getEntityIdFromBean(Object obj) {
+        if (obj == null) {
+            return null;
+        }
+        try {
+            for (Method m : obj.getClass().getMethods()) {
+                if (m.getParameterCount() != 0) continue;
+                if (!isIdGetter(m)) continue;
+                Object val = m.invoke(obj);
+                if (val == null) continue;
+                if (val instanceof UUID uuid) return uuid.toString();
+                if (val instanceof Long l) return l.toString();
+                if (val instanceof String s && !s.isBlank()) return s;
+            }
+        } catch (Exception ignored) {
+            // ignore
+        }
+        return null;
+    }
+
+    private static String resolveEntityIdFromResult(Object result) {
         if (result == null) {
             return null;
         }

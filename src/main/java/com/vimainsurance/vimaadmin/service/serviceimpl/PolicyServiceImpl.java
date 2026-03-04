@@ -57,8 +57,10 @@ import com.vimainsurance.vimaadmin.service.IDocumentService;
 import com.vimainsurance.vimaadmin.service.IPolicyService;
 import com.vimainsurance.vimaadmin.util.Constants;
 import com.vimainsurance.vimaadmin.util.JwtUserExtractor;
+import com.vimainsurance.vimaadmin.audit.AuditContextSupplier;
 import com.vimainsurance.vimaadmin.audit.AuditedOperation;
 import com.vimainsurance.vimaadmin.util.PolicyValidationUtil;
+import com.fasterxml.jackson.databind.ObjectMapper;
 /**
  * Service implementation for Policy operations
  */
@@ -94,6 +96,8 @@ public class PolicyServiceImpl implements IPolicyService {
     @Autowired
     private IDocumentService documentService;
 
+    @Autowired
+    private ObjectMapper objectMapper;
 
     @Override
     @Transactional(rollbackFor = Exception.class)
@@ -237,7 +241,11 @@ public class PolicyServiceImpl implements IPolicyService {
             }
 
             Policy policy = policyOpt.get();
-            
+            try {
+                AuditContextSupplier.setOldSnapshotJson(objectMapper.writeValueAsString(policy));
+            } catch (Exception e) {
+                logger.warn("[correlationId:{}] Could not serialize policy for audit old snapshot: {}", MDC.get("correlationId"), e.getMessage());
+            }
             // Check if policy number is being changed and if it already exists
             if (!policy.getPolicyNumber().equals(requestDto.getPolicyNumber()) && 
                 policyRepository.existsByPolicyNumber(requestDto.getPolicyNumber())) {
@@ -302,8 +310,8 @@ public class PolicyServiceImpl implements IPolicyService {
             }
 
             policyRepository.save(policy);
+            com.vimainsurance.vimaadmin.audit.AuditContextSupplier.setNewSnapshotEntity(policy);
             logger.info("[correlationId:{}] Policy updated successfully", MDC.get("correlationId"));
-            
             return responseObj.render(responseObj.formSuccessResponse(Constants.SUCCESS, Constants.UPDATE_SUCCESS));
         } catch (BadRequestException e) {
             logger.error("[correlationId:{}] Validation error in updatePolicy: {}", MDC.get("correlationId"), e.getMessage());
@@ -510,7 +518,7 @@ public class PolicyServiceImpl implements IPolicyService {
             Policy policy = policyOpt.get();
             policy.setStatus(PolicyStatus.fromValue(status));
             policyRepository.save(policy);
-            
+            com.vimainsurance.vimaadmin.audit.AuditContextSupplier.setNewSnapshotEntity(policy);
             logger.info("[correlationId:{}] Policy status updated successfully", MDC.get("correlationId"));
             return responseObj.render(responseObj.formSuccessResponse(Constants.SUCCESS, "Policy status updated successfully"));
         } catch (Exception e) {

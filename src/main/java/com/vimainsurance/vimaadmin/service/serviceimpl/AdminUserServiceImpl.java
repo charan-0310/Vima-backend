@@ -21,6 +21,7 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.interceptor.TransactionAspectSupport;
 import org.springframework.web.client.HttpStatusCodeException;
 
+import com.vimainsurance.vimaadmin.audit.AuditContextSupplier;
 import com.vimainsurance.vimaadmin.audit.AuditedOperation;
 import com.vimainsurance.vimaadmin.dto.AdminUserRequestDto;
 import com.vimainsurance.vimaadmin.dto.AdminUserResponseDto;
@@ -176,7 +177,7 @@ public class AdminUserServiceImpl implements IAdminUserService {
     }
 
     private void mapRequestToEntity(AdminUserRequestDto dto, AdminUser user) {
-        user.setUsername(dto.getUsername());
+        user.setUsername(dto.getUsername().toLowerCase());
         user.setEmail(dto.getEmail());
         user.setFullName(dto.getFullName());
         user.setRole(UserRole.fromValue(dto.getRole().replace("ROLE_", "")).getValue());
@@ -283,6 +284,11 @@ public class AdminUserServiceImpl implements IAdminUserService {
             }
             if(Objects.equals(requestDto.getRole(),"ADMIN") && !adminUserRepository.findByUsername(requestDto.getReportingTo()).isPresent()) {
                 return responseObj.render(responseObj.formErrorResponse("Reporting to user not found"));
+            }
+            try {
+                AuditContextSupplier.setOldSnapshotJson(OBJECT_MAPPER.writeValueAsString(user));
+            } catch (com.fasterxml.jackson.core.JsonProcessingException e) {
+                logger.warn("Could not serialize admin user for audit old snapshot: {}", e.getMessage());
             }
             mapRequestToEntity(requestDto, user);
             
