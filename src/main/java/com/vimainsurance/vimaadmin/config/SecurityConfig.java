@@ -89,19 +89,19 @@ public class SecurityConfig {
     private String contextPath;
     
     /**
-     * Filter to set up mock authentication in dev mode
-     * This allows @PreAuthorize checks to pass without actual JWT tokens
+     * Filter to set up mock authentication when no JWT (dev and test profiles).
+     * Dev: all roles so local development has full access.
+     * Test: single role ROLE_VIMA_ADMIN so auth/me and feature flags match e2e expectations (no JWT in test).
      */
-    private static class DevAuthenticationFilter extends OncePerRequestFilter {
+    private class DevAuthenticationFilter extends OncePerRequestFilter {
         @Override
         protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain filterChain)
                 throws ServletException, IOException {
             if (SecurityContextHolder.getContext().getAuthentication() == null) {
-                // Create a mock authentication with all authorities
-                UsernamePasswordAuthenticationToken auth = new UsernamePasswordAuthenticationToken(
-                    "dev-user",
-                    null,
-                    Arrays.asList(
+                boolean isTestProfile = Arrays.stream(environment.getActiveProfiles()).anyMatch("test"::equalsIgnoreCase);
+                java.util.List<SimpleGrantedAuthority> authorities = isTestProfile
+                    ? Arrays.asList(new SimpleGrantedAuthority("ROLE_VIMA_ADMIN"))
+                    : Arrays.asList(
                         new SimpleGrantedAuthority("ROLE_SUPER_ADMIN"),
                         new SimpleGrantedAuthority("ROLE_ADMIN"),
                         new SimpleGrantedAuthority("ROLE_VIMA_ADMIN"),
@@ -109,7 +109,11 @@ public class SecurityConfig {
                         new SimpleGrantedAuthority("ROLE_SALES_AGENT"),
                         new SimpleGrantedAuthority("ROLE_HR_ADMIN"),
                         new SimpleGrantedAuthority("ROLE_EMPLOYEE")
-                    )
+                    );
+                UsernamePasswordAuthenticationToken auth = new UsernamePasswordAuthenticationToken(
+                    isTestProfile ? "e2e-vima-admin" : "dev-user",
+                    null,
+                    authorities
                 );
                 SecurityContextHolder.getContext().setAuthentication(auth);
             }

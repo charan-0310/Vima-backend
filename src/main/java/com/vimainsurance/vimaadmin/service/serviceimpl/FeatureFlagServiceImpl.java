@@ -62,6 +62,9 @@ public class FeatureFlagServiceImpl implements FeatureFlagService {
                 .map(String::toUpperCase)
                 .collect(Collectors.toCollection(LinkedHashSet::new));
 
+        // User has one role; use it for feature-flag resolution so auth/me matches per-role config
+        final String primaryRole = normalizedRoles.isEmpty() ? null : normalizedRoles.iterator().next();
+
         final List<String> organizationIds = (currentTenant != null) ? currentTenant.getOrDefault("organizationIds", List.of()) : List.of();
         final Set<String> orgIdSet = organizationIds.stream().filter(id -> id != null && !id.isBlank()).collect(Collectors.toCollection(LinkedHashSet::new));
 
@@ -70,17 +73,16 @@ public class FeatureFlagServiceImpl implements FeatureFlagService {
 
         for (FeatureFlag flag : featureFlags) {
             if (flag == null) continue;
-            // skip inactive flags
-            // if (flag.getIsActive() != null && !flag.getIsActive()) continue;
 
-            // Collect matching roles
+            // Match only the user's (single) role
             List<FeatureFlagRole> matchedRoles = new ArrayList<>();
             List<FeatureFlagRole> flagRoles = flag.getRoles();
-            if (flagRoles != null) {
+            if (flagRoles != null && primaryRole != null) {
                 for (FeatureFlagRole role : flagRoles) {
                     if (role == null || role.getRoleName() == null) continue;
-                    if (normalizedRoles.contains(role.getRoleName())) {
+                    if (primaryRole.equals(role.getRoleName())) {
                         matchedRoles.add(role);
+                        break;
                     }
                 }
             }
@@ -323,31 +325,29 @@ public class FeatureFlagServiceImpl implements FeatureFlagService {
         dto.setIsActive(isActiveOrSuperAdmin);
         dto.setIsEnabled(isActiveOrSuperAdmin);
 
-        List<String> actions = new ArrayList<>();
+        // Collect actions without duplicates (preserve order)
+        Set<String> actionsSet = new LinkedHashSet<>();
         for (FeatureFlagRole r : matchedRoles) {
             if (r.getActions() != null) {
-                actions.addAll(List.of(r.getActions()));
+                actionsSet.addAll(List.of(r.getActions()));
             }
         }
-
         for (FeatureFlagCompany c : matchedCompanies) {
             if (c.getActions() != null) {
-
-               actions.addAll(Arrays.asList(c.getActions()));
+                actionsSet.addAll(Arrays.asList(c.getActions()));
             }
         }
-
-        if (isSuperAdmin && actions.isEmpty()) {
+        if (isSuperAdmin && actionsSet.isEmpty()) {
             for (FeatureFlagRole r : flag.getRoles()) {
-                if (r.getActions() != null) actions.addAll(List.of(r.getActions()));
+                if (r.getActions() != null) actionsSet.addAll(List.of(r.getActions()));
             }
             for (FeatureFlagCompany c : flag.getCompanies()) {
                 if (c.getActions() != null) {
-                    actions.addAll(Arrays.asList(c.getActions()));
+                    actionsSet.addAll(Arrays.asList(c.getActions()));
                 }
             }
         }
-        dto.setActions(actions);
+        dto.setActions(new ArrayList<>(actionsSet));
 
         List<FeatureFlagResponseDto.CompanyDto> companyDtos = new ArrayList<>();
         for (FeatureFlagCompany c : matchedCompanies) {
