@@ -8,6 +8,8 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.multipart.MultipartFile;
 
 import com.vimainsurance.vimaadmin.dto.EmployeeUploadResponse;
+import com.vimainsurance.vimaadmin.dto.ManualAddEmployeesRequestDto;
+import com.vimainsurance.vimaadmin.dto.ManualDeleteEmployeesRequestDto;
 import com.vimainsurance.vimaadmin.dto.BulkEmployeeDeletionRequestDto;
 import com.vimainsurance.vimaadmin.dto.EmployeeUploadDto;
 import com.vimainsurance.vimaadmin.dto.DocumentRequestDto;
@@ -40,6 +42,8 @@ public interface IOrganizationService {
     ResponseEntity<ResponseDto<String>> deleteEmployee(String employeeId, UUID organizationId);
     ResponseEntity<ResponseDto<String>> bulkDeleteEmployees(com.vimainsurance.vimaadmin.dto.BulkEmployeeDeletionRequestDto requestDto, UUID organizationId);
     ResponseEntity<ResponseDto<EmployeeUploadResponse>> uploadEmployees(List<EmployeeUploadDto> employeeUploadDtoList, UUID organizationId, String uploadType, MultipartFile file);
+    ResponseEntity<ResponseDto<EmployeeUploadResponse>> manualAddEmployees(UUID organizationId, ManualAddEmployeesRequestDto requestDto);
+    ResponseEntity<ResponseDto<String>> manualDeleteEmployees(UUID organizationId, ManualDeleteEmployeesRequestDto requestDto);
     ResponseEntity<ResponseDto<EmployeeUploadResponse>> validateEmployees(List<EmployeeUploadDto> employeeUploadDtoList, UUID organizationId);
     ResponseEntity<ResponseDto<List<OrganizationEmployeeDto>>> getEmployeesByEndorsementId(UUID endorsementId, int page, int rec);
 }

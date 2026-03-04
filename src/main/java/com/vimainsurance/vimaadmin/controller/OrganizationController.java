@@ -31,6 +31,8 @@ import com.vimainsurance.vimaadmin.dto.DocumentRequestDto;
 import com.vimainsurance.vimaadmin.dto.DocumentResponseDto;
 import com.vimainsurance.vimaadmin.dto.EmployeeUploadDto;
 import com.vimainsurance.vimaadmin.dto.EmployeeUploadResponse;
+import com.vimainsurance.vimaadmin.dto.ManualAddEmployeesRequestDto;
+import com.vimainsurance.vimaadmin.dto.ManualDeleteEmployeesRequestDto;
 import com.vimainsurance.vimaadmin.dto.OrganizationEmployeeDto;
 import com.vimainsurance.vimaadmin.dto.OrganizationRequestDto;
 import com.vimainsurance.vimaadmin.dto.OrganizationResponseDto;
@@ -158,6 +160,31 @@ public class OrganizationController {
     public ResponseEntity<ResponseDto<List<OrganizationEmployeeDto>>> getEmployees(@CurrentOrganization UUID organizationId) {
         logger.info("[correlationId:{}] /organization/{}/employees (GET) endpoint called", MDC.get("correlationId"), organizationId);
         return organizationService.getEmployees(organizationId);
+    }
+
+    /**
+     * Manual add: insert employees via JSON (no file). Validate then insert; no file storage.
+     */
+    @PostMapping(value = "/organization/{organizationId}/employees/manual-add", consumes = MediaType.APPLICATION_JSON_VALUE, produces = MediaType.APPLICATION_JSON_VALUE)
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'VIMA_ADMIN', 'HR_ADMIN')")
+    public ResponseEntity<ResponseDto<EmployeeUploadResponse>> manualAddEmployees(
+            @PathVariable UUID organizationId,
+            @RequestBody ManualAddEmployeesRequestDto requestDto) {
+        logger.info("[correlationId:{}] /organization/{}/employees/manual-add (POST) endpoint called", MDC.get("correlationId"), organizationId);
+        return organizationService.manualAddEmployees(organizationId, requestDto);
+    }
+
+    /**
+     * Manual delete: soft-delete (set status to Inactive) employees by their employee IDs.
+     * No file upload; request body: { "employeeIds": ["EMP001", "EMP002", ...] }
+     */
+    @PostMapping(value = "/organization/{organizationId}/employees/manual-delete", consumes = MediaType.APPLICATION_JSON_VALUE, produces = MediaType.APPLICATION_JSON_VALUE)
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'VIMA_ADMIN', 'HR_ADMIN')")
+    public ResponseEntity<ResponseDto<String>> manualDeleteEmployees(
+            @PathVariable UUID organizationId,
+            @RequestBody ManualDeleteEmployeesRequestDto requestDto) {
+        logger.info("[correlationId:{}] /organization/{}/employees/manual-delete (POST) endpoint called with {} employee IDs", MDC.get("correlationId"), organizationId, requestDto != null && requestDto.getEmployeeIds() != null ? requestDto.getEmployeeIds().size() : 0);
+        return organizationService.manualDeleteEmployees(organizationId, requestDto);
     }
     
     @GetMapping("/organization/{organizationId}/employee/{individualId}")
