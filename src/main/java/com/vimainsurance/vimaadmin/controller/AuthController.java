@@ -24,9 +24,13 @@ import com.vimainsurance.vimaadmin.dto.LoginResponseDto;
 import com.vimainsurance.vimaadmin.dto.RefreshTokenRequestDto;
 import com.vimainsurance.vimaadmin.dto.RefreshTokenResponseDto;
 import com.vimainsurance.vimaadmin.dto.ResponseDto;
+import com.vimainsurance.vimaadmin.entity.AdminUser;
+import com.vimainsurance.vimaadmin.repository.IAdminUserRepository;
 import com.vimainsurance.vimaadmin.service.IAuthService;
+import com.vimainsurance.vimaadmin.util.JwtUserExtractor;
 
 import java.util.List;
+import java.util.Optional;
 
 @RestController
 @CrossOrigin(allowedHeaders = "*")
@@ -40,6 +44,12 @@ public class AuthController {
 
     @Autowired
     private FeatureFlagService featureFlagService;
+
+    @Autowired(required = false)
+    private IAdminUserRepository adminUserRepository;
+
+    @Autowired(required = false)
+    private JwtUserExtractor jwtUserExtractor;
 
     @GetMapping("/test")
     @PreAuthorize("hasRole('ADMIN')")
@@ -85,12 +95,52 @@ public class AuthController {
         return ResponseEntity.noContent().build();
     }
 
+    /**
+     * Returns current user's feature flags. Validates that the JWT user exists in our database
+     * (with case-insensitive username/email lookup) so we fail fast at login with a clear message
+     * if there is a username/email case mismatch between identity provider and our DB.
+     */
     @GetMapping("/auth/me")
     @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'VIMA_ADMIN', 'SALES_MANAGER', 'SALES_AGENT', 'HR_ADMIN')")
     public ResponseEntity<ResponseDto<List<FeatureFlagResponseDto>>> getFeatureFalgs() {
+        if (adminUserRepository != null && jwtUserExtractor != null) {
+            Optional<AdminUser> dbUser = resolveCurrentUserFromJwt();
+            if (dbUser.isEmpty()) {
+                ResponseDto<List<FeatureFlagResponseDto>> errorDto = new ResponseDto<>();
+                errorDto.setMessage("User account not found or username/email mismatch with identity provider. Please contact your administrator.");
+                errorDto.setErrorCode(403);
+                errorDto.setPayload(null);
+                logger.warn("[correlationId:{}] auth/me: JWT user not found in DB or mismatch", MDC.get("correlationId"));
+                return ResponseEntity.status(403).body(errorDto);
+            }
+        }
         List<FeatureFlagResponseDto> response = featureFlagService.findAllMatchedFeatureFlags();
         ResponseDto<List<FeatureFlagResponseDto>> dto = new ResponseDto<>();
         dto.setPayload(response);
         return ResponseEntity.ok(dto);
+    }
+
+    /**
+     * Resolve current user from JWT: exact username, then case-insensitive username, then case-insensitive email.
+     */
+    private Optional<AdminUser> resolveCurrentUserFromJwt() {
+        String jwtUsername = jwtUserExtractor.getCurrentUsername();
+        String jwtEmail = jwtUserExtractor.getCurrentEmail();
+        if ((jwtUsername == null || jwtUsername.isBlank()) && (jwtEmail == null || jwtEmail.isBlank())) {
+            return Optional.empty();
+        }
+        if (jwtUsername != null && !jwtUsername.isBlank()) {
+            Optional<AdminUser> byUsername = adminUserRepository.findByUsername(jwtUsername);
+            if (byUsername.isPresent()) return byUsername;
+            Optional<AdminUser> byUsernameIgnoreCase = adminUserRepository.findByUsernameIgnoreCase(jwtUsername);
+            if (byUsernameIgnoreCase.isPresent()) return byUsernameIgnoreCase;
+        }
+        if (jwtEmail != null && !jwtEmail.isBlank()) {
+            Optional<AdminUser> byEmail = adminUserRepository.findByEmail(jwtEmail);
+            if (byEmail.isPresent()) return byEmail;
+            Optional<AdminUser> byEmailIgnoreCase = adminUserRepository.findByEmailIgnoreCase(jwtEmail);
+            if (byEmailIgnoreCase.isPresent()) return byEmailIgnoreCase;
+        }
+        return Optional.empty();
     }
 }

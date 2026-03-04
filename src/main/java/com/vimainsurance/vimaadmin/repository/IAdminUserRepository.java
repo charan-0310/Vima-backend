@@ -18,6 +18,8 @@ import com.vimainsurance.vimaadmin.entity.Customer;
 public interface IAdminUserRepository extends JpaRepository<AdminUser, UUID> {
     Optional<AdminUser> findByUsername(String username);
     Optional<AdminUser> findByEmail(String email);
+    Optional<AdminUser> findByUsernameIgnoreCase(String username);
+    Optional<AdminUser> findByEmailIgnoreCase(String email);
     Optional<AdminUser> findByOauthProviderId(String oauthProviderId);
     List<AdminUser> findByIsActiveTrue();
     List<AdminUser> findByRole(String role);

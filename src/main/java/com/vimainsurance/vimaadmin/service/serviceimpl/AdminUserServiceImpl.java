@@ -177,8 +177,9 @@ public class AdminUserServiceImpl implements IAdminUserService {
     }
 
     private void mapRequestToEntity(AdminUserRequestDto dto, AdminUser user) {
-        user.setUsername(dto.getUsername().toLowerCase());
-        user.setEmail(dto.getEmail());
+        // Store username/email in lowercase to match identity provider (Keycloak/Authentik) and avoid login mismatch
+        user.setUsername(dto.getUsername() != null ? dto.getUsername().trim().toLowerCase() : null);
+        user.setEmail(dto.getEmail() != null ? dto.getEmail().trim().toLowerCase() : null);
         user.setFullName(dto.getFullName());
         user.setRole(UserRole.fromValue(dto.getRole().replace("ROLE_", "")).getValue());
         user.setIsActive(dto.getIsActive() != null ? dto.getIsActive() : true);
@@ -186,7 +187,8 @@ public class AdminUserServiceImpl implements IAdminUserService {
         user.setOauthProviderId(dto.getOauthProviderId());
         user.setZohoCrmId(dto.getZohoCrmId());
         user.setLastLogin(dto.getLastLogin());
-        user.setReportingTo(dto.getReportingTo() != null ? adminUserRepository.findByUsername(dto.getReportingTo()).orElse(null) : null);
+        String reportingToUsername = dto.getReportingTo() != null ? dto.getReportingTo().trim().toLowerCase() : null;
+        user.setReportingTo(reportingToUsername != null ? adminUserRepository.findByUsername(reportingToUsername).orElse(null) : null);
     }
 
     @Override
@@ -196,10 +198,13 @@ public class AdminUserServiceImpl implements IAdminUserService {
         logger.info("[correlationId:{}] createAdminUser called", MDC.get("correlationId"));
         BaseResponse<String> responseObj = new BaseResponse<>();
         try {
-            if (adminUserRepository.findByUsername(requestDto.getUsername()).isPresent()) {
+            // Normalize to lowercase so DB matches identity provider and avoids login mismatch
+            String username = requestDto.getUsername() != null ? requestDto.getUsername().trim().toLowerCase() : null;
+            String email = requestDto.getEmail() != null ? requestDto.getEmail().trim().toLowerCase() : null;
+            if (username != null && adminUserRepository.findByUsername(username).isPresent()) {
                 return responseObj.render(responseObj.formErrorResponse("Username already exists"));
             }
-            if (adminUserRepository.findByEmail(requestDto.getEmail()).isPresent()) {
+            if (email != null && adminUserRepository.findByEmail(email).isPresent()) {
                 return responseObj.render(responseObj.formErrorResponse("Email already exists"));
             }
             if(requestDto.getRole() == null || requestDto.getRole().trim().isEmpty()) {
@@ -223,19 +228,19 @@ public class AdminUserServiceImpl implements IAdminUserService {
             String password = saved.getFullName().trim().toLowerCase() + "@" + dateStr;
             
 
-            // Create user in Authentik first
+            // Create in Keycloak/Authentik with same lowercase username/email as stored in DB
             try {
                 password = keyCloakUtil.createUser(
                     requestDto.getFullName(),
-                    requestDto.getUsername(),
-                    requestDto.getEmail(),
+                    username,
+                    email,
                     requestDto.getRole(),
                     requestDto.getOrganizations(),
                     requestDto.getIsActive() != null ? requestDto.getIsActive() : true,
                     null,
                     saved.getId().toString()
                 );
-                logger.info("[correlationId:{}] User created successfully in Keycloak: {}", MDC.get("correlationId"), requestDto.getUsername());
+                logger.info("[correlationId:{}] User created successfully in Keycloak: {}", MDC.get("correlationId"), username);
             } catch (Exception e) {
                 try {
                     TransactionAspectSupport.currentTransactionStatus().setRollbackOnly();
@@ -255,8 +260,8 @@ public class AdminUserServiceImpl implements IAdminUserService {
             // user.setPasswordHash(PasswordEncoder.encodePassword(randomPassword));
             // user.setCreatedAt(LocalDateTime.now());
             // AdminUser saved = adminUserRepository.save(user);
-            if(adminUserRepository.findByUsername(requestDto.getUsername()).isPresent()){
-                emailService.sendWelcomeEmail(requestDto.getEmail(), requestDto.getUsername(), requestDto.getEmail(), password);
+            if (username != null && adminUserRepository.findByUsername(username).isPresent()) {
+                emailService.sendWelcomeEmail(email != null ? email : requestDto.getEmail(), username, email != null ? email : requestDto.getEmail(), password);
             }
             return responseObj.render(responseObj.formSuccessResponse(Constants.SUCCESS, "User created successfully"));
         } catch (Exception e) {
@@ -273,16 +278,22 @@ public class AdminUserServiceImpl implements IAdminUserService {
         try {
             Optional<AdminUser> userOpt = adminUserRepository.findByUsername(username);
             if (userOpt.isEmpty()) {
+                userOpt = adminUserRepository.findByUsernameIgnoreCase(username);
+            }
+            if (userOpt.isEmpty()) {
                 return responseObj.render(responseObj.formErrorResponse("Admin user not found"));
             }
             AdminUser user = userOpt.get();
-            if (!user.getEmail().equals(requestDto.getEmail()) && adminUserRepository.findByEmail(requestDto.getEmail()).isPresent()) {
+            String newEmail = requestDto.getEmail() != null ? requestDto.getEmail().trim().toLowerCase() : null;
+            String newUsername = requestDto.getUsername() != null ? requestDto.getUsername().trim().toLowerCase() : null;
+            if (newEmail != null && !newEmail.equals(user.getEmail()) && adminUserRepository.findByEmail(newEmail).isPresent()) {
                 return responseObj.render(responseObj.formErrorResponse("Email already exists"));
             }
-            if (!user.getUsername().equals(requestDto.getUsername()) && adminUserRepository.findByUsername(requestDto.getUsername()).isPresent()) {
+            if (newUsername != null && !newUsername.equals(user.getUsername()) && adminUserRepository.findByUsername(newUsername).isPresent()) {
                 return responseObj.render(responseObj.formErrorResponse("Username already exists"));
             }
-            if(Objects.equals(requestDto.getRole(),"ADMIN") && !adminUserRepository.findByUsername(requestDto.getReportingTo()).isPresent()) {
+            String reportingToUsername = requestDto.getReportingTo() != null ? requestDto.getReportingTo().trim().toLowerCase() : null;
+            if (Objects.equals(requestDto.getRole(), "ADMIN") && (reportingToUsername == null || !adminUserRepository.findByUsername(reportingToUsername).isPresent())) {
                 return responseObj.render(responseObj.formErrorResponse("Reporting to user not found"));
             }
             try {
