@@ -466,6 +466,7 @@ public class EmployeeService {
                 } 
                 primaryEmployee = EmployeeToDeals.mapToDeals(selfDto, organization);
                 primaryEmployee.setRelationship(mapRelationshipToNomineeRelationship("Self", 0));
+                primaryEmployee.setIsPrimaryMember(true);
                 primaryEmployee.setCreatedAt(LocalDateTime.now());
                 primaryEmployee.setStatus(AccountStatus.PENDING_APPROVAL);
                 createdCount++;
@@ -625,16 +626,17 @@ public class EmployeeService {
           endorsement.setTotalEmployees((int)dealsToSave.stream().filter(deal -> deal.getRelationship().equalsIgnoreCase("Self")).count());
           endorsement.setTotalDependents((int)dealsToSave.stream().filter(deal -> !deal.getRelationship().equalsIgnoreCase("Self")).count());
           savedEndorsement = endorsementRepository.save(endorsement);
-          try {
-              Document document = uploadDocuments(file, organization, adminUser, savedEndorsement);
-              savedEndorsement.setDocument(document);
-              savedEndorsement = endorsementRepository.save(savedEndorsement);
-              // Fetch fresh entity to avoid Hibernate proxy issues
-              savedEndorsement = endorsementRepository.findByEndorsementId(savedEndorsement.getEndorsementId())
-                  .orElseThrow(() -> new RuntimeException("Endorsement not found after save"));
-          } catch (DocumentUploadException e) {
-              log.error("Failed to upload document for endorsement {}: {}", savedEndorsement.getEndorsementId(), e.getMessage(), e);
-              return new EmployeeUploadResponse(0, 0, 0, new ArrayList<>(), "Failed to upload documents: " + e.getMessage(), 0, 0);
+          if (file != null) {
+              try {
+                  Document document = uploadDocuments(file, organization, adminUser, savedEndorsement);
+                  savedEndorsement.setDocument(document);
+                  savedEndorsement = endorsementRepository.save(savedEndorsement);
+                  savedEndorsement = endorsementRepository.findByEndorsementId(savedEndorsement.getEndorsementId())
+                      .orElseThrow(() -> new RuntimeException("Endorsement not found after save"));
+              } catch (DocumentUploadException e) {
+                  log.error("Failed to upload document for endorsement {}: {}", savedEndorsement.getEndorsementId(), e.getMessage(), e);
+                  return new EmployeeUploadResponse(0, 0, 0, new ArrayList<>(), "Failed to upload documents: " + e.getMessage(), 0, 0);
+              }
           }
           UUID endorsementId = savedEndorsement.getEndorsementId();
 
@@ -692,6 +694,15 @@ public class EmployeeService {
           throw new RuntimeException("Failed to save employees: " + e.getMessage(), e);
         } 
       }
+
+    /**
+     * Insert employees manually (no file). Uses same validation and insert logic as bulk upload.
+     * No file parsing or document storage.
+     */
+    @Transactional(rollbackFor = Exception.class)
+    public EmployeeUploadResponse manualAddEmployees(List<EmployeeUploadDto> employeeUploadDtoList, Organization organization, AdminUser adminUser) {
+        return uploadEmployees(employeeUploadDtoList, organization, adminUser, null, "addition");
+    }
 
     
     public Long selfCount(List<EmployeeUploadDto> employeeUploadDtoList) {
@@ -1037,5 +1048,91 @@ public class EmployeeService {
             return EndorsementType.BULK_UPLOAD;
         }
         throw new IllegalArgumentException("Invalid upload type: " + uploadType);
+    }
+
+    /**
+     * Manual delete: same process as bulk delete (/delete) but without file.
+     * Creates a Deletion endorsement with status PENDING_EXIT and sets employee (and dependents) status to PENDING_EXIT.
+     * Used by POST /organization/{orgId}/employees/manual-delete.
+     */
+    @Transactional(rollbackFor = Exception.class)
+    public EmployeeUploadResponse deleteEmployeeManual(List<String> employeeIds, Organization organization, AdminUser adminUser) {
+        try {
+            if (employeeIds == null || employeeIds.isEmpty()) {
+                return new EmployeeUploadResponse(0, 0, 0, new ArrayList<>(), "Employee IDs list cannot be empty", 0, 0);
+            }
+            Set<UUID> individualIdsToDelete = new HashSet<>();
+            int employeeCount = 0;
+            int dependentCount = 0;
+            List<String> errors = new ArrayList<>();
+
+            for (String employeeId : employeeIds) {
+                Optional<Deals> dealOpt = dealsRepository.findByEmployeeNumberAndOrganizationIdAndRelationship(
+                    employeeId, organization.getOrganizationId(), "SELF");
+                if (dealOpt.isEmpty()) {
+                    errors.add("employeeId: " + employeeId + " - Employee not found");
+                    continue;
+                }
+                Deals deal = dealOpt.get();
+                if (!AccountStatus.ACTIVE.equals(deal.getStatus())) {
+                    errors.add("employeeId: " + employeeId + " - Employee is not active");
+                    continue;
+                }
+                List<Deals> dependents = dealsRepository.findByPrimaryIndividualIdIn(List.of(deal.getIndividualId()));
+                dependents.forEach(d -> individualIdsToDelete.add(d.getIndividualId()));
+                individualIdsToDelete.add(deal.getIndividualId());
+                employeeCount++;
+                dependentCount += dependents.size();
+            }
+
+            if (!errors.isEmpty()) {
+                return new EmployeeUploadResponse(0, 0, errors.size(), errors, "Errors occurred while processing employees", 0, 0);
+            }
+            if (individualIdsToDelete.isEmpty()) {
+                return new EmployeeUploadResponse(0, 0, 0, new ArrayList<>(), "No individuals to delete", 0, 0);
+            }
+
+            Endorsement endorsement = new Endorsement();
+            endorsement.setOrganization(organization);
+            endorsement.setStatus(AccountStatus.PENDING_EXIT);
+            endorsement.setEndorsementType(EndorsementType.DELETION);
+            endorsement.setConfirmationMethod(ConfirmationMethod.PORTAL);
+            endorsement.setCreatedAt(LocalDateTime.now());
+            endorsement.setUpdatedAt(LocalDateTime.now());
+            endorsement.setUploadedBy(adminUser);
+            endorsement.setTotalEmployees(employeeCount);
+            endorsement.setTotalDependents(dependentCount);
+            Endorsement savedEndorsement = endorsementRepository.save(endorsement);
+
+            UUID endorsementId = savedEndorsement.getEndorsementId();
+            List<Deals> dealsToDelete = dealsRepository.findByIndividualIdIn(new ArrayList<>(individualIdsToDelete));
+            dealsToDelete.forEach(deal -> deal.setStatus(AccountStatus.PENDING_EXIT));
+            dealsToDelete.forEach(deal -> deal.setUpdatedAt(LocalDateTime.now()));
+            dealsToDelete.forEach(deal -> deal.setEndorsementId(endorsementId));
+
+            List<Deals> savedDeals = dealsRepository.saveAll(dealsToDelete);
+            List<DealEndorsement> dealEndorsements = new ArrayList<>();
+            for (Deals deal : savedDeals) {
+                boolean exists = dealEndorsementRepository.existsByDeal_IndividualIdAndEndorsement_EndorsementId(
+                    deal.getIndividualId(), endorsementId);
+                if (!exists) {
+                    DealEndorsement dealEndorsement = new DealEndorsement();
+                    dealEndorsement.setDeal(deal);
+                    dealEndorsement.setEndorsement(savedEndorsement);
+                    dealEndorsements.add(dealEndorsement);
+                }
+            }
+            if (!dealEndorsements.isEmpty()) {
+                dealEndorsementRepository.saveAll(dealEndorsements);
+            }
+
+            slackNotificationUtil.sendSlackMessage(slackNotificationUtil.buildEndorsementNotificationMessage(savedEndorsement), false);
+
+            String message = String.format("Employees (%d) and dependents (%d) submitted for deletion successfully. Endorsement created with status Pending.", employeeCount, dependentCount);
+            return new EmployeeUploadResponse(dealsToDelete.size(), dealsToDelete.size(), 0, new ArrayList<>(), message, employeeCount, dependentCount);
+        } catch (Exception e) {
+            log.error("Error in deleteEmployeeManual: {}", e.getMessage(), e);
+            return new EmployeeUploadResponse(0, 0, 0, new ArrayList<>(), "ERROR OCCURRED WHILE SUBMITTING EMPLOYEES FOR DELETION", 0, 0);
+        }
     }
 }

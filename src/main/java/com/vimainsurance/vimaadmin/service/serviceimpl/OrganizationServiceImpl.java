@@ -39,6 +39,8 @@ import com.vimainsurance.vimaadmin.dto.BulkEmployeeDeletionRequestDto;
 import com.vimainsurance.vimaadmin.dto.CsvValidationResponseDto;
 import com.vimainsurance.vimaadmin.dto.DocumentRequestDto;
 import com.vimainsurance.vimaadmin.dto.DocumentResponseDto;
+import com.vimainsurance.vimaadmin.dto.ManualAddEmployeesRequestDto;
+import com.vimainsurance.vimaadmin.dto.ManualDeleteEmployeesRequestDto;
 import com.vimainsurance.vimaadmin.dto.EmployeeUploadDto;
 import com.vimainsurance.vimaadmin.dto.EmployeeUploadResponse;
 import com.vimainsurance.vimaadmin.dto.OrganizationEmployeeDto;
@@ -1442,6 +1444,47 @@ public class OrganizationServiceImpl implements IOrganizationService {
 
     @Override
     @Transactional(rollbackFor = Exception.class)
+    public ResponseEntity<ResponseDto<String>> manualDeleteEmployees(UUID organizationId, ManualDeleteEmployeesRequestDto requestDto) {
+        logger.info("[correlationId:{}] manualDeleteEmployees called for {} employees, organizationId: {}",
+            MDC.get("correlationId"), requestDto != null && requestDto.getEmployeeIds() != null ? requestDto.getEmployeeIds().size() : 0, organizationId);
+        BaseResponse<String> responseObj = new BaseResponse<>();
+
+        try {
+            if (requestDto == null || requestDto.getEmployeeIds() == null || requestDto.getEmployeeIds().isEmpty()) {
+                return responseObj.render(responseObj.formErrorResponse("Employee IDs list cannot be empty"));
+            }
+
+            jwtUserExtractor.validateOrganizationAccess(organizationId);
+            Organization organization = organizationRepository.findByOrganizationId(organizationId).orElseThrow(() -> new RuntimeException("Organization not found"));
+            String username = jwtUserExtractor.getCurrentUsername();
+            AdminUser adminUser = adminUserRepository.findByUsername(username).orElseThrow(() -> new RuntimeException("Admin user not found"));
+
+            EmployeeUploadResponse result = employeeService.deleteEmployeeManual(requestDto.getEmployeeIds(), organization, adminUser);
+
+            if (result.getSuccessCount() == 0) {
+                String errorMsg = result.getMessage() != null ? result.getMessage() : "No employees were submitted for deletion";
+                if (result.getErrors() != null && !result.getErrors().isEmpty()) {
+                    errorMsg = String.join("; ", result.getErrors());
+                }
+                return responseObj.render(responseObj.formErrorResponse(errorMsg));
+            }
+
+            String message = result.getMessage() != null ? result.getMessage() : Constants.SUCCESS;
+            logger.info("[correlationId:{}] Manual deletion (endorsement) completed: {} employees, {} dependents",
+                MDC.get("correlationId"), result.getTotalEmployees(), result.getTotalDependents());
+            return responseObj.render(responseObj.formSuccessResponse(Constants.SUCCESS, message));
+
+        } catch (OrganizationAccessDeniedException e) {
+            logger.warn("[correlationId:{}] Organization access denied for organizationId: {}", MDC.get("correlationId"), organizationId);
+            return responseObj.render(responseObj.formErrorResponse(403, e.getMessage()));
+        } catch (Exception e) {
+            logger.error("[correlationId:{}] Exception in manualDeleteEmployees: {}", MDC.get("correlationId"), e.getMessage(), e);
+            return responseObj.render(responseObj.formErrorResponse(e.getMessage()));
+        }
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
     public ResponseEntity<ResponseDto<EmployeeUploadResponse>> uploadEmployees(List<EmployeeUploadDto> employeeUploadDtoList, UUID organizationId, String uploadType, MultipartFile file) {
     logger.info("[correlationId:{}] uploadEmployees called for {} employees, organizationId: {}", 
         MDC.get("correlationId"), employeeUploadDtoList.size(), organizationId);
@@ -1467,6 +1510,31 @@ public class OrganizationServiceImpl implements IOrganizationService {
         com.vimainsurance.vimaadmin.audit.AuditContextSupplier.clearActionSource();
     }
 }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public ResponseEntity<ResponseDto<EmployeeUploadResponse>> manualAddEmployees(UUID organizationId, ManualAddEmployeesRequestDto requestDto) {
+        logger.info("[correlationId:{}] manualAddEmployees called for organizationId: {}", MDC.get("correlationId"), organizationId);
+        BaseResponse<EmployeeUploadResponse> responseObj = new BaseResponse<>();
+        try {
+            jwtUserExtractor.validateOrganizationAccess(organizationId);
+            Organization organization = organizationRepository.findByOrganizationId(organizationId).orElseThrow(() -> new RuntimeException("Organization not found"));
+            AdminUser adminUser = adminUserRepository.findByUsername(jwtUserExtractor.getCurrentUsername()).orElseThrow(() -> new RuntimeException("Admin user not found"));
+            List<EmployeeUploadDto> employees = requestDto != null && requestDto.getEmployees() != null ? requestDto.getEmployees() : List.of();
+            if (employees.isEmpty()) {
+                return responseObj.render(responseObj.formErrorResponse("At least one employee is required"));
+            }
+            EmployeeUploadResponse result = employeeService.manualAddEmployees(employees, organization, adminUser);
+            String responseMessage = result.getMessage() != null && !result.getMessage().isEmpty() ? result.getMessage() : Constants.SUCCESS;
+            return responseObj.render(responseObj.formSuccessResponse(responseMessage, result));
+        } catch (OrganizationAccessDeniedException e) {
+            logger.warn("[correlationId:{}] Organization access denied for organizationId: {}", MDC.get("correlationId"), organizationId);
+            return responseObj.render(responseObj.formErrorResponse(403, e.getMessage()));
+        } catch (Exception e) {
+            logger.error("[correlationId:{}] Exception in manualAddEmployees: {}", MDC.get("correlationId"), e.getMessage(), e);
+            return responseObj.render(responseObj.formErrorResponse("Error occurred while adding employees"));
+        }
+    }
 
     @Override
     @Transactional(rollbackFor = Exception.class)
