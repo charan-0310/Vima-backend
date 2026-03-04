@@ -3,9 +3,9 @@ package com.vimainsurance.vimaadmin.audit;
 import java.time.Instant;
 import java.util.UUID;
 
+import com.fasterxml.jackson.databind.annotation.JsonDeserialize;
 import lombok.Builder;
 import lombok.Value;
-import lombok.extern.jackson.Jacksonized;
 
 /**
  * Immutable payload for an audit event (captured in request thread, passed to async writer).
@@ -13,7 +13,7 @@ import lombok.extern.jackson.Jacksonized;
  */
 @Value
 @Builder
-@Jacksonized
+@JsonDeserialize(builder = AuditEventPayload.AuditEventPayloadBuilder.class)
 public class AuditEventPayload {
 
     String schemaName;
