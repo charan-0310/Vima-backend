@@ -463,6 +463,7 @@ public class HRApprovalServiceImpl implements IHRApprovalService {
                 pd.setSumInsured(p.getSumInsured());
                 pd.setCoverageAmount(p.getSumInsured());
                 pd.setCoverageType(p.getCoverageType() != null ? p.getCoverageType().name() : null);
+                pd.setSumInsuredMultiplier(p.getSumInsuredMultiplier());
                 pd.setInsurerName(p.getInsuranceProviderId() != null
                         ? insuranceProviderRepository.findById(p.getInsuranceProviderId()).map(provider -> provider.getProviderName()).orElse(null)
                         : null);
