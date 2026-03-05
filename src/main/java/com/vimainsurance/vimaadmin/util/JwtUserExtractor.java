@@ -20,11 +20,11 @@ import com.vimainsurance.vimaadmin.repository.IAdminUserRepository;
 import org.springframework.beans.factory.annotation.Value;
 
 /**
- * Helper component to extract user details from JWT tokens issued by Authentik.
- * 
- * This backend only validates JWT tokens issued by Authentik.
+ * Helper component to extract user details from JWT tokens issued by Keycloak (or configured IdP).
+ *
+ * This backend validates JWT tokens from the configured issuer (Keycloak).
  * React performs login and token exchange - no login endpoints or callback endpoints are required here.
- * 
+ *
  * The JWT token is validated by Spring Security OAuth2 Resource Server against the configured issuer-uri.
  */
 @Component
@@ -116,7 +116,7 @@ public class JwtUserExtractor {
 
     /**
      * Extract groups from JWT token.
-     * Authentik typically includes groups in the 'groups' claim or as a list.
+     * Keycloak may use 'groups' or realm_access.roles / resource_access client roles.
      * 
      * @param jwt JWT token
      * @return List of groups if present, empty list otherwise

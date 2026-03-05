@@ -22,6 +22,7 @@ import org.springframework.stereotype.Component;
 import org.springframework.web.filter.OncePerRequestFilter;
 
 import com.vimainsurance.vimaadmin.entity.AdminUser;
+import com.vimainsurance.vimaadmin.enums.UserRole;
 import com.vimainsurance.vimaadmin.repository.IAdminUserRepository;
 
 import jakarta.servlet.FilterChain;
@@ -30,23 +31,22 @@ import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 
 /**
- * Correlation ID Filter with Authentik User Sync
- * 
+ * Correlation ID Filter with Keycloak (IdP) User Sync
+ *
  * This filter:
  * 1. Handles correlation IDs for request tracing
- * 2. Automatically creates/updates AdminUser records when users authenticate via Authentik
- * 
- * When a user authenticates with a valid Authentik JWT token, this filter:
+ * 2. Automatically creates/updates AdminUser records when users authenticate via Keycloak (JWT)
+ *
+ * When a user authenticates with a valid Keycloak JWT token, this filter:
+ * - Requires email (and username) from the JWT; if missing, no sync (controller returns 403)
  * - Checks if the user exists in the AdminUser table (by email or oauthProviderId)
  * - If not, creates a new AdminUser record with information from the JWT
  * - Updates the lastLogin timestamp for existing users
- * 
- * This backend only validates JWT tokens issued by Authentik.
+ *
  * React performs login and token exchange - no login endpoints or callback endpoints are required here.
  *
- * When running with dev/test profile, Spring Security uses mock authentication (principal "dev-user")
- * instead of JWT. In that case this filter ensures a corresponding AdminUser row exists so that
- * services that look up the current user by username (e.g. policy upload) do not fail with "Agent not found".
+ * When running with dev/test profile, Spring Security uses mock authentication (principal "dev-user" or "e2e-vima-admin").
+ * This filter ensures a corresponding AdminUser row exists for that principal so /auth/me and other lookups succeed.
  */
 @Component
 public class CorrelationIdFilter extends OncePerRequestFilter {
@@ -93,11 +93,12 @@ public class CorrelationIdFilter extends OncePerRequestFilter {
             // logger.debug("[correlationId:{}] Generated CSP nonce: {} for {} {}", 
             //     correlationId, nonce, request.getMethod(), request.getRequestURI());
             
-            filterChain.doFilter(request, response);
+            // Sync Keycloak/IdP user to AdminUser table BEFORE processing the request.
+            // This ensures the user exists in admin_users when controllers (e.g. /auth/me)
+            // look up the current user, avoiding "User account not found" on first login.
+            syncIdpUserToAdminUsers();
             
-            // Sync Authentik user to AdminUser table if authenticated with JWT
-            // This runs after authentication is established by Spring Security filters
-            syncAuthentikUser();
+            filterChain.doFilter(request, response);
             
             // Log request and response details (existing functionality)
             String ipAddress = request.getHeader("X-Forwarded-For");
@@ -151,29 +152,33 @@ public class CorrelationIdFilter extends OncePerRequestFilter {
     // }
 
     /**
-     * Sync Authentik user to AdminUser table
-     * Creates or updates AdminUser record when user authenticates via Authentik JWT
+     * Sync Keycloak/IdP user to AdminUser table.
+     * Creates or updates AdminUser when user authenticates via Keycloak JWT.
+     * Requires email from JWT (user logged in with it); if email or username is missing we do not create (controller will return 403).
      */
-    private void syncAuthentikUser() {
+    private void syncIdpUserToAdminUsers() {
         if (adminUserRepository == null || idGenerator == null || jwtUserExtractor == null) {
-            // Dependencies not available, skip user sync
             return;
         }
 
         try {
             Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
-            
-            // Only process if authenticated with JWT token
+
             if (authentication instanceof JwtAuthenticationToken jwtAuth) {
                 Jwt jwt = jwtAuth.getToken();
-                
-                // Extract user information from JWT
+
                 String email = jwtUserExtractor.getEmail(jwt);
                 String preferredUsername = jwtUserExtractor.getPreferredUsername(jwt);
                 String subject = jwtUserExtractor.getSubject(jwt);
                 String name = jwt.getClaimAsString("name");
                 List<String> roles = jwtUserExtractor.getRoles(jwt);
-                if (email != null && !roles.contains("ROLE_EMPLOYEE")) {
+
+                // Require email (and effective username); no placeholder - if missing, controller returns 403
+                boolean hasEmail = email != null && !email.isBlank();
+                boolean hasUsername = (preferredUsername != null && !preferredUsername.isBlank()) || hasEmail;
+                boolean canSync = !roles.contains("ROLE_EMPLOYEE") && hasEmail && hasUsername;
+
+                if (canSync) {
                     // Check if user exists by email or oauthProviderId
                     Optional<AdminUser> userByEmail = adminUserRepository.findByEmail(email);
                     Optional<AdminUser> userByOAuthId = subject != null 
@@ -185,7 +190,7 @@ public class CorrelationIdFilter extends OncePerRequestFilter {
                     if (user == null) {
                         // User doesn't exist - create new AdminUser
                         user = createAdminUserFromJwt(jwt, email, preferredUsername, subject, name);
-                        logger.info("[correlationId:{}] Created new AdminUser from Authentik JWT: email={}, username={}, role={}", 
+                        logger.info("[correlationId:{}] Created new AdminUser from Keycloak JWT: email={}, username={}, role={}", 
                             MDC.get(MDC_CORRELATION_ID_KEY), email, user.getUsername(), user.getRole());
                     } else {
                         // User exists - update lastLogin and potentially sync other fields
@@ -194,28 +199,30 @@ public class CorrelationIdFilter extends OncePerRequestFilter {
                             MDC.get(MDC_CORRELATION_ID_KEY), email, user.getUsername());
                     }
                 }
-            } else if (authentication instanceof UsernamePasswordAuthenticationToken
-                    && "dev-user".equals(authentication.getName())) {
-                // Dev/test profile: mock auth uses principal "dev-user" — ensure it exists in admin_users
-                ensureDevUserExists();
+            } else if (authentication instanceof UsernamePasswordAuthenticationToken) {
+                // Dev/test profile: mock auth (dev-user or e2e-vima-admin) — ensure that principal exists in admin_users
+                String mockUsername = authentication.getName();
+                if (mockUsername != null && !mockUsername.isBlank()) {
+                    ensureMockUserExists(mockUsername);
+                }
             }
         } catch (Exception e) {
             // Log error but don't fail the request - allow authentication to proceed
-            logger.error("[correlationId:{}] Error syncing AdminUser from Authentik JWT", 
+            logger.error("[correlationId:{}] Error syncing AdminUser from Keycloak JWT", 
                 MDC.get(MDC_CORRELATION_ID_KEY), e);
         }
     }
 
     /**
-     * Ensure admin_users has a row for the mock "dev-user" used in dev/test profile.
-     * This allows code that looks up the current user by username (e.g. PolicyServiceImpl) to succeed.
+     * Ensure admin_users has a row for the given mock username (dev-user or e2e-vima-admin).
+     * DevAuthenticationFilter sets principal to "dev-user" (dev) or "e2e-vima-admin" (test); both must exist for /auth/me.
      */
-    private void ensureDevUserExists() {
+    private void ensureMockUserExists(String username) {
         if (adminUserRepository == null || idGenerator == null) {
             return;
         }
         try {
-            Optional<AdminUser> existing = adminUserRepository.findByUsername("dev-user");
+            Optional<AdminUser> existing = adminUserRepository.findByUsername(username);
             if (existing.isPresent()) {
                 AdminUser u = existing.get();
                 u.setLastLogin(LocalDateTime.now());
@@ -223,21 +230,21 @@ public class CorrelationIdFilter extends OncePerRequestFilter {
                 return;
             }
             AdminUser user = new AdminUser();
-            user.setUsername("dev-user");
-            user.setEmail("dev-user@local");
-            user.setFullName("Dev/Test User");
-            user.setRole("SUPER_ADMIN");
+            user.setUsername(username);
+            user.setEmail(username + "@local");
+            user.setFullName("e2e-vima-admin".equals(username) ? "E2E Vima Admin" : "Dev/Test User");
+            user.setRole("e2e-vima-admin".equals(username) ? "VIMA_ADMIN" : "SUPER_ADMIN");
             user.setAgentId(idGenerator.generateVimaId());
             user.setIsActive(true);
             user.setLastLogin(LocalDateTime.now());
             user.setCreatedAt(LocalDateTime.now());
             user.setOauthProvider("local");
             adminUserRepository.save(user);
-            logger.info("[correlationId:{}] Created AdminUser for dev/test mock user: dev-user", 
-                MDC.get(MDC_CORRELATION_ID_KEY));
+            logger.info("[correlationId:{}] Created AdminUser for mock user: {}", 
+                MDC.get(MDC_CORRELATION_ID_KEY), username);
         } catch (Exception e) {
-            logger.warn("[correlationId:{}] Could not ensure dev-user in admin_users: {}", 
-                MDC.get(MDC_CORRELATION_ID_KEY), e.getMessage());
+            logger.warn("[correlationId:{}] Could not ensure mock user {} in admin_users: {}", 
+                MDC.get(MDC_CORRELATION_ID_KEY), username, e.getMessage());
         }
     }
 
@@ -248,24 +255,33 @@ public class CorrelationIdFilter extends OncePerRequestFilter {
                                              String subject, String name) {
         AdminUser user = new AdminUser();
         
+        // Normalize to lowercase so DB matches identity provider and avoids login mismatch
+        email = email != null ? email.trim().toLowerCase() : null;
+        String username = preferredUsername != null ? preferredUsername.trim().toLowerCase() : null;
+        if (username == null && email != null) {
+            username = email.split("@")[0];
+        }
+        
         // Set email (required)
         user.setEmail(email);
         
-        // Set username - prefer preferred_username, fallback to email
-        String username = preferredUsername != null ? preferredUsername : email.split("@")[0];
+        // Set username - prefer preferred_username, fallback to email local part
         user.setUsername(username);
         
         // Set full name - prefer name claim, fallback to preferred_username or email
         String fullName = name != null ? name : 
-                         (preferredUsername != null ? preferredUsername : email.split("@")[0]);
+                         (preferredUsername != null ? preferredUsername : (email != null ? email.split("@")[0] : "User"));
         user.setFullName(fullName);
         
-        // Extract role from JWT groups/roles - default to SALES_AGENT if none found
+        // Extract role from JWT groups/roles - default to SALES_AGENT if none found or unknown
         List<String> roles = jwtUserExtractor.getRoles(jwt);
-        String role = roles.isEmpty() ? "SALES_AGENT" : roles.get(0);
-        // Remove "ROLE_" prefix if present, remove " Group" suffix if present
-        role = role.replace("ROLE_", "").replace(" Group", "").trim();
-        user.setRole(role);
+        String roleStr = roles.isEmpty() ? "SALES_AGENT" : roles.get(0);
+        roleStr = roleStr.replace("ROLE_", "").replace(" Group", "").trim();
+        try {
+            user.setRole(UserRole.fromValue(roleStr).getValue());
+        } catch (IllegalArgumentException e) {
+            user.setRole(UserRole.SALES_AGENT.getValue());
+        }
         
         // Set OAuth provider information
         user.setOauthProvider("Keycloak");
@@ -281,7 +297,7 @@ public class CorrelationIdFilter extends OncePerRequestFilter {
         user.setLastLogin(LocalDateTime.now());
         user.setCreatedAt(LocalDateTime.now());
         
-        // No password hash needed - user authenticates via Authentik
+        // No password hash needed - user authenticates via Keycloak
         
         // Save user
         return adminUserRepository.save(user);
@@ -317,7 +333,7 @@ public class CorrelationIdFilter extends OncePerRequestFilter {
             String jwtRole = roles.get(0).replace("ROLE_", "").replace(" Group", "").trim();
             if (user.getRole() == null || !user.getRole().equals(jwtRole)) {
                 // Only update role if it's different (may want to keep manual role assignments)
-                // Uncomment if you want to sync roles from Authentik:
+                // Uncomment if you want to sync roles from Keycloak:
                 // user.setRole(jwtRole);
                 // updated = true;
             }
