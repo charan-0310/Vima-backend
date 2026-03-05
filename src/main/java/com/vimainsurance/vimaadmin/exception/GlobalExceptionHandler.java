@@ -32,4 +32,12 @@ public class GlobalExceptionHandler {
                 .status(HttpStatus.BAD_REQUEST)
                 .body(new ResponseDto<>(400, ex.getMessage()));
     }
+
+    @ExceptionHandler(BadRequestException.class)
+    public ResponseEntity<ResponseDto<Void>> handleBadRequest(BadRequestException ex) {
+        log.debug("Bad request: {}", ex.getMessage());
+        return ResponseEntity
+                .status(HttpStatus.BAD_REQUEST)
+                .body(new ResponseDto<>(400, ex.getMessage()));
+    }
 }
