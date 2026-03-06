@@ -13,7 +13,6 @@ import org.springframework.transaction.annotation.Transactional;
 
 import com.vimainsurance.vimaadmin.adapter.InsurerAdapter;
 import com.vimainsurance.vimaadmin.adapter.InsurerAdapterFactory;
-import com.vimainsurance.vimaadmin.dto.EmailRequest;
 import com.vimainsurance.vimaadmin.dto.ResponseDto;
 import com.vimainsurance.vimaadmin.dto.claim.ClaimQueryDto;
 import com.vimainsurance.vimaadmin.dto.claim.EmployeeResponseRequest;
@@ -29,8 +28,8 @@ import com.vimainsurance.vimaadmin.repository.IClaimQueryRepository;
 import com.vimainsurance.vimaadmin.repository.IClaimRepository;
 import com.vimainsurance.vimaadmin.repository.IAdminUserRepository;
 import com.vimainsurance.vimaadmin.service.IClaimQueryService;
-import com.vimainsurance.vimaadmin.service.IEmailService;
 import com.vimainsurance.vimaadmin.service.claim.ClaimAuditService;
+import com.vimainsurance.vimaadmin.service.claim.notification.ClaimsNotificationService;
 import com.vimainsurance.vimaadmin.util.JwtUserExtractor;
 
 import lombok.RequiredArgsConstructor;
@@ -46,7 +45,7 @@ public class ClaimQueryServiceImpl implements IClaimQueryService {
     private final IAdminUserRepository adminUserRepository;
     private final ClaimAuditService auditService;
     private final InsurerAdapterFactory adapterFactory;
-    private final IEmailService emailService;
+    private final ClaimsNotificationService notificationService;
     private final JwtUserExtractor jwtUserExtractor;
 
     /**
@@ -85,7 +84,7 @@ public class ClaimQueryServiceImpl implements IClaimQueryService {
         auditService.logAction(claimId, "QUERY_ADDED", currentStatus.getValue(), currentStatus.getValue(),
                 jwtUserExtractor.getCurrentUserId(), jwtUserExtractor.getCurrentUserRole() != null ? jwtUserExtractor.getCurrentUserRole().getValue() : "ADMIN",
                 "Query: " + detail);
-        sendQueryRaisedEmail(claim);
+        notificationService.notifyQueryRaised(claim, query);
 
         QueryCreateResponse response = QueryCreateResponse.builder()
                 .id(query.getId())
@@ -134,6 +133,7 @@ public class ClaimQueryServiceImpl implements IClaimQueryService {
         auditService.logAction(claimId, "QUERY_RESPONDED", currentStatus.getValue(), currentStatus.getValue(),
                 adminId, jwtUserExtractor.getCurrentUserRole() != null ? jwtUserExtractor.getCurrentUserRole().getValue() : "ADMIN",
                 "Query response recorded");
+        notificationService.notifyQueryResponded(claim, query);
 
         return ResponseEntity.ok(new ResponseDto<>("Success", null));
     }
@@ -180,26 +180,6 @@ public class ClaimQueryServiceImpl implements IClaimQueryService {
                     .body(new ResponseDto<>("Access denied: not your claim", null));
         }
         return listQueries(claimId);
-    }
-
-    private void sendQueryRaisedEmail(Claim claim) {
-        try {
-            if (claim.getEmployee() == null || claim.getEmployee().getEmail() == null || claim.getEmployee().getEmail().isBlank()) {
-                return;
-            }
-            String subject = "Claim query raised – " + (claim.getClaimNumber() != null ? claim.getClaimNumber() : claim.getId());
-            String body = "A query has been raised on your claim.\n\nClaim number: " + (claim.getClaimNumber() != null ? claim.getClaimNumber() : claim.getId())
-                    + "\n\nPlease log in to provide your response (documents/remarks).\n\nThank you.";
-            EmailRequest req = EmailRequest.builder()
-                    .to(claim.getEmployee().getEmail())
-                    .subject(subject)
-                    .body(body)
-                    .isHtml(false)
-                    .build();
-            emailService.sendSimpleEmail(req);
-        } catch (Exception e) {
-            log.warn("Failed to send query-raised email for claim {}: {}", claim.getId(), e.getMessage());
-        }
     }
 
     private ClaimQueryDto toDto(ClaimQuery q) {
