@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Claim Update - Vima Insurance</title>
+</head>
+<body>
+    <!-- Fragment: claim email body with logo, message, claim card, status badge, CTA, footer -->
+    <th:block th:fragment="body(recipientName, message, claimNumber, memberName, hospitalName, claimAmount, displayStatus, statusBadgeColor, actionUrl, companyName)">
+        <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="background-color: #f3f4f6;">
+            <tr>
+                <td style="padding: 40px 20px;">
+                    <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="max-width: 560px; margin: 0 auto; background-color: #ffffff; border-radius: 12px;">
+                        <tr>
+                            <td style="padding: 24px 24px 16px 24px;">
+                                <img src="https://vimainsurance.com/assets/vima-logo-main.DiciI4hf.png" alt="Vima Insurance" width="180" height="58" style="height: 58px; width: 180px; max-width: 100%; display: block; border: 0;">
+                            </td>
+                        </tr>
+                        <tr>
+                            <td style="padding: 0 24px 20px 24px;">
+                                <p style="font-size: 16px; color: #1a1a1a; margin: 0 0 8px 0;">Hello <strong th:text="${recipientName}">Recipient</strong>,</p>
+                                <p style="font-size: 16px; color: #525252; margin: 0; line-height: 1.5;" th:text="${message}">Message</p>
+                            </td>
+                        </tr>
+                        <tr>
+                            <td style="padding: 0 24px 24px 24px;">
+                                <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="background-color: #f8fafc; border-radius: 8px; border: 1px solid #e2e8f0;">
+                                    <tr>
+                                        <td style="padding: 20px;">
+                                            <p style="font-size: 12px; font-weight: 600; color: #64748b; text-transform: uppercase; letter-spacing: 0.5px; margin: 0 0 12px 0;">Claim summary</p>
+                                            <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%">
+                                                <tr><td style="padding: 4px 0; font-size: 13px; color: #64748b;">Claim number</td><td style="padding: 4px 0; font-size: 14px; color: #1a1a1a; font-weight: 500;" th:text="${claimNumber}">-</td></tr>
+                                                <tr th:if="${memberName}"><td style="padding: 4px 0; font-size: 13px; color: #64748b;">Member</td><td style="padding: 4px 0; font-size: 14px; color: #1a1a1a;" th:text="${memberName}">-</td></tr>
+                                                <tr th:if="${hospitalName}"><td style="padding: 4px 0; font-size: 13px; color: #64748b;">Hospital</td><td style="padding: 4px 0; font-size: 14px; color: #1a1a1a;" th:text="${hospitalName}">-</td></tr>
+                                                <tr th:if="${claimAmount != null}"><td style="padding: 4px 0; font-size: 13px; color: #64748b;">Claim amount</td><td style="padding: 4px 0; font-size: 14px; color: #1a1a1a;" th:text="${claimAmountFormatted != null} ? ${claimAmountFormatted} : ${claimAmount}">-</td></tr>
+                                                <tr th:if="${displayStatus}"><td style="padding: 8px 0 0 0; font-size: 13px; color: #64748b;">Status</td><td style="padding: 8px 0 0 0;"><span th:style="'display: inline-block; padding: 4px 10px; border-radius: 6px; font-size: 13px; font-weight: 600; background-color: ' + (statusBadgeColor != null ? statusBadgeColor : '#e2e8f0') + '; color: #1a1a1a;'" th:text="${displayStatus}">-</span></td></tr>
+                                            </table>
+                                        </td>
+                                    </tr>
+                                </table>
+                            </td>
+                        </tr>
+                        <tr>
+                            <td style="padding: 0 24px 32px 24px;">
+                                <a th:href="${actionUrl}" href="#" style="display: inline-block; background-color: #1e40af; color: #ffffff !important; padding: 14px 28px; text-decoration: none; border-radius: 8px; font-size: 15px; font-weight: 600;">View Claim Details</a>
+                            </td>
+                        </tr>
+                        <tr>
+                            <td style="padding: 0 24px 24px 24px; font-size: 12px; color: #9ca3af;">
+                                <p th:text="${companyName}">Vima Insurance</p>
+                            </td>
+                        </tr>
+                    </table>
+                    <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="max-width: 560px; margin: 0 auto;">
+                        <tr>
+                            <td style="padding: 24px 24px 0 24px; text-align: center; font-size: 12px; color: #9ca3af;">
+                                <p style="margin: 0;">© 2026 Vima Insurance · Chennai, India</p>
+                            </td>
+                        </tr>
+                    </table>
+                </td>
+            </tr>
+        </table>
+    </th:block>
+</body>
+</html>
