@@ -39,3 +39,4 @@ zoho_sdk_logger/
 
 ### Local profile configs with secrets ###
 application-test.properties
+application-local.properties

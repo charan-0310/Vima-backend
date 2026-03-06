@@ -49,6 +49,29 @@ public class ClaimsDocumentServiceImpl implements IClaimsDocumentService {
     private static final Set<String> CLAIM_ALLOWED_MIME = Set.of(
             "application/pdf", "image/jpeg", "image/jpg", "image/png", "image/webp");
 
+    /** Infer MIME from extension for mobile clients that send null Content-Type. */
+    private static String mimeFromExtension(String ext) {
+        if (ext == null) return null;
+        return switch (ext.toLowerCase()) {
+            case ".pdf" -> "application/pdf";
+            case ".jpg", ".jpeg" -> "image/jpeg";
+            case ".png" -> "image/png";
+            case ".webp" -> "image/webp";
+            default -> null;
+        };
+    }
+
+    /** Extension for S3/key when filename is missing (from validated MIME). */
+    private static String extensionFromMime(String mime) {
+        if (mime == null) return ".jpg";
+        return switch (mime.toLowerCase()) {
+            case "application/pdf" -> ".pdf";
+            case "image/png" -> ".png";
+            case "image/webp" -> ".webp";
+            default -> ".jpg";
+        };
+    }
+
     private static final Set<ClaimStatus> TERMINAL_STATUSES = Set.of(
             ClaimStatus.SETTLED, ClaimStatus.REJECTED, ClaimStatus.REJECTED_BY_ADMIN, ClaimStatus.CLOSED);
 
@@ -110,9 +133,21 @@ public class ClaimsDocumentServiceImpl implements IClaimsDocumentService {
         List<DocumentUploadResponse.UploadedDocumentItem> uploaded = new ArrayList<>();
         for (MultipartFile file : files) {
             validateClaimFile(file);
-            String ext = getFileExtension(file.getOriginalFilename());
+            String origName = file.getOriginalFilename();
+            String mime = file.getContentType();
+            String ext;
+            String effectiveFilename;
+            if (origName != null && !origName.isBlank()) {
+                ext = getFileExtension(origName).toLowerCase();
+                effectiveFilename = origName;
+            } else {
+                ext = extensionFromMime(mime != null ? mime : "image/jpeg");
+                effectiveFilename = "document-" + UUID.randomUUID() + ext;
+            }
             String s3Key = "claims/" + claimId + "/" + documentType.name() + "/" + UUID.randomUUID() + ext;
             s3Service.uploadFile(file, s3Key);
+            String effectiveMime = (mime != null && !mime.isBlank()) ? mime : mimeFromExtension(ext);
+            if (effectiveMime == null) effectiveMime = "image/jpeg";
             Document doc = new Document();
             doc.setEntityType(DocumentEntityType.CLAIM);
             doc.setEntityId(claimId.toString());
@@ -120,9 +155,9 @@ public class ClaimsDocumentServiceImpl implements IClaimsDocumentService {
             doc.setDocumentCategory(DocumentCategory.CLAIM_DOCUMENTS);
             doc.setS3Bucket(s3Config.getBucketName());
             doc.setS3Key(s3Key);
-            doc.setOriginalFilename(file.getOriginalFilename());
+            doc.setOriginalFilename(effectiveFilename);
             doc.setFileSize(file.getSize());
-            doc.setMimeType(file.getContentType());
+            doc.setMimeType(effectiveMime);
             doc.setUploadedBy(uploadedBy);
             doc.setUploadedByRole(isAdmin ? parseUserRole(role) : null);
             doc.setSyncedToInsurer(false);
@@ -191,16 +226,25 @@ public class ClaimsDocumentServiceImpl implements IClaimsDocumentService {
             throw new BadRequestException("File size must not exceed 5 MB");
         }
         String filename = file.getOriginalFilename();
-        if (filename == null || filename.isBlank()) {
-            throw new BadRequestException("Invalid file name");
-        }
-        String ext = getFileExtension(filename).toLowerCase();
-        if (!CLAIM_ALLOWED_EXTENSIONS.contains(ext)) {
-            throw new BadRequestException("Invalid file type. Allowed: PDF, JPG, JPEG, PNG, WebP");
-        }
+        String ext = (filename != null && !filename.isBlank())
+                ? getFileExtension(filename).toLowerCase()
+                : "";
         String mime = file.getContentType();
-        if (mime == null || !CLAIM_ALLOWED_MIME.contains(mime.toLowerCase())) {
+        if (mime == null || mime.isBlank()) {
+            mime = mimeFromExtension(ext);
+            if (mime == null) {
+                mime = "image/jpeg";
+            }
+        } else {
+            mime = mime.toLowerCase();
+        }
+        if (!CLAIM_ALLOWED_MIME.contains(mime)) {
             throw new BadRequestException("Invalid file type. Allowed: PDF, JPG, JPEG, PNG, WebP");
+        }
+        if (filename != null && !filename.isBlank()) {
+            if (!CLAIM_ALLOWED_EXTENSIONS.contains(ext)) {
+                throw new BadRequestException("Invalid file type. Allowed: PDF, JPG, JPEG, PNG, WebP");
+            }
         }
     }
 

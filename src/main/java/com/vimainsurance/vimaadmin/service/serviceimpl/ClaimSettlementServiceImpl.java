@@ -12,7 +12,6 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
 
-import com.vimainsurance.vimaadmin.dto.EmailRequest;
 import com.vimainsurance.vimaadmin.dto.ResponseDto;
 import com.vimainsurance.vimaadmin.dto.claim.ClaimDeductionDto;
 import com.vimainsurance.vimaadmin.dto.claim.DeductionRequest;
@@ -29,8 +28,8 @@ import com.vimainsurance.vimaadmin.repository.IClaimRepository;
 import com.vimainsurance.vimaadmin.repository.IClaimSettlementRepository;
 import com.vimainsurance.vimaadmin.service.IClaimSettlementService;
 import com.vimainsurance.vimaadmin.service.IClaimsDocumentService;
-import com.vimainsurance.vimaadmin.service.IEmailService;
 import com.vimainsurance.vimaadmin.service.claim.ClaimAuditService;
+import com.vimainsurance.vimaadmin.service.claim.notification.ClaimsNotificationService;
 import com.vimainsurance.vimaadmin.service.claim.ClaimStatusTransitionValidator;
 import com.vimainsurance.vimaadmin.util.JwtUserExtractor;
 
@@ -50,7 +49,7 @@ public class ClaimSettlementServiceImpl implements IClaimSettlementService {
     private final IClaimDeductionRepository deductionRepository;
     private final ClaimStatusTransitionValidator statusValidator;
     private final ClaimAuditService auditService;
-    private final IEmailService emailService;
+    private final ClaimsNotificationService notificationService;
     private final IClaimsDocumentService claimsDocumentService;
     private final JwtUserExtractor jwtUserExtractor;
 
@@ -103,7 +102,7 @@ public class ClaimSettlementServiceImpl implements IClaimSettlementService {
                 jwtUserExtractor.getCurrentUserId(), jwtUserExtractor.getCurrentUserRole() != null ? jwtUserExtractor.getCurrentUserRole().getValue() : "ADMIN",
                 "Settlement amountPaid=" + amountPaid);
 
-        sendSettlementEmail(claim, amountPaid);
+        notificationService.notifySettlement(claim, settlement);
 
         SettlementResponse response = SettlementResponse.builder()
                 .id(settlement.getId())
@@ -228,27 +227,6 @@ public class ClaimSettlementServiceImpl implements IClaimSettlementService {
                     null);
         }
         return ResponseEntity.ok(new ResponseDto<>("Success", null));
-    }
-
-    private void sendSettlementEmail(Claim claim, BigDecimal amountPaid) {
-        try {
-            if (claim.getEmployee() == null || claim.getEmployee().getEmail() == null || claim.getEmployee().getEmail().isBlank()) {
-                return;
-            }
-            String subject = "Claim settled – " + (claim.getClaimNumber() != null ? claim.getClaimNumber() : claim.getId());
-            String body = "Your claim has been settled.\n\nClaim number: " + (claim.getClaimNumber() != null ? claim.getClaimNumber() : claim.getId())
-                    + "\nAmount paid: " + (amountPaid != null ? amountPaid : "N/A")
-                    + "\n\nThank you.";
-            EmailRequest req = EmailRequest.builder()
-                    .to(claim.getEmployee().getEmail())
-                    .subject(subject)
-                    .body(body)
-                    .isHtml(false)
-                    .build();
-            emailService.sendSimpleEmail(req);
-        } catch (Exception e) {
-            log.warn("Failed to send settlement email for claim {}: {}", claim.getId(), e.getMessage());
-        }
     }
 
     private ClaimDeductionDto toDeductionDto(ClaimDeduction d) {

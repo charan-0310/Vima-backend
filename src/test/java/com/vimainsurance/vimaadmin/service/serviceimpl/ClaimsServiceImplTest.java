@@ -53,6 +53,7 @@ import com.vimainsurance.vimaadmin.service.claim.ClaimAuditService;
 import com.vimainsurance.vimaadmin.service.claim.ClaimNumberGenerator;
 import com.vimainsurance.vimaadmin.service.claim.ClaimStatusTransitionValidator;
 import com.vimainsurance.vimaadmin.service.claim.ClaimValidationService;
+import com.vimainsurance.vimaadmin.service.claim.notification.ClaimsNotificationService;
 
 @ExtendWith(MockitoExtension.class)
 class ClaimsServiceImplTest {
@@ -88,6 +89,9 @@ class ClaimsServiceImplTest {
     private InsurerAdapterFactory adapterFactory;
 
     @Mock
+    private ClaimsNotificationService notificationService;
+
+    @Mock
     private InsurerAdapter insurerAdapter;
 
     private ClaimsServiceImpl claimsService;
@@ -103,7 +107,7 @@ class ClaimsServiceImplTest {
     void setUp() {
         claimsService = new ClaimsServiceImpl(
                 claimRepository, organizationRepository, dealsRepository, adminUserRepository, documentRepository,
-                claimNumberGenerator, statusValidator, auditService, validationService, adapterFactory);
+                claimNumberGenerator, statusValidator, auditService, validationService, adapterFactory, notificationService);
 
         claimId = UUID.randomUUID();
         employeeId = UUID.randomUUID();
