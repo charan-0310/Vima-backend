@@ -63,6 +63,7 @@ import com.vimainsurance.vimaadmin.repository.IEndorsementRepository;
 import com.vimainsurance.vimaadmin.repository.IOrganizationRepository;
 import com.vimainsurance.vimaadmin.service.IDocumentService;
 import com.vimainsurance.vimaadmin.service.IEmailService;
+import com.vimainsurance.vimaadmin.service.IEmployeePolicyMapService;
 import com.vimainsurance.vimaadmin.service.IEndorsementService;
 import com.vimainsurance.vimaadmin.service.IS3Service;
 import com.vimainsurance.vimaadmin.specification.EndorsementSpecification;
@@ -119,6 +120,9 @@ public class EndorsementServiceImpl implements IEndorsementService {
 
     @Autowired
     private ObjectMapper objectMapper;
+
+    @Autowired(required = false)
+    private IEmployeePolicyMapService employeePolicyMapService;
 
     @Override
     @Transactional
@@ -526,6 +530,14 @@ public class EndorsementServiceImpl implements IEndorsementService {
             endorsement.setStatus(AccountStatus.COMPLETED);
             endorsement.setUpdatedAt(LocalDateTime.now());
             endorsementRepository.save(endorsement);
+
+            if (employeePolicyMapService != null) {
+                if (endorsement.getEndorsementType() == EndorsementType.ADDITION || endorsement.getEndorsementType() == EndorsementType.INITIAL_UPLOAD) {
+                    employeePolicyMapService.createMappingsFromEndorsement(endorsement.getEndorsementId(), endorsement.getEndorsementType().name());
+                } else if (endorsement.getEndorsementType() == EndorsementType.DELETION) {
+                    employeePolicyMapService.cancelMappingsFromEndorsement(endorsement.getEndorsementId());
+                }
+            }
 
             return responseObj.render(responseObj.formSuccessResponse(Constants.SUCCESS, "Endorsement approved successfully"));
         } catch (IllegalArgumentException e) {

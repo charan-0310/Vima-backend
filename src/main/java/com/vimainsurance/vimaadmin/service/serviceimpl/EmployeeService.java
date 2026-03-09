@@ -53,6 +53,7 @@ import org.springframework.web.multipart.MultipartFile;
 import com.vimainsurance.vimaadmin.entity.DealEndorsement;
 import com.vimainsurance.vimaadmin.entity.Document;
 import com.vimainsurance.vimaadmin.enums.DocumentEntityType;
+import com.vimainsurance.vimaadmin.service.IEmployeePolicyMapService;
 import com.vimainsurance.vimaadmin.service.IDocumentService;
 import com.vimainsurance.vimaadmin.repository.IDocumentRepository;
 import com.vimainsurance.vimaadmin.exception.DocumentUploadException;
@@ -76,6 +77,9 @@ public class EmployeeService {
 
     @Autowired
     private IEndorsementRepository endorsementRepository;
+
+    @Autowired(required = false)
+    private IEmployeePolicyMapService employeePolicyMapService;
 
     @Autowired
     private IDealEndorsementRepository dealEndorsementRepository;
@@ -672,7 +676,17 @@ public class EmployeeService {
             if (!dealEndorsementsBatch.isEmpty()) {
               dealEndorsementRepository.saveAll(dealEndorsementsBatch);
             }
-          } 
+          }
+          if (employeePolicyMapService != null) {
+            List<UUID> primaryEmployeeIds = dealsToSave.stream()
+                .filter(deal -> deal.getRelationship() != null && "SELF".equalsIgnoreCase(deal.getRelationship()))
+                .map(Deals::getIndividualId)
+                .distinct()
+                .toList();
+            if (!primaryEmployeeIds.isEmpty()) {
+              employeePolicyMapService.createMappingsFromBulkUpload(organization.getOrganizationId(), primaryEmployeeIds, "BULK_UPLOAD");
+            }
+          }
         }
           log.info("Successfully saved {} deals ({} new, {} updated)", new Object[] { totalSaved, createdCount, updatedCount });
           response.setTotalRows(employeeUploadDtoList.size());

@@ -60,6 +60,7 @@ import com.vimainsurance.vimaadmin.repository.INomineeRepository;
 import com.vimainsurance.vimaadmin.repository.IPolicyRepository;
 import com.vimainsurance.vimaadmin.service.IDocumentService;
 import com.vimainsurance.vimaadmin.service.IEmailService;
+import com.vimainsurance.vimaadmin.service.IEmployeePolicyMapService;
 import com.vimainsurance.vimaadmin.service.IHRApprovalService;
 import com.vimainsurance.vimaadmin.specification.EnrollmentSubmissionSpecification;
 import com.vimainsurance.vimaadmin.audit.AuditContextSupplier;
@@ -104,6 +105,8 @@ public class HRApprovalServiceImpl implements IHRApprovalService {
     private IPolicyRepository policyRepository;
     @Autowired
     private IInsuranceProviderRepository insuranceProviderRepository;
+    @Autowired(required = false)
+    private IEmployeePolicyMapService employeePolicyMapService;
 
     @Override
     public ResponseEntity<ResponseDto<Page<SubmissionListItemDto>>> getEnrollments(
@@ -194,6 +197,10 @@ public class HRApprovalServiceImpl implements IHRApprovalService {
             enrollmentSubmissionRepository.save(sub);
 
             updateDealEnrollmentStatusForSubmission(id, EnrollementStatus.APPROVED);
+
+            if (employeePolicyMapService != null) {
+                employeePolicyMapService.createMappingsFromEnrollmentSubmission(id);
+            }
 
             sendApprovalEmail(sub);
 
