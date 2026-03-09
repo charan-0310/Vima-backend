@@ -43,7 +43,7 @@
 - [Feature Flags Guide](guides/feature-flags.md)
 - [Audit Functional Overview](guides/audit/audit-functional-overview.md)
 
-> Product/UX guides (enrollment functional guide, wireframes) live in the [vima-web-portal repo](../../vima-web-portal/docs/).
+> Product/UX guides (enrollment functional guide, wireframes) live in the [vima-web-portal repo](https://github.com/Vima-Insurance/vima-web-portal/tree/lovable/docs).
 
 ## Conventions
 
