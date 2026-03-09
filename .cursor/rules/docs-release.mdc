@@ -1,0 +1,38 @@
+---
+description: Remind to create release notes when merging to main
+globs:
+  - docs/release/**
+alwaysApply: false
+---
+
+# Release Notes Reminder
+
+When preparing a merge to the `main` branch, a release note should be created.
+
+## When to act
+
+- Before or during a merge to `main`
+- When the user mentions "release", "deploy", "ship", or "merge to main"
+
+## What to do
+
+1. Create a new release note from the template: `docs/release/_TEMPLATE.md`
+2. Name it: `YYYY-MM-DD-release-name.md` (e.g., `2025-03-09-enrollment-phase-2.md`)
+3. Fill in all sections:
+   - **Summary**: One paragraph of what this release includes
+   - **Features Added**: List each new feature with a link to its PRD
+   - **Improvements**: Enhancements to existing features
+   - **Bug Fixes**: What was broken and how it was fixed
+   - **Breaking Changes**: Anything that changes existing behavior
+   - **Database Migrations**: List any new Flyway migrations
+   - **Configuration Changes**: New env vars, feature flags, etc.
+4. Update `docs/README.md` index with a link to the new release note
+5. Review all commits since the last release to ensure nothing is missed
+
+## Combining release notes
+
+To understand the full application state at any point, read all release notes in chronological order. Each release note is a self-contained record of what changed in that release.
+
+## Ask the user
+
+> "Ready to merge to main? Should I create a release note in `docs/release/`?"

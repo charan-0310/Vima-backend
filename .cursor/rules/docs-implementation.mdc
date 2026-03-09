@@ -1,0 +1,49 @@
+---
+description: Prompt to update implementation docs when service or controller code changes significantly
+globs:
+  - src/main/java/**/service/**
+  - src/main/java/**/serviceimpl/**
+  - src/main/java/**/controller/**
+  - src/main/java/**/repository/**
+  - src/main/java/**/mapper/**
+alwaysApply: false
+---
+
+# Implementation Documentation Reminder
+
+When making **significant changes** to services, controllers, repositories, or mappers, check whether implementation docs need updating.
+
+## When to act
+
+- New service or controller (new CRUD feature)
+- Major refactor of business logic in a service implementation
+- New repository with custom queries or specifications
+- Changes to how data flows between layers (controller → service → repository)
+- New integration with external systems (S3, email, etc.)
+
+## When NOT to act
+
+- Minor bug fixes or adding a field to an existing DTO
+- Small query adjustments
+- Logging or error message changes
+
+## What to do
+
+1. Check `docs/implementation/` for an existing doc covering this feature area
+2. If one exists, update it with the new implementation details
+3. If none exists and the change introduces a new feature or pattern, create a new implementation doc
+4. Name files as `kebab-case.md` in the appropriate domain subfolder
+5. Update `docs/README.md` index with a link to the new doc
+
+## Implementation doc should cover
+
+- What was built and why
+- Key classes and their responsibilities
+- API endpoints (method, path, request/response shapes)
+- Database tables involved and relationships
+- Any non-obvious patterns, workarounds, or business rules
+- Related architecture decisions (link to ADR if applicable)
+
+## Ask the user
+
+> "This adds/changes [feature area] implementation. Should I create/update an implementation doc in `docs/implementation/`?"

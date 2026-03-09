@@ -1,0 +1,43 @@
+---
+description: Prompt to update architecture docs when structural code changes are made
+globs:
+  - src/main/java/**/entity/**
+  - src/main/java/**/config/**
+  - src/main/java/**/security/**
+  - src/main/java/**/enums/**
+  - src/main/resources/db/migration/**
+alwaysApply: false
+---
+
+# Architecture Documentation Reminder
+
+When making changes to **structural or architectural code** (entities, DB migrations, config, security, enums), check whether the change warrants an architecture doc update.
+
+## When to act
+
+- New entity or significant changes to an existing entity
+- New Flyway migration that alters schema (new tables, column changes, enum types)
+- Changes to security configuration (auth flow, filters, role definitions)
+- New enum types or changes to existing ones
+- Changes to Spring configuration (CORS, profiles, bean definitions)
+
+## What to do
+
+1. Check `docs/architecture/` for an existing doc covering this area
+2. If one exists, update it with the new decision or change
+3. If none exists and the change is significant, create a new ADR using the template at `docs/architecture/_TEMPLATE.md`
+4. Name new ADRs as `ADR-XXX-short-title.md` (increment the number from the highest existing ADR)
+5. Update `docs/README.md` index with a link to the new doc
+
+## ADR fields to fill
+
+- **Status**: Set to `Accepted`
+- **Date**: Today's date
+- **Domain**: The feature area (enrollment, auth, group-insurance, etc.)
+- **Context**: Why this decision was needed
+- **Decision**: What was decided
+- **Consequences**: What this enables or limits
+
+## Ask the user
+
+> "This change affects [area]. Should I create/update an architecture decision record in `docs/architecture/`?"
