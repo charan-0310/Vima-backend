@@ -1,11 +1,13 @@
 package com.vimainsurance.vimaadmin.repository;
 
+import java.time.LocalDate;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.JpaSpecificationExecutor;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
@@ -36,5 +38,24 @@ public interface IEnrollmentWindowsRepository extends JpaRepository<EnrollmentWi
         WHERE ew.id IN (:windowIds)
         """, nativeQuery = true)
     List<WindowProgressProjection> findProgressByWindowIds(@Param("windowIds") List<UUID> windowIds);
+
+    /**
+     * Find all enrollment windows that are SCHEDULED and have passed their end date.
+     * Used by the expiry scheduler to mark them as EXPIRED.
+     */
+    List<EnrollmentWindows> findAllByStatusAndEndDateBefore(EnrollementStatus status, LocalDate date);
+
+    /**
+     * Update expired enrollment windows in bulk.
+     * Updates status to EXPIRED for SCHEDULED windows where end_date < current date.
+     * Returns the number of updated rows.
+     */
+    @Modifying
+    @Query(value = """
+        UPDATE cpc.enrollment_windows
+        SET status = 'EXPIRED', updated_at = NOW()
+        WHERE status = 'SCHEDULED' AND end_date < :currentDate
+        """, nativeQuery = true)
+    int markExpiredWindows(@Param("currentDate") LocalDate currentDate);
 }
 
