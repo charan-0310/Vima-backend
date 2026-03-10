@@ -165,9 +165,21 @@ public class EmailServiceImpl implements IEmailService {
             MimeMessageHelper helper = new MimeMessageHelper(message, true, UTF_8);
             
             helper.setFrom(fromEmail, fromName);
-            helper.setTo(emailRequest.getTo());
+            if (emailRequest.getToList() != null && !emailRequest.getToList().isEmpty()) {
+                helper.setTo(emailRequest.getToList().toArray(new String[0]));
+            } else if (emailRequest.getTo() != null && !emailRequest.getTo().isBlank()) {
+                helper.setTo(emailRequest.getTo());
+            }
             helper.setSubject(emailRequest.getSubject());
-            helper.setText(emailRequest.getBody(), emailRequest.isHtml());
+            String body = emailRequest.getBody();
+            if (emailRequest.getTemplateName() != null && !emailRequest.getTemplateName().isBlank()) {
+                Context context = new Context();
+                if (emailRequest.getTemplateVariables() != null) {
+                    context.setVariables(emailRequest.getTemplateVariables());
+                }
+                body = templateEngine.process(emailRequest.getTemplateName(), context);
+            }
+            helper.setText(body != null ? body : "", body != null && (emailRequest.isHtml() || emailRequest.getTemplateName() != null));
             
             // Add attachments
             if (emailRequest.getAttachments() != null && !emailRequest.getAttachments().isEmpty()) {

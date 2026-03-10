@@ -52,6 +52,13 @@ public final class EnrollmentSubmissionMapper {
         if (dto.getIdempotencyKey() != null) {
             entity.setIdempotencyKey(dto.getIdempotencyKey());
         }
+        entity.setDeductionFrequency(dto.getDeductionFrequency());
+        entity.setTotalEmployeeAnnualPremium(dto.getTotalEmployeeAnnualPremium());
+        entity.setTotalEmployerAnnualPremium(dto.getTotalEmployerAnnualPremium());
+        entity.setCostSharingSnapshot(dto.getCostSharingSnapshot() != null ? dto.getCostSharingSnapshot() : "{}");
+        entity.setDeductionAmountPerPeriod(dto.getDeductionAmountPerPeriod());
+        entity.setConsentTimestamp(dto.getConsentTimestamp());
+        entity.setConsentTextSnapshot(dto.getConsentTextSnapshot());
         return entity;
     }
 
@@ -124,6 +131,27 @@ public final class EnrollmentSubmissionMapper {
         if (dto.getIdempotencyKey() != null) {
             entity.setIdempotencyKey(dto.getIdempotencyKey());
         }
+        if (dto.getDeductionFrequency() != null) {
+            entity.setDeductionFrequency(dto.getDeductionFrequency());
+        }
+        if (dto.getTotalEmployeeAnnualPremium() != null) {
+            entity.setTotalEmployeeAnnualPremium(dto.getTotalEmployeeAnnualPremium());
+        }
+        if (dto.getTotalEmployerAnnualPremium() != null) {
+            entity.setTotalEmployerAnnualPremium(dto.getTotalEmployerAnnualPremium());
+        }
+        if (dto.getCostSharingSnapshot() != null) {
+            entity.setCostSharingSnapshot(dto.getCostSharingSnapshot());
+        }
+        if (dto.getDeductionAmountPerPeriod() != null) {
+            entity.setDeductionAmountPerPeriod(dto.getDeductionAmountPerPeriod());
+        }
+        if (dto.getConsentTimestamp() != null) {
+            entity.setConsentTimestamp(dto.getConsentTimestamp());
+        }
+        if (dto.getConsentTextSnapshot() != null) {
+            entity.setConsentTextSnapshot(dto.getConsentTextSnapshot());
+        }
     }
 
     /**
@@ -163,6 +191,13 @@ public final class EnrollmentSubmissionMapper {
         dto.setDeclarationIpAddress(entity.getDeclarationIpAddress());
         dto.setVersion(entity.getVersion());
         dto.setIdempotencyKey(entity.getIdempotencyKey());
+        dto.setDeductionFrequency(entity.getDeductionFrequency());
+        dto.setTotalEmployeeAnnualPremium(entity.getTotalEmployeeAnnualPremium());
+        dto.setTotalEmployerAnnualPremium(entity.getTotalEmployerAnnualPremium());
+        dto.setCostSharingSnapshot(entity.getCostSharingSnapshot());
+        dto.setDeductionAmountPerPeriod(entity.getDeductionAmountPerPeriod());
+        dto.setConsentTimestamp(entity.getConsentTimestamp());
+        dto.setConsentTextSnapshot(entity.getConsentTextSnapshot());
         dto.setCreatedAt(entity.getCreatedAt());
         dto.setUpdatedAt(entity.getUpdatedAt());
         return dto;

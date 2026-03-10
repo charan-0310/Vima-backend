@@ -38,6 +38,7 @@ import com.vimainsurance.vimaadmin.entity.Endorsement;
 import com.vimainsurance.vimaadmin.entity.InsuranceProvider;
 import com.vimainsurance.vimaadmin.entity.Policy;
 import com.vimainsurance.vimaadmin.enums.PolicyStatus;
+import com.vimainsurance.vimaadmin.enums.ProductType;
 import com.vimainsurance.vimaadmin.mapper.EmployeePolicyMapMapper;
 import com.vimainsurance.vimaadmin.repository.IDealsRepository;
 import com.vimainsurance.vimaadmin.repository.IEmployeePolicyMapRepository;
@@ -45,6 +46,7 @@ import com.vimainsurance.vimaadmin.repository.IEndorsementRepository;
 import com.vimainsurance.vimaadmin.repository.IEnrollmentSubmissionRepository;
 import com.vimainsurance.vimaadmin.repository.IInsuranceProviderRepository;
 import com.vimainsurance.vimaadmin.repository.IPolicyRepository;
+import com.vimainsurance.vimaadmin.repository.ITopupPlanOptionRepository;
 import com.vimainsurance.vimaadmin.service.IEmployeePolicyMapService;
 
 @Service
@@ -68,6 +70,8 @@ public class EmployeePolicyMapServiceImpl implements IEmployeePolicyMapService {
     private IInsuranceProviderRepository insuranceProviderRepository;
     @Autowired
     private IEndorsementRepository endorsementRepository;
+    @Autowired
+    private ITopupPlanOptionRepository topupPlanOptionRepository;
 
     @Override
     @Transactional
@@ -397,7 +401,143 @@ public class EmployeePolicyMapServiceImpl implements IEmployeePolicyMapService {
             int end = Math.min(i + BATCH_SIZE, toSave.size());
             employeePolicyMapRepository.saveAll(toSave.subList(i, end));
         }
+        createMappingsForTopupFromSubmission(submissionId);
+        createMappingsForParentFromSubmission(submissionId);
         log.info("createMappingsFromEnrollmentSubmission: created {} mappings for submission {}", toSave.size(), submissionId);
+    }
+
+    @Override
+    @Transactional
+    public void createMappingsForTopupFromSubmission(UUID submissionId) {
+        if (submissionId == null) return;
+        Optional<EnrollmentSubmission> subOpt = enrollmentSubmissionRepository.findById(submissionId);
+        if (subOpt.isEmpty()) return;
+        EnrollmentSubmission sub = subOpt.get();
+        Deals employee = sub.getEmployee();
+        if (employee == null || employee.getOrganization() == null) return;
+        UUID orgId = employee.getOrganization().getOrganizationId();
+        String planSelectionsJson = sub.getPlanSelections();
+        if (planSelectionsJson == null || planSelectionsJson.isBlank()) return;
+        try {
+            JsonNode arr = OBJECT_MAPPER.readTree(planSelectionsJson);
+            if (!arr.isArray()) return;
+            List<EmployeePolicyMap> toSave = new ArrayList<>();
+            LocalDate effectiveFrom = LocalDate.now();
+            UUID windowId = sub.getEnrollmentWindow() != null ? sub.getEnrollmentWindow().getId() : null;
+            for (JsonNode node : arr) {
+                if (!node.has("opted") || !node.get("opted").asBoolean()) continue;
+                if (!node.has("topupPlanOptionId") || node.get("topupPlanOptionId").isNull()) continue;
+                String optIdStr = node.get("topupPlanOptionId").asText();
+                UUID topupOptionId;
+                try {
+                    topupOptionId = UUID.fromString(optIdStr);
+                } catch (Exception e) {
+                    continue;
+                }
+                Optional<com.vimainsurance.vimaadmin.entity.TopupPlanOption> optOpt = topupPlanOptionRepository.findById(topupOptionId);
+                if (optOpt.isEmpty() || !optOpt.get().getCompanyId().equals(orgId)) continue;
+                com.vimainsurance.vimaadmin.entity.TopupPlanOption option = optOpt.get();
+                Long policyId = option.getPolicyId();
+                if (policyId == null) continue;
+                java.math.BigDecimal sumInsured = node.has("sumInsured") && !node.get("sumInsured").isNull()
+                        ? java.math.BigDecimal.valueOf(node.get("sumInsured").asDouble()) : null;
+                if (!employeePolicyMapRepository.existsByIndividualIdAndPolicyIdAndStatus(employee.getIndividualId(), policyId, STATUS_ACTIVE)) {
+                    toSave.add(EmployeePolicyMap.builder()
+                            .individualId(employee.getIndividualId())
+                            .primaryEmployeeId(null)
+                            .relationship("SELF")
+                            .policyId(policyId)
+                            .organizationId(orgId)
+                            .sumInsured(sumInsured)
+                            .isVoluntary(true)
+                            .status(STATUS_ACTIVE)
+                            .effectiveFrom(effectiveFrom)
+                            .source("ENROLLMENT")
+                            .enrollmentWindowId(windowId)
+                            .enrollmentSubmissionId(submissionId)
+                            .build());
+                }
+                if (Boolean.TRUE.equals(option.getCoversDependents())) {
+                    List<Deals> dependents = dealsRepository.findByPrimaryIndividualId(employee.getIndividualId());
+                    for (Deals dep : dependents) {
+                        if (employeePolicyMapRepository.existsByIndividualIdAndPolicyIdAndStatus(dep.getIndividualId(), policyId, STATUS_ACTIVE)) continue;
+                        toSave.add(EmployeePolicyMap.builder()
+                                .individualId(dep.getIndividualId())
+                                .primaryEmployeeId(employee.getIndividualId())
+                                .relationship(dep.getRelationship() != null ? dep.getRelationship() : "OTHER")
+                                .policyId(policyId)
+                                .organizationId(orgId)
+                                .sumInsured(sumInsured)
+                                .isVoluntary(true)
+                                .status(STATUS_ACTIVE)
+                                .effectiveFrom(effectiveFrom)
+                                .source("ENROLLMENT")
+                                .enrollmentWindowId(windowId)
+                                .enrollmentSubmissionId(submissionId)
+                                .build());
+                    }
+                }
+            }
+            for (int i = 0; i < toSave.size(); i += BATCH_SIZE) {
+                int end = Math.min(i + BATCH_SIZE, toSave.size());
+                employeePolicyMapRepository.saveAll(toSave.subList(i, end));
+            }
+            if (!toSave.isEmpty()) {
+                log.info("createMappingsForTopupFromSubmission: created {} top-up mappings for submission {}", toSave.size(), submissionId);
+            }
+        } catch (Exception e) {
+            log.warn("createMappingsForTopupFromSubmission failed for submission {}: {}", submissionId, e.getMessage());
+        }
+    }
+
+    @Override
+    @Transactional
+    public void createMappingsForParentFromSubmission(UUID submissionId) {
+        if (submissionId == null) return;
+        Optional<EnrollmentSubmission> subOpt = enrollmentSubmissionRepository.findById(submissionId);
+        if (subOpt.isEmpty()) return;
+        EnrollmentSubmission sub = subOpt.get();
+        Deals employee = sub.getEmployee();
+        if (employee == null || employee.getOrganization() == null) return;
+        UUID orgId = employee.getOrganization().getOrganizationId();
+        List<Policy> policies = policyRepository.findByOrganizationIdAndStatus(orgId, PolicyStatus.ACTIVE);
+        Optional<Policy> parentPolicyOpt = policies.stream()
+                .filter(p -> p.getProductType() == com.vimainsurance.vimaadmin.enums.ProductType.PARENT_GMC)
+                .findFirst();
+        if (parentPolicyOpt.isEmpty()) return;
+        Policy parentPolicy = parentPolicyOpt.get();
+        List<Deals> dependents = dealsRepository.findByPrimaryIndividualId(employee.getIndividualId());
+        List<Deals> parentDependents = dependents.stream()
+                .filter(d -> "PARENT".equalsIgnoreCase(d.getRelationship()) || "PARENT_IN_LAW".equalsIgnoreCase(d.getRelationship()))
+                .toList();
+        if (parentDependents.isEmpty()) return;
+        List<EmployeePolicyMap> toSave = new ArrayList<>();
+        LocalDate effectiveFrom = LocalDate.now();
+        UUID windowId = sub.getEnrollmentWindow() != null ? sub.getEnrollmentWindow().getId() : null;
+        for (Deals parent : parentDependents) {
+            if (employeePolicyMapRepository.existsByIndividualIdAndPolicyIdAndStatus(parent.getIndividualId(), parentPolicy.getPolicyId(), STATUS_ACTIVE)) continue;
+            toSave.add(EmployeePolicyMap.builder()
+                    .individualId(parent.getIndividualId())
+                    .primaryEmployeeId(employee.getIndividualId())
+                    .relationship(parent.getRelationship() != null ? parent.getRelationship() : "PARENT")
+                    .policyId(parentPolicy.getPolicyId())
+                    .organizationId(orgId)
+                    .sumInsured(parentPolicy.getSumInsured())
+                    .isVoluntary(true)
+                    .status(STATUS_ACTIVE)
+                    .effectiveFrom(effectiveFrom)
+                    .source("ENROLLMENT")
+                    .enrollmentWindowId(windowId)
+                    .enrollmentSubmissionId(submissionId)
+                    .build());
+        }
+        for (int i = 0; i < toSave.size(); i += BATCH_SIZE) {
+            int end = Math.min(i + BATCH_SIZE, toSave.size());
+            employeePolicyMapRepository.saveAll(toSave.subList(i, end));
+        }
+        if (!toSave.isEmpty()) {
+            log.info("createMappingsForParentFromSubmission: created {} parent mappings for submission {}", toSave.size(), submissionId);
+        }
     }
 
     @Override
@@ -468,10 +608,15 @@ public class EmployeePolicyMapServiceImpl implements IEmployeePolicyMapService {
         if (deals.isEmpty()) {
             return;
         }
+        List<Long> topupPolicyIds = topupPlanOptionRepository.findDistinctTopupPolicyIds();
+        if (topupPolicyIds == null) {
+            topupPolicyIds = List.of();
+        }
         LocalDate effectiveTo = LocalDate.now();
         for (Deals deal : deals) {
             List<EmployeePolicyMap> forIndividual = employeePolicyMapRepository.findByIndividualIdAndStatus(deal.getIndividualId(), STATUS_ACTIVE);
             for (EmployeePolicyMap m : forIndividual) {
+                cancelTopupMappingsIfBaseGmc(m.getIndividualId(), m.getPolicyId(), topupPolicyIds, effectiveTo);
                 m.setStatus(STATUS_CANCELLED);
                 m.setEffectiveTo(effectiveTo);
                 m.setCancellationReason("ENDORSEMENT_DELETION");
@@ -481,6 +626,7 @@ public class EmployeePolicyMapServiceImpl implements IEmployeePolicyMapService {
             }
             List<EmployeePolicyMap> forDependents = employeePolicyMapRepository.findByPrimaryEmployeeIdAndStatus(deal.getIndividualId(), STATUS_ACTIVE);
             for (EmployeePolicyMap m : forDependents) {
+                cancelTopupMappingsIfBaseGmc(m.getIndividualId(), m.getPolicyId(), topupPolicyIds, effectiveTo);
                 m.setStatus(STATUS_CANCELLED);
                 m.setEffectiveTo(effectiveTo);
                 m.setCancellationReason("ENDORSEMENT_DELETION");
@@ -490,6 +636,33 @@ public class EmployeePolicyMapServiceImpl implements IEmployeePolicyMapService {
             }
         }
         log.info("cancelMappingsFromEndorsement: cancelled mappings for endorsement {}", endorsementId);
+    }
+
+    /**
+     * If the given policy is base GMC (GMC and not a top-up policy), cancel any active top-up mappings
+     * for the same individual with reason BASE_GMC_CANCELLED.
+     */
+    private void cancelTopupMappingsIfBaseGmc(UUID individualId, Long policyId, List<Long> topupPolicyIds, LocalDate effectiveTo) {
+        if (individualId == null || policyId == null || topupPolicyIds.isEmpty()) {
+            return;
+        }
+        Optional<Policy> policyOpt = policyRepository.findById(policyId);
+        if (policyOpt.isEmpty() || policyOpt.get().getProductType() != ProductType.GMC) {
+            return;
+        }
+        if (topupPolicyIds.contains(policyId)) {
+            return;
+        }
+        List<EmployeePolicyMap> topupMappings = employeePolicyMapRepository.findByIndividualIdAndPolicyIdInAndStatus(individualId, topupPolicyIds, STATUS_ACTIVE);
+        for (EmployeePolicyMap t : topupMappings) {
+            t.setStatus(STATUS_CANCELLED);
+            t.setEffectiveTo(effectiveTo);
+            t.setCancellationReason("BASE_GMC_CANCELLED");
+            t.setCancelledAt(LocalDateTime.now());
+            t.setUpdatedAt(LocalDateTime.now());
+            employeePolicyMapRepository.save(t);
+            log.info("cancelMappingsFromEndorsement: auto-cancelled top-up mapping {} for individual {} (BASE_GMC_CANCELLED)", t.getId(), individualId);
+        }
     }
 
     private List<Policy> getApplicablePolicies(UUID organizationId) {

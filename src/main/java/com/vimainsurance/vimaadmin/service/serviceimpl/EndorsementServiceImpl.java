@@ -65,6 +65,7 @@ import com.vimainsurance.vimaadmin.service.IDocumentService;
 import com.vimainsurance.vimaadmin.service.IEmailService;
 import com.vimainsurance.vimaadmin.service.IEmployeePolicyMapService;
 import com.vimainsurance.vimaadmin.service.IEndorsementService;
+import com.vimainsurance.vimaadmin.service.ILifeEventEndorsementService;
 import com.vimainsurance.vimaadmin.service.IS3Service;
 import com.vimainsurance.vimaadmin.specification.EndorsementSpecification;
 import com.vimainsurance.vimaadmin.util.Constants;
@@ -123,6 +124,9 @@ public class EndorsementServiceImpl implements IEndorsementService {
 
     @Autowired(required = false)
     private IEmployeePolicyMapService employeePolicyMapService;
+
+    @Autowired(required = false)
+    private ILifeEventEndorsementService lifeEventEndorsementService;
 
     @Override
     @Transactional
@@ -537,6 +541,9 @@ public class EndorsementServiceImpl implements IEndorsementService {
                 } else if (endorsement.getEndorsementType() == EndorsementType.DELETION) {
                     employeePolicyMapService.cancelMappingsFromEndorsement(endorsement.getEndorsementId());
                 }
+            }
+            if (lifeEventEndorsementService != null && endorsement.getLifeEventType() != null && !endorsement.getLifeEventType().isBlank()) {
+                lifeEventEndorsementService.onLifeEventEndorsementApproved(endorsement);
             }
 
             return responseObj.render(responseObj.formSuccessResponse(Constants.SUCCESS, "Endorsement approved successfully"));

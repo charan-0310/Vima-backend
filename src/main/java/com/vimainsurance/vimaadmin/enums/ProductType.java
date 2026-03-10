@@ -21,6 +21,7 @@ public enum ProductType {
     GMC("GMC"),    // Group Medical Coverage (Health Insurance with TPA)
     GPA("GPA"),    // Group Personal Accident
     GTL("GTL"),   // Group Term Life
+    PARENT_GMC("PARENT_GMC"), // Parent/in-law coverage (Scenario 2 separate policy)
 
     EMPLOYEE("EMPLOYEE"),
     PROPERTY("PROPERTY"),

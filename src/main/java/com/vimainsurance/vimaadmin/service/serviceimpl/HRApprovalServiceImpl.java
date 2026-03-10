@@ -62,6 +62,7 @@ import com.vimainsurance.vimaadmin.service.IDocumentService;
 import com.vimainsurance.vimaadmin.service.IEmailService;
 import com.vimainsurance.vimaadmin.service.IEmployeePolicyMapService;
 import com.vimainsurance.vimaadmin.service.IHRApprovalService;
+import com.vimainsurance.vimaadmin.service.IPayrollSchedulePopulationService;
 import com.vimainsurance.vimaadmin.specification.EnrollmentSubmissionSpecification;
 import com.vimainsurance.vimaadmin.audit.AuditContextSupplier;
 import com.vimainsurance.vimaadmin.util.JwtUserExtractor;
@@ -107,6 +108,8 @@ public class HRApprovalServiceImpl implements IHRApprovalService {
     private IInsuranceProviderRepository insuranceProviderRepository;
     @Autowired(required = false)
     private IEmployeePolicyMapService employeePolicyMapService;
+    @Autowired(required = false)
+    private IPayrollSchedulePopulationService payrollSchedulePopulationService;
 
     @Override
     public ResponseEntity<ResponseDto<Page<SubmissionListItemDto>>> getEnrollments(
@@ -200,6 +203,9 @@ public class HRApprovalServiceImpl implements IHRApprovalService {
 
             if (employeePolicyMapService != null) {
                 employeePolicyMapService.createMappingsFromEnrollmentSubmission(id);
+            }
+            if (payrollSchedulePopulationService != null) {
+                payrollSchedulePopulationService.populateFromEnrollmentSubmission(id);
             }
 
             sendApprovalEmail(sub);
@@ -553,16 +559,37 @@ public class HRApprovalServiceImpl implements IHRApprovalService {
                 return;
             }
             String subject = "Enrollment Approved – " + (sub.getReferenceNumber() != null ? sub.getReferenceNumber() : sub.getId());
-            String body = "Your enrollment submission has been approved.\n\nReference: "
-                    + (sub.getReferenceNumber() != null ? sub.getReferenceNumber() : sub.getId())
-                    + "\n\nThank you.";
-            EmailRequest req = EmailRequest.builder()
-                    .to(emp.getEmail())
-                    .subject(subject)
-                    .body(body)
-                    .isHtml(false)
-                    .build();
-            emailService.sendSimpleEmail(req);
+            boolean useCostSharingNotice = sub.getTotalEmployeeAnnualPremium() != null
+                    && sub.getTotalEmployeeAnnualPremium().compareTo(BigDecimal.ZERO) > 0;
+            if (useCostSharingNotice) {
+                String companyName = emp.getOrganization() != null ? emp.getOrganization().getOrganizationName() : "Company";
+                java.util.Map<String, Object> vars = new java.util.HashMap<>();
+                vars.put("employeeName", emp.getFullName() != null ? emp.getFullName() : "Employee");
+                vars.put("companyName", companyName);
+                vars.put("totalPremium", sub.getTotalEmployeeAnnualPremium().add(sub.getTotalEmployerAnnualPremium() != null ? sub.getTotalEmployerAnnualPremium() : BigDecimal.ZERO));
+                vars.put("employerShare", sub.getTotalEmployerAnnualPremium() != null ? sub.getTotalEmployerAnnualPremium() : BigDecimal.ZERO);
+                vars.put("employeeShare", sub.getTotalEmployeeAnnualPremium());
+                vars.put("deductionAmount", sub.getDeductionAmountPerPeriod() != null ? sub.getDeductionAmountPerPeriod() : BigDecimal.ZERO);
+                vars.put("deductionFrequency", sub.getDeductionFrequency() != null ? sub.getDeductionFrequency() : "MONTHLY");
+                EmailRequest req = EmailRequest.builder()
+                        .to(emp.getEmail())
+                        .subject(subject)
+                        .templateName("cost-sharing-notice")
+                        .templateVariables(vars)
+                        .build();
+                emailService.sendTemplateEmail(req);
+            } else {
+                String body = "Your enrollment submission has been approved.\n\nReference: "
+                        + (sub.getReferenceNumber() != null ? sub.getReferenceNumber() : sub.getId())
+                        + "\n\nThank you.";
+                EmailRequest req = EmailRequest.builder()
+                        .to(emp.getEmail())
+                        .subject(subject)
+                        .body(body)
+                        .isHtml(false)
+                        .build();
+                emailService.sendSimpleEmail(req);
+            }
         } catch (Exception e) {
             log.warn("[correlationId:{}] Failed to send approval email: {}", MDC.get("correlationId"), e.getMessage());
         }

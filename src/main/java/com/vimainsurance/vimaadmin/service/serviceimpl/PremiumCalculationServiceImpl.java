@@ -5,7 +5,6 @@ import java.math.RoundingMode;
 import java.time.LocalDate;
 import java.time.Period;
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -15,6 +14,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Service;
 
+import com.vimainsurance.vimaadmin.dto.CompanyEnrollmentConfigResponseDto;
 import com.vimainsurance.vimaadmin.dto.EmployeePolicyMapResponseDto;
 import com.vimainsurance.vimaadmin.dto.PremiumCalculationContext;
 import com.vimainsurance.vimaadmin.dto.PremiumCalculationRequestDto;
@@ -23,8 +23,11 @@ import com.vimainsurance.vimaadmin.dto.PremiumPreviewRequestDto;
 import com.vimainsurance.vimaadmin.dto.PremiumPreviewResponseDto;
 import com.vimainsurance.vimaadmin.dto.ResponseDto;
 import com.vimainsurance.vimaadmin.entity.PremiumRateTable;
+import com.vimainsurance.vimaadmin.enums.CoverageCategory;
 import com.vimainsurance.vimaadmin.enums.PricingModel;
 import com.vimainsurance.vimaadmin.enums.RateSource;
+import com.vimainsurance.vimaadmin.service.ICompanyEnrollmentConfigService;
+import com.vimainsurance.vimaadmin.service.ICostSharingRuleService;
 import com.vimainsurance.vimaadmin.service.IEmployeePolicyMapService;
 import com.vimainsurance.vimaadmin.service.IPremiumCalculationService;
 import com.vimainsurance.vimaadmin.service.PremiumRateTableCacheService;
@@ -40,6 +43,8 @@ public class PremiumCalculationServiceImpl implements IPremiumCalculationService
 
     private final PremiumRateTableCacheService cacheService;
     private final IEmployeePolicyMapService employeePolicyMapService;
+    private final ICostSharingRuleService costSharingRuleService;
+    private final ICompanyEnrollmentConfigService companyEnrollmentConfigService;
 
     @Override
     public BigDecimal lookupRate(UUID companyId, String planType, String memberType, int memberAge,
@@ -154,6 +159,8 @@ public class PremiumCalculationServiceImpl implements IPremiumCalculationService
             PremiumCalculationContext context,
             List<PremiumCalculationRequestDto.PlanSelectionItemDto> planSelections,
             List<PremiumCalculationRequestDto.DependentItemDto> dependents) {
+        CompanyEnrollmentConfigResponseDto config = companyEnrollmentConfigService.getConfigForCompany(context.getCompanyId());
+        validateParentDependents(dependents, config);
         List<EmployeePolicyMapResponseDto> familyMappings = getEmployeeMappings(context.getEmployeeId());
         List<MemberInfo> members = buildMemberList(context.getEmployeeDateOfBirth(), dependents);
 
@@ -188,15 +195,22 @@ public class PremiumCalculationServiceImpl implements IPremiumCalculationService
                         coverageTier,
                         sumInsured,
                         members);
-                totalAnnual = totalAnnual.add(b.premium());
-                totalEmployer = totalEmployer.add(b.employerShare());
-                totalEmployee = totalEmployee.add(b.employeeShare());
+                BigDecimal planTotalPremium = b.premium();
+                String coverageCategory = resolveCoverageCategoryForCostSharing(members);
+                var split = costSharingRuleService.applyCostSharing(
+                        context.getCompanyId(),
+                        sel.getPlanType(),
+                        coverageCategory,
+                        planTotalPremium);
+                totalAnnual = totalAnnual.add(planTotalPremium);
+                totalEmployer = totalEmployer.add(split.getEmployerShare());
+                totalEmployee = totalEmployee.add(split.getEmployeeShare());
                 totalGst = totalGst.add(b.gstAmount());
                 breakdowns.add(PremiumCalculationResponseDto.PlanBreakdownItemDto.builder()
                         .planType(b.planType())
-                        .premium(b.premium())
-                        .employerShare(b.employerShare())
-                        .employeeShare(b.employeeShare())
+                        .premium(planTotalPremium)
+                        .employerShare(split.getEmployerShare())
+                        .employeeShare(split.getEmployeeShare())
                         .gstAmount(b.gstAmount())
                         .build());
             } catch (Exception e) {
@@ -204,15 +218,7 @@ public class PremiumCalculationServiceImpl implements IPremiumCalculationService
             }
         }
 
-        int remainingMonths = 1;
-        if (context.getWindowEndDate() != null) {
-            remainingMonths = Math.max(1, Period.between(TODAY, context.getWindowEndDate()).getMonths()
-                    + 12 * Period.between(TODAY, context.getWindowEndDate()).getYears());
-        }
-        BigDecimal proratedAnnual = totalAnnual.multiply(BigDecimal.valueOf(remainingMonths)).divide(BigDecimal.valueOf(12), 2, RoundingMode.HALF_UP);
-        Map<String, BigDecimal> deductionOptions = new HashMap<>();
-        deductionOptions.put("MONTHLY", proratedAnnual.divide(BigDecimal.valueOf(12), 2, RoundingMode.HALF_UP));
-        deductionOptions.put("YEARLY", totalAnnual);
+        Map<String, BigDecimal> deductionOptions = costSharingRuleService.calculateDeductions(totalEmployee);
 
         return PremiumCalculationResponseDto.builder()
                 .totalAnnualPremium(totalAnnual)
@@ -277,6 +283,56 @@ public class PremiumCalculationServiceImpl implements IPremiumCalculationService
         return body.getPayload();
     }
 
+    private void validateParentDependents(List<PremiumCalculationRequestDto.DependentItemDto> dependents,
+            CompanyEnrollmentConfigResponseDto config) {
+        if (dependents == null || dependents.isEmpty()) return;
+        int parentCount = 0;
+        int inLawCount = 0;
+        Integer ageLimit = config.getParentAgeLimit();
+        int maxParents = config.getMaxParents() != null ? config.getMaxParents() : 0;
+        int maxInLaws = config.getMaxInLaws() != null ? config.getMaxInLaws() : 0;
+        boolean parentEnabled = Boolean.TRUE.equals(config.getParentCoverageEnabled());
+        boolean inLawEnabled = Boolean.TRUE.equals(config.getInLawCoverageEnabled());
+        for (PremiumCalculationRequestDto.DependentItemDto d : dependents) {
+            String rel = d.getRelationship() != null ? d.getRelationship().toUpperCase() : "";
+            if ("PARENT".equals(rel)) {
+                if (!parentEnabled) throw new IllegalArgumentException("Parent coverage is not enabled for this company");
+                parentCount++;
+                if (maxParents > 0 && parentCount > maxParents)
+                    throw new IllegalArgumentException("Maximum number of parents allowed is " + maxParents);
+                if (ageLimit != null && d.getDateOfBirth() != null) {
+                    int age = Period.between(d.getDateOfBirth(), TODAY).getYears();
+                    if (age > ageLimit)
+                        throw new IllegalArgumentException("Parent age must not exceed " + ageLimit + " years");
+                }
+            } else if ("PARENT_IN_LAW".equals(rel)) {
+                if (!inLawEnabled) throw new IllegalArgumentException("Parent-in-law coverage is not enabled for this company");
+                inLawCount++;
+                if (maxInLaws > 0 && inLawCount > maxInLaws)
+                    throw new IllegalArgumentException("Maximum number of parents-in-law allowed is " + maxInLaws);
+                if (ageLimit != null && d.getDateOfBirth() != null) {
+                    int age = Period.between(d.getDateOfBirth(), TODAY).getYears();
+                    if (age > ageLimit)
+                        throw new IllegalArgumentException("Parent-in-law age must not exceed " + ageLimit + " years");
+                }
+            }
+        }
+    }
+
+    private String resolveCoverageCategoryForCostSharing(List<MemberInfo> members) {
+        if (members == null || members.size() <= 1) return CoverageCategory.SELF.getValue();
+        boolean hasParent = false;
+        boolean hasParentInLaw = false;
+        for (MemberInfo m : members) {
+            String t = m.memberType();
+            if ("parent".equalsIgnoreCase(t)) hasParent = true;
+            if ("parent_in_law".equalsIgnoreCase(t)) hasParentInLaw = true;
+        }
+        if (hasParent) return CoverageCategory.PARENT.getValue();
+        if (hasParentInLaw) return CoverageCategory.PARENT_IN_LAW.getValue();
+        return CoverageCategory.ALL_DEPENDENTS.getValue();
+    }
+
     private List<MemberInfo> buildMemberList(LocalDate employeeDob, List<PremiumCalculationRequestDto.DependentItemDto> dependents) {
         List<MemberInfo> list = new ArrayList<>();
         int employeeAge = employeeDob != null ? Period.between(employeeDob, TODAY).getYears() : 30;
@@ -284,9 +340,19 @@ public class PremiumCalculationServiceImpl implements IPremiumCalculationService
         if (dependents != null) {
             for (PremiumCalculationRequestDto.DependentItemDto d : dependents) {
                 int age = d.getDateOfBirth() != null ? Period.between(d.getDateOfBirth(), TODAY).getYears() : 0;
-                list.add(new MemberInfo(d.getRelationship() != null ? d.getRelationship() : "DEPENDENT", Math.max(0, age), d.getDateOfBirth()));
+                String memberType = toRateTableMemberType(d.getRelationship());
+                list.add(new MemberInfo(memberType, Math.max(0, age), d.getDateOfBirth()));
             }
         }
         return list;
+    }
+
+    /** Map relationship to rate table member_type (parent, parent_in_law for age-banded parent rates). */
+    private static String toRateTableMemberType(String relationship) {
+        if (relationship == null || relationship.isBlank()) return "DEPENDENT";
+        String r = relationship.toUpperCase();
+        if ("PARENT".equals(r)) return "parent";
+        if ("PARENT_IN_LAW".equals(r)) return "parent_in_law";
+        return relationship;
     }
 }

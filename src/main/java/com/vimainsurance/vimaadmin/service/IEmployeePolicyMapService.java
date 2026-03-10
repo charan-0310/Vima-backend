@@ -37,6 +37,16 @@ public interface IEmployeePolicyMapService {
 
     void createMappingsFromEnrollmentSubmission(UUID submissionId);
 
+    /**
+     * Create employee_policy_map rows for top-up opt-in from submission plan_selections (TOP_UP/SUPER_TOP_UP with topupPlanOptionId).
+     */
+    void createMappingsForTopupFromSubmission(UUID submissionId);
+
+    /**
+     * Create employee_policy_map rows for parent coverage (Scenario 2) for each parent/in-law dependent.
+     */
+    void createMappingsForParentFromSubmission(UUID submissionId);
+
     void createMappingsFromEndorsement(UUID endorsementId, String endorsementType);
 
     void cancelMappingsFromEndorsement(UUID endorsementId);

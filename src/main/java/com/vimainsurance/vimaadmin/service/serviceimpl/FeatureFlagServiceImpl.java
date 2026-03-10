@@ -56,6 +56,17 @@ public class FeatureFlagServiceImpl implements FeatureFlagService {
 
     @Override
     @Transactional(readOnly = true)
+    public boolean isFeatureEnabledForCurrentUser(String flagKey) {
+        if (flagKey == null || flagKey.isBlank()) {
+            return false;
+        }
+        List<FeatureFlagResponseDto> matched = findAllMatchedFeatureFlags();
+        return matched.stream()
+                .anyMatch(dto -> flagKey.equals(dto.getFlagKey()) && Boolean.TRUE.equals(dto.getIsEnabled()));
+    }
+
+    @Override
+    @Transactional(readOnly = true)
     public List<FeatureFlagResponseDto> findAllMatchedFeatureFlags() {
 
 

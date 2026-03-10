@@ -6,7 +6,6 @@ import java.util.concurrent.ConcurrentHashMap;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 
 import com.vimainsurance.vimaadmin.entity.PremiumRateTable;
@@ -65,9 +64,8 @@ public class PremiumRateTableCacheService {
     }
 
     /**
-     * Hourly refresh: clear cache so subsequent gets reload from DB.
+     * Clear cache so subsequent gets reload from DB. Called by PremiumRateTableCacheRefresherJob hourly.
      */
-    @Scheduled(fixedRate = 3600000, initialDelay = 3600000)
     public void refreshAll() {
         cache.clear();
         log.debug("Premium rate cache cleared (hourly refresh)");
