@@ -41,6 +41,19 @@ public class PremiumCalculationServiceImpl implements IPremiumCalculationService
     private static final Logger log = LoggerFactory.getLogger(PremiumCalculationServiceImpl.class);
     private static final LocalDate TODAY = LocalDate.now();
 
+    /** GHI and GMC are both group health; rate table may use either. TOP_UP/SUPER_TOP_UP use GMC rate when no dedicated rate exists. */
+    private static boolean planTypeMatchesRateProductType(String requestPlanType, String rateProductType) {
+        if (requestPlanType == null || rateProductType == null) return false;
+        String r = requestPlanType.trim().toUpperCase();
+        String p = rateProductType.trim().toUpperCase();
+        if (r.equals(p)) return true;
+        if (("GHI".equals(r) && "GMC".equals(p)) || ("GMC".equals(r) && "GHI".equals(p))) return true;
+        // Top-up options use base health (GMC) rate for premium preview when no TOP_UP/SUPER_TOP_UP rate row exists
+        if (("TOP_UP".equals(r) || "SUPER_TOP_UP".equals(r)) && ("GMC".equals(p) || "GHI".equals(p))) return true;
+        if (("GMC".equals(r) || "GHI".equals(r)) && ("TOP_UP".equals(p) || "SUPER_TOP_UP".equals(p))) return true;
+        return false;
+    }
+
     private final PremiumRateTableCacheService cacheService;
     private final IEmployeePolicyMapService employeePolicyMapService;
     private final ICostSharingRuleService costSharingRuleService;
@@ -51,7 +64,7 @@ public class PremiumCalculationServiceImpl implements IPremiumCalculationService
             String coverageTier, BigDecimal sumInsured) {
         List<PremiumRateTable> rates = cacheService.getRatesForCompany(companyId);
         List<PremiumRateTable> forPlan = rates.stream()
-                .filter(r -> planType.equals(r.getProductType()))
+                .filter(r -> planTypeMatchesRateProductType(planType, r.getProductType()))
                 .filter(r -> r.getEffectiveFrom() != null && !r.getEffectiveFrom().isAfter(TODAY))
                 .filter(r -> r.getEffectiveTo() == null || !r.getEffectiveTo().isBefore(TODAY))
                 .toList();
@@ -86,12 +99,22 @@ public class PremiumCalculationServiceImpl implements IPremiumCalculationService
             BigDecimal sumInsured, List<MemberInfo> coveredMembers) {
         List<PremiumRateTable> rates = cacheService.getRatesForCompany(companyId);
         List<PremiumRateTable> forPlan = rates.stream()
-                .filter(r -> planType.equals(r.getProductType()))
+                .filter(r -> planTypeMatchesRateProductType(planType, r.getProductType()))
                 .filter(r -> r.getEffectiveFrom() != null && !r.getEffectiveFrom().isAfter(TODAY))
                 .filter(r -> r.getEffectiveTo() == null || !r.getEffectiveTo().isBefore(TODAY))
                 .toList();
         if (forPlan.isEmpty()) {
             throw new IllegalArgumentException("No rate found for company " + companyId + ", plan " + planType);
+        }
+        // Prefer dedicated TOP_UP/SUPER_TOP_UP rate when present; otherwise use GMC fallback
+        String planUpper = planType != null ? planType.trim().toUpperCase() : "";
+        if ("TOP_UP".equals(planUpper) || "SUPER_TOP_UP".equals(planUpper)) {
+            List<PremiumRateTable> dedicated = forPlan.stream()
+                    .filter(rt -> planUpper.equals(rt.getProductType() != null ? rt.getProductType().trim().toUpperCase() : ""))
+                    .toList();
+            if (!dedicated.isEmpty()) {
+                forPlan = dedicated;
+            }
         }
         PricingModel model = forPlan.get(0).getPricingModel();
         if (model == null) {
@@ -176,7 +199,7 @@ public class PremiumCalculationServiceImpl implements IPremiumCalculationService
             String coverageTier = sel.getCoverageTier();
             EmployeePolicyMapResponseDto mapping = familyMappings.stream()
                     .filter(m -> context.getEmployeeId().equals(m.getIndividualId()))
-                    .filter(m -> sel.getPlanType().equals(m.getProductType()))
+                    .filter(m -> planTypeMatchesRateProductType(sel.getPlanType(), m.getProductType()))
                     .findFirst()
                     .orElse(null);
             if (mapping != null) {

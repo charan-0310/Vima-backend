@@ -5,6 +5,7 @@ import java.io.InputStreamReader;
 import java.math.BigDecimal;
 import java.nio.charset.StandardCharsets;
 import java.time.LocalDate;
+import java.time.format.DateTimeFormatter;
 import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
 import java.util.List;
@@ -193,6 +194,7 @@ public class PremiumRateTableServiceImpl implements IPremiumRateTableService {
                 }
                 String[] headers = parseCsvLine(headerLine);
                 int totalRows = 0;
+                java.util.Set<String> seenPlanMemberKeys = new java.util.HashSet<>();
                 String line;
                 while ((line = reader.readLine()) != null) {
                     totalRows++;
@@ -200,7 +202,17 @@ public class PremiumRateTableServiceImpl implements IPremiumRateTableService {
                     try {
                         PremiumRateTable row = parseRow(companyId, headers, parseCsvLine(line), totalRows, errors);
                         if (row != null) {
-                            toSave.add(row);
+                            String planType = row.getProductType() != null ? row.getProductType().trim().toUpperCase() : "";
+                            String memberType = row.getMemberType() != null ? row.getMemberType().trim().toUpperCase() : "";
+                            String key = planType + "|" + memberType;
+                            if (!seenPlanMemberKeys.add(key)) {
+                                errors.add(PremiumRateTableCsvUploadResultDto.RowError.builder()
+                                        .rowIndex(totalRows)
+                                        .message("Duplicate plan type + member type (e.g. same plan and SELF twice). Each combination must appear only once.")
+                                        .build());
+                            } else {
+                                toSave.add(row);
+                            }
                         }
                     } catch (Exception e) {
                         errors.add(PremiumRateTableCsvUploadResultDto.RowError.builder()
@@ -277,20 +289,15 @@ public class PremiumRateTableServiceImpl implements IPremiumRateTableService {
             errors.add(PremiumRateTableCsvUploadResultDto.RowError.builder().rowIndex(rowNum).message("Invalid rate").build());
             return null;
         }
-        LocalDate effectiveFrom;
-        try {
-            effectiveFrom = LocalDate.parse(effectiveFromStr.trim());
-        } catch (DateTimeParseException e) {
-            errors.add(PremiumRateTableCsvUploadResultDto.RowError.builder().rowIndex(rowNum).message("Invalid effective_from date").build());
+        LocalDate effectiveFrom = parseDateFlexible(effectiveFromStr.trim());
+        if (effectiveFrom == null) {
+            errors.add(PremiumRateTableCsvUploadResultDto.RowError.builder().rowIndex(rowNum).message("Invalid effective_from date (use yyyy-MM-dd or dd/MM/yyyy)").build());
             return null;
         }
         String effectiveToStr = getVal(headers, values, "effective_to", "effectiveTo");
         LocalDate effectiveTo = null;
         if (effectiveToStr != null && !effectiveToStr.isBlank()) {
-            try {
-                effectiveTo = LocalDate.parse(effectiveToStr.trim());
-            } catch (DateTimeParseException ignored) {
-            }
+            effectiveTo = parseDateFlexible(effectiveToStr.trim());
         }
         String memberType = getVal(headers, values, "member_type", "memberType");
         String pricingModelStr = getVal(headers, values, "pricing_model", "pricingModel");
@@ -373,5 +380,35 @@ public class PremiumRateTableServiceImpl implements IPremiumRateTableService {
         } catch (NumberFormatException e) {
             return null;
         }
+    }
+
+    /**
+     * Parse a date string accepting multiple formats (e.g. yyyy-MM-dd, dd/MM/yyyy, dd/MM/yy from Excel).
+     * Returns null if none of the formats match.
+     */
+    private static LocalDate parseDateFlexible(String s) {
+        if (s == null || s.isBlank()) return null;
+        String trimmed = s.trim();
+        DateTimeFormatter[] formatters = {
+            DateTimeFormatter.ISO_LOCAL_DATE,
+            DateTimeFormatter.ofPattern("dd/MM/yyyy"),
+            DateTimeFormatter.ofPattern("d/M/yyyy"),
+            DateTimeFormatter.ofPattern("dd/MM/yy"),
+            DateTimeFormatter.ofPattern("d/M/yy"),
+            DateTimeFormatter.ofPattern("MM/dd/yyyy"),
+            DateTimeFormatter.ofPattern("M/d/yyyy"),
+            DateTimeFormatter.ofPattern("MM/dd/yy"),
+            DateTimeFormatter.ofPattern("yyyy/MM/dd"),
+            DateTimeFormatter.ofPattern("dd-MM-yyyy"),
+            DateTimeFormatter.ofPattern("d-M-yyyy")
+        };
+        for (DateTimeFormatter f : formatters) {
+            try {
+                return LocalDate.parse(trimmed, f);
+            } catch (DateTimeParseException ignored) {
+                // try next
+            }
+        }
+        return null;
     }
 }

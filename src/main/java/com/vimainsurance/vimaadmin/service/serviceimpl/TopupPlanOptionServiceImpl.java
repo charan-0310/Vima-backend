@@ -177,16 +177,21 @@ public class TopupPlanOptionServiceImpl implements ITopupPlanOptionService {
             if (companyId == null) {
                 return responseObj.render(responseObj.formErrorResponse(400, "Enrollment window or organization not found"));
             }
-            // Base GMC required: employee must have at least one GMC mapping before showing top-up
-            ResponseEntity<ResponseDto<List<EmployeePolicyMapResponseDto>>> mapResp =
-                    employeePolicyMapService.getMappingsForEmployeeFamily(ctx.getEmployeeId());
-            List<EmployeePolicyMapResponseDto> maps =
-                    mapResp.getBody() != null && mapResp.getBody().getPayload() != null
-                            ? mapResp.getBody().getPayload() : List.of();
-            boolean hasGmc = maps.stream()
-                    .filter(m -> companyId.equals(m.getOrganizationId()))
-                    .anyMatch(m -> "GMC".equalsIgnoreCase(m.getProductType()));
-            if (!hasGmc) {
+            // Base GMC required: allow top-up if (1) org offers GMC/GHI in enrollment context, or (2) employee already has a GMC mapping
+            boolean hasGmcFromOrg = ctx.getOrganizationPolicies() != null && ctx.getOrganizationPolicies().stream()
+                    .anyMatch(p -> p != null && ("GMC".equalsIgnoreCase(p.getProductType()) || "GHI".equalsIgnoreCase(p.getProductType())));
+            boolean hasGmcFromMapping = false;
+            if (!hasGmcFromOrg) {
+                ResponseEntity<ResponseDto<List<EmployeePolicyMapResponseDto>>> mapResp =
+                        employeePolicyMapService.getMappingsForEmployeeFamily(ctx.getEmployeeId());
+                List<EmployeePolicyMapResponseDto> maps =
+                        mapResp.getBody() != null && mapResp.getBody().getPayload() != null
+                                ? mapResp.getBody().getPayload() : List.of();
+                hasGmcFromMapping = maps.stream()
+                        .filter(m -> companyId.equals(m.getOrganizationId()))
+                        .anyMatch(m -> "GMC".equalsIgnoreCase(m.getProductType()));
+            }
+            if (!hasGmcFromOrg && !hasGmcFromMapping) {
                 return responseObj.render(responseObj.formErrorResponse(400, "Base GMC coverage is required before adding top-up options"));
             }
             List<TopupPlanOption> options = cacheService.getActiveOptionsForCompany(companyId);

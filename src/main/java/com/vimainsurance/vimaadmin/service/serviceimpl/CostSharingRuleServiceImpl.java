@@ -38,6 +38,15 @@ public class CostSharingRuleServiceImpl implements ICostSharingRuleService {
 
     private static final Logger log = LoggerFactory.getLogger(CostSharingRuleServiceImpl.class);
 
+    /** GHI and GMC are both group health; match so enrollment request finds cost-sharing rules. */
+    private static boolean planTypeMatches(String requestPlanType, String rulePlanType) {
+        if (requestPlanType == null || rulePlanType == null) return false;
+        String r = requestPlanType.trim().toUpperCase();
+        String p = rulePlanType.trim().toUpperCase();
+        if (r.equals(p)) return true;
+        return ("GHI".equals(r) && "GMC".equals(p)) || ("GMC".equals(r) && "GHI".equals(p));
+    }
+
     private final ICostSharingRuleRepository repository;
     private final CostSharingRuleCacheService cacheService;
 
@@ -159,7 +168,7 @@ public class CostSharingRuleServiceImpl implements ICostSharingRuleService {
         List<CostSharingRule> rules = cacheService.getRulesForCompany(companyId);
         CoverageCategory category = parseCoverageCategory(coverageCategory);
         List<CostSharingRule> forPlanAndDate = rules.stream()
-                .filter(r -> planType.equals(r.getPlanType()))
+                .filter(r -> planTypeMatches(planType, r.getPlanType()))
                 .filter(r -> !r.getEffectiveFrom().isAfter(effectiveDate))
                 .filter(r -> r.getEffectiveTo() == null || !r.getEffectiveTo().isBefore(effectiveDate))
                 .toList();
