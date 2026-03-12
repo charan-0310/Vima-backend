@@ -27,5 +27,6 @@ public class EndorsementResponseDto {
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
     private String source;
+    private String lifeEventType;
 }
 

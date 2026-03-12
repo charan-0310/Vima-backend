@@ -1,5 +1,6 @@
 package com.vimainsurance.vimaadmin.entity;
 
+import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.UUID;
 
@@ -117,6 +118,28 @@ public class EnrollmentSubmission {
 
     @Column(name = "idempotency_key", length = 64, unique = true)
     private String idempotencyKey;
+
+    @Column(name = "deduction_frequency", length = 20)
+    private String deductionFrequency;
+
+    @Column(name = "total_employee_annual_premium", precision = 15, scale = 2)
+    private BigDecimal totalEmployeeAnnualPremium;
+
+    @Column(name = "total_employer_annual_premium", precision = 15, scale = 2)
+    private BigDecimal totalEmployerAnnualPremium;
+
+    @JdbcTypeCode(SqlTypes.JSON)
+    @Column(name = "cost_sharing_snapshot", columnDefinition = "jsonb")
+    private String costSharingSnapshot = "{}";
+
+    @Column(name = "deduction_amount_per_period", precision = 15, scale = 2)
+    private BigDecimal deductionAmountPerPeriod;
+
+    @Column(name = "consent_timestamp")
+    private LocalDateTime consentTimestamp;
+
+    @Column(name = "consent_text_snapshot", columnDefinition = "TEXT")
+    private String consentTextSnapshot;
 
     @CreationTimestamp
     @Column(name = "created_at", updatable = false)

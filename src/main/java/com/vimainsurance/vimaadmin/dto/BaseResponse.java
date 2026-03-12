@@ -71,6 +71,9 @@ public class BaseResponse<T> {
 				case 422:
 					httpStatus = HttpStatus.UNPROCESSABLE_ENTITY;
 					break;
+				case 429:
+					httpStatus = HttpStatus.TOO_MANY_REQUESTS;
+					break;
 				case 500:
 					httpStatus = HttpStatus.INTERNAL_SERVER_ERROR;
 					break;

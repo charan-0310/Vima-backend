@@ -55,6 +55,9 @@ public class EndorsementMapper {
         }
         
         endorsement.setPremiumAmount(dto.getPremiumAmount());
+        if (dto.getLifeEventType() != null && !dto.getLifeEventType().isBlank()) {
+            endorsement.setLifeEventType(dto.getLifeEventType().trim());
+        }
         endorsement.setUpdatedAt(LocalDateTime.now());
         
         return endorsement;
@@ -111,8 +114,10 @@ public class EndorsementMapper {
         dto.setPremiumAmount(endorsement.getPremiumAmount());
         dto.setCreatedAt(endorsement.getCreatedAt());
         dto.setUpdatedAt(endorsement.getUpdatedAt());
-
-        dto.setSource(endorsement.getSource().getValue());
+        if (endorsement.getSource() != null) {
+            dto.setSource(endorsement.getSource().getValue());
+        }
+        dto.setLifeEventType(endorsement.getLifeEventType());
         
         return dto;
     }
@@ -169,6 +174,9 @@ public class EndorsementMapper {
         
         if (dto.getPremiumAmount() != null) {
             endorsement.setPremiumAmount(dto.getPremiumAmount());
+        }
+        if (dto.getLifeEventType() != null && !dto.getLifeEventType().isBlank()) {
+            endorsement.setLifeEventType(dto.getLifeEventType().trim());
         }
         
         endorsement.setUpdatedAt(LocalDateTime.now());
