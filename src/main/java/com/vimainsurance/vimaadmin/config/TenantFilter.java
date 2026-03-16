@@ -1,7 +1,19 @@
 package com.vimainsurance.vimaadmin.config;
 
 import java.io.IOException;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.LinkedHashSet;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.web.filter.OncePerRequestFilter;
 
 import com.vimainsurance.vimaadmin.audit.AuditContextSupplier;
 import com.vimainsurance.vimaadmin.util.JwtUserExtractor;
@@ -12,10 +24,6 @@ import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.security.core.Authentication;
-import org.springframework.security.core.context.SecurityContextHolder;
-import org.springframework.web.filter.OncePerRequestFilter;
 
 /**
  * TenantFilter extracts tenant id from request (header or host) and stores it in TenantContext.
@@ -105,6 +113,13 @@ public class TenantFilter extends OncePerRequestFilter {
                     }
                 }
             }
+
+            String organizationIdHeader = request.getHeader("X-Organization-Id");
+            if (organizationIdHeader != null && !organizationIdHeader.isBlank()) {
+                tenantMap.put("organizationIds", List.of(organizationIdHeader));
+                log.debug("[TenantFilter] resolved tenant from header X-Organization-Id: {}", organizationIdHeader);
+            }
+
 
             // If we resolved anything, set the context so downstream code (repositories, services) can use it
             if (!tenantMap.isEmpty()) {
