@@ -25,6 +25,8 @@ public interface IProductCatalogRepository
 
     List<ProductCatalog> findByOrganizationIdOrderByDisplayOrderAsc(UUID organizationId);
 
+    Optional<ProductCatalog> findByOrganizationIdAndPolicyId(UUID organizationId, Long policyId);
+
     @Modifying
     @Query(value = "UPDATE cpc.product_catalog SET display_order = :displayOrder, updated_at = NOW() WHERE id = :id", nativeQuery = true)
     int updateDisplayOrder(@Param("id") UUID id, @Param("displayOrder") Integer displayOrder);

@@ -37,6 +37,7 @@ import com.vimainsurance.vimaadmin.entity.EnrollmentSubmission;
 import com.vimainsurance.vimaadmin.entity.Endorsement;
 import com.vimainsurance.vimaadmin.entity.InsuranceProvider;
 import com.vimainsurance.vimaadmin.entity.Policy;
+import com.vimainsurance.vimaadmin.entity.ProductCatalog;
 import com.vimainsurance.vimaadmin.enums.PolicyStatus;
 import com.vimainsurance.vimaadmin.enums.ProductType;
 import com.vimainsurance.vimaadmin.mapper.EmployeePolicyMapMapper;
@@ -46,7 +47,7 @@ import com.vimainsurance.vimaadmin.repository.IEndorsementRepository;
 import com.vimainsurance.vimaadmin.repository.IEnrollmentSubmissionRepository;
 import com.vimainsurance.vimaadmin.repository.IInsuranceProviderRepository;
 import com.vimainsurance.vimaadmin.repository.IPolicyRepository;
-import com.vimainsurance.vimaadmin.repository.ITopupPlanOptionRepository;
+import com.vimainsurance.vimaadmin.repository.IProductCatalogRepository;
 import com.vimainsurance.vimaadmin.service.IEmployeePolicyMapService;
 
 @Service
@@ -71,7 +72,7 @@ public class EmployeePolicyMapServiceImpl implements IEmployeePolicyMapService {
     @Autowired
     private IEndorsementRepository endorsementRepository;
     @Autowired
-    private ITopupPlanOptionRepository topupPlanOptionRepository;
+    private IProductCatalogRepository productCatalogRepository;
 
     @Override
     @Transactional
@@ -434,13 +435,18 @@ public class EmployeePolicyMapServiceImpl implements IEmployeePolicyMapService {
                 } catch (Exception e) {
                     continue;
                 }
-                Optional<com.vimainsurance.vimaadmin.entity.TopupPlanOption> optOpt = topupPlanOptionRepository.findById(topupOptionId);
-                if (optOpt.isEmpty() || !optOpt.get().getCompanyId().equals(orgId)) continue;
-                com.vimainsurance.vimaadmin.entity.TopupPlanOption option = optOpt.get();
-                Long policyId = option.getPolicyId();
+                Optional<ProductCatalog> catalogOpt = productCatalogRepository.findById(topupOptionId);
+                if (catalogOpt.isEmpty() || !catalogOpt.get().getOrganizationId().equals(orgId)) continue;
+                ProductCatalog catalog = catalogOpt.get();
+                Long policyId = catalog.getPolicyId() != null ? catalog.getPolicyId() : null;
                 if (policyId == null) continue;
                 java.math.BigDecimal sumInsured = node.has("sumInsured") && !node.get("sumInsured").isNull()
                         ? java.math.BigDecimal.valueOf(node.get("sumInsured").asDouble()) : null;
+                boolean coversDependents = false;
+                Optional<Policy> policyOpt = policyRepository.findById(policyId);
+                if (policyOpt.isPresent()) {
+                    coversDependents = Boolean.TRUE.equals(policyOpt.get().getCoversDependents());
+                }
                 if (!employeePolicyMapRepository.existsByIndividualIdAndPolicyIdAndStatus(employee.getIndividualId(), policyId, STATUS_ACTIVE)) {
                     toSave.add(EmployeePolicyMap.builder()
                             .individualId(employee.getIndividualId())
@@ -457,7 +463,7 @@ public class EmployeePolicyMapServiceImpl implements IEmployeePolicyMapService {
                             .enrollmentSubmissionId(submissionId)
                             .build());
                 }
-                if (Boolean.TRUE.equals(option.getCoversDependents())) {
+                if (coversDependents) {
                     List<Deals> dependents = dealsRepository.findByPrimaryIndividualId(employee.getIndividualId());
                     for (Deals dep : dependents) {
                         if (employeePolicyMapRepository.existsByIndividualIdAndPolicyIdAndStatus(dep.getIndividualId(), policyId, STATUS_ACTIVE)) continue;
@@ -608,7 +614,7 @@ public class EmployeePolicyMapServiceImpl implements IEmployeePolicyMapService {
         if (deals.isEmpty()) {
             return;
         }
-        List<Long> topupPolicyIds = topupPlanOptionRepository.findDistinctTopupPolicyIds();
+        List<Long> topupPolicyIds = policyRepository.findPolicyIdsByProductTypeIn(List.of(ProductType.TOP_UP, ProductType.SUPER_TOP_UP));
         if (topupPolicyIds == null) {
             topupPolicyIds = List.of();
         }

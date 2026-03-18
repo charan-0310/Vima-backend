@@ -1,5 +1,6 @@
 package com.vimainsurance.vimaadmin.service.serviceimpl;
 
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -15,7 +16,10 @@ import com.vimainsurance.vimaadmin.dto.CompanyEnrollmentConfigRequestDto;
 import com.vimainsurance.vimaadmin.dto.CompanyEnrollmentConfigResponseDto;
 import com.vimainsurance.vimaadmin.dto.ResponseDto;
 import com.vimainsurance.vimaadmin.entity.CompanyEnrollmentConfig;
+import com.vimainsurance.vimaadmin.entity.Policy;
+import com.vimainsurance.vimaadmin.enums.ProductType;
 import com.vimainsurance.vimaadmin.repository.ICompanyEnrollmentConfigRepository;
+import com.vimainsurance.vimaadmin.repository.IPolicyRepository;
 import com.vimainsurance.vimaadmin.service.ICompanyEnrollmentConfigService;
 
 import lombok.RequiredArgsConstructor;
@@ -27,6 +31,7 @@ public class CompanyEnrollmentConfigServiceImpl implements ICompanyEnrollmentCon
     private static final Logger log = LoggerFactory.getLogger(CompanyEnrollmentConfigServiceImpl.class);
 
     private final ICompanyEnrollmentConfigRepository repository;
+    private final IPolicyRepository policyRepository;
 
     @Override
     public ResponseEntity<ResponseDto<CompanyEnrollmentConfigResponseDto>> getByCompanyId(UUID companyId) {
@@ -80,17 +85,42 @@ public class CompanyEnrollmentConfigServiceImpl implements ICompanyEnrollmentCon
     public CompanyEnrollmentConfigResponseDto getConfigForCompany(UUID companyId) {
         return repository.findByOrganizationId(companyId)
                 .map(CompanyEnrollmentConfigServiceImpl::toResponseDto)
-                .orElseGet(() -> CompanyEnrollmentConfigResponseDto.builder()
-                        .id(null)
-                        .organizationId(companyId)
-                        .parentCoverageEnabled(false)
-                        .inLawCoverageEnabled(false)
-                        .maxParents(0)
-                        .maxInLaws(0)
-                        .parentAgeLimit(null)
-                        .createdAt(null)
-                        .updatedAt(null)
-                        .build());
+                .orElseGet(() -> deriveConfigFromParentGmcPolicy(companyId));
+    }
+
+    /**
+     * When no company_enrollment_config row exists, derive parent coverage config from an active PARENT_GMC policy if present.
+     */
+    private CompanyEnrollmentConfigResponseDto deriveConfigFromParentGmcPolicy(UUID companyId) {
+        List<Policy> policies = policyRepository.findByOrganizationId(companyId);
+        Optional<Policy> parentGmc = policies.stream()
+                .filter(p -> p.getProductType() == ProductType.PARENT_GMC)
+                .findFirst();
+        if (parentGmc.isEmpty()) {
+            return CompanyEnrollmentConfigResponseDto.builder()
+                    .id(null)
+                    .organizationId(companyId)
+                    .parentCoverageEnabled(false)
+                    .inLawCoverageEnabled(false)
+                    .maxParents(0)
+                    .maxInLaws(0)
+                    .parentAgeLimit(null)
+                    .createdAt(null)
+                    .updatedAt(null)
+                    .build();
+        }
+        Policy p = parentGmc.get();
+        return CompanyEnrollmentConfigResponseDto.builder()
+                .id(null)
+                .organizationId(companyId)
+                .parentCoverageEnabled(Boolean.TRUE.equals(p.getParentCoverageEnabled()))
+                .inLawCoverageEnabled(Boolean.TRUE.equals(p.getInLawCoverageEnabled()))
+                .maxParents(p.getMaxParents() != null ? p.getMaxParents() : 0)
+                .maxInLaws(p.getMaxInLaws() != null ? p.getMaxInLaws() : 0)
+                .parentAgeLimit(p.getParentAgeLimit())
+                .createdAt(null)
+                .updatedAt(null)
+                .build();
     }
 
     private static CompanyEnrollmentConfigResponseDto toResponseDto(CompanyEnrollmentConfig e) {

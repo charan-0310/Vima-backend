@@ -13,6 +13,7 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
+import com.vimainsurance.vimaadmin.dto.CompanyEnrollmentConfigResponseDto;
 import com.vimainsurance.vimaadmin.dto.EnrollmentContextDto;
 import com.vimainsurance.vimaadmin.dto.EnrollmentSubmissionResponseDto;
 import com.vimainsurance.vimaadmin.dto.ResponseDto;
@@ -50,5 +51,16 @@ public class EnrollmentController {
             @PathVariable String token) {
         logger.info("[correlationId:{}] GET /api/v1/enrollment/{}/submissions called", MDC.get("correlationId"), token);
         return enrollmentService.getSubmissionsByToken(token);
+    }
+
+    /**
+     * Get company enrollment config (parent coverage etc.) for the enrollment's organization.
+     * Public endpoint – authorization is based on a valid enrollment token.
+     */
+    @GetMapping("/{token}/enrollment-config")
+    public ResponseEntity<ResponseDto<CompanyEnrollmentConfigResponseDto>> getEnrollmentConfig(
+            @PathVariable String token) {
+        logger.info("[correlationId:{}] GET /api/v1/enrollment/{}/enrollment-config called", MDC.get("correlationId"), token);
+        return enrollmentService.getEnrollmentConfigByToken(token);
     }
 }

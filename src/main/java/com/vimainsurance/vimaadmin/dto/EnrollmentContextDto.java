@@ -30,4 +30,6 @@ public class EnrollmentContextDto {
     private DealsResponseDto employee;
     /** Organization policies (fetched internally) — which plans the company has. */
     private List<EnrollmentOrganizationPolicyDto> organizationPolicies;
+    /** Company enrollment config (parent coverage etc.); derived from company_enrollment_config or PARENT_GMC policy. */
+    private CompanyEnrollmentConfigResponseDto companyEnrollmentConfig;
 }
