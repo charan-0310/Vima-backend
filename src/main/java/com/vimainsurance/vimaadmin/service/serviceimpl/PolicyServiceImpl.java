@@ -136,6 +136,14 @@ public class PolicyServiceImpl implements IPolicyService {
             // Get policy type
             ProductType policyType = ProductType.fromValue(requestDto.getProductType());
 
+            // PARENT_GMC / TOP_UP / SUPER_TOP_UP: require active base GMC for the organization
+            if (requestDto.getOrganizationId() != null
+                && (policyType == ProductType.PARENT_GMC || policyType == ProductType.TOP_UP || policyType == ProductType.SUPER_TOP_UP)) {
+                if (!organizationHasActiveBaseGmc(requestDto.getOrganizationId())) {
+                    return responseObj.render(responseObj.formErrorResponse(BASE_GMC_REQUIRED_MESSAGE));
+                }
+            }
+
             // Create and save dependents first (only for GMC policies)
             List<UUID> coveredIndividualIds = new ArrayList<>();
             if (policyType == ProductType.GMC && requestDto.getDependents() != null && !requestDto.getDependents().isEmpty()) {
@@ -731,6 +739,19 @@ public class PolicyServiceImpl implements IPolicyService {
         return responseDto;
     }
 
+    /** Error message when dependent policy types (PARENT_GMC, TOP_UP, SUPER_TOP_UP) are added without a base GMC. */
+    private static final String BASE_GMC_REQUIRED_MESSAGE =
+        "Base Group Medical Coverage (GMC) policy must be created before adding Parent Coverage or Top-Up plans.";
+
+    /**
+     * Returns true if the organization has at least one GMC (or GHI) policy (any status), so dependent types (PARENT_GMC, TOP_UP, SUPER_TOP_UP) can be added.
+     */
+    private boolean organizationHasActiveBaseGmc(UUID organizationId) {
+        List<Policy> orgPolicies = policyRepository.findByOrganizationId(organizationId);
+        return orgPolicies.stream().anyMatch(p ->
+            p.getProductType() == ProductType.GMC || p.getProductType() == ProductType.GHI);
+    }
+
     /**
      * Build and create a product_catalog row for TOP_UP or SUPER_TOP_UP policy so the product appears in the catalog.
      * Mapping: Policy form / Policy table → Product Catalog API (POST /api/v1/product-catalog)
@@ -842,20 +863,16 @@ public class PolicyServiceImpl implements IPolicyService {
             policy.setOrganizationId(organizationId);
             ProductType productType = ProductType.fromValue(requestDto.getProductType());
             policy.setProductType(productType);
-            // PARENT_GMC: coverage type is always PARENT
-            if (productType == ProductType.PARENT_GMC) {
-                policy.setCoverageType(CoverageType.PARENT);
-                // Validate: org must have an active ESC or ESCP policy
-                List<Policy> orgPolicies = policyRepository.findByOrganizationIdAndStatus(organizationId, PolicyStatus.ACTIVE);
-                boolean hasEsc = orgPolicies.stream().anyMatch(p ->
-                    (p.getProductType() == ProductType.GMC || p.getProductType() == ProductType.GHI)
-                        && p.getCoverageType() != null
-                        && (p.getCoverageType() == CoverageType.ESC || p.getCoverageType() == CoverageType.ESCP));
-                if (!hasEsc) {
-                    return responseObj.render(responseObj.formErrorResponse(
-                        "PARENT add-on requires an active ESC or ESCP (Group Medical) policy for the organization. Please add a base GMC policy first."));
+            // PARENT_GMC / TOP_UP / SUPER_TOP_UP: require active base GMC (or GHI) for the organization
+            if (productType == ProductType.PARENT_GMC || productType == ProductType.TOP_UP || productType == ProductType.SUPER_TOP_UP) {
+                if (productType == ProductType.PARENT_GMC) {
+                    policy.setCoverageType(CoverageType.PARENT);
                 }
-            } else {
+                if (!organizationHasActiveBaseGmc(organizationId)) {
+                    return responseObj.render(responseObj.formErrorResponse(BASE_GMC_REQUIRED_MESSAGE));
+                }
+            }
+            if (productType != ProductType.PARENT_GMC) {
                 policy.setCoverageType(CoverageType.fromValue(requestDto.getCoverageType()));
             }
             policy.setStatus(PolicyStatus.fromValue(requestDto.getStatus()));
