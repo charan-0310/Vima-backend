@@ -40,7 +40,7 @@ public class PolicyValidationUtil {
         try {
             policyType = ProductType.fromValue(request.getProductType());
         } catch (IllegalArgumentException e) {
-            throw new BadRequestException("Invalid policy type: " + request.getProductType() + ". Valid values are: GMC, GPA, GTL");
+            throw new BadRequestException("Invalid policy type: " + request.getProductType() + ". Valid values are: GMC, GPA, GTL, PARENT_GMC, TOP_UP, SUPER_TOP_UP");
         }
 
         switch (policyType) {
@@ -51,8 +51,12 @@ public class PolicyValidationUtil {
             case GTL:
                 validateGPAGTLPolicy(request, errors);
                 break;
+            case PARENT_GMC:
+            case TOP_UP:
+            case SUPER_TOP_UP:
+                // Validation for these types is done in service (e.g. PARENT_GMC requires ESC policy)
+                break;
             default:
-                // For other product types, no special validation
                 break;
         }
 
@@ -124,6 +128,9 @@ public class PolicyValidationUtil {
             case GMC -> "Group Medical Coverage (Health Insurance)";
             case GPA -> "Group Personal Accident";
             case GTL -> "Group Term Life";
+            case PARENT_GMC -> "Parent/In-Law Coverage";
+            case TOP_UP -> "Top-up";
+            case SUPER_TOP_UP -> "Super Top-up";
             default -> policyType.getValue();
         };
     }

@@ -22,6 +22,8 @@ public enum ProductType {
     GPA("GPA"),    // Group Personal Accident
     GTL("GTL"),   // Group Term Life
     PARENT_GMC("PARENT_GMC"), // Parent/in-law coverage (Scenario 2 separate policy)
+    TOP_UP("TOP_UP"),         // Top-up coverage (with deductible)
+    SUPER_TOP_UP("SUPER_TOP_UP"), // Super top-up coverage (with deductible)
 
     EMPLOYEE("EMPLOYEE"),
     PROPERTY("PROPERTY"),
@@ -78,6 +80,6 @@ public enum ProductType {
      * Check if this is a policy type (not a product type)
      */
     public boolean isPolicyType() {
-        return this == GMC || this == GPA || this == GTL;
+        return this == GMC || this == GPA || this == GTL || this == PARENT_GMC || this == TOP_UP || this == SUPER_TOP_UP;
     }
 }

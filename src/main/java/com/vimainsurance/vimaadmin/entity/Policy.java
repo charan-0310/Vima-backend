@@ -125,6 +125,51 @@ public class Policy {
     @Column(name = "renewal_date")
     private LocalDate renewalDate;
 
+    // PARENT_GMC: Parent/In-Law coverage fields
+    @Column(name = "parent_coverage_enabled")
+    private Boolean parentCoverageEnabled;
+
+    @Column(name = "in_law_coverage_enabled")
+    private Boolean inLawCoverageEnabled;
+
+    @Column(name = "max_parents")
+    private Integer maxParents;
+
+    @Column(name = "max_in_laws")
+    private Integer maxInLaws;
+
+    @Column(name = "parent_age_limit")
+    private Integer parentAgeLimit;
+
+    // TOP_UP / SUPER_TOP_UP fields
+    @Column(name = "description", columnDefinition = "TEXT")
+    private String description;
+
+    @Column(name = "insurer_name", length = 255)
+    private String insurerName;
+
+    @Column(name = "deductible_amount", precision = 15, scale = 2)
+    private BigDecimal deductibleAmount;
+
+    @JdbcTypeCode(SqlTypes.JSON)
+    @Column(name = "sum_insured_options", columnDefinition = "jsonb")
+    private String sumInsuredOptions; // JSON array of numbers
+
+    @Column(name = "covers_dependents")
+    private Boolean coversDependents;
+
+    @Column(name = "covers_parents")
+    private Boolean coversParents;
+
+    @Column(name = "is_deleted")
+    private Boolean isDeleted;
+
+    @Column(name = "effective_from")
+    private LocalDate effectiveFrom;
+
+    @Column(name = "effective_to")
+    private LocalDate effectiveTo;
+
     @Enumerated(EnumType.STRING)
     @JdbcTypeCode(SqlTypes.NAMED_ENUM)
     @Column(name = "payment_frequency")
