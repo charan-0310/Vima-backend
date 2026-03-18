@@ -15,6 +15,7 @@ import org.springframework.stereotype.Repository;
 
 import com.vimainsurance.vimaadmin.entity.Policy;
 import com.vimainsurance.vimaadmin.enums.PolicyStatus;
+import com.vimainsurance.vimaadmin.enums.ProductType;
 
 /**
  * Repository interface for Policy entity
@@ -137,4 +138,20 @@ public interface IPolicyRepository extends JpaRepository<Policy, Long> {
      */
     @Query("SELECT COALESCE(SUM(p.premiumAmount), 0) FROM Policy p WHERE p.status = :status")
     BigDecimal sumPremiumAmountByStatus(@Param("status") PolicyStatus status);
+
+    /**
+     * Find policy IDs whose product type is TOP_UP or SUPER_TOP_UP (for enrollment top-up mapping cancellation).
+     */
+    @Query("SELECT p.policyId FROM Policy p WHERE p.productType IN :productTypes")
+    List<Long> findPolicyIdsByProductTypeIn(@Param("productTypes") List<ProductType> productTypes);
+
+    /**
+     * Find policies by organization and product type (e.g. PARENT_GMC for enrollment plans).
+     */
+    List<Policy> findByOrganizationIdAndProductType(UUID organizationId, ProductType productType);
+
+    /**
+     * Find active policies by organization and product type.
+     */
+    List<Policy> findByOrganizationIdAndProductTypeAndStatus(UUID organizationId, ProductType productType, PolicyStatus status);
 }

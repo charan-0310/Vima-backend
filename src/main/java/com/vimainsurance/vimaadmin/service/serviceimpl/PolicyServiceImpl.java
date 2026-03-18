@@ -255,6 +255,10 @@ public class PolicyServiceImpl implements IPolicyService {
             if (policyType == ProductType.TOP_UP || policyType == ProductType.SUPER_TOP_UP) {
                 createProductCatalogForTopup(savedPolicy, requestDto.getPricingModel());
             }
+            // PARENT_GMC: create product_catalog row so it appears in enrollment plans
+            if (policyType == ProductType.PARENT_GMC) {
+                createProductCatalogForParentGmc(savedPolicy);
+            }
 
             return responseObj.render(responseObj.formSuccessResponse(Constants.SUCCESS, Constants.SAVE_SUCCESS));
         } catch (BadRequestException e) {
@@ -835,6 +839,41 @@ public class PolicyServiceImpl implements IPolicyService {
         logger.info("[correlationId:{}] Product catalog created for policyId: {}", MDC.get("correlationId"), savedPolicy.getPolicyId());
     }
 
+    /**
+     * Create a product_catalog row for a PARENT_GMC policy so it appears in enrollment plans.
+     */
+    private void createProductCatalogForParentGmc(Policy savedPolicy) {
+        if (savedPolicy.getOrganizationId() == null || savedPolicy.getPolicyId() == null) return;
+        LocalDate effectiveFrom = savedPolicy.getEffectiveFrom() != null ? savedPolicy.getEffectiveFrom() : savedPolicy.getStartDate();
+        if (effectiveFrom == null) {
+            logger.warn("[correlationId:{}] PARENT_GMC policy {} has no effectiveFrom/startDate; skipping product_catalog", MDC.get("correlationId"), savedPolicy.getPolicyId());
+            return;
+        }
+        String name = (savedPolicy.getDescription() != null && !savedPolicy.getDescription().isBlank())
+                ? savedPolicy.getDescription()
+                : "Parent / In-Law Coverage";
+        if (name.length() > 255) name = name.substring(0, 255);
+        List<ProductCatalog> existing = productCatalogRepository.findByOrganizationIdOrderByDisplayOrderAsc(savedPolicy.getOrganizationId());
+        int displayOrder = existing.isEmpty() ? 0 : (existing.get(existing.size() - 1).getDisplayOrder() == null ? 0 : existing.get(existing.size() - 1).getDisplayOrder()) + 1;
+        ProductCatalogRequestDto catalogDto = ProductCatalogRequestDto.builder()
+                .organizationId(savedPolicy.getOrganizationId())
+                .productType(ProductType.PARENT_GMC.getValue())
+                .name(name)
+                .isMandatory(false)
+                .coverageOptions("[1]")
+                .displayOrder(displayOrder)
+                .policyId(savedPolicy.getPolicyId())
+                .isActive(true)
+                .effectiveFrom(effectiveFrom)
+                .effectiveTo(savedPolicy.getEffectiveTo() != null ? savedPolicy.getEffectiveTo() : savedPolicy.getEndDate())
+                .build();
+        ResponseEntity<ResponseDto<com.vimainsurance.vimaadmin.dto.ProductCatalogResponseDto>> response = productCatalogService.create(catalogDto);
+        if (response.getBody() != null && response.getBody().getErrorCode() != null) {
+            throw new RuntimeException("Failed to create product catalog for PARENT_GMC: " + response.getBody().getMessage());
+        }
+        logger.info("[correlationId:{}] Product catalog created for PARENT_GMC policyId: {}", MDC.get("correlationId"), savedPolicy.getPolicyId());
+    }
+
     @Override
     @Transactional(rollbackFor = Exception.class)
     @AuditedOperation(schemaName = "cpc", tableName = "policies", entityType = "POLICY", action = "CREATE")
@@ -961,6 +1000,10 @@ public class PolicyServiceImpl implements IPolicyService {
             // TOP_UP / SUPER_TOP_UP: create product_catalog row so the product appears in the catalog
             if (productType == ProductType.TOP_UP || productType == ProductType.SUPER_TOP_UP) {
                 createProductCatalogForTopup(savedPolicy, requestDto.getPricingModel());
+            }
+            // PARENT_GMC: create product_catalog row so it appears in enrollment plans
+            if (productType == ProductType.PARENT_GMC) {
+                createProductCatalogForParentGmc(savedPolicy);
             }
 
             // Upload documents if provided (agent already looked up above when files present)
