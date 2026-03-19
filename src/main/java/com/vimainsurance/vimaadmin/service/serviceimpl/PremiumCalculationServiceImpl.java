@@ -14,6 +14,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Service;
 
+import com.vimainsurance.vimaadmin.dto.CostShareSplit;
 import com.vimainsurance.vimaadmin.dto.CompanyEnrollmentConfigResponseDto;
 import com.vimainsurance.vimaadmin.dto.EmployeePolicyMapResponseDto;
 import com.vimainsurance.vimaadmin.dto.PremiumCalculationContext;
@@ -41,7 +42,7 @@ public class PremiumCalculationServiceImpl implements IPremiumCalculationService
     private static final Logger log = LoggerFactory.getLogger(PremiumCalculationServiceImpl.class);
     private static final LocalDate TODAY = LocalDate.now();
 
-    /** GHI and GMC are both group health; rate table may use either. TOP_UP/SUPER_TOP_UP use GMC rate when no dedicated rate exists. */
+    /** GHI and GMC are both group health; rate table may use either. TOP_UP/SUPER_TOP_UP use GMC rate when no dedicated rate exists. PARENT_GMC uses GMC rates with member_type parent. */
     private static boolean planTypeMatchesRateProductType(String requestPlanType, String rateProductType) {
         if (requestPlanType == null || rateProductType == null) return false;
         String r = requestPlanType.trim().toUpperCase();
@@ -51,6 +52,8 @@ public class PremiumCalculationServiceImpl implements IPremiumCalculationService
         // Top-up options use base health (GMC) rate for premium preview when no TOP_UP/SUPER_TOP_UP rate row exists
         if (("TOP_UP".equals(r) || "SUPER_TOP_UP".equals(r)) && ("GMC".equals(p) || "GHI".equals(p))) return true;
         if (("GMC".equals(r) || "GHI".equals(r)) && ("TOP_UP".equals(p) || "SUPER_TOP_UP".equals(p))) return true;
+        // Parent cover: use GMC rate table rows with member_type parent/parent_in_law
+        if ("PARENT_GMC".equals(r) && ("GMC".equals(p) || "GHI".equals(p))) return true;
         return false;
     }
 
@@ -114,6 +117,20 @@ public class PremiumCalculationServiceImpl implements IPremiumCalculationService
                     .toList();
             if (!dedicated.isEmpty()) {
                 forPlan = dedicated;
+            }
+        }
+        // PARENT_GMC: use GMC rate rows with member_type parent or parent_in_law (age-banded parent rates)
+        if ("PARENT_GMC".equals(planUpper)) {
+            List<PremiumRateTable> parentRates = forPlan.stream()
+                    .filter(rt -> {
+                        String mt = rt.getMemberType() != null ? rt.getMemberType().trim().toLowerCase() : "";
+                        return "parent".equals(mt) || "parent_in_law".equals(mt);
+                    })
+                    .toList();
+            if (!parentRates.isEmpty()) {
+                forPlan = parentRates;
+            } else {
+                throw new IllegalArgumentException("No parent rate found for company " + companyId + "; add premium_rate_tables with product_type GMC and member_type 'parent' (or 'parent_in_law') for age bands.");
             }
         }
         PricingModel model = forPlan.get(0).getPricingModel();
@@ -195,11 +212,34 @@ public class PremiumCalculationServiceImpl implements IPremiumCalculationService
 
         for (PremiumCalculationRequestDto.PlanSelectionItemDto sel : planSelections) {
             if (!Boolean.TRUE.equals(sel.getOpted())) continue;
+            String selPlanType = sel.getPlanType();
+            String planUpper = selPlanType != null ? selPlanType.trim().toUpperCase() : "";
+
+            // PARENT_GMC: only include parent/in-law members for premium calculation
+            // TOP_UP / SUPER_TOP_UP: only include employee (self) so premium matches the option dropdown (e.g. 1L = ₹5,000/yr)
+            List<MemberInfo> membersForPlan = members;
+            if ("PARENT_GMC".equals(planUpper)) {
+                List<MemberInfo> parentOnly = members.stream()
+                        .filter(m -> {
+                            String mt = m.memberType();
+                            return mt != null && ("parent".equalsIgnoreCase(mt) || "parent_in_law".equalsIgnoreCase(mt));
+                        })
+                        .toList();
+                if (parentOnly.isEmpty()) continue; // no parent dependents, skip this selection
+                membersForPlan = parentOnly;
+            } else if ("TOP_UP".equals(planUpper) || "SUPER_TOP_UP".equals(planUpper)) {
+                MemberInfo employeeOnly = members.stream()
+                        .filter(m -> "EMPLOYEE".equalsIgnoreCase(m.memberType()) || "self".equalsIgnoreCase(m.memberType()))
+                        .findFirst()
+                        .orElse(members.isEmpty() ? null : members.get(0));
+                membersForPlan = employeeOnly != null ? List.of(employeeOnly) : members;
+            }
+
             BigDecimal sumInsured = sel.getSumInsured();
             String coverageTier = sel.getCoverageTier();
             EmployeePolicyMapResponseDto mapping = familyMappings.stream()
                     .filter(m -> context.getEmployeeId().equals(m.getIndividualId()))
-                    .filter(m -> planTypeMatchesRateProductType(sel.getPlanType(), m.getProductType()))
+                    .filter(m -> planTypeMatchesRateProductType(selPlanType, m.getProductType()))
                     .findFirst()
                     .orElse(null);
             if (mapping != null) {
@@ -214,17 +254,42 @@ public class PremiumCalculationServiceImpl implements IPremiumCalculationService
             try {
                 PlanPremiumBreakdown b = calculatePlanPremium(
                         context.getCompanyId(),
-                        sel.getPlanType(),
+                        selPlanType,
                         coverageTier,
                         sumInsured,
-                        members);
+                        membersForPlan);
                 BigDecimal planTotalPremium = b.premium();
-                String coverageCategory = resolveCoverageCategoryForCostSharing(members);
+                String coverageCategory = "PARENT_GMC".equals(planUpper)
+                        ? CoverageCategory.PARENT.getValue()
+                        : resolveCoverageCategoryForCostSharing(membersForPlan);
                 var split = costSharingRuleService.applyCostSharing(
                         context.getCompanyId(),
-                        sel.getPlanType(),
+                        selPlanType,
                         coverageCategory,
                         planTotalPremium);
+                // Default 50/50 for PARENT_GMC when no cost-sharing rule (employer pays 100% otherwise)
+                if ("PARENT_GMC".equals(planUpper)
+                        && split.getEmployeeShare() != null && split.getEmployeeShare().compareTo(BigDecimal.ZERO) == 0
+                        && split.getEmployerShare() != null && split.getEmployerShare().compareTo(planTotalPremium) == 0) {
+                    BigDecimal half = planTotalPremium.divide(BigDecimal.valueOf(2), 2, RoundingMode.HALF_UP);
+                    split = CostShareSplit.builder()
+                            .employerShare(half)
+                            .employeeShare(planTotalPremium.subtract(half).setScale(2, RoundingMode.HALF_UP))
+                            .shareType(split.getShareType())
+                            .shareValue(split.getShareValue())
+                            .ruleId(split.getRuleId())
+                            .build();
+                }
+                // Voluntary add-ons (TOP_UP, SUPER_TOP_UP) are always 100% employee-paid
+                if ("TOP_UP".equals(planUpper) || "SUPER_TOP_UP".equals(planUpper)) {
+                    split = CostShareSplit.builder()
+                            .employerShare(BigDecimal.ZERO.setScale(2, RoundingMode.HALF_UP))
+                            .employeeShare(planTotalPremium.setScale(2, RoundingMode.HALF_UP))
+                            .shareType(split.getShareType())
+                            .shareValue(split.getShareValue())
+                            .ruleId(split.getRuleId())
+                            .build();
+                }
                 totalAnnual = totalAnnual.add(planTotalPremium);
                 totalEmployer = totalEmployer.add(split.getEmployerShare());
                 totalEmployee = totalEmployee.add(split.getEmployeeShare());
@@ -237,7 +302,7 @@ public class PremiumCalculationServiceImpl implements IPremiumCalculationService
                         .gstAmount(b.gstAmount())
                         .build());
             } catch (Exception e) {
-                log.warn("Plan premium calculation failed for {}: {}", sel.getPlanType(), e.getMessage());
+                log.warn("Plan premium calculation failed for {}: {}", selPlanType, e.getMessage());
             }
         }
 
@@ -317,8 +382,10 @@ public class PremiumCalculationServiceImpl implements IPremiumCalculationService
         boolean parentEnabled = Boolean.TRUE.equals(config.getParentCoverageEnabled());
         boolean inLawEnabled = Boolean.TRUE.equals(config.getInLawCoverageEnabled());
         for (PremiumCalculationRequestDto.DependentItemDto d : dependents) {
-            String rel = d.getRelationship() != null ? d.getRelationship().toUpperCase() : "";
-            if ("PARENT".equals(rel)) {
+            String rel = d.getRelationship() != null ? d.getRelationship().trim().toUpperCase() : "";
+            boolean isParent = "PARENT".equals(rel) || "FATHER".equals(rel) || "MOTHER".equals(rel);
+            boolean isParentInLaw = "PARENT_IN_LAW".equals(rel) || "FATHER-IN-LAW".equals(rel) || "MOTHER-IN-LAW".equals(rel);
+            if (isParent) {
                 if (!parentEnabled) throw new IllegalArgumentException("Parent coverage is not enabled for this company");
                 parentCount++;
                 if (maxParents > 0 && parentCount > maxParents)
@@ -328,7 +395,7 @@ public class PremiumCalculationServiceImpl implements IPremiumCalculationService
                     if (age > ageLimit)
                         throw new IllegalArgumentException("Parent age must not exceed " + ageLimit + " years");
                 }
-            } else if ("PARENT_IN_LAW".equals(rel)) {
+            } else if (isParentInLaw) {
                 if (!inLawEnabled) throw new IllegalArgumentException("Parent-in-law coverage is not enabled for this company");
                 inLawCount++;
                 if (maxInLaws > 0 && inLawCount > maxInLaws)
@@ -373,9 +440,9 @@ public class PremiumCalculationServiceImpl implements IPremiumCalculationService
     /** Map relationship to rate table member_type (parent, parent_in_law for age-banded parent rates). */
     private static String toRateTableMemberType(String relationship) {
         if (relationship == null || relationship.isBlank()) return "DEPENDENT";
-        String r = relationship.toUpperCase();
-        if ("PARENT".equals(r)) return "parent";
-        if ("PARENT_IN_LAW".equals(r)) return "parent_in_law";
+        String r = relationship.trim().toUpperCase();
+        if ("PARENT".equals(r) || "FATHER".equals(r) || "MOTHER".equals(r)) return "parent";
+        if ("PARENT_IN_LAW".equals(r) || "FATHER-IN-LAW".equals(r) || "MOTHER-IN-LAW".equals(r)) return "parent_in_law";
         return relationship;
     }
 }
