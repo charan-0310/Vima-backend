@@ -162,7 +162,7 @@ public final class EnrollmentUploadParserUtil {
                 try {
                     dto.setDateOfBirth(LocalDate.parse(dateOfBirth.trim(), DATE_FORMAT));
                 } catch (DateTimeParseException e) {
-                    String normalized = normalizeDateString(dateOfBirth.trim());
+                    String normalized = normalizeDateToIsoString(dateOfBirth.trim());
                     if (normalized != null) {
                         dto.setDateOfBirth(LocalDate.parse(normalized, DATE_FORMAT));
                     }
@@ -190,7 +190,9 @@ public final class EnrollmentUploadParserUtil {
             dep.setEmployeeId(employeeId);
             dep.setRelationship(normalizeInLawRelationship(relationship));
             dep.setName(name != null ? name.trim() : null);
-            dep.setDateOfBirth(dateOfBirth != null ? dateOfBirth.trim() : null);
+            String dobIso = (dateOfBirth != null && !dateOfBirth.isBlank())
+                ? normalizeDateToIsoString(dateOfBirth.trim()) : null;
+            dep.setDateOfBirth(dobIso != null ? dobIso : (dateOfBirth != null ? dateOfBirth.trim() : null));
             dep.setGender(gender != null ? gender.trim() : null);
             dep.setEmail(email != null && !email.isBlank() ? email.trim() : null);
             result.getDependentRowsByEmployeeId().computeIfAbsent(employeeId, k -> new ArrayList<>()).add(dep);
@@ -327,6 +329,22 @@ public final class EnrollmentUploadParserUtil {
         }
     }
 
+    /**
+     * Normalize a date string to ISO (yyyy-MM-dd). Supports:
+     * - Already ISO (yyyy-MM-dd)
+     * - dd/MM/yyyy, dd-MM-yyyy, dd.MM.yyyy
+     * - dd/MM/yy, dd-MM-yy (2-digit year: 00-29 → 2000-2029, 30-99 → 1930-1999)
+     * Used so enrollment submission JSON (personalDetails, dependents) always stores DOB in a format
+     * the frontend can parse (e.g. magic link displays correctly).
+     */
+    public static String normalizeDateToIsoString(String s) {
+        if (s == null || s.isBlank()) return null;
+        s = s.trim();
+        if (s.matches("\\d{4}-\\d{2}-\\d{2}")) return s;
+        String normalized = normalizeDateString(s);
+        return normalized != null ? normalized : normalizeDateStringTwoDigitYear(s);
+    }
+
     private static String normalizeDateString(String s) {
         if (s == null || s.length() < 8) return null;
         s = s.trim();
@@ -340,6 +358,20 @@ public final class EnrollmentUploadParserUtil {
             return y + "-" + String.format("%02d", mo) + "-" + String.format("%02d", d);
         }
         return null;
+    }
+
+    /** dd/MM/yy, dd-MM-yy: 00-29 → 2000-2029, 30-99 → 1930-1999 */
+    private static String normalizeDateStringTwoDigitYear(String s) {
+        if (s == null || s.length() < 6) return null;
+        s = s.trim();
+        java.util.regex.Pattern p = java.util.regex.Pattern.compile("(\\d{1,2})[/.-](\\d{1,2})[/.-](\\d{2})");
+        java.util.regex.Matcher m = p.matcher(s);
+        if (!m.find()) return null;
+        int d = Integer.parseInt(m.group(1));
+        int mo = Integer.parseInt(m.group(2));
+        int yy = Integer.parseInt(m.group(3));
+        int yyyy = yy <= 29 ? 2000 + yy : 1900 + yy;
+        return yyyy + "-" + String.format("%02d", mo) + "-" + String.format("%02d", d);
     }
 
     @Data

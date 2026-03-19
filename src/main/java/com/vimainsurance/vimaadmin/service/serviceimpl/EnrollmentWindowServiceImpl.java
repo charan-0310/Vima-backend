@@ -331,7 +331,10 @@ public class EnrollmentWindowServiceImpl implements IEnrollmentWindowService {
             obj.put("fullName", name);
             obj.put("name", name);
             obj.put("relationship", row.getRelationship());
-            obj.put("dateOfBirth", row.getDateOfBirth());
+            String rawDob = row.getDateOfBirth();
+            String isoDob = (rawDob != null && !rawDob.isBlank())
+                ? EnrollmentUploadParserUtil.normalizeDateToIsoString(rawDob) : null;
+            obj.put("dateOfBirth", isoDob != null ? isoDob : rawDob);
             obj.put("gender", row.getGender());
             obj.put("email", row.getEmail());
             list.add(obj);
