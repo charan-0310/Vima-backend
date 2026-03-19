@@ -21,6 +21,9 @@ public interface IEmployeePolicyMapRepository
 
     List<EmployeePolicyMap> findByIndividualIdAndStatus(UUID individualId, String status);
 
+    List<EmployeePolicyMap> findByIndividualIdAndOrganizationIdAndStatus(
+            UUID individualId, UUID organizationId, String status);
+
     List<EmployeePolicyMap> findByIndividualIdAndPolicyIdInAndStatus(UUID individualId, List<Long> policyIds, String status);
 
     List<EmployeePolicyMap> findByPolicyIdAndStatus(Long policyId, String status);

@@ -256,11 +256,28 @@ public class EmployeePolicyMapServiceImpl implements IEmployeePolicyMapService {
 
     @Override
     @Transactional
-    public void createMappingsFromBulkUpload(UUID organizationId, List<UUID> employeeIds, String source) {
+    public void createMappingsFromBulkUpload(UUID organizationId, List<UUID> employeeIds, String source, List<Long> policyIds) {
         if (organizationId == null || employeeIds == null || employeeIds.isEmpty()) {
             return;
         }
-        List<Policy> policies = getApplicablePolicies(organizationId);
+        if (policyIds == null || policyIds.isEmpty()) {
+            throw new IllegalArgumentException("At least one policy must be selected");
+        }
+        List<Policy> policies = new ArrayList<>();
+        for (Long id : policyIds) {
+            Optional<Policy> opt = policyRepository.findById(id);
+            if (opt.isEmpty()) {
+                log.warn("createMappingsFromBulkUpload: policy {} not found, skipping", id);
+                continue;
+            }
+            Policy p = opt.get();
+            if (!organizationId.equals(p.getOrganizationId()) || p.getStatus() != PolicyStatus.ACTIVE
+                    || !Boolean.TRUE.equals(p.getAppliesToEmployees())) {
+                log.warn("createMappingsFromBulkUpload: policy {} not applicable for org {}, skipping", id, organizationId);
+                continue;
+            }
+            policies.add(p);
+        }
         if (policies.isEmpty()) {
             log.warn("createMappingsFromBulkUpload: no applicable policies for org {}", organizationId);
             return;
@@ -275,7 +292,11 @@ public class EmployeePolicyMapServiceImpl implements IEmployeePolicyMapService {
             Deals employee = employeeOpt.get();
             LocalDate effectiveFrom = employee.getDateOfJoining() != null
                     ? employee.getDateOfJoining() : LocalDate.now();
+            List<Deals> dependents = dealsRepository.findByPrimaryIndividualId(employeeId);
             for (Policy policy : policies) {
+                if (policy.getProductType() == ProductType.PARENT_GMC && !hasParentDependent(dependents)) {
+                    continue;
+                }
                 LocalDate from = policy.getStartDate() != null && policy.getStartDate().isAfter(effectiveFrom)
                         ? policy.getStartDate() : effectiveFrom;
                 if (employeePolicyMapRepository.existsByIndividualIdAndPolicyIdAndStatus(employeeId, policy.getPolicyId(), STATUS_ACTIVE)) {
@@ -294,9 +315,14 @@ public class EmployeePolicyMapServiceImpl implements IEmployeePolicyMapService {
                         .source(src)
                         .build());
             }
-            List<Deals> dependents = dealsRepository.findByPrimaryIndividualId(employeeId);
             for (Deals dep : dependents) {
                 for (Policy policy : policies) {
+                    if (policy.getProductType() == ProductType.GTL || policy.getProductType() == ProductType.GPA) {
+                        continue;
+                    }
+                    if (policy.getProductType() == ProductType.PARENT_GMC && !isParentRelationship(dep.getRelationship())) {
+                        continue;
+                    }
                     if (employeePolicyMapRepository.existsByIndividualIdAndPolicyIdAndStatus(dep.getIndividualId(), policy.getPolicyId(), STATUS_ACTIVE)) {
                         continue;
                     }
@@ -674,6 +700,21 @@ public class EmployeePolicyMapServiceImpl implements IEmployeePolicyMapService {
     private List<Policy> getApplicablePolicies(UUID organizationId) {
         List<Policy> all = policyRepository.findByOrganizationIdAndStatus(organizationId, PolicyStatus.ACTIVE);
         return all.stream().filter(p -> Boolean.TRUE.equals(p.getAppliesToEmployees())).collect(Collectors.toList());
+    }
+
+    /** True if the relationship indicates a parent (Father, Mother, Father-In-Law, Mother-In-Law, PARENT). Used to create PARENT_GMC mappings only when employee has parent dependents. */
+    private static boolean isParentRelationship(String relationship) {
+        if (relationship == null || relationship.isBlank()) return false;
+        String r = relationship.trim().toUpperCase().replace("-", "_").replace(" ", "_");
+        return "FATHER".equals(r) || "MOTHER".equals(r) || "PARENT".equals(r)
+                || "FATHER_IN_LAW".equals(r) || r.startsWith("FATHER_IN_LAW")
+                || "MOTHER_IN_LAW".equals(r) || r.startsWith("MOTHER_IN_LAW");
+    }
+
+    /** True if the employee has at least one dependent with a parent relationship (Father, Mother, etc.). */
+    private static boolean hasParentDependent(List<Deals> dependents) {
+        if (dependents == null || dependents.isEmpty()) return false;
+        return dependents.stream().anyMatch(d -> isParentRelationship(d.getRelationship()));
     }
 
     private Set<String> parseOptedPlanTypes(String planSelectionsJson) {

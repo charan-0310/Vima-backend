@@ -247,10 +247,11 @@ public class OrganizationController {
             @CurrentOrganization UUID organizationId,
             @RequestParam("file") MultipartFile file,
             @RequestParam("uploadType") String uploadType,
+            @RequestParam("policyIds") List<Long> policyIds,
             @RequestPart("employees") List<EmployeeUploadDto> employeeUploadDtoList) {
         logger.info("[correlationId:{}] /organization/{}/upload endpoint called with operation: {}", 
             MDC.get("correlationId"), organizationId);
-        return organizationService.uploadEmployees(employeeUploadDtoList, organizationId, uploadType, file);
+        return organizationService.uploadEmployees(employeeUploadDtoList, organizationId, uploadType, file, policyIds);
     }
     
     @PostMapping(value = "/organization/{organizationId}/upload/csv", consumes = MediaType.MULTIPART_FORM_DATA_VALUE,

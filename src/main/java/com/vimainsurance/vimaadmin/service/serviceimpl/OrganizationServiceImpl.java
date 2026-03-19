@@ -1503,11 +1503,14 @@ public class OrganizationServiceImpl implements IOrganizationService {
 
     @Override
     @Transactional(rollbackFor = Exception.class)
-    public ResponseEntity<ResponseDto<EmployeeUploadResponse>> uploadEmployees(List<EmployeeUploadDto> employeeUploadDtoList, UUID organizationId, String uploadType, MultipartFile file) {
+    public ResponseEntity<ResponseDto<EmployeeUploadResponse>> uploadEmployees(List<EmployeeUploadDto> employeeUploadDtoList, UUID organizationId, String uploadType, MultipartFile file, List<Long> policyIds) {
     logger.info("[correlationId:{}] uploadEmployees called for {} employees, organizationId: {}", 
         MDC.get("correlationId"), employeeUploadDtoList.size(), organizationId);
     BaseResponse<EmployeeUploadResponse> responseObj = new BaseResponse<>();
     try {
+        if (policyIds == null || policyIds.isEmpty()) {
+            return responseObj.render(responseObj.formErrorResponse(400, "At least one policy must be selected"));
+        }
         com.vimainsurance.vimaadmin.audit.AuditContextSupplier.setActionSource(com.vimainsurance.vimaadmin.audit.ActionSource.BULK);
         Organization organization = organizationRepository.findByOrganizationId(organizationId).orElseThrow(() -> new RuntimeException("Organization not found"));
         EmployeeUploadResponse employeeUploadResponse = new EmployeeUploadResponse();
@@ -1515,7 +1518,7 @@ public class OrganizationServiceImpl implements IOrganizationService {
             String username = jwtUserExtractor.getCurrentUsername();
             adminuser = adminUserRepository.findByUsername(username).orElseThrow(() -> new RuntimeException("Admin user not found"));
         com.vimainsurance.vimaadmin.audit.AuditContextSupplier.setCurrentUserId(adminuser != null ? adminuser.getId() : null);
-        employeeUploadResponse = employeeService.uploadEmployees(employeeUploadDtoList, organization, adminuser, file, uploadType);
+        employeeUploadResponse = employeeService.uploadEmployees(employeeUploadDtoList, organization, adminuser, file, uploadType, policyIds);
         String responseMessage = (employeeUploadResponse.getMessage() != null && !employeeUploadResponse.getMessage().isEmpty())
                 ? employeeUploadResponse.getMessage() : Constants.SUCCESS;
         return responseObj.render(responseObj.formSuccessResponse(responseMessage, employeeUploadResponse));
@@ -1542,7 +1545,11 @@ public class OrganizationServiceImpl implements IOrganizationService {
             if (employees.isEmpty()) {
                 return responseObj.render(responseObj.formErrorResponse("At least one employee is required"));
             }
-            EmployeeUploadResponse result = employeeService.manualAddEmployees(employees, organization, adminUser);
+            List<Long> policyIds = requestDto.getPolicyIds();
+            if (policyIds == null || policyIds.isEmpty()) {
+                return responseObj.render(responseObj.formErrorResponse(400, "At least one policy must be selected"));
+            }
+            EmployeeUploadResponse result = employeeService.manualAddEmployees(employees, organization, adminUser, policyIds);
             String responseMessage = result.getMessage() != null && !result.getMessage().isEmpty() ? result.getMessage() : Constants.SUCCESS;
             return responseObj.render(responseObj.formSuccessResponse(responseMessage, result));
         } catch (OrganizationAccessDeniedException e) {

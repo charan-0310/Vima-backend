@@ -33,7 +33,12 @@ public interface IEmployeePolicyMapService {
 
     boolean isIndividualCoveredByPolicy(UUID individualId, Long policyId);
 
-    void createMappingsFromBulkUpload(UUID organizationId, List<UUID> employeeIds, String source);
+    /**
+     * Create employee_policy_map entries for bulk upload / manual add using only the given policies.
+     * For GTL/GPA policies only SELF (employee) is mapped; for GMC etc. employee and dependents are mapped.
+     * @param policyIds required, non-empty list of policy IDs (must belong to org, ACTIVE, appliesToEmployees)
+     */
+    void createMappingsFromBulkUpload(UUID organizationId, List<UUID> employeeIds, String source, List<Long> policyIds);
 
     void createMappingsFromEnrollmentSubmission(UUID submissionId);
 

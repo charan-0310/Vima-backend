@@ -605,7 +605,12 @@ public class EnrollmentInvitationServiceImpl implements IEnrollmentInvitation {
 
                 String enrollmentStatus;
                 if (sub != null) {
-                    enrollmentStatus = sub.getStatus().name();
+                    // DRAFT + invitation still SENT (not opened) = just invited, not yet in progress; show as "sent" (Invited) until they open the magic link
+                    if (sub.getStatus() == EnrollementStatus.DRAFT && inv != null && inv.getStatus() == EnrollementStatus.SENT) {
+                        enrollmentStatus = "sent";
+                    } else {
+                        enrollmentStatus = sub.getStatus().name();
+                    }
                 } else if (inv != null) {
                     // PENDING = invite created but not sent → show as pending_invite so UI shows "Send Invitations"
                     EnrollementStatus invStatus = inv.getStatus();
@@ -637,8 +642,16 @@ public class EnrollmentInvitationServiceImpl implements IEnrollmentInvitation {
                     Deals emp = inv.getEmployee();
                     EnrollmentSubmission sub = submissionByEmployee.get(empId);
                     EnrollementStatus invStatus = inv.getStatus();
-                    String enrollmentStatus = sub != null ? sub.getStatus().name()
-                        : (invStatus != null && invStatus == EnrollementStatus.PENDING ? "pending" : (invStatus != null ? invStatus.name().toLowerCase() : "sent"));
+                    String enrollmentStatus;
+                    if (sub != null) {
+                        if (sub.getStatus() == EnrollementStatus.DRAFT && invStatus == EnrollementStatus.SENT) {
+                            enrollmentStatus = "sent";
+                        } else {
+                            enrollmentStatus = sub.getStatus().name();
+                        }
+                    } else {
+                        enrollmentStatus = (invStatus != null && invStatus == EnrollementStatus.PENDING ? "pending" : (invStatus != null ? invStatus.name().toLowerCase() : "sent"));
+                    }
                     EmployeeProgressDetailDto detail = EmployeeProgressDetailDto.builder()
                         .employeeId(empId)
                         .invitationId(inv.getId())

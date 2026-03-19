@@ -143,8 +143,9 @@ public class SecurityConfig {
      */
     @Bean
     public SecurityFilterChain filterChain(HttpSecurity http) throws Exception {
-        // Only dev profile gets mock auth bypass. Test profile uses real JWT (same as uat/prod).
-        boolean isDevProfileOnly = Arrays.stream(environment.getActiveProfiles()).anyMatch("dev"::equalsIgnoreCase);
+        // Dev and local profiles get mock auth bypass so magic-link enrollment (no JWT) works. Test profile uses real JWT (same as uat/prod).
+        boolean isDevProfileOnly = Arrays.stream(environment.getActiveProfiles())
+                .anyMatch(p -> "dev".equalsIgnoreCase(p) || "local".equalsIgnoreCase(p));
 
         http
             .cors(cors -> cors.configurationSource(corsConfigurationSource()))
@@ -189,11 +190,13 @@ public class SecurityConfig {
                                     "/favicon.ico"
                             ).permitAll()
 
-                            // Enrollment — public (token-based auth, no JWT)
+                            // Enrollment — public (token-based auth, no JWT). Magic-link flow: validateTokenAndGetContext, calculate-premium, etc.
                             .requestMatchers("/api/v1/enrollment/**").permitAll()
                             .requestMatchers("/api/v1/enrollment-submissions/**").permitAll()
-                            // With context-path (e.g. /dev, /prod), request URI includes it — match explicitly
+                            // With context-path (e.g. /dev, /prod), request URI may include it — match explicitly so magic-link step 4 (calculate-premium) works
+                            .requestMatchers("/dev/api/v1/enrollment/**").permitAll()
                             .requestMatchers("/dev/api/v1/enrollment-submissions/**").permitAll()
+                            .requestMatchers("/prod/api/v1/enrollment/**").permitAll()
                             .requestMatchers("/prod/api/v1/enrollment-submissions/**").permitAll()
                             .requestMatchers(contextPath + "/api/v1/enrollment/**").permitAll()
                             .requestMatchers(contextPath + "/api/v1/enrollment-submissions/**").permitAll()
