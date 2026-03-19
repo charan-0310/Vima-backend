@@ -5,6 +5,7 @@ import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -36,25 +37,32 @@ import com.vimainsurance.vimaadmin.dto.ResponseDto;
 import com.vimainsurance.vimaadmin.dto.SelfEmployeeEnrollmentRequestDto;
 import com.vimainsurance.vimaadmin.entity.AdminUser;
 import com.vimainsurance.vimaadmin.entity.Deals;
+import com.vimainsurance.vimaadmin.entity.EmployeePolicyMap;
+import com.vimainsurance.vimaadmin.entity.EnrollmentSubmission;
 import com.vimainsurance.vimaadmin.entity.EnrollmentWindows;
 import com.vimainsurance.vimaadmin.entity.Organization;
+import com.vimainsurance.vimaadmin.entity.Policy;
 import com.vimainsurance.vimaadmin.enums.AccountStatus;
 import com.vimainsurance.vimaadmin.enums.DocumentCategory;
 import com.vimainsurance.vimaadmin.enums.EnrollementStatus;
 import com.vimainsurance.vimaadmin.enums.NomineeRelationship;
+import com.vimainsurance.vimaadmin.enums.PolicyStatus;
 import com.vimainsurance.vimaadmin.audit.AuditContextSupplier;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.vimainsurance.vimaadmin.mapper.EnrollmentWindowMapper;
 import com.vimainsurance.vimaadmin.repository.IAdminUserRepository;
 import com.vimainsurance.vimaadmin.repository.IDealsRepository;
+import com.vimainsurance.vimaadmin.repository.IEmployeePolicyMapRepository;
 import com.vimainsurance.vimaadmin.repository.IEnrollmentInvitationRepository;
 import com.vimainsurance.vimaadmin.repository.IEnrollmentSubmissionRepository;
 import com.vimainsurance.vimaadmin.repository.IEnrollmentWindowsRepository;
 import com.vimainsurance.vimaadmin.repository.IOrganizationRepository;
+import com.vimainsurance.vimaadmin.repository.IPolicyRepository;
 import com.vimainsurance.vimaadmin.service.IEnrollmentWindowService;
 import com.vimainsurance.vimaadmin.service.IHRApprovalService;
 import com.vimainsurance.vimaadmin.specification.EnrollmentWindowSpecification;
 import com.vimainsurance.vimaadmin.util.Constants;
+import com.vimainsurance.vimaadmin.util.EnrollmentUploadParserUtil;
 import com.vimainsurance.vimaadmin.util.JwtUserExtractor;
 import com.vimainsurance.vimaadmin.util.OrganizationAccessHelper;
 import com.vimainsurance.vimaadmin.util.TenantContext;
@@ -101,6 +109,14 @@ public class EnrollmentWindowServiceImpl implements IEnrollmentWindowService {
 
     @Autowired
     private ObjectMapper objectMapper;
+
+    @Autowired
+    private IEmployeePolicyMapRepository employeePolicyMapRepository;
+
+    @Autowired
+    private IPolicyRepository policyRepository;
+
+    private static final String POLICY_MAP_STATUS_ACTIVE = "ACTIVE";
 
     private void validateAndSetOrganizationContext(UUID organizationId) {
         if (organizationId == null) return;
@@ -202,15 +218,55 @@ public class EnrollmentWindowServiceImpl implements IEnrollmentWindowService {
             }
             validateAndSetOrganizationContext(organization.getOrganizationId());
 
-            List<String> errors = validateSelfEmployeeEnrollmentRequest(selfEmployeeEnrollmentRequestDtos, organization.getOrganizationId());
+            List<SelfEmployeeEnrollmentRequestDto> selfRowsToUse;
+            EnrollmentUploadParserUtil.EnrollmentParseResult parseResult = null;
+            if (file != null && !file.isEmpty()) {
+                parseResult = EnrollmentUploadParserUtil.parse(file);
+                if (parseResult.hasSelfRows()) {
+                    EnrollmentUploadParserUtil.normalizeChildRelationships(parseResult);
+                    EnrollmentUploadParserUtil.validateSelfRows(parseResult);
+                    if (!parseResult.hasFatalErrors()) {
+                        selfRowsToUse = parseResult.getSelfRows();
+                    } else {
+                        @SuppressWarnings("unchecked")
+                        ResponseDto<EnrollmentWindowResponseDto> errorDto = (ResponseDto<EnrollmentWindowResponseDto>) (ResponseDto<?>) responseObj.formErrorResponse("Validation failed", parseResult.getErrors());
+                        return responseObj.render(errorDto);
+                    }
+                } else {
+                    selfRowsToUse = (selfEmployeeEnrollmentRequestDtos != null && !selfEmployeeEnrollmentRequestDtos.isEmpty())
+                            ? selfEmployeeEnrollmentRequestDtos
+                            : new ArrayList<>();
+                }
+            } else {
+                selfRowsToUse = (selfEmployeeEnrollmentRequestDtos != null && !selfEmployeeEnrollmentRequestDtos.isEmpty())
+                        ? selfEmployeeEnrollmentRequestDtos
+                        : new ArrayList<>();
+            }
+
+            if (selfRowsToUse.isEmpty()) {
+                return responseObj.render(responseObj.formErrorResponse("No employee data provided. Upload a file with employee rows or provide employee list."));
+            }
+
+            List<String> errors = validateSelfEmployeeEnrollmentRequest(selfRowsToUse, organization.getOrganizationId());
             if (!errors.isEmpty()) {
                 @SuppressWarnings("unchecked")
                 ResponseDto<EnrollmentWindowResponseDto> errorDto = (ResponseDto<EnrollmentWindowResponseDto>) (ResponseDto<?>) responseObj.formErrorResponse("Validation failed", errors);
                 return responseObj.render(errorDto);
             }
 
-            createSelfEmployee(selfEmployeeEnrollmentRequestDtos, organization, window);
+            List<String> renewalErrors = validateExistingEmployeesForRenewal(window, organization.getOrganizationId(), selfRowsToUse);
+            if (!renewalErrors.isEmpty()) {
+                @SuppressWarnings("unchecked")
+                ResponseDto<EnrollmentWindowResponseDto> errorDto = (ResponseDto<EnrollmentWindowResponseDto>) (ResponseDto<?>) responseObj.formErrorResponse("Validation failed", renewalErrors);
+                return responseObj.render(errorDto);
+            }
+
+            createSelfEmployee(selfRowsToUse, organization, window);
             logger.info("[correlationId:{}] Self employees created successfully for window {}", MDC.get("correlationId"), windowId);
+
+            if (parseResult != null && !parseResult.getDependentRowsByEmployeeId().isEmpty()) {
+                persistDependentsFromParseResult(parseResult, organization, window);
+            }
 
             ResponseEntity<ResponseDto<String>> documentResponse = documentService.uploadDocument(file, DocumentType.SELF_ENROLLMENT.getValue(), DocumentCategory.ENDORSEMENT_DOCUMENTS.getValue(), DocumentEntityType.ORGANIZATION.getValue(), windowId.toString(), "");
             ResponseDto<String> docBody = documentResponse.getBody();
@@ -225,6 +281,69 @@ public class EnrollmentWindowServiceImpl implements IEnrollmentWindowService {
             TransactionUtil.markRollbackOnly();
             logger.error("[correlationId:{}] Exception in EnrollmentWindow uploadEmployees: {}", MDC.get("correlationId"), e.getMessage(), e);
             return responseObj.render(responseObj.formErrorResponse(Constants.RECORD_NOT_CREATED));
+        }
+    }
+
+    /**
+     * For each employee that has dependent rows in the parse result, find or create draft EnrollmentSubmission
+     * and set dependents JSON for self-enrollment prefill.
+     */
+    private void persistDependentsFromParseResult(EnrollmentUploadParserUtil.EnrollmentParseResult parseResult, Organization organization, EnrollmentWindows window) {
+        String relationship = NomineeRelationship.SELF.getValue();
+        for (Map.Entry<String, List<EnrollmentUploadParserUtil.DependentRow>> entry : parseResult.getDependentRowsByEmployeeId().entrySet()) {
+            String employeeNumber = entry.getKey();
+            List<EnrollmentUploadParserUtil.DependentRow> dependentRows = entry.getValue();
+            if (dependentRows == null || dependentRows.isEmpty()) continue;
+            Optional<Deals> dealOpt = dealsRepository.findByEmployeeNumberAndOrganizationIdAndRelationship(
+                    employeeNumber, organization.getOrganizationId(), relationship);
+            if (dealOpt.isEmpty()) continue;
+            Deals employeeDeal = dealOpt.get();
+            String dependentsJson = buildDependentsJson(dependentRows);
+            EnrollmentSubmission submission = enrollmentSubmissionRepository
+                    .findByEmployee_IndividualIdAndEnrollmentWindow_Id(employeeDeal.getIndividualId(), window.getId())
+                    .orElseGet(() -> {
+                        EnrollmentSubmission draft = new EnrollmentSubmission();
+                        draft.setEmployee(employeeDeal);
+                        draft.setEnrollmentWindow(window);
+                        draft.setStatus(EnrollementStatus.DRAFT);
+                        draft.setPlanSelections("[]");
+                        draft.setNomineeData("{}");
+                        draft.setPersonalDetails("{}");
+                        draft.setDependents("[]");
+                        draft.setPremiumBreakdown("{}");
+                        draft.setDeclarationAccepted(false);
+                        return enrollmentSubmissionRepository.saveAndFlush(draft);
+                    });
+            submission.setDependents(dependentsJson);
+            enrollmentSubmissionRepository.save(submission);
+            logger.info("[correlationId:{}] Updated draft submission with {} dependents for employee {}", MDC.get("correlationId"), dependentRows.size(), employeeNumber);
+        }
+    }
+
+    private String buildDependentsJson(List<EnrollmentUploadParserUtil.DependentRow> rows) {
+        List<Map<String, Object>> list = new ArrayList<>();
+        for (EnrollmentUploadParserUtil.DependentRow row : rows) {
+            Map<String, Object> obj = new LinkedHashMap<>();
+            String name = row.getName() != null ? row.getName().trim() : "";
+            String[] parts = name.split("\\s+", 2);
+            obj.put("firstName", parts.length > 0 ? parts[0] : "");
+            obj.put("lastName", parts.length > 1 ? parts[1] : null);
+            obj.put("fullName", name);
+            obj.put("name", name);
+            obj.put("relationship", row.getRelationship());
+            String rawDob = row.getDateOfBirth();
+            String isoDob = (rawDob != null && !rawDob.isBlank())
+                ? EnrollmentUploadParserUtil.normalizeDateToIsoString(rawDob) : null;
+            obj.put("dateOfBirth", isoDob != null ? isoDob : rawDob);
+            obj.put("gender", row.getGender());
+            obj.put("email", row.getEmail());
+            list.add(obj);
+        }
+        try {
+            return new ObjectMapper().writeValueAsString(list);
+        } catch (Exception e) {
+            logger.warn("[correlationId:{}] Failed to serialize dependents JSON: {}", MDC.get("correlationId"), e.getMessage());
+            return "[]";
         }
     }
 
@@ -523,47 +642,94 @@ public class EnrollmentWindowServiceImpl implements IEnrollmentWindowService {
 
     /**
      * Validates self-service employee enrollment requests (supports bulk).
-     * CSV can have multiple rows per employee (self + dependents); we only flag each distinct
-     * employee ID once. "Already exists" means in the organization (DB), not duplicate rows in the file.
+     * Does not reject based on "already exists in customers"; that is handled in upload flow
+     * with policy-map date rule (renewal: new policy start must be after current policy end).
      */
     private List<String> validateSelfEmployeeEnrollmentRequest(List<SelfEmployeeEnrollmentRequestDto> requestDtos, UUID organizationId) {
         List<String> errors = new ArrayList<>();
         if (requestDtos == null || requestDtos.isEmpty()) {
             return errors;
         }
-        String relationship = NomineeRelationship.SELF.getValue();
-
-        List<String> employeeIds = requestDtos.stream().map(SelfEmployeeEnrollmentRequestDto::getEmployeeId).distinct().toList();
-        List<String> emails = requestDtos.stream().map(SelfEmployeeEnrollmentRequestDto::getEmail).distinct().toList();
-
-        Set<String> existingEmployeeIds = dealsRepository
-                .findByEmployeeNumberInAndOrganizationIdAndRelationship(employeeIds, organizationId, relationship)
-                .stream()
-                .map(Deals::getEmployeeNumber)
-                .collect(Collectors.toSet());
-        Set<String> existingEmails = dealsRepository
-                .findByEmailInAndOrganizationIdAndRelationship(emails, organizationId, relationship)
-                .stream()
-                .map(Deals::getEmail)
-                .collect(Collectors.toSet());
-
         LocalDate today = LocalDate.now();
-        // Report "already in organization" only once per employee ID (CSV has multiple rows per employee: self + dependents)
-        Set<String> reportedEmployeeIds = new HashSet<>();
-        Set<String> reportedEmails = new HashSet<>();
         for (int i = 0; i < requestDtos.size(); i++) {
             SelfEmployeeEnrollmentRequestDto dto = requestDtos.get(i);
             int row = i + 1;
             String prefix = requestDtos.size() > 1 ? "Row " + row + " (" + dto.getEmployeeId() + "): " : "";
 
-            if (existingEmployeeIds.contains(dto.getEmployeeId()) && reportedEmployeeIds.add(dto.getEmployeeId())) {
-                errors.add(prefix + "Employee " + dto.getEmployeeId() + " already exists in the organization");
-            }
             if (dto.getDateOfBirth() != null && dto.getDateOfBirth().isAfter(today)) {
                 errors.add(prefix + "Date of birth cannot be in the future");
             }
-            if (existingEmails.contains(dto.getEmail()) && reportedEmails.add(dto.getEmail())) {
-                errors.add(prefix + "Email " + dto.getEmail() + " already exists in the organization");
+        }
+        return errors;
+    }
+
+    /**
+     * Returns the earliest start date among the organization's applicable (ACTIVE, appliesToEmployees) policies.
+     * Used as "new policy start date" for renewal rule: allow upload only if new policy start is after existing policy end.
+     * Empty if the company has no such policy ("no new policy" → existing employees get "Employee already exists.").
+     */
+    private Optional<LocalDate> getNewPolicyStartDateForOrganization(UUID organizationId) {
+        List<Policy> policies = policyRepository.findByOrganizationIdAndStatus(organizationId, PolicyStatus.ACTIVE);
+        List<LocalDate> starts = policies.stream()
+                .filter(p -> Boolean.TRUE.equals(p.getAppliesToEmployees()))
+                .map(Policy::getStartDate)
+                .filter(java.util.Objects::nonNull)
+                .toList();
+        if (starts.isEmpty()) {
+            return Optional.empty();
+        }
+        return Optional.of(starts.stream().min(LocalDate::compareTo).orElseThrow());
+    }
+
+    /**
+     * For employees who already exist in customers: if there is no new policy for the company, reject with "Employee already exists.";
+     * if there is a new policy, allow only when new policy start date is after the employee's current policy end date (renewal).
+     */
+    private List<String> validateExistingEmployeesForRenewal(EnrollmentWindows window, UUID organizationId, List<SelfEmployeeEnrollmentRequestDto> requestDtos) {
+        List<String> errors = new ArrayList<>();
+        if (requestDtos == null || requestDtos.isEmpty()) {
+            return errors;
+        }
+        List<String> distinctEmployeeIds = requestDtos.stream()
+                .map(SelfEmployeeEnrollmentRequestDto::getEmployeeId)
+                .filter(id -> id != null && !id.isBlank())
+                .distinct()
+                .toList();
+        if (distinctEmployeeIds.isEmpty()) {
+            return errors;
+        }
+
+        Optional<LocalDate> newPolicyStartOpt = getNewPolicyStartDateForOrganization(organizationId);
+        String relationship = NomineeRelationship.SELF.getValue();
+
+        for (String employeeId : distinctEmployeeIds) {
+            Optional<Deals> existingOpt = dealsRepository.findByEmployeeNumberAndOrganizationIdAndRelationship(employeeId, organizationId, relationship);
+            if (existingOpt.isEmpty()) {
+                continue;
+            }
+            Deals existing = existingOpt.get();
+            UUID individualId = existing.getIndividualId();
+
+            if (newPolicyStartOpt.isEmpty()) {
+                errors.add("Employee " + employeeId + " already exists.");
+                continue;
+            }
+            LocalDate newPolicyStart = newPolicyStartOpt.get();
+            List<EmployeePolicyMap> mappings = employeePolicyMapRepository.findByIndividualIdAndOrganizationIdAndStatus(individualId, organizationId, POLICY_MAP_STATUS_ACTIVE);
+            if (mappings.isEmpty()) {
+                continue;
+            }
+            LocalDate latestEnd = mappings.stream()
+                    .map(EmployeePolicyMap::getEffectiveTo)
+                    .filter(java.util.Objects::nonNull)
+                    .max(LocalDate::compareTo)
+                    .orElse(null);
+            if (latestEnd == null) {
+                errors.add("Employee " + employeeId + " cannot be in two policies; new policy start must be after current policy end.");
+                continue;
+            }
+            if (!newPolicyStart.isAfter(latestEnd)) {
+                errors.add("Employee " + employeeId + " cannot be in two policies; new policy start must be after current policy end.");
             }
         }
         return errors;
@@ -572,26 +738,77 @@ public class EnrollmentWindowServiceImpl implements IEnrollmentWindowService {
     /** Batch size for bulk self-employee save (e.g. 1000 records in batches of 500). */
     private static final int SELF_EMPLOYEE_SAVE_BATCH_SIZE = 500;
 
+    /**
+     * Create or update customers (Deals) for each SELF row: if employee already exists (same employee number + org), update and link to window; otherwise insert.
+     */
     private void createSelfEmployee(List<SelfEmployeeEnrollmentRequestDto> requestDtos, Organization organization, EnrollmentWindows enrollmentWindow) {
         try {
-            List<Deals> employees = new ArrayList<>();
+            String relationship = NomineeRelationship.SELF.getValue();
+            List<Deals> toSave = new ArrayList<>();
             for (SelfEmployeeEnrollmentRequestDto requestDto : requestDtos) {
-                Deals employee = new Deals();
-                employee.setFullName(requestDto.getName());
-                employee.setEmployeeNumber(requestDto.getEmployeeId());
-                employee.setDateOfBirth(requestDto.getDateOfBirth());
-                employee.setEmail(requestDto.getEmail());
-                employee.setPhone("");
-                employee.setOrganization(organization);
-                employee.setEnrollmentWindow(enrollmentWindow);
-                employee.setRelationship(NomineeRelationship.SELF.getValue());
-                employee.setStatus(AccountStatus.PENDING_APPROVAL);
-                employee.setAccountType(AccountType.CORPORATE_EMPLOYEE);
-                employees.add(employee);
+                Optional<Deals> existingOpt = dealsRepository.findByEmployeeNumberAndOrganizationIdAndRelationship(
+                        requestDto.getEmployeeId(), organization.getOrganizationId(), relationship);
+                if (existingOpt.isPresent()) {
+                    Deals existing = existingOpt.get();
+                    if (requestDto.getName() != null && !requestDto.getName().isBlank()) {
+                        existing.setFullName(requestDto.getName());
+                    }
+                    if (requestDto.getEmail() != null && !requestDto.getEmail().isBlank()) {
+                        existing.setEmail(requestDto.getEmail());
+                    }
+                    if (requestDto.getDateOfBirth() != null) {
+                        existing.setDateOfBirth(requestDto.getDateOfBirth());
+                    }
+                    if (requestDto.getPhone() != null) {
+                        existing.setPhone(requestDto.getPhone());
+                    }
+                    if (requestDto.getGender() != null) {
+                        existing.setGender(requestDto.getGender());
+                    }
+                    if (requestDto.getDateOfJoining() != null) {
+                        existing.setDateOfJoining(requestDto.getDateOfJoining());
+                    }
+                    if (requestDto.getDesignation() != null) {
+                        existing.setDesignation(requestDto.getDesignation());
+                    }
+                    if (requestDto.getDepartment() != null) {
+                        existing.setDepartment(requestDto.getDepartment());
+                    }
+                    existing.setEnrollmentWindow(enrollmentWindow);
+                    existing.setUpdatedAt(LocalDateTime.now());
+                    toSave.add(existing);
+                } else {
+                    Deals employee = new Deals();
+                    employee.setFullName(requestDto.getName());
+                    employee.setEmployeeNumber(requestDto.getEmployeeId());
+                    if (requestDto.getDateOfBirth() != null) {
+                        employee.setDateOfBirth(requestDto.getDateOfBirth());
+                    }
+                    employee.setEmail(requestDto.getEmail());
+                    employee.setPhone(requestDto.getPhone() != null && !requestDto.getPhone().isBlank() ? requestDto.getPhone() : "");
+                    if (requestDto.getGender() != null) {
+                        employee.setGender(requestDto.getGender());
+                    }
+                    if (requestDto.getDateOfJoining() != null) {
+                        employee.setDateOfJoining(requestDto.getDateOfJoining());
+                    }
+                    if (requestDto.getDesignation() != null) {
+                        employee.setDesignation(requestDto.getDesignation());
+                    }
+                    if (requestDto.getDepartment() != null) {
+                        employee.setDepartment(requestDto.getDepartment());
+                    }
+                    employee.setOrganization(organization);
+                    employee.setEnrollmentWindow(enrollmentWindow);
+                    employee.setRelationship(relationship);
+                    employee.setStatus(AccountStatus.PENDING_APPROVAL);
+                    employee.setAccountType(AccountType.CORPORATE_EMPLOYEE);
+                    toSave.add(employee);
+                }
             }
-            for (int i = 0; i < employees.size(); i += SELF_EMPLOYEE_SAVE_BATCH_SIZE) {
-                int end = Math.min(i + SELF_EMPLOYEE_SAVE_BATCH_SIZE, employees.size());
-                List<Deals> batch = employees.subList(i, end);
+            for (int i = 0; i < toSave.size(); i += SELF_EMPLOYEE_SAVE_BATCH_SIZE) {
+                int end = Math.min(i + SELF_EMPLOYEE_SAVE_BATCH_SIZE, toSave.size());
+                List<Deals> batch = toSave.subList(i, end);
                 dealsRepository.saveAll(batch);
             }
         } catch (Exception e) {

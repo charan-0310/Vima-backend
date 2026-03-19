@@ -17,7 +17,8 @@ public enum CoverageType {
     E("E"),           // Employee only
     ES("ES"),         // Employee + Spouse
     ESC("ESC"),       // Employee + Spouse + Children
-    ESCP("ESCP");     // Employee + Spouse + Children + Parents
+    ESCP("ESCP"),     // Employee + Spouse + Children + Parents
+    PARENT("PARENT"); // Parents only (add-on, requires active ESC policy)
 
     private final String value;
 
@@ -61,6 +62,7 @@ public enum CoverageType {
             case ES -> "Employee + Spouse";
             case ESC -> "Employee + Spouse + Children";
             case ESCP -> "Employee + Spouse + Children + Parents";
+            case PARENT -> "Parents Only (add-on)";
             case INDIVIDUAL -> "Individual Coverage";
             case FAMILY_FLOATER -> "Family Floater";
             case GROUP -> "Group Coverage";

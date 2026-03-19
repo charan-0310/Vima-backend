@@ -16,6 +16,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import com.vimainsurance.vimaadmin.dto.BaseResponse;
 import com.vimainsurance.vimaadmin.dto.DealsResponseDto;
+import com.vimainsurance.vimaadmin.dto.CompanyEnrollmentConfigResponseDto;
 import com.vimainsurance.vimaadmin.dto.EnrollmentContextDto;
 import com.vimainsurance.vimaadmin.dto.EnrollmentOrganizationPolicyDto;
 import com.vimainsurance.vimaadmin.dto.EnrollmentSubmissionResponseDto;
@@ -35,6 +36,7 @@ import com.vimainsurance.vimaadmin.repository.IEnrollmentSubmissionRepository;
 import com.vimainsurance.vimaadmin.repository.IEnrollmentWindowsRepository;
 import com.vimainsurance.vimaadmin.repository.IPolicyRepository;
 import com.vimainsurance.vimaadmin.repository.IInsuranceProviderRepository;
+import com.vimainsurance.vimaadmin.service.ICompanyEnrollmentConfigService;
 import com.vimainsurance.vimaadmin.service.IEnrollmentService;
 import com.vimainsurance.vimaadmin.service.TokenSecurityService;
 
@@ -61,6 +63,8 @@ public class EnrollmentServiceImpl implements IEnrollmentService {
     private IPolicyRepository policyRepository;
     @Autowired
     private IInsuranceProviderRepository insuranceProviderRepository;
+    @Autowired
+    private ICompanyEnrollmentConfigService companyEnrollmentConfigService;
 
     @Override
     @Transactional
@@ -178,6 +182,8 @@ public class EnrollmentServiceImpl implements IEnrollmentService {
                     policyDtos.add(pd);
                 }
                 dto.setOrganizationPolicies(policyDtos);
+                // Include company enrollment config (parent coverage etc.) for Dependents/Plans steps
+                dto.setCompanyEnrollmentConfig(companyEnrollmentConfigService.getConfigForCompany(orgId));
             } else {
                 dto.setOrganizationPolicies(new ArrayList<>());
             }
@@ -223,6 +229,35 @@ public class EnrollmentServiceImpl implements IEnrollmentService {
         } catch (Exception e) {
             logger.error("[correlationId:{}] Exception in getSubmissionsByToken: {}", MDC.get("correlationId"), e.getMessage(), e);
             return responseObj.render(responseObj.formErrorResponse(500, "Failed to retrieve submissions"));
+        }
+    }
+
+    @Override
+    public ResponseEntity<ResponseDto<CompanyEnrollmentConfigResponseDto>> getEnrollmentConfigByToken(String token) {
+        BaseResponse<CompanyEnrollmentConfigResponseDto> responseObj = new BaseResponse<>();
+        try {
+            if (token == null || token.isBlank()) {
+                return responseObj.render(responseObj.formErrorResponse(400, "Token is required"));
+            }
+            ResponseEntity<ResponseDto<EnrollmentContextDto>> contextResp = validateTokenAndGetContext(token.trim());
+            if (contextResp.getBody() == null || contextResp.getBody().getErrorCode() != null) {
+                String msg = contextResp.getBody() != null ? contextResp.getBody().getMessage() : INVALID_TOKEN_MESSAGE;
+                Integer code = contextResp.getBody() != null ? contextResp.getBody().getErrorCode() : 400;
+                return responseObj.render(responseObj.formErrorResponse(code != null ? code : 400, msg));
+            }
+            EnrollmentContextDto ctx = contextResp.getBody().getPayload();
+            if (ctx == null || ctx.getEnrollmentWindow() == null) {
+                return responseObj.render(responseObj.formErrorResponse(400, "Invalid context"));
+            }
+            UUID orgId = ctx.getEnrollmentWindow().getOrganizationId();
+            if (orgId == null) {
+                return responseObj.render(responseObj.formErrorResponse(400, "Organization not found"));
+            }
+            CompanyEnrollmentConfigResponseDto config = companyEnrollmentConfigService.getConfigForCompany(orgId);
+            return responseObj.render(responseObj.formSuccessResponse("OK", config));
+        } catch (Exception e) {
+            logger.error("[correlationId:{}] getEnrollmentConfigByToken error: {}", MDC.get("correlationId"), e.getMessage(), e);
+            return responseObj.render(responseObj.formErrorResponse(500, "Failed to get enrollment config"));
         }
     }
 

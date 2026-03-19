@@ -1,5 +1,6 @@
 package com.vimainsurance.vimaadmin.dto;
 
+import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.UUID;
 
@@ -30,6 +31,13 @@ public class EnrollmentSubmissionResponseDto {
     private String declarationIpAddress;
     private Integer version;
     private String idempotencyKey;
+    private String deductionFrequency;
+    private BigDecimal totalEmployeeAnnualPremium;
+    private BigDecimal totalEmployerAnnualPremium;
+    private String costSharingSnapshot;
+    private BigDecimal deductionAmountPerPeriod;
+    private LocalDateTime consentTimestamp;
+    private String consentTextSnapshot;
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
 }

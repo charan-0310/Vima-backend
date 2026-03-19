@@ -10,6 +10,12 @@ import com.vimainsurance.vimaadmin.dto.FeatureFlagUpdateDto;
 
 public interface FeatureFlagService {
 
+    /**
+     * Returns true if the given feature flag key is enabled for the current user (roles + orgs from TenantContext).
+     * SUPER_ADMIN is treated as having all flags enabled.
+     */
+    boolean isFeatureEnabledForCurrentUser(String flagKey);
+
     List<FeatureFlagResponseDto> findAllMatchedFeatureFlags();
 
     List<FeatureFlagsManagementResponse> getFeatureFlagsGroupedByType();

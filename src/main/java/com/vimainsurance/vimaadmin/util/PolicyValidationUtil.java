@@ -40,7 +40,7 @@ public class PolicyValidationUtil {
         try {
             policyType = ProductType.fromValue(request.getProductType());
         } catch (IllegalArgumentException e) {
-            throw new BadRequestException("Invalid policy type: " + request.getProductType() + ". Valid values are: GMC, GPA, GTL");
+            throw new BadRequestException("Invalid policy type: " + request.getProductType() + ". Valid values are: GMC, GPA, GTL, PARENT_GMC, TOP_UP, SUPER_TOP_UP");
         }
 
         switch (policyType) {
@@ -51,8 +51,14 @@ public class PolicyValidationUtil {
             case GTL:
                 validateGPAGTLPolicy(request, errors);
                 break;
+            case PARENT_GMC:
+                validateParentGMCPolicy(request, errors);
+                break;
+            case TOP_UP:
+            case SUPER_TOP_UP:
+                // Validation for these types is done in service
+                break;
             default:
-                // For other product types, no special validation
                 break;
         }
 
@@ -85,6 +91,19 @@ public class PolicyValidationUtil {
         // Sum Insured Multiplier should not be provided for GMC
         if (request.getSumInsuredMultiplier() != null) {
             errors.add("Sum Insured Multiplier should not be provided for GMC policies. It's only applicable for GPA/GTL");
+        }
+    }
+
+    /**
+     * PARENT_GMC (Parent/In-Law coverage) requires a sum insured amount, same as GMC.
+     * TPA and coverage type are not required for parent coverage.
+     */
+    private static void validateParentGMCPolicy(PolicyRequestDto request, List<String> errors) {
+        if (request.getSumInsured() == null || request.getSumInsured().compareTo(java.math.BigDecimal.ZERO) <= 0) {
+            errors.add("Sum Insured is required for Parent/In-Law Coverage (PARENT_GMC) and must be greater than 0");
+        }
+        if (request.getSumInsuredMultiplier() != null) {
+            errors.add("Sum Insured Multiplier should not be provided for PARENT_GMC policies. It's only applicable for GPA/GTL");
         }
     }
 
@@ -124,6 +143,9 @@ public class PolicyValidationUtil {
             case GMC -> "Group Medical Coverage (Health Insurance)";
             case GPA -> "Group Personal Accident";
             case GTL -> "Group Term Life";
+            case PARENT_GMC -> "Parent/In-Law Coverage";
+            case TOP_UP -> "Top-up";
+            case SUPER_TOP_UP -> "Super Top-up";
             default -> policyType.getValue();
         };
     }

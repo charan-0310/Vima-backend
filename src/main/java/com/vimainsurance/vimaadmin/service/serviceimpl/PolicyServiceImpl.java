@@ -1,5 +1,6 @@
 package com.vimainsurance.vimaadmin.service.serviceimpl;
 
+import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
@@ -29,12 +30,14 @@ import com.vimainsurance.vimaadmin.dto.DocumentRequestDto;
 import com.vimainsurance.vimaadmin.dto.PolicyRequestDto;
 import com.vimainsurance.vimaadmin.dto.PolicyResponseDto;
 import com.vimainsurance.vimaadmin.dto.PolicyUploadRequestDto;
+import com.vimainsurance.vimaadmin.dto.ProductCatalogRequestDto;
 import com.vimainsurance.vimaadmin.dto.ResponseDto;
 import com.vimainsurance.vimaadmin.entity.AdminUser;
 import com.vimainsurance.vimaadmin.entity.Deals;
 import com.vimainsurance.vimaadmin.entity.Document;
 import com.vimainsurance.vimaadmin.entity.Nominee;
 import com.vimainsurance.vimaadmin.entity.Policy;
+import com.vimainsurance.vimaadmin.entity.ProductCatalog;
 import com.vimainsurance.vimaadmin.enums.AccountStatus;
 import com.vimainsurance.vimaadmin.enums.AccountType;
 import com.vimainsurance.vimaadmin.enums.CoverageType;
@@ -53,8 +56,10 @@ import com.vimainsurance.vimaadmin.repository.IInsuranceProviderRepository;
 import com.vimainsurance.vimaadmin.repository.IMotorPolicyDetailsRepository;
 import com.vimainsurance.vimaadmin.repository.INomineeRepository;
 import com.vimainsurance.vimaadmin.repository.IPolicyRepository;
+import com.vimainsurance.vimaadmin.repository.IProductCatalogRepository;
 import com.vimainsurance.vimaadmin.service.IDocumentService;
 import com.vimainsurance.vimaadmin.service.IPolicyService;
+import com.vimainsurance.vimaadmin.service.IProductCatalogService;
 import com.vimainsurance.vimaadmin.util.Constants;
 import com.vimainsurance.vimaadmin.util.JwtUserExtractor;
 import com.vimainsurance.vimaadmin.audit.AuditContextSupplier;
@@ -99,6 +104,12 @@ public class PolicyServiceImpl implements IPolicyService {
     @Autowired
     private ObjectMapper objectMapper;
 
+    @Autowired
+    private IProductCatalogService productCatalogService;
+
+    @Autowired
+    private IProductCatalogRepository productCatalogRepository;
+
     @Override
     @Transactional(rollbackFor = Exception.class)
     @AuditedOperation(schemaName = "cpc", tableName = "policies", entityType = "POLICY", action = "CREATE")
@@ -124,6 +135,14 @@ public class PolicyServiceImpl implements IPolicyService {
 
             // Get policy type
             ProductType policyType = ProductType.fromValue(requestDto.getProductType());
+
+            // PARENT_GMC / TOP_UP / SUPER_TOP_UP: require active base GMC for the organization
+            if (requestDto.getOrganizationId() != null
+                && (policyType == ProductType.PARENT_GMC || policyType == ProductType.TOP_UP || policyType == ProductType.SUPER_TOP_UP)) {
+                if (!organizationHasActiveBaseGmc(requestDto.getOrganizationId())) {
+                    return responseObj.render(responseObj.formErrorResponse(BASE_GMC_REQUIRED_MESSAGE));
+                }
+            }
 
             // Create and save dependents first (only for GMC policies)
             List<UUID> coveredIndividualIds = new ArrayList<>();
@@ -209,10 +228,38 @@ public class PolicyServiceImpl implements IPolicyService {
                 policy.setTpaContactInfo(requestDto.getTpaContactInfo());
             }
 
+            if (policyType == ProductType.PARENT_GMC) {
+                policy.setParentCoverageEnabled(requestDto.getParentCoverageEnabled());
+                policy.setInLawCoverageEnabled(requestDto.getInLawCoverageEnabled());
+                policy.setMaxParents(requestDto.getMaxParents());
+                policy.setMaxInLaws(requestDto.getMaxInLaws());
+                policy.setParentAgeLimit(requestDto.getParentAgeLimit());
+            }
+            if (policyType == ProductType.TOP_UP || policyType == ProductType.SUPER_TOP_UP) {
+                policy.setDescription(requestDto.getDescription());
+                policy.setInsurerName(requestDto.getInsurerName());
+                policy.setDeductibleAmount(requestDto.getDeductibleAmount());
+                policy.setSumInsuredOptions(requestDto.getSumInsuredOptions());
+                policy.setCoversDependents(requestDto.getCoversDependents());
+                policy.setCoversParents(requestDto.getCoversParents());
+                policy.setIsDeleted(requestDto.getIsDeleted());
+                policy.setEffectiveFrom(requestDto.getEffectiveFrom());
+                policy.setEffectiveTo(requestDto.getEffectiveTo());
+            }
+
             Policy savedPolicy = policyRepository.save(policy);
-            logger.info("[correlationId:{}] Policy created successfully with ID: {}", 
+            logger.info("[correlationId:{}] Policy created successfully with ID: {}",
                        MDC.get("correlationId"), savedPolicy.getPolicyId());
-            
+
+            // TOP_UP / SUPER_TOP_UP: create product_catalog row so the product appears in the catalog
+            if (policyType == ProductType.TOP_UP || policyType == ProductType.SUPER_TOP_UP) {
+                createProductCatalogForTopup(savedPolicy, requestDto.getPricingModel());
+            }
+            // PARENT_GMC: create product_catalog row so it appears in enrollment plans
+            if (policyType == ProductType.PARENT_GMC) {
+                createProductCatalogForParentGmc(savedPolicy);
+            }
+
             return responseObj.render(responseObj.formSuccessResponse(Constants.SUCCESS, Constants.SAVE_SUCCESS));
         } catch (BadRequestException e) {
             TransactionAspectSupport.currentTransactionStatus().setRollbackOnly();
@@ -263,17 +310,13 @@ public class PolicyServiceImpl implements IPolicyService {
             policy.setOrganizationId(requestDto.getOrganizationId());
             policy.setDocument(resolveDocument(requestDto.getDocumentId()));
 
-            // Update product type (used for policy type: GMC, GPA, GTL, or traditional types)
             policy.setProductType(policyType);
-
-            // Update policy category
-            policy.setProductType(requestDto.getProductType() != null ?
-                ProductType.fromValue(requestDto.getProductType()) : ProductType.EMPLOYEE);
             policy.setAppliesToEmployees(requestDto.getAppliesToEmployees() != null ?
                 requestDto.getAppliesToEmployees() : true);
 
-            // Update coverage type (for GMC: E, ES, ESC, ESCP; for traditional: INDIVIDUAL, FAMILY_FLOATER, GROUP)
-            if (requestDto.getCoverageType() != null && !requestDto.getCoverageType().isEmpty()) {
+            if (policyType == ProductType.PARENT_GMC) {
+                policy.setCoverageType(CoverageType.PARENT);
+            } else if (requestDto.getCoverageType() != null && !requestDto.getCoverageType().isEmpty()) {
                 policy.setCoverageType(CoverageType.fromValue(requestDto.getCoverageType()));
             } else {
                 policy.setCoverageType(null);
@@ -307,6 +350,28 @@ public class PolicyServiceImpl implements IPolicyService {
             } else {
                 policy.setTpaOrganizationName(null);
                 policy.setTpaContactInfo(null);
+            }
+
+            // PARENT_GMC
+            if (policyType == ProductType.PARENT_GMC) {
+                policy.setParentCoverageEnabled(requestDto.getParentCoverageEnabled());
+                policy.setInLawCoverageEnabled(requestDto.getInLawCoverageEnabled());
+                policy.setMaxParents(requestDto.getMaxParents());
+                policy.setMaxInLaws(requestDto.getMaxInLaws());
+                policy.setParentAgeLimit(requestDto.getParentAgeLimit());
+            }
+
+            // TOP_UP / SUPER_TOP_UP
+            if (policyType == ProductType.TOP_UP || policyType == ProductType.SUPER_TOP_UP) {
+                policy.setDescription(requestDto.getDescription());
+                policy.setInsurerName(requestDto.getInsurerName());
+                policy.setDeductibleAmount(requestDto.getDeductibleAmount());
+                policy.setSumInsuredOptions(requestDto.getSumInsuredOptions());
+                policy.setCoversDependents(requestDto.getCoversDependents());
+                policy.setCoversParents(requestDto.getCoversParents());
+                policy.setIsDeleted(requestDto.getIsDeleted());
+                policy.setEffectiveFrom(requestDto.getEffectiveFrom());
+                policy.setEffectiveTo(requestDto.getEffectiveTo());
             }
 
             policyRepository.save(policy);
@@ -626,7 +691,27 @@ public class PolicyServiceImpl implements IPolicyService {
         responseDto.setTpaOrganizationName(policy.getTpaOrganizationName());
         responseDto.setTpaContactInfo(policy.getTpaContactInfo());
 
-        List<Deals> dependents = dealsRepository.findByIndividualIdIn(policy.getCoveredIndividuals());
+        // PARENT_GMC
+        responseDto.setParentCoverageEnabled(policy.getParentCoverageEnabled());
+        responseDto.setInLawCoverageEnabled(policy.getInLawCoverageEnabled());
+        responseDto.setMaxParents(policy.getMaxParents());
+        responseDto.setMaxInLaws(policy.getMaxInLaws());
+        responseDto.setParentAgeLimit(policy.getParentAgeLimit());
+
+        // TOP_UP / SUPER_TOP_UP
+        responseDto.setDescription(policy.getDescription());
+        responseDto.setInsurerName(policy.getInsurerName());
+        responseDto.setDeductibleAmount(policy.getDeductibleAmount());
+        responseDto.setSumInsuredOptions(policy.getSumInsuredOptions());
+        responseDto.setCoversDependents(policy.getCoversDependents());
+        responseDto.setCoversParents(policy.getCoversParents());
+        responseDto.setIsDeleted(policy.getIsDeleted());
+        responseDto.setEffectiveFrom(policy.getEffectiveFrom());
+        responseDto.setEffectiveTo(policy.getEffectiveTo());
+
+        List<Deals> dependents = (policy.getCoveredIndividuals() != null && !policy.getCoveredIndividuals().isEmpty())
+            ? dealsRepository.findByIndividualIdIn(policy.getCoveredIndividuals())
+            : new ArrayList<>();
         responseDto.setDependents(dependents.stream()
             .map(this::mapToSimplifiedDependent)
             .collect(Collectors.toList()));
@@ -658,8 +743,137 @@ public class PolicyServiceImpl implements IPolicyService {
         return responseDto;
     }
 
-   
-    
+    /** Error message when dependent policy types (PARENT_GMC, TOP_UP, SUPER_TOP_UP) are added without a base GMC. */
+    private static final String BASE_GMC_REQUIRED_MESSAGE =
+        "Base Group Medical Coverage (GMC) policy must be created before adding Parent Coverage or Top-Up plans.";
+
+    /**
+     * Returns true if the organization has at least one GMC (or GHI) policy (any status), so dependent types (PARENT_GMC, TOP_UP, SUPER_TOP_UP) can be added.
+     */
+    private boolean organizationHasActiveBaseGmc(UUID organizationId) {
+        List<Policy> orgPolicies = policyRepository.findByOrganizationId(organizationId);
+        return orgPolicies.stream().anyMatch(p ->
+            p.getProductType() == ProductType.GMC || p.getProductType() == ProductType.GHI);
+    }
+
+    /**
+     * Build and create a product_catalog row for TOP_UP or SUPER_TOP_UP policy so the product appears in the catalog.
+     * Mapping: Policy form / Policy table → Product Catalog API (POST /api/v1/product-catalog)
+     * - Policy Type (form) / product_type (policy) → productType
+     * - companyId (form) / organization_id (policy) → organizationId
+     * - topupName or description (form) / description (policy) → name
+     * - topupPricingModel (form) / request pricingModel → pricingModel
+     * - sum_insured_options (policy, JSON) → coverageOptions
+     * - covers_dependents + covers_parents (policy) → coveredRelationships (JSON array)
+     * - effective_from, effective_to (policy) → effectiveFrom, effectiveTo
+     * - saved policy_id → policyId
+     *
+     * @param savedPolicy the saved TOP_UP or SUPER_TOP_UP policy
+     * @param pricingModelFromRequest optional pricing model from form (FLAT, AGE_BANDED, FAMILY_FLOATER); defaults to FLAT
+     */
+    private void createProductCatalogForTopup(Policy savedPolicy, String pricingModelFromRequest) {
+        if (savedPolicy.getOrganizationId() == null) {
+            return;
+        }
+        ProductType productType = savedPolicy.getProductType();
+        if (productType != ProductType.TOP_UP && productType != ProductType.SUPER_TOP_UP) {
+            return;
+        }
+        LocalDate effectiveFrom = savedPolicy.getEffectiveFrom() != null
+            ? savedPolicy.getEffectiveFrom()
+            : savedPolicy.getStartDate();
+        if (effectiveFrom == null) {
+            throw new IllegalArgumentException("effectiveFrom or startDate is required for TOP_UP/SUPER_TOP_UP product catalog");
+        }
+        String name = (savedPolicy.getDescription() != null && !savedPolicy.getDescription().isBlank())
+            ? savedPolicy.getDescription()
+            : (productType.getValue() + " Plan");
+        if (name.length() > 255) {
+            name = name.substring(0, 255);
+        }
+        List<String> relationships = new ArrayList<>();
+        if (Boolean.TRUE.equals(savedPolicy.getCoversDependents())) {
+            relationships.add("SELF");
+            relationships.add("SPOUSE");
+            relationships.add("CHILD");
+        }
+        if (Boolean.TRUE.equals(savedPolicy.getCoversParents())) {
+            relationships.add("FATHER");
+            relationships.add("MOTHER");
+        }
+        if (relationships.isEmpty()) {
+            relationships.add("SELF");
+        }
+        String coveredRelationshipsJson;
+        try {
+            coveredRelationshipsJson = objectMapper.writeValueAsString(relationships);
+        } catch (com.fasterxml.jackson.core.JsonProcessingException e) {
+            coveredRelationshipsJson = "[\"SELF\"]";
+        }
+        String pricingModel = (pricingModelFromRequest != null && !pricingModelFromRequest.isBlank())
+            ? pricingModelFromRequest
+            : "FLAT";
+        List<ProductCatalog> existing = productCatalogRepository.findByOrganizationIdOrderByDisplayOrderAsc(savedPolicy.getOrganizationId());
+        int displayOrder = existing.isEmpty() ? 0 : (existing.get(existing.size() - 1).getDisplayOrder() == null ? 0 : existing.get(existing.size() - 1).getDisplayOrder()) + 1;
+
+        ProductCatalogRequestDto catalogDto = ProductCatalogRequestDto.builder()
+            .organizationId(savedPolicy.getOrganizationId())
+            .productType(productType.getValue())
+            .name(name)
+            .isMandatory(false)
+            .pricingModel(pricingModel)
+            .coverageOptions(savedPolicy.getSumInsuredOptions())
+            .coveredRelationships(coveredRelationshipsJson)
+            .displayOrder(displayOrder)
+            .policyId(savedPolicy.getPolicyId())
+            .gradeFilter(null)
+            .isActive(true)
+            .effectiveFrom(effectiveFrom)
+            .effectiveTo(savedPolicy.getEffectiveTo())
+            .build();
+
+        ResponseEntity<ResponseDto<com.vimainsurance.vimaadmin.dto.ProductCatalogResponseDto>> response = productCatalogService.create(catalogDto);
+        if (response.getBody() != null && response.getBody().getErrorCode() != null) {
+            throw new RuntimeException("Failed to create product catalog: " + response.getBody().getMessage());
+        }
+        logger.info("[correlationId:{}] Product catalog created for policyId: {}", MDC.get("correlationId"), savedPolicy.getPolicyId());
+    }
+
+    /**
+     * Create a product_catalog row for a PARENT_GMC policy so it appears in enrollment plans.
+     */
+    private void createProductCatalogForParentGmc(Policy savedPolicy) {
+        if (savedPolicy.getOrganizationId() == null || savedPolicy.getPolicyId() == null) return;
+        LocalDate effectiveFrom = savedPolicy.getEffectiveFrom() != null ? savedPolicy.getEffectiveFrom() : savedPolicy.getStartDate();
+        if (effectiveFrom == null) {
+            logger.warn("[correlationId:{}] PARENT_GMC policy {} has no effectiveFrom/startDate; skipping product_catalog", MDC.get("correlationId"), savedPolicy.getPolicyId());
+            return;
+        }
+        String name = (savedPolicy.getDescription() != null && !savedPolicy.getDescription().isBlank())
+                ? savedPolicy.getDescription()
+                : "Parent / In-Law Coverage";
+        if (name.length() > 255) name = name.substring(0, 255);
+        List<ProductCatalog> existing = productCatalogRepository.findByOrganizationIdOrderByDisplayOrderAsc(savedPolicy.getOrganizationId());
+        int displayOrder = existing.isEmpty() ? 0 : (existing.get(existing.size() - 1).getDisplayOrder() == null ? 0 : existing.get(existing.size() - 1).getDisplayOrder()) + 1;
+        ProductCatalogRequestDto catalogDto = ProductCatalogRequestDto.builder()
+                .organizationId(savedPolicy.getOrganizationId())
+                .productType(ProductType.PARENT_GMC.getValue())
+                .name(name)
+                .isMandatory(false)
+                .coverageOptions("[1]")
+                .displayOrder(displayOrder)
+                .policyId(savedPolicy.getPolicyId())
+                .isActive(true)
+                .effectiveFrom(effectiveFrom)
+                .effectiveTo(savedPolicy.getEffectiveTo() != null ? savedPolicy.getEffectiveTo() : savedPolicy.getEndDate())
+                .build();
+        ResponseEntity<ResponseDto<com.vimainsurance.vimaadmin.dto.ProductCatalogResponseDto>> response = productCatalogService.create(catalogDto);
+        if (response.getBody() != null && response.getBody().getErrorCode() != null) {
+            throw new RuntimeException("Failed to create product catalog for PARENT_GMC: " + response.getBody().getMessage());
+        }
+        logger.info("[correlationId:{}] Product catalog created for PARENT_GMC policyId: {}", MDC.get("correlationId"), savedPolicy.getPolicyId());
+    }
+
     @Override
     @Transactional(rollbackFor = Exception.class)
     @AuditedOperation(schemaName = "cpc", tableName = "policies", entityType = "POLICY", action = "CREATE")
@@ -686,14 +900,25 @@ public class PolicyServiceImpl implements IPolicyService {
             policy.setInsuranceProviderId(insuranceProviderRepository.findByProviderCode(requestDto.getProviderCode())
                 .orElseThrow(() -> new RuntimeException("Insurance provider not found")).getProviderId());
             policy.setOrganizationId(organizationId);
-            policy.setProductType(ProductType.valueOf(requestDto.getProductType()));
-            policy.setCoverageType(CoverageType.valueOf(requestDto.getCoverageType()));
-            policy.setStatus(PolicyStatus.valueOf(requestDto.getStatus()));
+            ProductType productType = ProductType.fromValue(requestDto.getProductType());
+            policy.setProductType(productType);
+            // PARENT_GMC / TOP_UP / SUPER_TOP_UP: require active base GMC (or GHI) for the organization
+            if (productType == ProductType.PARENT_GMC || productType == ProductType.TOP_UP || productType == ProductType.SUPER_TOP_UP) {
+                if (productType == ProductType.PARENT_GMC) {
+                    policy.setCoverageType(CoverageType.PARENT);
+                }
+                if (!organizationHasActiveBaseGmc(organizationId)) {
+                    return responseObj.render(responseObj.formErrorResponse(BASE_GMC_REQUIRED_MESSAGE));
+                }
+            }
+            if (productType != ProductType.PARENT_GMC) {
+                policy.setCoverageType(CoverageType.fromValue(requestDto.getCoverageType()));
+            }
+            policy.setStatus(PolicyStatus.fromValue(requestDto.getStatus()));
             policy.setCoveredIndividuals(Arrays.asList(organizationId));
 
             // GMC: sum_insured = coverage amount; no multiplier.
             // GPA/GTL: MULTIPLIER → sum_insured_multiplier set, sum_insured null; FIXED → sum_insured set, sum_insured_multiplier null.
-            ProductType productType = policy.getProductType();
             if (productType == ProductType.GMC) {
                 policy.setSumInsured(requestDto.getSumInsured());
                 policy.setSumInsuredMultiplier(null);
@@ -723,9 +948,47 @@ public class PolicyServiceImpl implements IPolicyService {
                 policy.setPaymentFrequency(PaymentFrequency.YEARLY);
             }
 
-            // Set TPA details
+            // Set TPA details (GMC)
             policy.setTpaOrganizationName(requestDto.getTpaOrganizationName());
             policy.setTpaContactInfo(requestDto.getTpaContactInfo());
+
+            // PARENT_GMC: Parent/In-Law fields
+            if (productType == ProductType.PARENT_GMC) {
+                policy.setParentCoverageEnabled(Boolean.TRUE.equals(requestDto.getParentCoverageEnabled()));
+                policy.setInLawCoverageEnabled(Boolean.TRUE.equals(requestDto.getInLawCoverageEnabled()));
+                policy.setMaxParents(requestDto.getMaxParents() != null ? requestDto.getMaxParents() : 0);
+                policy.setMaxInLaws(requestDto.getMaxInLaws() != null ? requestDto.getMaxInLaws() : 0);
+                policy.setParentAgeLimit(requestDto.getParentAgeLimit());
+            }
+
+            // TOP_UP / SUPER_TOP_UP fields
+            if (productType == ProductType.TOP_UP || productType == ProductType.SUPER_TOP_UP) {
+                policy.setDescription(requestDto.getDescription());
+                policy.setInsurerName(requestDto.getInsurerName());
+                policy.setDeductibleAmount(requestDto.getDeductibleAmount());
+                policy.setCoversDependents(Boolean.TRUE.equals(requestDto.getCoversDependents()));
+                policy.setCoversParents(Boolean.TRUE.equals(requestDto.getCoversParents()));
+                policy.setIsDeleted(Boolean.TRUE.equals(requestDto.getIsDeleted()));
+                policy.setEffectiveFrom(requestDto.getEffectiveFrom());
+                policy.setEffectiveTo(requestDto.getEffectiveTo());
+                if (requestDto.getSumInsuredOptions() != null && !requestDto.getSumInsuredOptions().isBlank()) {
+                    String opts = requestDto.getSumInsuredOptions().trim();
+                    if (opts.startsWith("[")) {
+                        policy.setSumInsuredOptions(opts);
+                    } else {
+                        List<BigDecimal> list = Arrays.stream(opts.split("[,;\\s]+"))
+                            .map(String::trim)
+                            .filter(s -> !s.isEmpty())
+                            .map(BigDecimal::new)
+                            .collect(Collectors.toList());
+                        try {
+                            policy.setSumInsuredOptions(objectMapper.writeValueAsString(list));
+                        } catch (com.fasterxml.jackson.core.JsonProcessingException e) {
+                            throw new RuntimeException("Invalid sumInsuredOptions", e);
+                        }
+                    }
+                }
+            }
 
             policy.setCreatedAt(LocalDateTime.now());
             policy.setUpdatedAt(LocalDateTime.now());
@@ -733,7 +996,16 @@ public class PolicyServiceImpl implements IPolicyService {
             // Save policy to database
             Policy savedPolicy = policyRepository.save(policy);
             logger.info("[correlationId:{}] Policy saved with ID: {}", MDC.get("correlationId"), savedPolicy.getPolicyId());
-            
+
+            // TOP_UP / SUPER_TOP_UP: create product_catalog row so the product appears in the catalog
+            if (productType == ProductType.TOP_UP || productType == ProductType.SUPER_TOP_UP) {
+                createProductCatalogForTopup(savedPolicy, requestDto.getPricingModel());
+            }
+            // PARENT_GMC: create product_catalog row so it appears in enrollment plans
+            if (productType == ProductType.PARENT_GMC) {
+                createProductCatalogForParentGmc(savedPolicy);
+            }
+
             // Upload documents if provided (agent already looked up above when files present)
             if (requestDto.getFiles() != null && requestDto.getFiles().length > 0 && agent != null) {
                 DocumentRequestDto documentRequest = new DocumentRequestDto();

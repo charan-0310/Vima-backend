@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org" lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Enrollment Approved – Premium Details</title>
+    <style>
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; line-height: 1.6; color: #333; background-color: #f4f6f8; margin: 0; padding: 20px; }
+        .container { max-width: 600px; margin: 0 auto; background: #fff; border-radius: 12px; box-shadow: 0 4px 20px rgba(0,0,0,0.08); overflow: hidden; }
+        .header { background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%); color: white; padding: 32px 24px; text-align: center; }
+        .header h1 { font-size: 24px; margin: 0 0 8px 0; }
+        .content { padding: 32px 24px; }
+        .content p { margin: 0 0 16px 0; }
+        table { width: 100%; border-collapse: collapse; margin: 16px 0; }
+        th, td { padding: 10px 12px; text-align: left; border-bottom: 1px solid #e2e8f0; }
+        th { background: #f8fafc; font-weight: 600; color: #475569; }
+        .footer { padding: 20px 24px; background: #f8fafc; font-size: 12px; color: #64748b; text-align: center; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>Enrollment Approved</h1>
+            <p th:text="${companyName}">Company Name</p>
+        </div>
+        <div class="content">
+            <p>Hello <strong th:text="${employeeName}">Employee</strong>,</p>
+            <p>Your enrollment has been approved. Below are your premium and cost-sharing details.</p>
+            <table>
+                <tr><th>Total annual premium</th><td th:text="${totalPremium}">0</td></tr>
+                <tr><th>Employer share</th><td th:text="${employerShare}">0</td></tr>
+                <tr><th>Your share (employee)</th><td th:text="${employeeShare}">0</td></tr>
+                <tr><th>Deduction per period</th><td th:text="${deductionAmount}">0</td></tr>
+                <tr><th>Deduction frequency</th><td th:text="${deductionFrequency}">MONTHLY</td></tr>
+            </table>
+            <p style="font-size: 14px; color: #64748b;">If you have questions, please contact your HR department.</p>
+        </div>
+        <div class="footer">
+            <p th:text="${companyName}">Company Name</p>
+        </div>
+    </div>
+</body>
+</html>

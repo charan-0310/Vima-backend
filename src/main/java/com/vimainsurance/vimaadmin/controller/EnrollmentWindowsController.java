@@ -75,7 +75,7 @@ public class EnrollmentWindowsController {
     @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'VIMA_ADMIN', 'HR_ADMIN')")
     public ResponseEntity<ResponseDto<EnrollmentWindowResponseDto>> upload(
             @PathVariable UUID id,
-            @RequestPart("selfEmployeeEnrollmentRequestDtos") List<SelfEmployeeEnrollmentRequestDto> selfEmployeeEnrollmentRequestDtos,
+            @RequestPart(value = "selfEmployeeEnrollmentRequestDtos", required = false) List<SelfEmployeeEnrollmentRequestDto> selfEmployeeEnrollmentRequestDtos,
             @RequestPart("file") MultipartFile file) {
         logger.info("[correlationId:{}] POST /api/admin/enrollment-windows/{}/upload called", MDC.get("correlationId"), id);
         return enrollmentWindowService.uploadEmployees(id, selfEmployeeEnrollmentRequestDtos, file);

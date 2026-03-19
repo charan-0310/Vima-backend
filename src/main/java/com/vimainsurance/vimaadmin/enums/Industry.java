@@ -34,8 +34,16 @@ public enum Industry {
 
     @JsonCreator
     public static Industry fromValue(String value) {
+        if (value == null || value.isBlank()) {
+            return null;
+        }
+        String normalized = value.trim();
+        // Accept common alias for ARTIFICIAL_INTELLIGENCE_AND_TECHNOLOGY
+        if ("ARTIFICIAL_INTELLIGENCE_TECHNOLOGY".equalsIgnoreCase(normalized)) {
+            return ARTIFICIAL_INTELLIGENCE_AND_TECHNOLOGY;
+        }
         for (Industry industry : Industry.values()) {
-            if (industry.value.equalsIgnoreCase(value)) {
+            if (industry.value.equalsIgnoreCase(normalized)) {
                 return industry;
             }
         }

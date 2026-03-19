@@ -98,4 +98,26 @@ public class PolicyRequestDto {
 
     @Size(max = 255, message = "TPA Contact Info must not exceed 255 characters")
     private String tpaContactInfo;
+
+    // PARENT_GMC: Parent/In-Law
+    private Boolean parentCoverageEnabled;
+    private Boolean inLawCoverageEnabled;
+    private Integer maxParents;
+    private Integer maxInLaws;
+    private Integer parentAgeLimit;
+
+    // TOP_UP / SUPER_TOP_UP
+    /** Pricing model for product catalog: FLAT, AGE_BANDED, FAMILY_FLOATER */
+    private String pricingModel;
+    private String description;
+    private String insurerName;
+    private BigDecimal deductibleAmount;
+    private String sumInsuredOptions;
+    private Boolean coversDependents;
+    private Boolean coversParents;
+    private Boolean isDeleted;
+    @JsonFormat(pattern = "yyyy-MM-dd")
+    private LocalDate effectiveFrom;
+    @JsonFormat(pattern = "yyyy-MM-dd")
+    private LocalDate effectiveTo;
 }

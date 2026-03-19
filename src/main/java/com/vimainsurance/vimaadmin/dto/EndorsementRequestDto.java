@@ -38,5 +38,8 @@ public class EndorsementRequestDto {
     private String premiumChangeType; // INCREASE, DECREASE, NO_CHANGE
 
     private BigDecimal premiumAmount;
+
+    /** Life event type: MARRIAGE, BIRTH, ADOPTION, DIVORCE, DEATH */
+    private String lifeEventType;
 }
 

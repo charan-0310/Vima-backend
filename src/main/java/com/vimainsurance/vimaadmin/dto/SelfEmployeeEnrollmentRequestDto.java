@@ -19,7 +19,7 @@ public class SelfEmployeeEnrollmentRequestDto {
     @NotBlank(message = "Name is required")
     private String name;
 
-    @NotBlank(message = "Date of Birth is required")
+    /** Optional; when provided must not be in the future. */
     private LocalDate dateOfBirth;
 
     @NotBlank(message = "Email is required")
@@ -28,4 +28,11 @@ public class SelfEmployeeEnrollmentRequestDto {
 
     @NotBlank(message = "Employee ID is required")
     private String employeeId;
+
+    /** Optional extra fields for prefill / Deals mapping */
+    private String phone;
+    private String gender;
+    private LocalDate dateOfJoining;
+    private String designation;
+    private String department;
 }

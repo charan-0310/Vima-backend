@@ -22,4 +22,7 @@ public class ManualAddEmployeesRequestDto {
     @Valid
     @NotEmpty(message = "At least one employee is required")
     private List<EmployeeUploadDto> employees;
+
+    @NotEmpty(message = "At least one policy must be selected")
+    private List<Long> policyIds;
 }

@@ -27,6 +27,7 @@
 ### Implementation — Technical Guides
 
 - [Bulk Upload & Relationship Identity](implementation/group-insurance/bulk-upload-and-relationship-identity.md)
+- [Enrollment Bulk Upload: Renewal and Policy Map Rule](implementation/group-insurance/enrollment-bulk-upload-renewal-policy-map.md)
 - [Data Cleanup — Fresh Group Insurance](implementation/database/data-cleanup-fresh-group-insurance.md)
 - [Audit Implementation](implementation/audit/audit-implementation.md)
 - [Token Security Implementation Plan](implementation/security/token-security-implementation-plan.md)

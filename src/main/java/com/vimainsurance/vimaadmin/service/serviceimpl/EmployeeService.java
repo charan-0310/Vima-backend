@@ -7,6 +7,7 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
@@ -53,6 +54,7 @@ import org.springframework.web.multipart.MultipartFile;
 import com.vimainsurance.vimaadmin.entity.DealEndorsement;
 import com.vimainsurance.vimaadmin.entity.Document;
 import com.vimainsurance.vimaadmin.enums.DocumentEntityType;
+import com.vimainsurance.vimaadmin.service.IEmployeePolicyMapService;
 import com.vimainsurance.vimaadmin.service.IDocumentService;
 import com.vimainsurance.vimaadmin.repository.IDocumentRepository;
 import com.vimainsurance.vimaadmin.exception.DocumentUploadException;
@@ -76,6 +78,9 @@ public class EmployeeService {
 
     @Autowired
     private IEndorsementRepository endorsementRepository;
+
+    @Autowired(required = false)
+    private IEmployeePolicyMapService employeePolicyMapService;
 
     @Autowired
     private IDealEndorsementRepository dealEndorsementRepository;
@@ -119,17 +124,13 @@ public class EmployeeService {
             long fatherInLawCount = employeeUploadDtoListByEmployeeId.stream()
                 .filter(e -> {
                     String rel = e.getRelationship();
-                    return rel != null && (rel.equalsIgnoreCase("Father in law") || 
-                           rel.equalsIgnoreCase("FatherInLaw") || 
-                           rel.equalsIgnoreCase("FATHER_IN_LAW"));
+                    return rel != null && isFatherInLawRelationship(rel);
                 })
                 .count();
             long motherInLawCount = employeeUploadDtoListByEmployeeId.stream()
                 .filter(e -> {
                     String rel = e.getRelationship();
-                    return rel != null && (rel.equalsIgnoreCase("Mother in law") || 
-                           rel.equalsIgnoreCase("MotherInLaw") || 
-                           rel.equalsIgnoreCase("MOTHER_IN_LAW"));
+                    return rel != null && isMotherInLawRelationship(rel);
                 })
                 .count();
             // Count children (only Child1, Child2, Child3, Child4 with explicit indices)
@@ -258,11 +259,12 @@ public class EmployeeService {
                                 errors.add("employeeId: " + employeeId + " - Spouse age must be greater than 18 years old");
                             }
                 }
-                else if ("Father".equalsIgnoreCase(relationship) || 
-                        (relationship.toUpperCase().startsWith("FATHER"))|("Father in law".equalsIgnoreCase(relationship) || 
-                        (relationship.toUpperCase().startsWith("FATHER_IN_LAW")))||("Mother in law".equalsIgnoreCase(relationship) || 
-                        (relationship.toUpperCase().startsWith("MOTHER_IN_LAW")))|("Mother".equalsIgnoreCase(relationship) || 
-                        (relationship.toUpperCase().startsWith("MOTHER")))) {
+                else if ("Father".equalsIgnoreCase(relationship) ||
+                        relationship.toUpperCase().startsWith("FATHER") ||
+                        isFatherInLawRelationship(relationship) ||
+                        "Mother".equalsIgnoreCase(relationship) ||
+                        relationship.toUpperCase().startsWith("MOTHER") ||
+                        isMotherInLawRelationship(relationship)) {
                             LocalDate dateOfBirth = LocalDate.parse(employeeUploadDto.getDateOfBirth());
                             int age = LocalDate.now().getYear() - dateOfBirth.getYear();
                             
@@ -365,7 +367,7 @@ public class EmployeeService {
     
     @AuditedOperation(schemaName = "cpc", tableName = "customers", entityType = "EMPLOYEE_UPLOAD", action = "BULK_UPLOAD")
     @Transactional(rollbackFor = Exception.class)
-    public EmployeeUploadResponse uploadEmployees(List<EmployeeUploadDto> employeeUploadDtoList, Organization organization, AdminUser adminUser, MultipartFile file, String uploadType) {
+    public EmployeeUploadResponse uploadEmployees(List<EmployeeUploadDto> employeeUploadDtoList, Organization organization, AdminUser adminUser, MultipartFile file, String uploadType, List<Long> policyIds) {
         try {
           Endorsement endorsement = new Endorsement();
           endorsement.setOrganization(organization);
@@ -672,7 +674,17 @@ public class EmployeeService {
             if (!dealEndorsementsBatch.isEmpty()) {
               dealEndorsementRepository.saveAll(dealEndorsementsBatch);
             }
-          } 
+          }
+          if (employeePolicyMapService != null) {
+            List<UUID> primaryEmployeeIds = dealsToSave.stream()
+                .filter(deal -> deal.getRelationship() != null && "SELF".equalsIgnoreCase(deal.getRelationship()))
+                .map(Deals::getIndividualId)
+                .distinct()
+                .toList();
+            if (!primaryEmployeeIds.isEmpty() && policyIds != null && !policyIds.isEmpty()) {
+              employeePolicyMapService.createMappingsFromBulkUpload(organization.getOrganizationId(), primaryEmployeeIds, "BULK_UPLOAD", policyIds);
+            }
+          }
         }
           log.info("Successfully saved {} deals ({} new, {} updated)", new Object[] { totalSaved, createdCount, updatedCount });
           response.setTotalRows(employeeUploadDtoList.size());
@@ -700,8 +712,8 @@ public class EmployeeService {
      * No file parsing or document storage.
      */
     @Transactional(rollbackFor = Exception.class)
-    public EmployeeUploadResponse manualAddEmployees(List<EmployeeUploadDto> employeeUploadDtoList, Organization organization, AdminUser adminUser) {
-        return uploadEmployees(employeeUploadDtoList, organization, adminUser, null, "addition");
+    public EmployeeUploadResponse manualAddEmployees(List<EmployeeUploadDto> employeeUploadDtoList, Organization organization, AdminUser adminUser, List<Long> policyIds) {
+        return uploadEmployees(employeeUploadDtoList, organization, adminUser, null, "addition", policyIds);
     }
 
     
@@ -921,6 +933,36 @@ public class EmployeeService {
     }
 
     /**
+     * Normalize Father-in-law/Mother-in-law variants to canonical enum-style values.
+     * Accepts: "Father in law", "FatherInLaw", "FATHER_IN_LAW", "father-in-law", etc.
+     */
+    private String normalizeInLawRelationship(String relationship) {
+        if (relationship == null) return null;
+
+        String compact = relationship
+                .trim()
+                // remove whitespace, underscores, and hyphens so "mother-in-law" and "MOTHER_IN_LAW" both match.
+                .replaceAll("[\\s_-]+", "")
+                .toUpperCase(Locale.ROOT);
+
+        if ("FATHERINLAW".equals(compact)) {
+            return NomineeRelationship.FATHER_IN_LAW.getValue();
+        }
+        if ("MOTHERINLAW".equals(compact)) {
+            return NomineeRelationship.MOTHER_IN_LAW.getValue();
+        }
+        return null;
+    }
+
+    private boolean isFatherInLawRelationship(String relationship) {
+        return NomineeRelationship.FATHER_IN_LAW.getValue().equals(normalizeInLawRelationship(relationship));
+    }
+
+    private boolean isMotherInLawRelationship(String relationship) {
+        return NomineeRelationship.MOTHER_IN_LAW.getValue().equals(normalizeInLawRelationship(relationship));
+    }
+
+    /**
      * Maps input relationship string to NomineeRelationship enum value (as string)
      * Maps: Self -> SELF, Spouse -> SPOUSE, Father -> FATHER, Mother -> MOTHER, 
      *       Father in law -> FATHER_IN_LAW, Mother in law -> MOTHER_IN_LAW,
@@ -931,6 +973,12 @@ public class EmployeeService {
             return null;
         }
         String rel = relationship.trim();
+
+        // Handle in-law variants early (e.g. "mother-in-law" and "MOTHER_IN_LAW" both map here)
+        String inLaw = normalizeInLawRelationship(rel);
+        if (inLaw != null) {
+            return inLaw;
+        }
         
         if ("Self".equalsIgnoreCase(rel)) {
             return NomineeRelationship.SELF.getValue();
@@ -971,6 +1019,11 @@ public class EmployeeService {
             return false;
         }
         String rel = relationship.trim();
+
+        // Accept common in-law variants: "mother-in-law", "Mother in law", "MOTHER_IN_LAW", etc.
+        if (normalizeInLawRelationship(rel) != null) {
+            return true;
+        }
         
         // Check for allowed relationships
         if ("Self".equalsIgnoreCase(rel)) {

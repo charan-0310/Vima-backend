@@ -113,6 +113,10 @@ public class Endorsement {
     @Column(name = "premium_amount", precision = 15, scale = 2)
     private BigDecimal premiumAmount;
 
+    /** Life event type for mid-year endorsements (e.g. MARRIAGE, BIRTH, ADOPTION, DIVORCE, DEATH). */
+    @Column(name = "life_event_type", length = 50)
+    private String lifeEventType;
+
     @Column(name = "created_at", nullable = false, updatable = false)
     private LocalDateTime createdAt = LocalDateTime.now();
 

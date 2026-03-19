@@ -42,4 +42,25 @@ public class PolicyUploadRequestDto {
     // TPA Details
     private String tpaOrganizationName;
     private String tpaContactInfo;
+
+    // PARENT_GMC: Parent/In-Law coverage fields
+    private Boolean parentCoverageEnabled;
+    private Boolean inLawCoverageEnabled;
+    private Integer maxParents;
+    private Integer maxInLaws;
+    private Integer parentAgeLimit;
+
+    // TOP_UP / SUPER_TOP_UP fields
+    /** Pricing model for product catalog: FLAT, AGE_BANDED, FAMILY_FLOATER */
+    private String pricingModel;
+    private String description;
+    private String insurerName;
+    private BigDecimal deductibleAmount;
+    /** Comma-separated or JSON array string, e.g. "500000,1000000" */
+    private String sumInsuredOptions;
+    private Boolean coversDependents;
+    private Boolean coversParents;
+    private Boolean isDeleted;
+    private LocalDate effectiveFrom;
+    private LocalDate effectiveTo;
 }

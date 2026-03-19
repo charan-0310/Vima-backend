@@ -68,4 +68,24 @@ public class PolicyResponseDto {
     // TPA Details
     private String tpaOrganizationName;
     private String tpaContactInfo;
+
+    // PARENT_GMC: Parent/In-Law
+    private Boolean parentCoverageEnabled;
+    private Boolean inLawCoverageEnabled;
+    private Integer maxParents;
+    private Integer maxInLaws;
+    private Integer parentAgeLimit;
+
+    // TOP_UP / SUPER_TOP_UP
+    private String description;
+    private String insurerName;
+    private BigDecimal deductibleAmount;
+    private String sumInsuredOptions; // JSON array string
+    private Boolean coversDependents;
+    private Boolean coversParents;
+    private Boolean isDeleted;
+    @JsonFormat(pattern = "yyyy-MM-dd")
+    private LocalDate effectiveFrom;
+    @JsonFormat(pattern = "yyyy-MM-dd")
+    private LocalDate effectiveTo;
 }
