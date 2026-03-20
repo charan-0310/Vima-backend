@@ -81,6 +81,8 @@ public class PolicyResponseDto {
     private String insurerName;
     private BigDecimal deductibleAmount;
     private String sumInsuredOptions; // JSON array string
+    /** JSON array string of annual premiums; index-aligned with sumInsuredOptions. */
+    private String topupPremiumOptions;
     private Boolean coversDependents;
     private Boolean coversParents;
     private Boolean isDeleted;

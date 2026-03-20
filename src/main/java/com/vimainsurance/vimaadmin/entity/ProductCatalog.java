@@ -54,6 +54,11 @@ public class ProductCatalog {
     @Column(name = "coverage_options", columnDefinition = "jsonb")
     private String coverageOptions;
 
+    /** JSON object map: {"sumInsured":"premium"} for TOP_UP/SUPER_TOP_UP. */
+    @JdbcTypeCode(SqlTypes.JSON)
+    @Column(name = "premium_preview_options", columnDefinition = "jsonb")
+    private String premiumPreviewOptions;
+
     @JdbcTypeCode(SqlTypes.JSON)
     @Column(name = "covered_relationships", columnDefinition = "jsonb")
     private String coveredRelationships;

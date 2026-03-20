@@ -5,8 +5,10 @@ import java.math.RoundingMode;
 import java.time.LocalDate;
 import java.time.Period;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.UUID;
 
 import org.slf4j.Logger;
@@ -14,6 +16,8 @@ import org.slf4j.LoggerFactory;
 import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Service;
 
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.vimainsurance.vimaadmin.dto.CostShareSplit;
 import com.vimainsurance.vimaadmin.dto.CompanyEnrollmentConfigResponseDto;
 import com.vimainsurance.vimaadmin.dto.EmployeePolicyMapResponseDto;
@@ -23,7 +27,9 @@ import com.vimainsurance.vimaadmin.dto.PremiumCalculationResponseDto;
 import com.vimainsurance.vimaadmin.dto.PremiumPreviewRequestDto;
 import com.vimainsurance.vimaadmin.dto.PremiumPreviewResponseDto;
 import com.vimainsurance.vimaadmin.dto.ResponseDto;
+import com.vimainsurance.vimaadmin.entity.Policy;
 import com.vimainsurance.vimaadmin.entity.PremiumRateTable;
+import com.vimainsurance.vimaadmin.entity.ProductCatalog;
 import com.vimainsurance.vimaadmin.enums.CoverageCategory;
 import com.vimainsurance.vimaadmin.enums.PricingModel;
 import com.vimainsurance.vimaadmin.enums.RateSource;
@@ -32,6 +38,9 @@ import com.vimainsurance.vimaadmin.service.ICostSharingRuleService;
 import com.vimainsurance.vimaadmin.service.IEmployeePolicyMapService;
 import com.vimainsurance.vimaadmin.service.IPremiumCalculationService;
 import com.vimainsurance.vimaadmin.service.PremiumRateTableCacheService;
+import com.vimainsurance.vimaadmin.repository.IPolicyRepository;
+import com.vimainsurance.vimaadmin.repository.IProductCatalogRepository;
+import com.vimainsurance.vimaadmin.util.TopupPremiumOptionsUtil;
 
 import lombok.RequiredArgsConstructor;
 
@@ -41,6 +50,8 @@ public class PremiumCalculationServiceImpl implements IPremiumCalculationService
 
     private static final Logger log = LoggerFactory.getLogger(PremiumCalculationServiceImpl.class);
     private static final LocalDate TODAY = LocalDate.now();
+    private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
+    private static final TypeReference<Map<String, BigDecimal>> MAP_STRING_BIG_DECIMAL = new TypeReference<>() {};
 
     /** GHI and GMC are both group health; rate table may use either. TOP_UP/SUPER_TOP_UP use GMC rate when no dedicated rate exists. PARENT_GMC uses GMC rates with member_type parent. */
     private static boolean planTypeMatchesRateProductType(String requestPlanType, String rateProductType) {
@@ -61,6 +72,8 @@ public class PremiumCalculationServiceImpl implements IPremiumCalculationService
     private final IEmployeePolicyMapService employeePolicyMapService;
     private final ICostSharingRuleService costSharingRuleService;
     private final ICompanyEnrollmentConfigService companyEnrollmentConfigService;
+    private final IProductCatalogRepository productCatalogRepository;
+    private final IPolicyRepository policyRepository;
 
     @Override
     public BigDecimal lookupRate(UUID companyId, String planType, String memberType, int memberAge,
@@ -252,12 +265,32 @@ public class PremiumCalculationServiceImpl implements IPremiumCalculationService
             }
             if (sumInsured == null) sumInsured = BigDecimal.valueOf(500000);
             try {
-                PlanPremiumBreakdown b = calculatePlanPremium(
-                        context.getCompanyId(),
-                        selPlanType,
-                        coverageTier,
-                        sumInsured,
-                        membersForPlan);
+                PlanPremiumBreakdown b;
+                if (("TOP_UP".equals(planUpper) || "SUPER_TOP_UP".equals(planUpper)) && sel.getTopupPlanOptionId() != null) {
+                    Optional<BigDecimal> fixedOpt = resolveFixedTopupPremium(
+                            sel.getTopupPlanOptionId(), context.getCompanyId(), sumInsured);
+                    if (fixedOpt.isPresent()) {
+                        BigDecimal p = fixedOpt.get().setScale(2, RoundingMode.HALF_UP);
+                        b = new PlanPremiumBreakdown(
+                                selPlanType,
+                                p,
+                                BigDecimal.ZERO.setScale(2, RoundingMode.HALF_UP),
+                                p,
+                                BigDecimal.ZERO.setScale(2, RoundingMode.HALF_UP),
+                                "POLICY_FIXED",
+                                null);
+                    } else {
+                        throw new IllegalArgumentException(
+                                "Fixed Top-Up premium mapping not found for selected plan option and sum insured.");
+                    }
+                } else {
+                    b = calculatePlanPremium(
+                            context.getCompanyId(),
+                            selPlanType,
+                            coverageTier,
+                            sumInsured,
+                            membersForPlan);
+                }
                 BigDecimal planTotalPremium = b.premium();
                 String coverageCategory = "PARENT_GMC".equals(planUpper)
                         ? CoverageCategory.PARENT.getValue()
@@ -360,6 +393,63 @@ public class PremiumCalculationServiceImpl implements IPremiumCalculationService
                 .matchedAgeBandMin(bandMin)
                 .matchedAgeBandMax(bandMax)
                 .build();
+    }
+
+    /** Admin-defined SI↔premium pairs on policy (via product catalog id). */
+    private Optional<BigDecimal> resolveFixedTopupPremium(UUID catalogId, UUID companyId, BigDecimal sumInsured) {
+        if (catalogId == null || companyId == null || sumInsured == null) {
+            return Optional.empty();
+        }
+        Optional<ProductCatalog> pcOpt = productCatalogRepository.findById(catalogId);
+        if (pcOpt.isEmpty()) {
+            return Optional.empty();
+        }
+        ProductCatalog pc = pcOpt.get();
+        if (pc.getOrganizationId() == null || !pc.getOrganizationId().equals(companyId)) {
+            return Optional.empty();
+        }
+        if (pc.getPolicyId() == null) {
+            return Optional.empty();
+        }
+        Map<BigDecimal, BigDecimal> catalogPreview = parsePremiumPreviewOptionsMap(pc.getPremiumPreviewOptions());
+        if (!catalogPreview.isEmpty()) {
+            BigDecimal catalogPremium = catalogPreview.get(sumInsured);
+            if (catalogPremium != null) {
+                return Optional.of(catalogPremium);
+            }
+        }
+        Optional<Policy> polOpt = policyRepository.findById(pc.getPolicyId());
+        if (polOpt.isEmpty()) {
+            return Optional.empty();
+        }
+        Policy pol = polOpt.get();
+        return TopupPremiumOptionsUtil.findPremiumForSumInsured(
+                pol.getSumInsuredOptions(), pol.getTopupPremiumOptions(), sumInsured);
+    }
+
+    private static Map<BigDecimal, BigDecimal> parsePremiumPreviewOptionsMap(String json) {
+        if (json == null || json.isBlank()) {
+            return Map.of();
+        }
+        try {
+            Map<String, BigDecimal> raw = OBJECT_MAPPER.readValue(json, MAP_STRING_BIG_DECIMAL);
+            if (raw == null || raw.isEmpty()) {
+                return Map.of();
+            }
+            Map<BigDecimal, BigDecimal> out = new LinkedHashMap<>();
+            raw.forEach((k, v) -> {
+                if (k == null || k.isBlank() || v == null) {
+                    return;
+                }
+                try {
+                    out.put(new BigDecimal(k), v);
+                } catch (NumberFormatException ignored) {
+                }
+            });
+            return out;
+        } catch (Exception e) {
+            return Map.of();
+        }
     }
 
     private List<EmployeePolicyMapResponseDto> getEmployeeMappings(UUID employeeId) {
