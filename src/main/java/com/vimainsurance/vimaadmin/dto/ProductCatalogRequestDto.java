@@ -32,6 +32,8 @@ public class ProductCatalogRequestDto {
 
     private String coverageOptions;
 
+    private String premiumPreviewOptions;
+
     private String coveredRelationships;
 
     @Builder.Default
