@@ -25,4 +25,10 @@ public interface FeatureFlagService {
     List<FeatureFlagsOrganizationResponse> getFeatureFlagsGroupedByOrganization();
 
     void updateFeatureFlagCompanies(String organizationId, FeatureFlagUpdateDto updateDto);
+
+    /**
+     * For each feature flag assigned to ROLE_HR_ADMIN in {@code feature_flag_roles}, inserts a matching
+     * {@code feature_flag_companies} row for the organization when none exists yet (idempotent).
+     */
+    void seedOrganizationFeaturesFromHrAdminRole(String organizationId);
 }

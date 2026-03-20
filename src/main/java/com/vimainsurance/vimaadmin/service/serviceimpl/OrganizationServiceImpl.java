@@ -52,7 +52,6 @@ import com.vimainsurance.vimaadmin.dto.OrganizationRequestDto;
 import com.vimainsurance.vimaadmin.dto.OrganizationResponseDto;
 import com.vimainsurance.vimaadmin.dto.ResponseDto;
 import com.vimainsurance.vimaadmin.entity.AdminUser;
-import com.vimainsurance.vimaadmin.exception.OrganizationAccessDeniedException;
 import com.vimainsurance.vimaadmin.entity.DealEndorsement;
 import com.vimainsurance.vimaadmin.entity.CostSharingRule;
 import com.vimainsurance.vimaadmin.entity.Deals;
@@ -74,6 +73,7 @@ import com.vimainsurance.vimaadmin.repository.ICostSharingRuleRepository;
 import com.vimainsurance.vimaadmin.repository.IOrganizationRepository;
 import com.vimainsurance.vimaadmin.repository.IPolicyRepository;
 import com.vimainsurance.vimaadmin.service.IDocumentService;
+import com.vimainsurance.vimaadmin.service.FeatureFlagService;
 import com.vimainsurance.vimaadmin.service.IOrganizationService;
 import com.vimainsurance.vimaadmin.service.IS3Service;
 import com.vimainsurance.vimaadmin.specification.OrganizationSpecification;
@@ -135,6 +135,9 @@ public class OrganizationServiceImpl implements IOrganizationService {
     @Autowired
     private ICostSharingRuleRepository costSharingRuleRepository;
 
+    @Autowired
+    private FeatureFlagService featureFlagService;
+
     @Override
     @Transactional(rollbackFor = Exception.class)
     @AuditedOperation(schemaName = "cpc", tableName = "organizations", entityType = "ORGANIZATION", action = "CREATE")
@@ -164,6 +167,12 @@ public class OrganizationServiceImpl implements IOrganizationService {
             seedDefaultCostSharingRules(savedOrg.getOrganizationId());
             String orgGroupName = "ORG_" + savedOrg.getOrganizationName().trim().toUpperCase().replaceAll("[^A-Z0-9]", "_");
             keycloakUtil.createGroup(orgGroupName, Map.of("organization_id", List.of(savedOrg.getOrganizationId().toString())));
+            try {
+                featureFlagService.seedOrganizationFeaturesFromHrAdminRole(savedOrg.getOrganizationId().toString());
+            } catch (Exception seedEx) {
+                logger.warn("[correlationId:{}] Could not seed default org feature flags for {}: {}",
+                        MDC.get("correlationId"), savedOrg.getOrganizationId(), seedEx.getMessage());
+            }
             return responseObj.render(responseObj.formSuccessResponse(Constants.SUCCESS, Constants.SAVE_SUCCESS));
         } catch (Exception e) {
             logger.error("[correlationId:{}] Exception in Organization create: {}", MDC.get("correlationId"), e.getMessage(), e);
