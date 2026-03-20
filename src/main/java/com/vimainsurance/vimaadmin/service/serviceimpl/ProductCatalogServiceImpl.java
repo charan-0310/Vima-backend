@@ -125,6 +125,7 @@ public class ProductCatalogServiceImpl implements IProductCatalogService {
             entity.setIsMandatory(dto.getIsMandatory() != null ? dto.getIsMandatory() : false);
             entity.setPricingModel(dto.getPricingModel());
             entity.setCoverageOptions(dto.getCoverageOptions());
+            entity.setPremiumPreviewOptions(dto.getPremiumPreviewOptions());
             entity.setCoveredRelationships(dto.getCoveredRelationships());
             entity.setDisplayOrder(dto.getDisplayOrder() != null ? dto.getDisplayOrder() : 0);
             entity.setPolicyId(dto.getPolicyId());

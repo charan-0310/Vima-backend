@@ -58,6 +58,8 @@ public class PolicyUploadRequestDto {
     private BigDecimal deductibleAmount;
     /** Comma-separated or JSON array string, e.g. "500000,1000000" */
     private String sumInsuredOptions;
+    /** Comma-separated or JSON array string; same count as sumInsuredOptions for TOP_UP / SUPER_TOP_UP. */
+    private String topupPremiumOptions;
     private Boolean coversDependents;
     private Boolean coversParents;
     private Boolean isDeleted;

@@ -155,6 +155,11 @@ public class Policy {
     @Column(name = "sum_insured_options", columnDefinition = "jsonb")
     private String sumInsuredOptions; // JSON array of numbers
 
+    /** JSON array of numbers; index-aligned with sumInsuredOptions for TOP_UP / SUPER_TOP_UP. */
+    @JdbcTypeCode(SqlTypes.JSON)
+    @Column(name = "topup_premium_options", columnDefinition = "jsonb")
+    private String topupPremiumOptions;
+
     @Column(name = "covers_dependents")
     private Boolean coversDependents;
 

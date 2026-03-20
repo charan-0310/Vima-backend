@@ -65,6 +65,7 @@ import com.vimainsurance.vimaadmin.util.JwtUserExtractor;
 import com.vimainsurance.vimaadmin.audit.AuditContextSupplier;
 import com.vimainsurance.vimaadmin.audit.AuditedOperation;
 import com.vimainsurance.vimaadmin.util.PolicyValidationUtil;
+import com.vimainsurance.vimaadmin.util.TopupPremiumOptionsUtil;
 import com.fasterxml.jackson.databind.ObjectMapper;
 /**
  * Service implementation for Policy operations
@@ -215,6 +216,17 @@ public class PolicyServiceImpl implements IPolicyService {
             policy.setEndDate(requestDto.getEndDate());
             policy.setRenewalDate(requestDto.getRenewalDate());
             policy.setLeadId(requestDto.getLeadId());
+            // TOP_UP / SUPER_TOP_UP do not require policy-level total premium inputs from form.
+            // Keep DB NOT NULL monetary columns populated with safe defaults.
+            if ((policyType == ProductType.TOP_UP || policyType == ProductType.SUPER_TOP_UP) && policy.getPremiumAmount() == null) {
+                policy.setPremiumAmount(BigDecimal.ZERO);
+            }
+            if ((policyType == ProductType.TOP_UP || policyType == ProductType.SUPER_TOP_UP) && policy.getNetAmount() == null) {
+                policy.setNetAmount(BigDecimal.ZERO);
+            }
+            if ((policyType == ProductType.TOP_UP || policyType == ProductType.SUPER_TOP_UP) && policy.getGst() == null) {
+                policy.setGst(BigDecimal.ZERO);
+            }
             if (requestDto.getPaymentFrequency() != null && !requestDto.getPaymentFrequency().isEmpty()) {
                 policy.setPaymentFrequency(PaymentFrequency.fromValue(requestDto.getPaymentFrequency()));
             } else {
@@ -236,10 +248,13 @@ public class PolicyServiceImpl implements IPolicyService {
                 policy.setParentAgeLimit(requestDto.getParentAgeLimit());
             }
             if (policyType == ProductType.TOP_UP || policyType == ProductType.SUPER_TOP_UP) {
+                validateTopupTieredOptionsRequired(requestDto.getSumInsuredOptions(), requestDto.getTopupPremiumOptions());
                 policy.setDescription(requestDto.getDescription());
                 policy.setInsurerName(requestDto.getInsurerName());
                 policy.setDeductibleAmount(requestDto.getDeductibleAmount());
-                policy.setSumInsuredOptions(requestDto.getSumInsuredOptions());
+                policy.setSumInsuredOptions(normalizeSumInsuredOptionsForSave(requestDto.getSumInsuredOptions()));
+                policy.setTopupPremiumOptions(
+                        normalizeTopupPremiumOptionsForSave(requestDto.getSumInsuredOptions(), requestDto.getTopupPremiumOptions()));
                 policy.setCoversDependents(requestDto.getCoversDependents());
                 policy.setCoversParents(requestDto.getCoversParents());
                 policy.setIsDeleted(requestDto.getIsDeleted());
@@ -339,6 +354,15 @@ public class PolicyServiceImpl implements IPolicyService {
             policy.setEndDate(requestDto.getEndDate());
             policy.setRenewalDate(requestDto.getRenewalDate());
             policy.setLeadId(requestDto.getLeadId());
+            if ((policyType == ProductType.TOP_UP || policyType == ProductType.SUPER_TOP_UP) && policy.getPremiumAmount() == null) {
+                policy.setPremiumAmount(BigDecimal.ZERO);
+            }
+            if ((policyType == ProductType.TOP_UP || policyType == ProductType.SUPER_TOP_UP) && policy.getNetAmount() == null) {
+                policy.setNetAmount(BigDecimal.ZERO);
+            }
+            if ((policyType == ProductType.TOP_UP || policyType == ProductType.SUPER_TOP_UP) && policy.getGst() == null) {
+                policy.setGst(BigDecimal.ZERO);
+            }
             if (requestDto.getPaymentFrequency() != null && !requestDto.getPaymentFrequency().isEmpty()) {
                 policy.setPaymentFrequency(PaymentFrequency.fromValue(requestDto.getPaymentFrequency()));
             }
@@ -363,18 +387,26 @@ public class PolicyServiceImpl implements IPolicyService {
 
             // TOP_UP / SUPER_TOP_UP
             if (policyType == ProductType.TOP_UP || policyType == ProductType.SUPER_TOP_UP) {
+                validateTopupTieredOptionsRequired(requestDto.getSumInsuredOptions(), requestDto.getTopupPremiumOptions());
                 policy.setDescription(requestDto.getDescription());
                 policy.setInsurerName(requestDto.getInsurerName());
                 policy.setDeductibleAmount(requestDto.getDeductibleAmount());
-                policy.setSumInsuredOptions(requestDto.getSumInsuredOptions());
+                policy.setSumInsuredOptions(normalizeSumInsuredOptionsForSave(requestDto.getSumInsuredOptions()));
+                policy.setTopupPremiumOptions(
+                        normalizeTopupPremiumOptionsForSave(requestDto.getSumInsuredOptions(), requestDto.getTopupPremiumOptions()));
                 policy.setCoversDependents(requestDto.getCoversDependents());
                 policy.setCoversParents(requestDto.getCoversParents());
                 policy.setIsDeleted(requestDto.getIsDeleted());
                 policy.setEffectiveFrom(requestDto.getEffectiveFrom());
                 policy.setEffectiveTo(requestDto.getEffectiveTo());
+            } else {
+                policy.setTopupPremiumOptions(null);
             }
 
             policyRepository.save(policy);
+            if (policyType == ProductType.TOP_UP || policyType == ProductType.SUPER_TOP_UP) {
+                createProductCatalogForTopup(policy, requestDto.getPricingModel());
+            }
             com.vimainsurance.vimaadmin.audit.AuditContextSupplier.setNewSnapshotEntity(policy);
             logger.info("[correlationId:{}] Policy updated successfully", MDC.get("correlationId"));
             return responseObj.render(responseObj.formSuccessResponse(Constants.SUCCESS, Constants.UPDATE_SUCCESS));
@@ -703,6 +735,7 @@ public class PolicyServiceImpl implements IPolicyService {
         responseDto.setInsurerName(policy.getInsurerName());
         responseDto.setDeductibleAmount(policy.getDeductibleAmount());
         responseDto.setSumInsuredOptions(policy.getSumInsuredOptions());
+        responseDto.setTopupPremiumOptions(policy.getTopupPremiumOptions());
         responseDto.setCoversDependents(policy.getCoversDependents());
         responseDto.setCoversParents(policy.getCoversParents());
         responseDto.setIsDeleted(policy.getIsDeleted());
@@ -823,6 +856,7 @@ public class PolicyServiceImpl implements IPolicyService {
             .isMandatory(false)
             .pricingModel(pricingModel)
             .coverageOptions(savedPolicy.getSumInsuredOptions())
+            .premiumPreviewOptions(buildPremiumPreviewOptionsForCatalog(savedPolicy))
             .coveredRelationships(coveredRelationshipsJson)
             .displayOrder(displayOrder)
             .policyId(savedPolicy.getPolicyId())
@@ -832,7 +866,12 @@ public class PolicyServiceImpl implements IPolicyService {
             .effectiveTo(savedPolicy.getEffectiveTo())
             .build();
 
-        ResponseEntity<ResponseDto<com.vimainsurance.vimaadmin.dto.ProductCatalogResponseDto>> response = productCatalogService.create(catalogDto);
+        Optional<ProductCatalog> existingPc = productCatalogRepository.findByOrganizationIdAndPolicyId(
+                savedPolicy.getOrganizationId(), savedPolicy.getPolicyId());
+        ResponseEntity<ResponseDto<com.vimainsurance.vimaadmin.dto.ProductCatalogResponseDto>> response =
+                existingPc.isPresent()
+                        ? productCatalogService.update(existingPc.get().getId(), catalogDto)
+                        : productCatalogService.create(catalogDto);
         if (response.getBody() != null && response.getBody().getErrorCode() != null) {
             throw new RuntimeException("Failed to create product catalog: " + response.getBody().getMessage());
         }
@@ -942,6 +981,15 @@ public class PolicyServiceImpl implements IPolicyService {
             policy.setNetAmount(requestDto.getNetAmount());
             policy.setGst(requestDto.getGst());
             policy.setLeadId(organizationId); // Use organizationId as leadId
+            if ((productType == ProductType.TOP_UP || productType == ProductType.SUPER_TOP_UP) && policy.getPremiumAmount() == null) {
+                policy.setPremiumAmount(BigDecimal.ZERO);
+            }
+            if ((productType == ProductType.TOP_UP || productType == ProductType.SUPER_TOP_UP) && policy.getNetAmount() == null) {
+                policy.setNetAmount(BigDecimal.ZERO);
+            }
+            if ((productType == ProductType.TOP_UP || productType == ProductType.SUPER_TOP_UP) && policy.getGst() == null) {
+                policy.setGst(BigDecimal.ZERO);
+            }
             if (requestDto.getPaymentFrequency() != null && !requestDto.getPaymentFrequency().isEmpty()) {
                 policy.setPaymentFrequency(PaymentFrequency.fromValue(requestDto.getPaymentFrequency()));
             } else {
@@ -963,6 +1011,7 @@ public class PolicyServiceImpl implements IPolicyService {
 
             // TOP_UP / SUPER_TOP_UP fields
             if (productType == ProductType.TOP_UP || productType == ProductType.SUPER_TOP_UP) {
+                validateTopupTieredOptionsRequired(requestDto.getSumInsuredOptions(), requestDto.getTopupPremiumOptions());
                 policy.setDescription(requestDto.getDescription());
                 policy.setInsurerName(requestDto.getInsurerName());
                 policy.setDeductibleAmount(requestDto.getDeductibleAmount());
@@ -971,23 +1020,9 @@ public class PolicyServiceImpl implements IPolicyService {
                 policy.setIsDeleted(Boolean.TRUE.equals(requestDto.getIsDeleted()));
                 policy.setEffectiveFrom(requestDto.getEffectiveFrom());
                 policy.setEffectiveTo(requestDto.getEffectiveTo());
-                if (requestDto.getSumInsuredOptions() != null && !requestDto.getSumInsuredOptions().isBlank()) {
-                    String opts = requestDto.getSumInsuredOptions().trim();
-                    if (opts.startsWith("[")) {
-                        policy.setSumInsuredOptions(opts);
-                    } else {
-                        List<BigDecimal> list = Arrays.stream(opts.split("[,;\\s]+"))
-                            .map(String::trim)
-                            .filter(s -> !s.isEmpty())
-                            .map(BigDecimal::new)
-                            .collect(Collectors.toList());
-                        try {
-                            policy.setSumInsuredOptions(objectMapper.writeValueAsString(list));
-                        } catch (com.fasterxml.jackson.core.JsonProcessingException e) {
-                            throw new RuntimeException("Invalid sumInsuredOptions", e);
-                        }
-                    }
-                }
+                policy.setSumInsuredOptions(normalizeSumInsuredOptionsForSave(requestDto.getSumInsuredOptions()));
+                policy.setTopupPremiumOptions(
+                        normalizeTopupPremiumOptionsForSave(policy.getSumInsuredOptions(), requestDto.getTopupPremiumOptions()));
             }
 
             policy.setCreatedAt(LocalDateTime.now());
@@ -1042,4 +1077,76 @@ public class PolicyServiceImpl implements IPolicyService {
             return responseObj.render(responseObj.formErrorResponse(e.getMessage()));
         }
     }
- }
+
+    /**
+     * Validates index-aligned premium list vs sum insured list; returns JSON array for {@code policy.topup_premium_options}, or null if premiums omitted.
+     */
+    private String normalizeTopupPremiumOptionsForSave(String sumInsuredOptionsRaw, String topupPremiumRaw) {
+        if (topupPremiumRaw == null || topupPremiumRaw.isBlank()) {
+            return null;
+        }
+        if (sumInsuredOptionsRaw == null || sumInsuredOptionsRaw.isBlank()) {
+            throw new BadRequestException(
+                    "Sum insured options are required when premium amounts are provided for Top-Up / Super Top-Up.");
+        }
+        List<BigDecimal> siList = TopupPremiumOptionsUtil.parseDecimalList(sumInsuredOptionsRaw);
+        if (siList.isEmpty()) {
+            throw new BadRequestException(
+                    "Sum insured options are required when premium amounts are provided for Top-Up / Super Top-Up.");
+        }
+        List<BigDecimal> premList = TopupPremiumOptionsUtil.parseDecimalList(topupPremiumRaw);
+        if (premList.isEmpty()) {
+            return null;
+        }
+        if (premList.size() != siList.size()) {
+            throw new BadRequestException(String.format(
+                    "Premium amounts count (%d) must match sum insured options count (%d) for Top-Up / Super Top-Up.",
+                    premList.size(),
+                    siList.size()));
+        }
+        try {
+            return objectMapper.writeValueAsString(premList);
+        } catch (com.fasterxml.jackson.core.JsonProcessingException e) {
+            throw new BadRequestException("Invalid premium amounts format.");
+        }
+    }
+
+    private String normalizeSumInsuredOptionsForSave(String sumInsuredOptionsRaw) {
+        if (sumInsuredOptionsRaw == null || sumInsuredOptionsRaw.isBlank()) {
+            throw new BadRequestException("Sum insured options are required for Top-Up / Super Top-Up.");
+        }
+        List<BigDecimal> sumInsuredList = TopupPremiumOptionsUtil.parseDecimalList(sumInsuredOptionsRaw);
+        if (sumInsuredList.isEmpty()) {
+            throw new BadRequestException("Invalid sum insured options format.");
+        }
+        try {
+            return objectMapper.writeValueAsString(sumInsuredList);
+        } catch (com.fasterxml.jackson.core.JsonProcessingException e) {
+            throw new BadRequestException("Invalid sum insured options format.");
+        }
+    }
+
+    private void validateTopupTieredOptionsRequired(String sumInsuredOptionsRaw, String topupPremiumRaw) {
+        if (sumInsuredOptionsRaw == null || sumInsuredOptionsRaw.isBlank()) {
+            throw new BadRequestException("Sum insured options are required for Top-Up / Super Top-Up.");
+        }
+        if (topupPremiumRaw == null || topupPremiumRaw.isBlank()) {
+            throw new BadRequestException("Premium amounts are required for Top-Up / Super Top-Up.");
+        }
+    }
+
+    private String buildPremiumPreviewOptionsForCatalog(Policy savedPolicy) {
+        Map<BigDecimal, BigDecimal> pairMap = TopupPremiumOptionsUtil.buildPreviewMap(
+                savedPolicy.getSumInsuredOptions(), savedPolicy.getTopupPremiumOptions());
+        if (pairMap.isEmpty()) {
+            return null;
+        }
+        Map<String, BigDecimal> asStringKeyMap = new java.util.LinkedHashMap<>();
+        pairMap.forEach((k, v) -> asStringKeyMap.put(k.stripTrailingZeros().toPlainString(), v));
+        try {
+            return objectMapper.writeValueAsString(asStringKeyMap);
+        } catch (com.fasterxml.jackson.core.JsonProcessingException e) {
+            return null;
+        }
+    }
+}

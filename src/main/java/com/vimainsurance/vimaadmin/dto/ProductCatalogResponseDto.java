@@ -22,6 +22,7 @@ public class ProductCatalogResponseDto {
     private Boolean isMandatory;
     private String pricingModel;
     private String coverageOptions;
+    private String premiumPreviewOptions;
     private String coveredRelationships;
     private Integer displayOrder;
     private Long policyId;

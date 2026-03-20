@@ -1,6 +1,7 @@
 package com.vimainsurance.vimaadmin.service.serviceimpl;
 
 import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.time.LocalDate;
 import java.time.Period;
 import java.util.ArrayList;
@@ -33,6 +34,7 @@ import com.vimainsurance.vimaadmin.service.IEmployeePolicyMapService;
 import com.vimainsurance.vimaadmin.service.IEnrollmentPlanOptionsService;
 import com.vimainsurance.vimaadmin.service.IEnrollmentService;
 import com.vimainsurance.vimaadmin.service.IPremiumCalculationService;
+import com.vimainsurance.vimaadmin.util.TopupPremiumOptionsUtil;
 
 import lombok.RequiredArgsConstructor;
 
@@ -44,6 +46,7 @@ public class EnrollmentPlanOptionsServiceImpl implements IEnrollmentPlanOptionsS
     private static final List<String> ENROLLMENT_PLAN_PRODUCT_TYPES = List.of("TOP_UP", "SUPER_TOP_UP", "PARENT_GMC");
     private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
     private static final TypeReference<List<BigDecimal>> LIST_BIG_DECIMAL = new TypeReference<>() {};
+    private static final TypeReference<Map<String, BigDecimal>> MAP_STRING_BIG_DECIMAL = new TypeReference<>() {};
 
     private final IEnrollmentService enrollmentService;
     private final IEmployeePolicyMapService employeePolicyMapService;
@@ -112,20 +115,83 @@ public class EnrollmentPlanOptionsServiceImpl implements IEnrollmentPlanOptionsS
                     sumInsuredList = List.of(BigDecimal.ONE);
                 }
                 BigDecimal deductibleAmount = null;
+                Policy linkedPolicy = null;
                 if (pc.getPolicyId() != null) {
                     Optional<Policy> policyOpt = policyRepository.findById(pc.getPolicyId());
                     if (policyOpt.isPresent()) {
-                        deductibleAmount = policyOpt.get().getDeductibleAmount();
+                        linkedPolicy = policyOpt.get();
+                        deductibleAmount = linkedPolicy.getDeductibleAmount();
+                    } else {
+                        log.warn("Product catalog {} has stale policyId {} for organization {}",
+                                pc.getId(), pc.getPolicyId(), companyId);
+                    }
+                }
+                if (linkedPolicy == null && ("TOP_UP".equalsIgnoreCase(pc.getProductType()) || "SUPER_TOP_UP".equalsIgnoreCase(pc.getProductType()))) {
+                    linkedPolicy = resolveTopupPolicyForCatalog(pc, companyId, today);
+                    if (linkedPolicy != null && linkedPolicy.getDeductibleAmount() != null) {
+                        deductibleAmount = linkedPolicy.getDeductibleAmount();
                     }
                 }
                 Map<BigDecimal, BigDecimal> premiumPreview = new LinkedHashMap<>();
-                for (BigDecimal si : sumInsuredList) {
-                    try {
-                        var breakdown = premiumCalculationService.calculatePlanPremium(
-                                companyId, pc.getProductType(), "INDIVIDUAL", si, memberList);
-                        premiumPreview.put(si, breakdown.premium());
-                    } catch (Exception e) {
-                        log.debug("No premium rate for product_catalog {} sumInsured {}: {}", pc.getId(), si, e.getMessage());
+                boolean isTopupProduct = "TOP_UP".equalsIgnoreCase(pc.getProductType())
+                        || "SUPER_TOP_UP".equalsIgnoreCase(pc.getProductType());
+                if (isTopupProduct && !isParentGmc) {
+                    // TOP_UP / SUPER_TOP_UP: source of truth is DB SI↔premium pair mapping only.
+                    // Do NOT use generic premium calculation fallback for these products.
+                    Map<BigDecimal, BigDecimal> catalogPreview = parsePremiumPreviewOptionsMap(pc.getPremiumPreviewOptions());
+                    if (!catalogPreview.isEmpty()) {
+                        if (sumInsuredList.isEmpty()) {
+                            sumInsuredList = new ArrayList<>(catalogPreview.keySet());
+                            premiumPreview.putAll(catalogPreview);
+                        } else {
+                            List<BigDecimal> alignedSumInsured = new ArrayList<>();
+                            for (BigDecimal si : sumInsuredList) {
+                                BigDecimal premium = catalogPreview.get(si);
+                                if (premium != null) {
+                                    alignedSumInsured.add(si);
+                                    premiumPreview.put(si, premium);
+                                }
+                            }
+                            if (premiumPreview.isEmpty()) {
+                                log.warn("Catalog preview map has no matching SI entries for product_catalog {} (policyId={})",
+                                        pc.getId(), pc.getPolicyId());
+                            }
+                            if (alignedSumInsured.size() != sumInsuredList.size()) {
+                                log.warn("Catalog SI list and preview map count mismatch for product_catalog {}: coverageOptions={}, previewMap={}",
+                                        pc.getId(), sumInsuredList.size(), catalogPreview.size());
+                            }
+                            sumInsuredList = alignedSumInsured;
+                        }
+                    } else if (linkedPolicy != null) {
+                        List<BigDecimal> policySi = TopupPremiumOptionsUtil.parseDecimalList(linkedPolicy.getSumInsuredOptions());
+                        List<BigDecimal> fixedPrem = TopupPremiumOptionsUtil.parseDecimalList(linkedPolicy.getTopupPremiumOptions());
+
+                        if (!policySi.isEmpty() && !fixedPrem.isEmpty() && policySi.size() == fixedPrem.size()) {
+                            sumInsuredList = policySi;
+                            for (int i = 0; i < policySi.size(); i++) {
+                                premiumPreview.put(policySi.get(i), fixedPrem.get(i).setScale(2, RoundingMode.HALF_UP));
+                            }
+                        } else if (!sumInsuredList.isEmpty() && !fixedPrem.isEmpty() && sumInsuredList.size() == fixedPrem.size()) {
+                            // Fallback to catalog SI list if policy SI is missing but premium list size matches.
+                            for (int i = 0; i < sumInsuredList.size(); i++) {
+                                premiumPreview.put(sumInsuredList.get(i), fixedPrem.get(i).setScale(2, RoundingMode.HALF_UP));
+                            }
+                        } else {
+                            log.warn("Skipping DB pair mapping for product_catalog {}: invalid TOP_UP premium pair data (policyId={})",
+                                    pc.getId(), linkedPolicy.getPolicyId());
+                        }
+                    } else {
+                        log.warn("Skipping DB pair mapping for product_catalog {}: linked TOP_UP policy not found", pc.getId());
+                    }
+                } else if (premiumPreview.isEmpty()) {
+                    for (BigDecimal si : sumInsuredList) {
+                        try {
+                            var breakdown = premiumCalculationService.calculatePlanPremium(
+                                    companyId, pc.getProductType(), "INDIVIDUAL", si, memberList);
+                            premiumPreview.put(si, breakdown.premium());
+                        } catch (Exception e) {
+                            log.debug("No premium rate for product_catalog {} sumInsured {}: {}", pc.getId(), si, e.getMessage());
+                        }
                     }
                 }
                 withPreviews.add(TopupOptionsResponseDto.TopupOptionWithPreview.builder()
@@ -217,6 +283,71 @@ public class EnrollmentPlanOptionsServiceImpl implements IEnrollmentPlanOptionsS
             return OBJECT_MAPPER.readValue(json, LIST_BIG_DECIMAL);
         } catch (Exception e) {
             return Collections.emptyList();
+        }
+    }
+
+    private static Map<BigDecimal, BigDecimal> parsePremiumPreviewOptionsMap(String json) {
+        if (json == null || json.isBlank()) {
+            return Map.of();
+        }
+        try {
+            Map<String, BigDecimal> raw = OBJECT_MAPPER.readValue(json, MAP_STRING_BIG_DECIMAL);
+            if (raw == null || raw.isEmpty()) {
+                return Map.of();
+            }
+            Map<BigDecimal, BigDecimal> out = new LinkedHashMap<>();
+            raw.forEach((k, v) -> {
+                if (k == null || k.isBlank() || v == null) return;
+                try {
+                    out.put(new BigDecimal(k), v);
+                } catch (NumberFormatException ignored) {
+                }
+            });
+            return out;
+        } catch (Exception e) {
+            return Map.of();
+        }
+    }
+
+    /**
+     * Resolve TOP_UP/SUPER_TOP_UP policy for a catalog row when policyId is missing/stale.
+     * Prefers an ACTIVE policy with non-empty topupPremiumOptions and matching name.
+     */
+    private Policy resolveTopupPolicyForCatalog(ProductCatalog pc, UUID companyId, LocalDate today) {
+        try {
+            ProductType pt = ProductType.fromValue(pc.getProductType());
+            List<Policy> candidates = policyRepository.findByOrganizationIdAndProductTypeAndStatus(companyId, pt, PolicyStatus.ACTIVE)
+                    .stream()
+                    .filter(p -> {
+                        LocalDate from = p.getEffectiveFrom() != null ? p.getEffectiveFrom() : p.getStartDate();
+                        LocalDate to = p.getEffectiveTo() != null ? p.getEffectiveTo() : p.getEndDate();
+                        boolean inRange = (from == null || !today.isBefore(from)) && (to == null || !today.isAfter(to));
+                        return inRange;
+                    })
+                    .toList();
+            if (candidates.isEmpty()) {
+                return null;
+            }
+            String catalogName = pc.getName() != null ? pc.getName().trim() : "";
+            Policy byName = candidates.stream()
+                    .filter(p -> {
+                        String policyName = p.getDescription() != null ? p.getDescription().trim() : "";
+                        return !catalogName.isEmpty() && catalogName.equalsIgnoreCase(policyName);
+                    })
+                    .filter(p -> p.getTopupPremiumOptions() != null && !p.getTopupPremiumOptions().isBlank())
+                    .findFirst()
+                    .orElse(null);
+            if (byName != null) {
+                return byName;
+            }
+            Policy withPairs = candidates.stream()
+                    .filter(p -> p.getTopupPremiumOptions() != null && !p.getTopupPremiumOptions().isBlank())
+                    .findFirst()
+                    .orElse(null);
+            return withPairs != null ? withPairs : candidates.get(0);
+        } catch (Exception e) {
+            log.debug("Unable to resolve TOP_UP policy for product_catalog {}: {}", pc.getId(), e.getMessage());
+            return null;
         }
     }
 }

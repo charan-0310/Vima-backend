@@ -11,6 +11,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
+import java.util.Collections;
 import java.util.List;
 
 @RestController
@@ -30,7 +31,7 @@ public class FeatureManagementController {
             List<FeatureFlagsManagementResponse> flags = featureFlagService.getFeatureFlagsGroupedByType();
             if (flags == null || flags.isEmpty()) {
                 logger.info("No feature flags found for roles");
-                return ResponseEntity.noContent().build();
+                return ResponseEntity.ok(Collections.emptyList());
             }
             logger.debug("Returning {} feature flags for roles", flags.size());
             return ResponseEntity.ok(flags);
@@ -63,7 +64,7 @@ public class FeatureManagementController {
             List<FeatureFlagsOrganizationResponse> flags = featureFlagService.getFeatureFlagsGroupedByOrganization();
             if (flags == null || flags.isEmpty()) {
                 logger.info("No feature flags found for organizations");
-                return ResponseEntity.noContent().build();
+                return ResponseEntity.ok(Collections.emptyList());
             }
             logger.debug("Returning {} feature flag groups for organizations", flags.size());
             return ResponseEntity.ok(flags);
@@ -96,6 +97,27 @@ public class FeatureManagementController {
         }
     }
 
+    /**
+     * Syncs existing organization feature rows from ROLE_HR_ADMIN (does not add missing features).
+     */
+    @PostMapping("/features/organizations/defaults")
+    @PreAuthorize("hasRole('VIMA_ADMIN')")
+    public ResponseEntity<String> seedOrganizationFeatureDefaults(@RequestParam("organizationId") String organizationId) {
+        logger.info("Request received: sync existing HR_ADMIN defaults for organizationId: {}", organizationId);
+        try {
+            if (organizationId == null || organizationId.isBlank()) {
+                return ResponseEntity.badRequest().body("organizationId is required");
+            }
+            featureFlagService.seedOrganizationFeaturesFromHrAdminRole(organizationId);
+            return ResponseEntity.ok("Existing organization feature rows synced from ROLE_HR_ADMIN");
+        } catch (IllegalArgumentException e) {
+            logger.error("Invalid organizationId: {}", organizationId, e);
+            return ResponseEntity.badRequest().body(e.getMessage());
+        } catch (Exception e) {
+            logger.error("Error syncing organization defaults for organizationId: {}", organizationId, e);
+            return ResponseEntity.status(500).body("Failed to sync organization defaults: " + e.getMessage());
+        }
+    }
 
 
 }

@@ -3,6 +3,7 @@ package com.vimainsurance.vimaadmin.dto;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.List;
+import java.util.UUID;
 
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotNull;
@@ -35,6 +36,8 @@ public class PremiumCalculationRequestDto {
         private Boolean opted = true;
         private BigDecimal sumInsured;
         private String coverageTier;
+        /** Product catalog id for TOP_UP / SUPER_TOP_UP; used to resolve admin-defined SI–premium pairs on policy. */
+        private UUID topupPlanOptionId;
     }
 
     @Data

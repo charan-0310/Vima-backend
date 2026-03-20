@@ -44,6 +44,7 @@ public class CostSharingRuleController {
     }
 
     @GetMapping
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'VIMA_ADMIN', 'HR_ADMIN')")
     public ResponseEntity<ResponseDto<List<CostSharingRuleResponseDto>>> list(
             @PathVariable UUID companyId,
             @RequestParam(required = false) String planType,

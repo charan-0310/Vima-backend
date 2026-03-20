@@ -56,7 +56,7 @@ public class PolicyValidationUtil {
                 break;
             case TOP_UP:
             case SUPER_TOP_UP:
-                // Validation for these types is done in service
+                validateTopupPolicy(request, errors);
                 break;
             default:
                 break;
@@ -132,6 +132,21 @@ public class PolicyValidationUtil {
         // Dependents validation (warning - actual enforcement at enrollment level)
         if (request.getDependents() != null && !request.getDependents().isEmpty()) {
             errors.add("GPA/GTL policies cover employees only. Dependents should not be added for GPA/GTL policies");
+        }
+    }
+
+    private static void validateTopupPolicy(PolicyRequestDto request, List<String> errors) {
+        if (request.getDeductibleAmount() == null || request.getDeductibleAmount().compareTo(java.math.BigDecimal.ZERO) < 0) {
+            errors.add("Deductible amount is required for Top-Up / Super Top-Up and must be zero or greater");
+        }
+        if (request.getEffectiveFrom() == null && request.getStartDate() == null) {
+            errors.add("Effective From or Start Date is required for Top-Up / Super Top-Up");
+        }
+        if (request.getSumInsuredOptions() == null || request.getSumInsuredOptions().trim().isEmpty()) {
+            errors.add("Sum insured options are required for Top-Up / Super Top-Up");
+        }
+        if (request.getTopupPremiumOptions() == null || request.getTopupPremiumOptions().trim().isEmpty()) {
+            errors.add("Premium amounts are required for Top-Up / Super Top-Up");
         }
     }
 

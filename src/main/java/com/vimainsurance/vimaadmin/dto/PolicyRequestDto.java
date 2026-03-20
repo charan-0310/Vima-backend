@@ -113,6 +113,8 @@ public class PolicyRequestDto {
     private String insurerName;
     private BigDecimal deductibleAmount;
     private String sumInsuredOptions;
+    /** JSON array string of annual premiums; same length/order as sumInsuredOptions for TOP_UP / SUPER_TOP_UP. */
+    private String topupPremiumOptions;
     private Boolean coversDependents;
     private Boolean coversParents;
     private Boolean isDeleted;
