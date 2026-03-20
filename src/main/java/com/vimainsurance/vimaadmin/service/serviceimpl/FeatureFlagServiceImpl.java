@@ -98,9 +98,9 @@ public class FeatureFlagServiceImpl implements FeatureFlagService {
                 .filter(r -> r != null && !r.isBlank())
                 .map(String::toUpperCase)
                 .collect(Collectors.toCollection(LinkedHashSet::new));
-
-        // User has one role; use it for feature-flag resolution so auth/me matches per-role config
-        final String primaryRole = normalizedRoles.isEmpty() ? null : normalizedRoles.iterator().next();
+        final String primaryRole = adminUser.get().getRole() != null
+                ? ("ROLE_" + adminUser.get().getRole().toUpperCase())
+                : (normalizedRoles.isEmpty() ? null : normalizedRoles.iterator().next());
 
         final List<String> organizationIds = (currentTenant != null) ? currentTenant.getOrDefault("organizationIds", List.of()) : List.of();
         final Set<String> orgIdSet = organizationIds.stream().filter(id -> id != null && !id.isBlank()).collect(Collectors.toCollection(LinkedHashSet::new));
@@ -111,13 +111,13 @@ public class FeatureFlagServiceImpl implements FeatureFlagService {
         for (FeatureFlag flag : featureFlags) {
             if (flag == null) continue;
 
-            // Match only the user's (single) role
+            // Match only primary role; organization rows can override per feature in createDto().
             List<FeatureFlagRole> matchedRoles = new ArrayList<>();
             List<FeatureFlagRole> flagRoles = flag.getRoles();
             if (flagRoles != null && primaryRole != null) {
                 for (FeatureFlagRole role : flagRoles) {
                     if (role == null || role.getRoleName() == null) continue;
-                    if (primaryRole.equals(role.getRoleName())) {
+                    if (primaryRole.equalsIgnoreCase(role.getRoleName())) {
                         matchedRoles.add(role);
                         break;
                     }
@@ -259,16 +259,33 @@ public class FeatureFlagServiceImpl implements FeatureFlagService {
             return List.of();
         }
 
-        // Query FeatureFlagCompany where featureFlag matches the role's featureFlag
-        List<FeatureFlagCompany> matchedCompanies = new ArrayList<>();
-        for (String roleName : rolesFromContext) {
-            if (roleName != null && !roleName.isBlank()) {
-                List<FeatureFlagCompany> companies = featureFlagCompanyRepository.findByRoleName(roleName.toUpperCase());
-                matchedCompanies.addAll(companies);
+        final boolean canManageAllOrganizations = rolesFromContext.stream()
+                .anyMatch(r -> "ROLE_VIMA_ADMIN".equalsIgnoreCase(r)
+                        || "ROLE_SUPER_ADMIN".equalsIgnoreCase(r)
+                        || "SUPER_ADMIN".equalsIgnoreCase(r));
+
+        List<FeatureFlagCompany> matchedCompanies;
+        if (canManageAllOrganizations) {
+            matchedCompanies = featureFlagCompanyRepository.findAllParentFeaturesWithOrganization();
+        } else {
+            // Same FeatureFlagCompany row can match multiple roles (e.g. flag has both VIMA_ADMIN and HR_ADMIN
+            // in feature_flag_roles). addAll per role would duplicate entries and repeat parents in the API.
+            Map<UUID, FeatureFlagCompany> uniqueCompaniesByRowId = new LinkedHashMap<>();
+            for (String roleName : rolesFromContext) {
+                if (roleName != null && !roleName.isBlank()) {
+                    List<FeatureFlagCompany> companies = featureFlagCompanyRepository.findByRoleName(roleName.toUpperCase());
+                    for (FeatureFlagCompany ffc : companies) {
+                        if (ffc != null && ffc.getId() != null) {
+                            uniqueCompaniesByRowId.putIfAbsent(ffc.getId(), ffc);
+                        }
+                    }
+                }
             }
+            matchedCompanies = new ArrayList<>(uniqueCompaniesByRowId.values());
         }
 
-        log.info("Found {} matched FeatureFlagCompany records", matchedCompanies.size());
+        log.info("Found {} unique FeatureFlagCompany record(s) after de-duplicating by role query overlap",
+                matchedCompanies.size());
 
         // Group by organization
         Map<String, List<FeatureFlagCompany>> groupedByOrg = matchedCompanies.stream()
@@ -288,11 +305,15 @@ public class FeatureFlagServiceImpl implements FeatureFlagService {
             // Get organization name from first entry
             String organizationName = companyFeatures.get(0).getOrganization().getOrganizationName();
 
-            // Build feature DTOs
+            // Build feature DTOs (guard: one DTO per parent flag per org)
             List<FeatureFlagsOrganizationDto> features = new ArrayList<>();
+            Set<UUID> parentFlagIdsSeen = new HashSet<>();
             for (FeatureFlagCompany ffc : companyFeatures) {
                 FeatureFlag flag = ffc.getFeatureFlag();
-                if (flag == null) continue;
+                if (flag == null || flag.getFlagId() == null) continue;
+                if (!parentFlagIdsSeen.add(flag.getFlagId())) {
+                    continue;
+                }
 
                 FeatureFlagsOrganizationDto dto = new FeatureFlagsOrganizationDto();
                 dto.setFlagId(flag.getFlagId() != null ? flag.getFlagId().toString() : null);
@@ -357,21 +378,37 @@ public class FeatureFlagServiceImpl implements FeatureFlagService {
         dto.setFlagId(flag.getFlagId() != null ? flag.getFlagId().toString() : null);
         dto.setFlagKey(flag.getFlagKey());
         dto.setDescription(flag.getDescription());
-        // Active if there is at least one matched role
-        boolean isActiveOrSuperAdmin = matchedRoles.stream().anyMatch(FeatureFlagRole::getIsActive) || isSuperAdmin;
-        dto.setIsActive(isActiveOrSuperAdmin);
-        dto.setIsEnabled(isActiveOrSuperAdmin);
+        // Start with role-specific settings, then override with organization-specific settings when present.
+        List<FeatureFlagCompany> safeMatchedCompanies = matchedCompanies != null ? matchedCompanies : List.of();
+        boolean hasOrgOverride = !safeMatchedCompanies.isEmpty();
+        boolean roleActive = matchedRoles.stream().anyMatch(r -> Boolean.TRUE.equals(r.getIsActive()));
+        boolean companyActive = safeMatchedCompanies.stream()
+                .filter(Objects::nonNull)
+                .map(FeatureFlagCompany::getIsActive)
+                .anyMatch(Boolean.TRUE::equals);
+        boolean isEnabled = roleActive;
+        if (hasOrgOverride) {
+            isEnabled = companyActive;
+        }
+        if (isSuperAdmin) {
+            isEnabled = true;
+        }
+        dto.setIsActive(isEnabled);
+        dto.setIsEnabled(isEnabled);
 
-        // Collect actions without duplicates (preserve order)
+        // Collect actions without duplicates (preserve order). Org overrides role when present.
         Set<String> actionsSet = new LinkedHashSet<>();
         for (FeatureFlagRole r : matchedRoles) {
             if (r.getActions() != null) {
                 actionsSet.addAll(List.of(r.getActions()));
             }
         }
-        for (FeatureFlagCompany c : matchedCompanies) {
-            if (c.getActions() != null) {
-                actionsSet.addAll(Arrays.asList(c.getActions()));
+        if (hasOrgOverride) {
+            actionsSet.clear();
+            for (FeatureFlagCompany c : safeMatchedCompanies) {
+                if (c.getActions() != null) {
+                    actionsSet.addAll(Arrays.asList(c.getActions()));
+                }
             }
         }
         if (isSuperAdmin && actionsSet.isEmpty()) {
@@ -387,7 +424,7 @@ public class FeatureFlagServiceImpl implements FeatureFlagService {
         dto.setActions(new ArrayList<>(actionsSet));
 
         List<FeatureFlagResponseDto.CompanyDto> companyDtos = new ArrayList<>();
-        for (FeatureFlagCompany c : matchedCompanies) {
+        for (FeatureFlagCompany c : safeMatchedCompanies) {
             FeatureFlagResponseDto.CompanyDto cd = getCompanyDto(flag, c);
             companyDtos.add(cd);
         }
@@ -630,6 +667,82 @@ public class FeatureFlagServiceImpl implements FeatureFlagService {
             log.info("Successfully updated {} feature flag companies", companiesToUpdate.size());
         } else {
             log.info("No feature flag companies to update for organization: {}", organizationId);
+        }
+    }
+
+    private static final String HR_ADMIN_ROLE_NAME = "ROLE_HR_ADMIN";
+
+    @Override
+    @Transactional
+    public void seedOrganizationFeaturesFromHrAdminRole(String organizationId) {
+        UUID orgUuid;
+        try {
+            orgUuid = UUID.fromString(organizationId);
+        } catch (IllegalArgumentException e) {
+            log.error("Invalid organizationId format: {}", organizationId);
+            throw new IllegalArgumentException("Invalid organizationId format: " + organizationId);
+        }
+
+        Organization organization = iOrganizationRepository.findByOrganizationId(orgUuid).orElseThrow(() -> {
+            log.warn("Organization not found for id {}", organizationId);
+            return new IllegalArgumentException("Organization not found: " + organizationId);
+        });
+
+        List<FeatureFlagRole> hrRoleRows = featureFlagRoleRepository.findAllByRoleName(HR_ADMIN_ROLE_NAME);
+        if (hrRoleRows.isEmpty()) {
+            log.warn("No feature_flag_roles rows for {}; skipping org seed", HR_ADMIN_ROLE_NAME);
+            return;
+        }
+
+        List<FeatureFlagCompany> existingForOrg = featureFlagCompanyRepository.findByOrganizationId(orgUuid);
+        Map<UUID, FeatureFlagCompany> existingByFlagId = existingForOrg.stream()
+                .filter(Objects::nonNull)
+                .filter(c -> c.getFeatureFlag() != null && c.getFeatureFlag().getFlagId() != null)
+                .collect(Collectors.toMap(
+                        c -> c.getFeatureFlag().getFlagId(),
+                        c -> c,
+                        (a, b) -> a,
+                        LinkedHashMap::new
+                ));
+
+        // Upsert org rows from HR Admin template: add missing + update existing.
+        List<FeatureFlagCompany> rowsToSave = new ArrayList<>();
+        int created = 0;
+        int updated = 0;
+        for (FeatureFlagRole tmpl : hrRoleRows) {
+            if (tmpl == null || tmpl.getFeatureFlag() == null || tmpl.getFeatureFlag().getFlagId() == null) {
+                continue;
+            }
+            FeatureFlag flag = tmpl.getFeatureFlag();
+            UUID flagId = flag.getFlagId();
+            FeatureFlagCompany existing = existingByFlagId.get(flagId);
+            if (existing == null) {
+                FeatureFlagCompany row = new FeatureFlagCompany();
+                row.setId(UUID.randomUUID());
+                row.setOrganization(organization);
+                row.setFeatureFlag(flag);
+                row.setIsActive(Boolean.TRUE.equals(tmpl.getIsActive()));
+                row.setActions(tmpl.getActions() != null
+                        ? Arrays.copyOf(tmpl.getActions(), tmpl.getActions().length)
+                        : null);
+                rowsToSave.add(row);
+                created++;
+            } else {
+                existing.setIsActive(Boolean.TRUE.equals(tmpl.getIsActive()));
+                existing.setActions(tmpl.getActions() != null
+                        ? Arrays.copyOf(tmpl.getActions(), tmpl.getActions().length)
+                        : null);
+                rowsToSave.add(existing);
+                updated++;
+            }
+        }
+
+        if (!rowsToSave.isEmpty()) {
+            featureFlagCompanyRepository.saveAll(rowsToSave);
+            log.info("Synced feature_flag_companies for organization {} from {} (created={}, updated={}, total={})",
+                    organizationId, HR_ADMIN_ROLE_NAME, created, updated, rowsToSave.size());
+        } else {
+            log.debug("No feature_flag_companies rows to sync for organization {}", organizationId);
         }
     }
 }

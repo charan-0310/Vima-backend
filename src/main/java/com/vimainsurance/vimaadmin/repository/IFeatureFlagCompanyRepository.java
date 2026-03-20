@@ -26,6 +26,16 @@ public interface IFeatureFlagCompanyRepository extends JpaRepository<FeatureFlag
     List<FeatureFlagCompany> findByRoleName(@Param("roleName") String roleName);
 
     /**
+     * For feature management screens where VIMA_ADMIN can edit org flags, return all parent-level
+     * organization feature rows regardless of role mapping.
+     */
+    @Query("SELECT DISTINCT ffc FROM FeatureFlagCompany ffc " +
+            "JOIN FETCH ffc.featureFlag ff " +
+            "JOIN FETCH ffc.organization org " +
+            "WHERE ff.parentFeatureFlag IS NULL")
+    List<FeatureFlagCompany> findAllParentFeaturesWithOrganization();
+
+    /**
      * Find all FeatureFlagCompany records by organization ID and flag IDs
      */
     @Query("SELECT ffc FROM FeatureFlagCompany ffc " +
