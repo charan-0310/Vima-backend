@@ -1,52 +1,29 @@
--- Add dedicated feature flag for enrollment configuration management.
+-- Feature flag for enrollment config under group-insurance.enrollment
 INSERT INTO admin.feature_flags (flag_id, flag_key, description, parent_flag_id, is_active)
-SELECT
+VALUES (
     'b505c605-d706-e807-f908-a009b101c111',
-    'enrollment.config',
+    'group-insurance.enrollment-config',
     'Enrollment configuration management (company enrollment config)',
-    'a1b2c3d4-e5f6-4789-a012-3456789abcde',
-    FALSE
-WHERE NOT EXISTS (
-    SELECT 1
-    FROM admin.feature_flags
-    WHERE flag_key = 'enrollment.config'
+    '11112222-3333-4444-5555-666677778888',
+    TRUE
 );
 
--- Add role mappings so the feature appears in Feature Management.
+-- VIMA_ADMIN: read and write actions, enabled by default
 INSERT INTO admin.feature_flag_roles (id, flag_id, role_name, is_active, actions)
-SELECT
-    gen_random_uuid(),
+VALUES (
+    'e605f706-a807-4908-b109-c210d311e412',
     'b505c605-d706-e807-f908-a009b101c111',
     'ROLE_VIMA_ADMIN',
     TRUE,
-    ARRAY['READ','WRITE','APPROVE']::permission_action[]
-WHERE EXISTS (
-    SELECT 1
-    FROM admin.feature_flags
-    WHERE flag_id = 'b505c605-d706-e807-f908-a009b101c111'
-)
-AND NOT EXISTS (
-    SELECT 1
-    FROM admin.feature_flag_roles
-    WHERE flag_id = 'b505c605-d706-e807-f908-a009b101c111'
-      AND role_name = 'ROLE_VIMA_ADMIN'
+    ARRAY['READ','WRITE']::permission_action[]
 );
 
+-- HR_ADMIN: read and write actions, enabled by default
 INSERT INTO admin.feature_flag_roles (id, flag_id, role_name, is_active, actions)
-SELECT
-    gen_random_uuid(),
+VALUES (
+    'f706a807-b908-4a10-c211-d312e413f514',
     'b505c605-d706-e807-f908-a009b101c111',
     'ROLE_HR_ADMIN',
-    FALSE,
+    TRUE,
     ARRAY['READ','WRITE']::permission_action[]
-WHERE EXISTS (
-    SELECT 1
-    FROM admin.feature_flags
-    WHERE flag_id = 'b505c605-d706-e807-f908-a009b101c111'
-)
-AND NOT EXISTS (
-    SELECT 1
-    FROM admin.feature_flag_roles
-    WHERE flag_id = 'b505c605-d706-e807-f908-a009b101c111'
-      AND role_name = 'ROLE_HR_ADMIN'
 );
