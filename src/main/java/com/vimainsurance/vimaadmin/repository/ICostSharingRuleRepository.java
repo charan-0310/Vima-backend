@@ -34,6 +34,12 @@ public interface ICostSharingRuleRepository extends JpaRepository<CostSharingRul
 
     List<CostSharingRule> findByCompanyId(UUID companyId);
 
+    boolean existsByCompanyIdAndPlanTypeAndCoverageCategoryAndEffectiveFrom(
+            UUID companyId,
+            String planType,
+            CoverageCategory coverageCategory,
+            LocalDate effectiveFrom);
+
     @Modifying
     @Query("UPDATE CostSharingRule c SET c.isDeleted = true, c.updatedAt = CURRENT_TIMESTAMP WHERE c.id = :id")
     int softDeleteById(@Param("id") UUID id);

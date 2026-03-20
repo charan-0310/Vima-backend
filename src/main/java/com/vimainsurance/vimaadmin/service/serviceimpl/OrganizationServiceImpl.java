@@ -1,6 +1,8 @@
 package com.vimainsurance.vimaadmin.service.serviceimpl;
 
 import java.io.InputStream;
+import java.math.BigDecimal;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -28,6 +30,7 @@ import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
@@ -51,19 +54,23 @@ import com.vimainsurance.vimaadmin.dto.ResponseDto;
 import com.vimainsurance.vimaadmin.entity.AdminUser;
 import com.vimainsurance.vimaadmin.exception.OrganizationAccessDeniedException;
 import com.vimainsurance.vimaadmin.entity.DealEndorsement;
+import com.vimainsurance.vimaadmin.entity.CostSharingRule;
 import com.vimainsurance.vimaadmin.entity.Deals;
 import com.vimainsurance.vimaadmin.entity.Document;
 import com.vimainsurance.vimaadmin.entity.Organization;
 import com.vimainsurance.vimaadmin.enums.AccountStatus;
+import com.vimainsurance.vimaadmin.enums.CoverageCategory;
 import com.vimainsurance.vimaadmin.enums.DocumentCategory;
 import com.vimainsurance.vimaadmin.enums.DocumentEntityType;
 import com.vimainsurance.vimaadmin.enums.DocumentType;
+import com.vimainsurance.vimaadmin.enums.EmployerShareType;
 import com.vimainsurance.vimaadmin.enums.Industry;
 import com.vimainsurance.vimaadmin.enums.UserRole;
 import com.vimainsurance.vimaadmin.repository.IAdminUserRepository;
 import com.vimainsurance.vimaadmin.repository.IDealEndorsementRepository;
 import com.vimainsurance.vimaadmin.repository.IDealsRepository;
 import com.vimainsurance.vimaadmin.repository.IDocumentRepository;
+import com.vimainsurance.vimaadmin.repository.ICostSharingRuleRepository;
 import com.vimainsurance.vimaadmin.repository.IOrganizationRepository;
 import com.vimainsurance.vimaadmin.repository.IPolicyRepository;
 import com.vimainsurance.vimaadmin.service.IDocumentService;
@@ -125,6 +132,9 @@ public class OrganizationServiceImpl implements IOrganizationService {
     @Autowired
     private ObjectMapper objectMapper;
 
+    @Autowired
+    private ICostSharingRuleRepository costSharingRuleRepository;
+
     @Override
     @Transactional(rollbackFor = Exception.class)
     @AuditedOperation(schemaName = "cpc", tableName = "organizations", entityType = "ORGANIZATION", action = "CREATE")
@@ -151,6 +161,7 @@ public class OrganizationServiceImpl implements IOrganizationService {
                 org.setIndustry(Industry.fromValue(requestDto.getIndustry()));
             }
             Organization savedOrg = organizationRepository.save(org);
+            seedDefaultCostSharingRules(savedOrg.getOrganizationId());
             String orgGroupName = "ORG_" + savedOrg.getOrganizationName().trim().toUpperCase().replaceAll("[^A-Z0-9]", "_");
             keycloakUtil.createGroup(orgGroupName, Map.of("organization_id", List.of(savedOrg.getOrganizationId().toString())));
             return responseObj.render(responseObj.formSuccessResponse(Constants.SUCCESS, Constants.SAVE_SUCCESS));
@@ -640,6 +651,62 @@ public class OrganizationServiceImpl implements IOrganizationService {
             case "updatedat", "updated_at", "updated", "lastactivity", "last_activity" -> "updatedAt";
             default -> "updatedAt"; // Default fallback
         };
+    }
+
+    private void seedDefaultCostSharingRules(UUID organizationId) {
+        LocalDate effectiveFrom = LocalDate.now();
+        List<CostSharingRule> defaults = buildDefaultCostSharingRules(organizationId, effectiveFrom);
+        for (CostSharingRule rule : defaults) {
+            boolean exists = costSharingRuleRepository.existsByCompanyIdAndPlanTypeAndCoverageCategoryAndEffectiveFrom(
+                    rule.getCompanyId(),
+                    rule.getPlanType(),
+                    rule.getCoverageCategory(),
+                    rule.getEffectiveFrom());
+            if (exists) {
+                continue;
+            }
+            try {
+                costSharingRuleRepository.save(rule);
+            } catch (DataIntegrityViolationException ex) {
+                logger.info("[correlationId:{}] Default cost-sharing rule already exists for org {} plan {} category {} effectiveFrom {}",
+                        MDC.get("correlationId"),
+                        organizationId,
+                        rule.getPlanType(),
+                        rule.getCoverageCategory(),
+                        rule.getEffectiveFrom());
+            }
+        }
+    }
+
+    private List<CostSharingRule> buildDefaultCostSharingRules(UUID organizationId, LocalDate effectiveFrom) {
+        return List.of(
+                defaultRule(organizationId, "GMC", CoverageCategory.SELF, BigDecimal.valueOf(100), effectiveFrom),
+                defaultRule(organizationId, "GMC", CoverageCategory.SPOUSE, BigDecimal.valueOf(100), effectiveFrom),
+                defaultRule(organizationId, "GMC", CoverageCategory.CHILD, BigDecimal.valueOf(100), effectiveFrom),
+                defaultRule(organizationId, "GMC", CoverageCategory.PARENT, BigDecimal.valueOf(100), effectiveFrom),
+                defaultRule(organizationId, "GMC", CoverageCategory.PARENT_IN_LAW, BigDecimal.valueOf(100), effectiveFrom),
+                defaultRule(organizationId, "GPA", CoverageCategory.ALL_DEPENDENTS, BigDecimal.valueOf(100), effectiveFrom),
+                defaultRule(organizationId, "GTL", CoverageCategory.ALL_DEPENDENTS, BigDecimal.valueOf(100), effectiveFrom),
+                defaultRule(organizationId, "TOP_UP", CoverageCategory.SELF, BigDecimal.ZERO, effectiveFrom),
+                defaultRule(organizationId, "SUPER_TOP_UP", CoverageCategory.SELF, BigDecimal.ZERO, effectiveFrom));
+    }
+
+    private CostSharingRule defaultRule(
+            UUID organizationId,
+            String planType,
+            CoverageCategory coverageCategory,
+            BigDecimal employerShareValue,
+            LocalDate effectiveFrom) {
+        return CostSharingRule.builder()
+                .companyId(organizationId)
+                .planType(planType)
+                .coverageCategory(coverageCategory)
+                .employerShareType(EmployerShareType.PERCENTAGE)
+                .employerShareValue(employerShareValue)
+                .effectiveFrom(effectiveFrom)
+                .effectiveTo(null)
+                .isDeleted(false)
+                .build();
     }
 
     private OrganizationResponseDto mapToResponseDto(Organization org) {
