@@ -8,8 +8,12 @@ import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
 import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 
 import org.slf4j.Logger;
@@ -194,7 +198,9 @@ public class PremiumRateTableServiceImpl implements IPremiumRateTableService {
                 }
                 String[] headers = parseCsvLine(headerLine);
                 int totalRows = 0;
-                java.util.Set<String> seenPlanMemberKeys = new java.util.HashSet<>();
+                Set<String> seenUniqueKeys = new HashSet<>();
+                Map<String, List<PremiumRateTable>> existingAgeBandRowsByBucket = buildExistingAgeBandBucketMap(companyId);
+                Map<String, List<PremiumRateTable>> parsedAgeBandRowsByBucket = new HashMap<>();
                 String line;
                 while ((line = reader.readLine()) != null) {
                     totalRows++;
@@ -202,17 +208,41 @@ public class PremiumRateTableServiceImpl implements IPremiumRateTableService {
                     try {
                         PremiumRateTable row = parseRow(companyId, headers, parseCsvLine(line), totalRows, errors);
                         if (row != null) {
-                            String planType = row.getProductType() != null ? row.getProductType().trim().toUpperCase() : "";
-                            String memberType = row.getMemberType() != null ? row.getMemberType().trim().toUpperCase() : "";
-                            String key = planType + "|" + memberType;
-                            if (!seenPlanMemberKeys.add(key)) {
+                            if (!validateModelSpecificRow(row, totalRows, errors)) {
+                                continue;
+                            }
+                            String uniqueKey = buildUniquenessKey(row);
+                            if (!seenUniqueKeys.add(uniqueKey)) {
                                 errors.add(PremiumRateTableCsvUploadResultDto.RowError.builder()
                                         .rowIndex(totalRows)
-                                        .message("Duplicate plan type + member type (e.g. same plan and SELF twice). Each combination must appear only once.")
+                                        .message("Duplicate row for the same pricing bucket.")
                                         .build());
-                            } else {
-                                toSave.add(row);
+                                continue;
                             }
+                            if (row.getPricingModel() == PricingModel.AGE_BANDED) {
+                                String bucketKey = buildAgeBandBucketKey(row);
+                                if (hasAgeBandOverlap(row, parsedAgeBandRowsByBucket.get(bucketKey))
+                                        || hasAgeBandOverlap(row, existingAgeBandRowsByBucket.get(bucketKey))) {
+                                    errors.add(PremiumRateTableCsvUploadResultDto.RowError.builder()
+                                            .rowIndex(totalRows)
+                                            .message("Overlapping age band range for the same plan/member/sum insured/effective dates.")
+                                            .build());
+                                    continue;
+                                }
+                                parsedAgeBandRowsByBucket.computeIfAbsent(bucketKey, k -> new ArrayList<>()).add(row);
+                                existingAgeBandRowsByBucket.computeIfAbsent(bucketKey, k -> new ArrayList<>()).add(row);
+                            }
+                            if (row.getPricingModel() == PricingModel.FAMILY_FLOATER) {
+                                String bucketKey = buildFamilyFloaterBucketKey(row);
+                                if (hasFamilySizeOverlap(row, toSave, bucketKey)) {
+                                    errors.add(PremiumRateTableCsvUploadResultDto.RowError.builder()
+                                            .rowIndex(totalRows)
+                                            .message("Overlapping family size range for the same plan/sum insured/effective dates.")
+                                            .build());
+                                    continue;
+                                }
+                            }
+                            toSave.add(row);
                         }
                     } catch (Exception e) {
                         errors.add(PremiumRateTableCsvUploadResultDto.RowError.builder()
@@ -237,6 +267,148 @@ public class PremiumRateTableServiceImpl implements IPremiumRateTableService {
             log.error("uploadCsv premium rate table error: {}", e.getMessage(), e);
             return responseObj.render(responseObj.formErrorResponse("CSV upload failed: " + e.getMessage()));
         }
+    }
+
+    private Map<String, List<PremiumRateTable>> buildExistingAgeBandBucketMap(UUID companyId) {
+        List<PremiumRateTable> existingRows = repository.findByOrganizationId(companyId);
+        Map<String, List<PremiumRateTable>> byBucket = new HashMap<>();
+        for (PremiumRateTable row : existingRows) {
+            PricingModel model = row.getPricingModel() != null ? row.getPricingModel() : PricingModel.FLAT;
+            if (model != PricingModel.AGE_BANDED) {
+                continue;
+            }
+            String bucket = buildAgeBandBucketKey(row);
+            byBucket.computeIfAbsent(bucket, k -> new ArrayList<>()).add(row);
+        }
+        return byBucket;
+    }
+
+    private static boolean validateModelSpecificRow(PremiumRateTable row, int rowNum, List<PremiumRateTableCsvUploadResultDto.RowError> errors) {
+        PricingModel model = row.getPricingModel() != null ? row.getPricingModel() : PricingModel.FLAT;
+        if (model == PricingModel.AGE_BANDED) {
+            if (row.getAgeBandMin() == null || row.getAgeBandMax() == null) {
+                errors.add(PremiumRateTableCsvUploadResultDto.RowError.builder()
+                        .rowIndex(rowNum)
+                        .message("age_band_min and age_band_max are required for AGE_BANDED rows")
+                        .build());
+                return false;
+            }
+            if (row.getAgeBandMin() > row.getAgeBandMax()) {
+                errors.add(PremiumRateTableCsvUploadResultDto.RowError.builder()
+                        .rowIndex(rowNum)
+                        .message("age_band_min must be less than or equal to age_band_max")
+                        .build());
+                return false;
+            }
+        } else if (model == PricingModel.FAMILY_FLOATER) {
+            if (row.getFamilySizeMin() == null) {
+                errors.add(PremiumRateTableCsvUploadResultDto.RowError.builder()
+                        .rowIndex(rowNum)
+                        .message("family_size_min is required for FAMILY_FLOATER rows")
+                        .build());
+                return false;
+            }
+            if (row.getFamilySizeMax() != null && row.getFamilySizeMin() > row.getFamilySizeMax()) {
+                errors.add(PremiumRateTableCsvUploadResultDto.RowError.builder()
+                        .rowIndex(rowNum)
+                        .message("family_size_min must be less than or equal to family_size_max")
+                        .build());
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private static boolean hasAgeBandOverlap(PremiumRateTable row, List<PremiumRateTable> rows) {
+        if (rows == null || rows.isEmpty()) {
+            return false;
+        }
+        for (PremiumRateTable existing : rows) {
+            if (rangesOverlap(
+                    row.getAgeBandMin(),
+                    row.getAgeBandMax(),
+                    existing.getAgeBandMin(),
+                    existing.getAgeBandMax())) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static boolean hasFamilySizeOverlap(PremiumRateTable row, List<PremiumRateTable> rows, String expectedBucket) {
+        if (rows == null || rows.isEmpty()) {
+            return false;
+        }
+        for (PremiumRateTable existing : rows) {
+            if (!expectedBucket.equals(buildFamilyFloaterBucketKey(existing))) {
+                continue;
+            }
+            if (rangesOverlap(
+                    row.getFamilySizeMin(),
+                    row.getFamilySizeMax(),
+                    existing.getFamilySizeMin(),
+                    existing.getFamilySizeMax())) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static boolean rangesOverlap(Integer minA, Integer maxA, Integer minB, Integer maxB) {
+        if (minA == null || minB == null) {
+            return false;
+        }
+        long upperA = maxA != null ? maxA : Long.MAX_VALUE;
+        long upperB = maxB != null ? maxB : Long.MAX_VALUE;
+        return minA <= upperB && minB <= upperA;
+    }
+
+    private static String buildUniquenessKey(PremiumRateTable row) {
+        PricingModel model = row.getPricingModel() != null ? row.getPricingModel() : PricingModel.FLAT;
+        String base = normalized(row.getProductType()) + "|"
+                + normalized(row.getMemberType()) + "|"
+                + model.getValue() + "|"
+                + normalizedDate(row.getEffectiveFrom()) + "|"
+                + normalizedDate(row.getEffectiveTo()) + "|"
+                + normalizedDecimal(row.getSumInsuredAmount());
+        if (model == PricingModel.AGE_BANDED) {
+            return base + "|" + normalizedInt(row.getAgeBandMin()) + "|" + normalizedInt(row.getAgeBandMax());
+        }
+        if (model == PricingModel.FAMILY_FLOATER) {
+            return base + "|" + normalizedInt(row.getFamilySizeMin()) + "|" + normalizedInt(row.getFamilySizeMax());
+        }
+        return base;
+    }
+
+    private static String buildAgeBandBucketKey(PremiumRateTable row) {
+        return normalized(row.getProductType()) + "|"
+                + normalized(row.getMemberType()) + "|"
+                + normalizedDate(row.getEffectiveFrom()) + "|"
+                + normalizedDate(row.getEffectiveTo()) + "|"
+                + normalizedDecimal(row.getSumInsuredAmount());
+    }
+
+    private static String buildFamilyFloaterBucketKey(PremiumRateTable row) {
+        return normalized(row.getProductType()) + "|"
+                + normalizedDate(row.getEffectiveFrom()) + "|"
+                + normalizedDate(row.getEffectiveTo()) + "|"
+                + normalizedDecimal(row.getSumInsuredAmount());
+    }
+
+    private static String normalized(String value) {
+        return value == null ? "" : value.trim().toUpperCase();
+    }
+
+    private static String normalizedDate(LocalDate value) {
+        return value == null ? "" : value.toString();
+    }
+
+    private static String normalizedDecimal(BigDecimal value) {
+        return value == null ? "" : value.stripTrailingZeros().toPlainString();
+    }
+
+    private static String normalizedInt(Integer value) {
+        return value == null ? "" : String.valueOf(value);
     }
 
     private static String[] parseCsvLine(String line) {
@@ -284,7 +456,7 @@ public class PremiumRateTableServiceImpl implements IPremiumRateTableService {
         }
         BigDecimal rate;
         try {
-            rate = new BigDecimal(rateStr.trim());
+            rate = parseDecimalStrict(rateStr);
         } catch (NumberFormatException e) {
             errors.add(PremiumRateTableCsvUploadResultDto.RowError.builder().rowIndex(rowNum).message("Invalid rate").build());
             return null;
@@ -376,10 +548,18 @@ public class PremiumRateTableServiceImpl implements IPremiumRateTableService {
     private static BigDecimal parseDecimal(String s) {
         if (s == null || s.isBlank()) return null;
         try {
-            return new BigDecimal(s.trim());
+            return parseDecimalStrict(s);
         } catch (NumberFormatException e) {
             return null;
         }
+    }
+
+    private static BigDecimal parseDecimalStrict(String value) {
+        if (value == null) {
+            throw new NumberFormatException("null");
+        }
+        String normalized = value.trim().replace(",", "");
+        return new BigDecimal(normalized);
     }
 
     /**

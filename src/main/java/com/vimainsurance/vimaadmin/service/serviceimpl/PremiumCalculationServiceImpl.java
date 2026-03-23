@@ -5,6 +5,7 @@ import java.math.RoundingMode;
 import java.time.LocalDate;
 import java.time.Period;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -87,7 +88,8 @@ public class PremiumCalculationServiceImpl implements IPremiumCalculationService
         if (forPlan.isEmpty()) {
             throw new IllegalArgumentException("No rate found for company " + companyId + ", plan " + planType);
         }
-        PricingModel model = forPlan.get(0).getPricingModel();
+        forPlan = sortRatesDeterministically(forPlan);
+        PricingModel model = resolveEffectiveModel(forPlan);
         if (model == null) {
             model = PricingModel.FLAT;
         }
@@ -122,6 +124,7 @@ public class PremiumCalculationServiceImpl implements IPremiumCalculationService
         if (forPlan.isEmpty()) {
             throw new IllegalArgumentException("No rate found for company " + companyId + ", plan " + planType);
         }
+        forPlan = sortRatesDeterministically(forPlan);
         // Prefer dedicated TOP_UP/SUPER_TOP_UP rate when present; otherwise use GMC fallback
         String planUpper = planType != null ? planType.trim().toUpperCase() : "";
         if ("TOP_UP".equals(planUpper) || "SUPER_TOP_UP".equals(planUpper)) {
@@ -146,7 +149,8 @@ public class PremiumCalculationServiceImpl implements IPremiumCalculationService
                 throw new IllegalArgumentException("No parent rate found for company " + companyId + "; add premium_rate_tables with product_type GMC and member_type 'parent' (or 'parent_in_law') for age bands.");
             }
         }
-        PricingModel model = forPlan.get(0).getPricingModel();
+        forPlan = sortRatesDeterministically(forPlan);
+        PricingModel model = resolveEffectiveModel(forPlan);
         if (model == null) {
             model = PricingModel.FLAT;
         }
@@ -292,9 +296,7 @@ public class PremiumCalculationServiceImpl implements IPremiumCalculationService
                             membersForPlan);
                 }
                 BigDecimal planTotalPremium = b.premium();
-                String coverageCategory = "PARENT_GMC".equals(planUpper)
-                        ? CoverageCategory.PARENT.getValue()
-                        : resolveCoverageCategoryForCostSharing(membersForPlan);
+                String coverageCategory = resolveCoverageCategoryForCostSharing(membersForPlan);
                 var split = costSharingRuleService.applyCostSharing(
                         context.getCompanyId(),
                         selPlanType,
@@ -511,6 +513,39 @@ public class PremiumCalculationServiceImpl implements IPremiumCalculationService
         if (hasParent) return CoverageCategory.PARENT.getValue();
         if (hasParentInLaw) return CoverageCategory.PARENT_IN_LAW.getValue();
         return CoverageCategory.ALL_DEPENDENTS.getValue();
+    }
+
+    private static PricingModel resolveEffectiveModel(List<PremiumRateTable> rows) {
+        if (rows == null || rows.isEmpty()) {
+            return PricingModel.FLAT;
+        }
+        for (PremiumRateTable row : rows) {
+            if (row.getPricingModel() != null) {
+                return row.getPricingModel();
+            }
+        }
+        return PricingModel.FLAT;
+    }
+
+    private static List<PremiumRateTable> sortRatesDeterministically(List<PremiumRateTable> rows) {
+        return rows.stream()
+                .sorted(Comparator
+                        .comparing((PremiumRateTable r) -> nullSafeString(r.getProductType()))
+                        .thenComparing(r -> nullSafeString(r.getMemberType()))
+                        .thenComparing(r -> r.getPricingModel() != null ? r.getPricingModel().getValue() : "")
+                        .thenComparing(r -> r.getAgeBandMin() != null ? r.getAgeBandMin() : Integer.MIN_VALUE)
+                        .thenComparing(r -> r.getAgeBandMax() != null ? r.getAgeBandMax() : Integer.MAX_VALUE)
+                        .thenComparing(r -> r.getFamilySizeMin() != null ? r.getFamilySizeMin() : Integer.MIN_VALUE)
+                        .thenComparing(r -> r.getFamilySizeMax() != null ? r.getFamilySizeMax() : Integer.MAX_VALUE)
+                        .thenComparing(r -> r.getEffectiveFrom() != null ? r.getEffectiveFrom() : LocalDate.MIN)
+                        .thenComparing(r -> r.getEffectiveTo() != null ? r.getEffectiveTo() : LocalDate.MAX)
+                        .thenComparing(r -> r.getCreatedAt() != null ? r.getCreatedAt() : java.time.LocalDateTime.MIN)
+                        .thenComparing(r -> r.getId() != null ? r.getId().toString() : ""))
+                .toList();
+    }
+
+    private static String nullSafeString(String value) {
+        return value == null ? "" : value.trim().toUpperCase();
     }
 
     private List<MemberInfo> buildMemberList(LocalDate employeeDob, List<PremiumCalculationRequestDto.DependentItemDto> dependents) {

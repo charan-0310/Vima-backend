@@ -99,7 +99,7 @@ class OrganizationServiceImplTest {
     }
 
     @Test
-    void create_shouldSeedNineDefaultCostSharingRules_whenNoExistingRules() {
+    void create_shouldSeedEightDefaultCostSharingRules_whenNoExistingRules() {
         when(organizationRepository.findByOrganizationName("Acme Ltd")).thenReturn(Optional.empty());
         when(organizationRepository.save(any(Organization.class))).thenReturn(savedOrg);
         when(costSharingRuleRepository.existsByCompanyIdAndPlanTypeAndCoverageCategoryAndEffectiveFrom(
@@ -110,9 +110,9 @@ class OrganizationServiceImplTest {
 
         assertEquals(HttpStatus.OK, response.getStatusCode());
         ArgumentCaptor<CostSharingRule> captor = ArgumentCaptor.forClass(CostSharingRule.class);
-        verify(costSharingRuleRepository, times(9)).save(captor.capture());
+        verify(costSharingRuleRepository, times(8)).save(captor.capture());
         List<CostSharingRule> inserted = captor.getAllValues();
-        assertEquals(9, inserted.size());
+        assertEquals(8, inserted.size());
 
         long hundredPercent = inserted.stream()
                 .filter(r -> BigDecimal.valueOf(100).compareTo(r.getEmployerShareValue()) == 0)
@@ -120,7 +120,7 @@ class OrganizationServiceImplTest {
         long zeroPercent = inserted.stream()
                 .filter(r -> BigDecimal.ZERO.compareTo(r.getEmployerShareValue()) == 0)
                 .count();
-        assertEquals(7, hundredPercent);
+        assertEquals(6, hundredPercent);
         assertEquals(2, zeroPercent);
         verify(keycloakUtil, times(1)).createGroup(any(String.class), any(Map.class));
     }
