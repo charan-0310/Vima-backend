@@ -40,3 +40,7 @@ zoho_sdk_logger/
 ### Local profile configs with secrets ###
 application-test.properties
 application-local.properties
+
+# Cursor local-only overrides
+CLAUDE.local.md
+.cursor/settings.local.json

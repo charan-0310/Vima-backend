@@ -16,6 +16,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.slf4j.MDC;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.http.ResponseEntity;
@@ -33,6 +34,7 @@ import com.vimainsurance.vimaadmin.dto.PolicyUploadRequestDto;
 import com.vimainsurance.vimaadmin.dto.ProductCatalogRequestDto;
 import com.vimainsurance.vimaadmin.dto.ResponseDto;
 import com.vimainsurance.vimaadmin.entity.AdminUser;
+import com.vimainsurance.vimaadmin.entity.CostSharingRule;
 import com.vimainsurance.vimaadmin.entity.Deals;
 import com.vimainsurance.vimaadmin.entity.Document;
 import com.vimainsurance.vimaadmin.entity.Nominee;
@@ -40,10 +42,12 @@ import com.vimainsurance.vimaadmin.entity.Policy;
 import com.vimainsurance.vimaadmin.entity.ProductCatalog;
 import com.vimainsurance.vimaadmin.enums.AccountStatus;
 import com.vimainsurance.vimaadmin.enums.AccountType;
+import com.vimainsurance.vimaadmin.enums.CoverageCategory;
 import com.vimainsurance.vimaadmin.enums.CoverageType;
 import com.vimainsurance.vimaadmin.enums.DocumentCategory;
 import com.vimainsurance.vimaadmin.enums.DocumentEntityType;
 import com.vimainsurance.vimaadmin.enums.DocumentType;
+import com.vimainsurance.vimaadmin.enums.EmployerShareType;
 import com.vimainsurance.vimaadmin.enums.PaymentFrequency;
 import com.vimainsurance.vimaadmin.enums.PolicyStatus;
 import com.vimainsurance.vimaadmin.enums.ProductType;
@@ -53,6 +57,7 @@ import com.vimainsurance.vimaadmin.repository.IAdminUserRepository;
 import com.vimainsurance.vimaadmin.repository.IDealsRepository;
 import com.vimainsurance.vimaadmin.repository.IDocumentRepository;
 import com.vimainsurance.vimaadmin.repository.IInsuranceProviderRepository;
+import com.vimainsurance.vimaadmin.repository.ICostSharingRuleRepository;
 import com.vimainsurance.vimaadmin.repository.IMotorPolicyDetailsRepository;
 import com.vimainsurance.vimaadmin.repository.INomineeRepository;
 import com.vimainsurance.vimaadmin.repository.IPolicyRepository;
@@ -110,6 +115,9 @@ public class PolicyServiceImpl implements IPolicyService {
 
     @Autowired
     private IProductCatalogRepository productCatalogRepository;
+
+    @Autowired
+    private ICostSharingRuleRepository costSharingRuleRepository;
 
     @Override
     @Transactional(rollbackFor = Exception.class)
@@ -274,6 +282,7 @@ public class PolicyServiceImpl implements IPolicyService {
             if (policyType == ProductType.PARENT_GMC) {
                 createProductCatalogForParentGmc(savedPolicy);
             }
+            seedMissingDefaultCostSharingRules(savedPolicy.getOrganizationId());
 
             return responseObj.render(responseObj.formSuccessResponse(Constants.SUCCESS, Constants.SAVE_SUCCESS));
         } catch (BadRequestException e) {
@@ -1040,6 +1049,7 @@ public class PolicyServiceImpl implements IPolicyService {
             if (productType == ProductType.PARENT_GMC) {
                 createProductCatalogForParentGmc(savedPolicy);
             }
+            seedMissingDefaultCostSharingRules(savedPolicy.getOrganizationId());
 
             // Upload documents if provided (agent already looked up above when files present)
             if (requestDto.getFiles() != null && requestDto.getFiles().length > 0 && agent != null) {
@@ -1148,5 +1158,60 @@ public class PolicyServiceImpl implements IPolicyService {
         } catch (com.fasterxml.jackson.core.JsonProcessingException e) {
             return null;
         }
+    }
+
+    private void seedMissingDefaultCostSharingRules(UUID organizationId) {
+        if (organizationId == null) {
+            return;
+        }
+        LocalDate effectiveFrom = LocalDate.now();
+        List<CostSharingRule> defaults = List.of(
+                defaultRule(organizationId, "GMC", CoverageCategory.SELF, BigDecimal.valueOf(100), effectiveFrom),
+                defaultRule(organizationId, "GMC", CoverageCategory.SPOUSE, BigDecimal.valueOf(100), effectiveFrom),
+                defaultRule(organizationId, "GMC", CoverageCategory.CHILD, BigDecimal.valueOf(100), effectiveFrom),
+                defaultRule(organizationId, "GMC", CoverageCategory.PARENT, BigDecimal.valueOf(100), effectiveFrom),
+                defaultRule(organizationId, "GPA", CoverageCategory.ALL_DEPENDENTS, BigDecimal.valueOf(100), effectiveFrom),
+                defaultRule(organizationId, "GTL", CoverageCategory.ALL_DEPENDENTS, BigDecimal.valueOf(100), effectiveFrom),
+                defaultRule(organizationId, "TOP_UP", CoverageCategory.SELF, BigDecimal.ZERO, effectiveFrom),
+                defaultRule(organizationId, "SUPER_TOP_UP", CoverageCategory.SELF, BigDecimal.ZERO, effectiveFrom));
+
+        for (CostSharingRule rule : defaults) {
+            boolean exists = costSharingRuleRepository.existsByCompanyIdAndPlanTypeAndCoverageCategoryAndEffectiveFrom(
+                    rule.getCompanyId(),
+                    rule.getPlanType(),
+                    rule.getCoverageCategory(),
+                    rule.getEffectiveFrom());
+            if (exists) {
+                continue;
+            }
+            try {
+                costSharingRuleRepository.save(rule);
+            } catch (DataIntegrityViolationException ex) {
+                logger.info("[correlationId:{}] Default cost-sharing rule already exists for org {} plan {} category {} effectiveFrom {}",
+                        MDC.get("correlationId"),
+                        rule.getCompanyId(),
+                        rule.getPlanType(),
+                        rule.getCoverageCategory(),
+                        rule.getEffectiveFrom());
+            }
+        }
+    }
+
+    private CostSharingRule defaultRule(
+            UUID organizationId,
+            String planType,
+            CoverageCategory coverageCategory,
+            BigDecimal employerShareValue,
+            LocalDate effectiveFrom) {
+        return CostSharingRule.builder()
+                .companyId(organizationId)
+                .planType(planType)
+                .coverageCategory(coverageCategory)
+                .employerShareType(EmployerShareType.PERCENTAGE)
+                .employerShareValue(employerShareValue)
+                .effectiveFrom(effectiveFrom)
+                .effectiveTo(null)
+                .isDeleted(false)
+                .build();
     }
 }

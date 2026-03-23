@@ -1,0 +1,14 @@
+---
+description: Enforce safe git behavior for collaborative backend development
+alwaysApply: true
+---
+
+# Git Safety Guardrail (Backend)
+
+- Never run destructive git commands unless explicitly requested:
+  - `git reset --hard`
+  - `git checkout -- <path>`
+  - force push to shared branches
+- Do not revert or overwrite unrelated working tree changes.
+- If unexpected modifications appear, pause and ask before proceeding.
+- Commit only when explicitly requested by the user.
