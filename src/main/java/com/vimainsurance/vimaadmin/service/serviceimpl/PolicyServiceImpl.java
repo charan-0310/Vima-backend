@@ -718,6 +718,7 @@ public class PolicyServiceImpl implements IPolicyService {
         responseDto.setUpdatedAt(policy.getUpdatedAt());
         responseDto.setNetAmount(policy.getNetAmount());
         responseDto.setGst(policy.getGst());
+        responseDto.setCdBalance(policy.getCdBalance());
 
         // Map TPA details (for GMC only)
         responseDto.setTpaOrganizationName(policy.getTpaOrganizationName());

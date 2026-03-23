@@ -115,6 +115,9 @@ public class Policy {
     @Column(name = "gst", nullable = false, precision = 15, scale = 2)
     private BigDecimal gst;
 
+    @Column(name = "cd_balance", nullable = false, precision = 15, scale = 2)
+    private BigDecimal cdBalance = BigDecimal.ZERO;
+
     // Dates
     @Column(name = "start_date")
     private LocalDate startDate;
