@@ -63,6 +63,7 @@ import com.vimainsurance.vimaadmin.repository.IEndorsementRepository;
 import com.vimainsurance.vimaadmin.repository.IOrganizationRepository;
 import com.vimainsurance.vimaadmin.service.IDocumentService;
 import com.vimainsurance.vimaadmin.service.IEmailService;
+import com.vimainsurance.vimaadmin.service.ICdBalanceService;
 import com.vimainsurance.vimaadmin.service.IEmployeePolicyMapService;
 import com.vimainsurance.vimaadmin.service.IEndorsementService;
 import com.vimainsurance.vimaadmin.service.ILifeEventEndorsementService;
@@ -127,6 +128,9 @@ public class EndorsementServiceImpl implements IEndorsementService {
 
     @Autowired(required = false)
     private ILifeEventEndorsementService lifeEventEndorsementService;
+
+    @Autowired(required = false)
+    private ICdBalanceService cdBalanceService;
 
     @Override
     @Transactional
@@ -534,6 +538,18 @@ public class EndorsementServiceImpl implements IEndorsementService {
             endorsement.setStatus(AccountStatus.COMPLETED);
             endorsement.setUpdatedAt(LocalDateTime.now());
             endorsementRepository.save(endorsement);
+
+            if (cdBalanceService != null && requestDto.getCdBalanceEntries() != null && !requestDto.getCdBalanceEntries().isEmpty()) {
+                String performedBy = requestDto.getApprovedBy() != null && !requestDto.getApprovedBy().isBlank()
+                        ? requestDto.getApprovedBy()
+                        : jwtUserExtractor.extractCurrentUsername();
+                cdBalanceService.recordEndorsementCdBalanceEntries(
+                        endorsement.getEndorsementId(),
+                        organization.getOrganizationId(),
+                        requestDto.getCdBalanceEntries(),
+                        endorsement.getEndorsementType(),
+                        performedBy);
+            }
 
             if (employeePolicyMapService != null) {
                 if (endorsement.getEndorsementType() == EndorsementType.ADDITION || endorsement.getEndorsementType() == EndorsementType.INITIAL_UPLOAD) {
