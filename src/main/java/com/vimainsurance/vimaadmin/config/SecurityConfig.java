@@ -143,9 +143,9 @@ public class SecurityConfig {
      */
     @Bean
     public SecurityFilterChain filterChain(HttpSecurity http) throws Exception {
-        // Dev and local profiles get mock auth bypass so magic-link enrollment (no JWT) works. Test profile uses real JWT (same as uat/prod).
+        // Dev profile gets mock auth bypass so magic-link enrollment (no JWT) works. Local/test/uat/prod use real JWT.
         boolean isDevProfileOnly = Arrays.stream(environment.getActiveProfiles())
-                .anyMatch(p -> "dev".equalsIgnoreCase(p) || "local".equalsIgnoreCase(p));
+                .anyMatch(p -> "dev".equalsIgnoreCase(p));
 
         http
             .cors(cors -> cors.configurationSource(corsConfigurationSource()))
