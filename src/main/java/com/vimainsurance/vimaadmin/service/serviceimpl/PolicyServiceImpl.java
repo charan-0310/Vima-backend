@@ -33,6 +33,7 @@ import com.vimainsurance.vimaadmin.dto.PolicyUploadRequestDto;
 import com.vimainsurance.vimaadmin.dto.ProductCatalogRequestDto;
 import com.vimainsurance.vimaadmin.dto.ResponseDto;
 import com.vimainsurance.vimaadmin.entity.AdminUser;
+import com.vimainsurance.vimaadmin.entity.CdAccount;
 import com.vimainsurance.vimaadmin.entity.Deals;
 import com.vimainsurance.vimaadmin.entity.Document;
 import com.vimainsurance.vimaadmin.entity.Nominee;
@@ -50,6 +51,7 @@ import com.vimainsurance.vimaadmin.enums.ProductType;
 import com.vimainsurance.vimaadmin.enums.UserRole;
 import com.vimainsurance.vimaadmin.exception.BadRequestException;
 import com.vimainsurance.vimaadmin.repository.IAdminUserRepository;
+import com.vimainsurance.vimaadmin.repository.ICdAccountRepository;
 import com.vimainsurance.vimaadmin.repository.IDealsRepository;
 import com.vimainsurance.vimaadmin.repository.IDocumentRepository;
 import com.vimainsurance.vimaadmin.repository.IInsuranceProviderRepository;
@@ -57,6 +59,7 @@ import com.vimainsurance.vimaadmin.repository.IMotorPolicyDetailsRepository;
 import com.vimainsurance.vimaadmin.repository.INomineeRepository;
 import com.vimainsurance.vimaadmin.repository.IPolicyRepository;
 import com.vimainsurance.vimaadmin.repository.IProductCatalogRepository;
+import com.vimainsurance.vimaadmin.service.ICdAccountService;
 import com.vimainsurance.vimaadmin.service.IDocumentService;
 import com.vimainsurance.vimaadmin.service.IPolicyService;
 import com.vimainsurance.vimaadmin.service.IProductCatalogService;
@@ -77,6 +80,9 @@ public class PolicyServiceImpl implements IPolicyService {
 
     @Autowired
     private IPolicyRepository policyRepository;
+
+    @Autowired
+    private ICdAccountRepository cdAccountRepository;
 
     @Autowired
     private IDealsRepository dealsRepository;
@@ -110,6 +116,9 @@ public class PolicyServiceImpl implements IPolicyService {
 
     @Autowired
     private IProductCatalogRepository productCatalogRepository;
+
+    @Autowired
+    private ICdAccountService cdAccountService;
 
     @Override
     @Transactional(rollbackFor = Exception.class)
@@ -263,6 +272,7 @@ public class PolicyServiceImpl implements IPolicyService {
             }
 
             Policy savedPolicy = policyRepository.save(policy);
+            autoLinkPolicyToDefaultCdAccount(savedPolicy);
             logger.info("[correlationId:{}] Policy created successfully with ID: {}",
                        MDC.get("correlationId"), savedPolicy.getPolicyId());
 
@@ -404,6 +414,7 @@ public class PolicyServiceImpl implements IPolicyService {
             }
 
             policyRepository.save(policy);
+            autoLinkPolicyToDefaultCdAccount(policy);
             if (policyType == ProductType.TOP_UP || policyType == ProductType.SUPER_TOP_UP) {
                 createProductCatalogForTopup(policy, requestDto.getPricingModel());
             }
@@ -718,7 +729,15 @@ public class PolicyServiceImpl implements IPolicyService {
         responseDto.setUpdatedAt(policy.getUpdatedAt());
         responseDto.setNetAmount(policy.getNetAmount());
         responseDto.setGst(policy.getGst());
-        responseDto.setCdBalance(policy.getCdBalance());
+        responseDto.setCdAccountId(policy.getCdAccountId());
+        BigDecimal hydratedCdBalance = policy.getCdBalance();
+        if (policy.getCdAccountId() != null) {
+            CdAccount cdAccount = cdAccountRepository.findById(policy.getCdAccountId()).orElse(null);
+            if (cdAccount != null && cdAccount.getCdBalance() != null) {
+                hydratedCdBalance = cdAccount.getCdBalance();
+            }
+        }
+        responseDto.setCdBalance(hydratedCdBalance);
 
         // Map TPA details (for GMC only)
         responseDto.setTpaOrganizationName(policy.getTpaOrganizationName());
@@ -760,6 +779,34 @@ public class PolicyServiceImpl implements IPolicyService {
         }
         return documentRepository.findById(documentId)
                 .orElseThrow(() -> new RuntimeException("Document not found"));
+    }
+
+    private void autoLinkPolicyToDefaultCdAccount(Policy policy) {
+        if (policy == null || policy.getPolicyId() == null || policy.getOrganizationId() == null) {
+            return;
+        }
+        String insurerName = resolveInsurerNameForCdAccount(policy);
+        if (insurerName == null || insurerName.isBlank()) {
+            return;
+        }
+        UUID accountId = cdAccountService
+                .getOrCreateDefaultAccount(policy.getOrganizationId(), insurerName)
+                .getCdAccountId();
+        if (!accountId.equals(policy.getCdAccountId())) {
+            cdAccountService.linkPolicyToAccount(policy.getPolicyId(), accountId);
+        }
+    }
+
+    private String resolveInsurerNameForCdAccount(Policy policy) {
+        if (policy.getInsurerName() != null && !policy.getInsurerName().isBlank()) {
+            return policy.getInsurerName().trim();
+        }
+        if (policy.getInsuranceProviderId() != null) {
+            return insuranceProviderRepository.findById(policy.getInsuranceProviderId())
+                    .map(p -> p.getProviderName() != null ? p.getProviderName().trim() : null)
+                    .orElse(null);
+        }
+        return null;
     }
 
     /**
@@ -1031,6 +1078,7 @@ public class PolicyServiceImpl implements IPolicyService {
             
             // Save policy to database
             Policy savedPolicy = policyRepository.save(policy);
+            autoLinkPolicyToDefaultCdAccount(savedPolicy);
             logger.info("[correlationId:{}] Policy saved with ID: {}", MDC.get("correlationId"), savedPolicy.getPolicyId());
 
             // TOP_UP / SUPER_TOP_UP: create product_catalog row so the product appears in the catalog

@@ -23,6 +23,7 @@ import com.vimainsurance.vimaadmin.dto.PolicyUploadRequestDto;
 import com.vimainsurance.vimaadmin.dto.MotorPolicyDetailsRequestDto;
 import com.vimainsurance.vimaadmin.dto.ResponseDto;
 import com.vimainsurance.vimaadmin.entity.AdminUser;
+import com.vimainsurance.vimaadmin.entity.CdAccount;
 import com.vimainsurance.vimaadmin.entity.Deals;
 import com.vimainsurance.vimaadmin.entity.Document;
 import com.vimainsurance.vimaadmin.entity.InsuranceProvider;
@@ -42,6 +43,7 @@ import com.vimainsurance.vimaadmin.enums.PolicyStatus;
 import com.vimainsurance.vimaadmin.enums.ProductType;
 import com.vimainsurance.vimaadmin.enums.UserRole;
 import com.vimainsurance.vimaadmin.repository.IAdminUserRepository;
+import com.vimainsurance.vimaadmin.repository.ICdAccountRepository;
 import com.vimainsurance.vimaadmin.repository.IDealsRepository;
 import com.vimainsurance.vimaadmin.repository.IDocumentRepository;
 import com.vimainsurance.vimaadmin.repository.IInsuranceProviderRepository;
@@ -98,6 +100,9 @@ public class DealsServiceImpl implements IDealsService{
     
     @Autowired
     private IPolicyRepository policyRepository;
+
+    @Autowired
+    private ICdAccountRepository cdAccountRepository;
     
     @Autowired
     private IInsuranceProviderRepository insuranceProviderRepository;
@@ -554,6 +559,15 @@ public class DealsServiceImpl implements IDealsService{
         policyResponseDto.setLeadId(policy.getLeadId());
         policyResponseDto.setCreatedAt(policy.getCreatedAt());
         policyResponseDto.setUpdatedAt(policy.getUpdatedAt());
+        policyResponseDto.setCdAccountId(policy.getCdAccountId());
+        BigDecimal hydratedCdBalance = policy.getCdBalance();
+        if (policy.getCdAccountId() != null) {
+            CdAccount cdAccount = cdAccountRepository.findById(policy.getCdAccountId()).orElse(null);
+            if (cdAccount != null && cdAccount.getCdBalance() != null) {
+                hydratedCdBalance = cdAccount.getCdBalance();
+            }
+        }
+        policyResponseDto.setCdBalance(hydratedCdBalance);
         return policyResponseDto;
     }
 

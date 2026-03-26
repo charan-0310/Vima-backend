@@ -36,8 +36,11 @@ public class CdBalanceTransaction {
     @Column(name = "transaction_id", columnDefinition = "UUID", updatable = false, nullable = false)
     private UUID transactionId;
 
+    @Column(name = "cd_account_id", nullable = false)
+    private UUID cdAccountId;
+
     @ManyToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "policy_id", nullable = false)
+    @JoinColumn(name = "policy_id")
     private Policy policy;
 
     @Column(name = "organization_id", nullable = false)

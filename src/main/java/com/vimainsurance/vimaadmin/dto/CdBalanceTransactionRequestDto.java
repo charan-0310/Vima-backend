@@ -11,7 +11,9 @@ import org.springframework.web.multipart.MultipartFile;
 @Data
 public class CdBalanceTransactionRequestDto {
 
-    @NotNull(message = "Policy ID is required")
+    @NotNull(message = "CD account ID is required")
+    private UUID cdAccountId;
+
     private Long policyId;
 
     @NotNull(message = "Organization ID is required")

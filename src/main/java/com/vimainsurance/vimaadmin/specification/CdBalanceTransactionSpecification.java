@@ -14,13 +14,17 @@ public final class CdBalanceTransactionSpecification {
     private CdBalanceTransactionSpecification() {
     }
 
-    public static Specification<CdBalanceTransaction> ledgerByPolicy(
+    public static Specification<CdBalanceTransaction> ledgerByCdAccount(
+            java.util.UUID cdAccountId,
             Long policyId,
             CdTransactionType type,
             LocalDateTime from,
             LocalDateTime to) {
         return (root, query, cb) -> {
-            Predicate predicate = cb.equal(root.get("policy").get("policyId"), policyId);
+            Predicate predicate = cb.equal(root.get("cdAccountId"), cdAccountId);
+            if (policyId != null) {
+                predicate = cb.and(predicate, cb.equal(root.get("policy").get("policyId"), policyId));
+            }
             if (type != null) {
                 predicate = cb.and(predicate, cb.equal(root.get("transactionType"), type));
             }

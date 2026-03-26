@@ -37,6 +37,7 @@ public class PolicyResponseDto {
     private BigDecimal premiumAmount;
     private BigDecimal netAmount;
     private BigDecimal gst;
+    private UUID cdAccountId;
     private BigDecimal cdBalance;
     private Long employeesCount;
     private Long dependentsCount;

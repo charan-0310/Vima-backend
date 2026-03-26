@@ -28,7 +28,8 @@ public final class CdBalanceMapper {
             List<UUID> documentIds) {
         CdBalanceTransactionResponseDto dto = new CdBalanceTransactionResponseDto();
         dto.setTransactionId(transaction.getTransactionId());
-        dto.setPolicyId(transaction.getPolicy().getPolicyId());
+        dto.setCdAccountId(transaction.getCdAccountId());
+        dto.setPolicyId(transaction.getPolicy() != null ? transaction.getPolicy().getPolicyId() : null);
         dto.setOrganizationId(transaction.getOrganizationId());
         dto.setEndorsementId(transaction.getEndorsement() != null ? transaction.getEndorsement().getEndorsementId() : null);
         dto.setTransactionType(transaction.getTransactionType() != null ? transaction.getTransactionType().name() : null);

@@ -18,6 +18,6 @@ public interface ICdBalanceTransactionRepository
 
     List<CdBalanceTransaction> findByEndorsement_EndorsementId(UUID endorsementId);
 
-    @Query("SELECT COALESCE(SUM(t.amount), 0) FROM CdBalanceTransaction t WHERE t.policy.policyId = :policyId")
-    BigDecimal sumAmountByPolicyId(@Param("policyId") Long policyId);
+    @Query("SELECT COALESCE(SUM(t.amount), 0) FROM CdBalanceTransaction t WHERE t.cdAccountId = :cdAccountId")
+    BigDecimal sumAmountByCdAccountId(@Param("cdAccountId") UUID cdAccountId);
 }

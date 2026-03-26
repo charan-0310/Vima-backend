@@ -30,6 +30,7 @@ import com.vimainsurance.vimaadmin.dto.CdBalanceTransactionRequestDto;
 import com.vimainsurance.vimaadmin.dto.CdBalanceTransactionResponseDto;
 import com.vimainsurance.vimaadmin.dto.EndorsementCdBalanceEntryDto;
 import com.vimainsurance.vimaadmin.dto.ResponseDto;
+import com.vimainsurance.vimaadmin.entity.CdAccount;
 import com.vimainsurance.vimaadmin.entity.CdBalanceTransaction;
 import com.vimainsurance.vimaadmin.entity.CdTransactionDocument;
 import com.vimainsurance.vimaadmin.entity.Endorsement;
@@ -42,6 +43,7 @@ import com.vimainsurance.vimaadmin.enums.DocumentType;
 import com.vimainsurance.vimaadmin.enums.EndorsementType;
 import com.vimainsurance.vimaadmin.enums.UserRole;
 import com.vimainsurance.vimaadmin.mapper.CdBalanceMapper;
+import com.vimainsurance.vimaadmin.repository.ICdAccountRepository;
 import com.vimainsurance.vimaadmin.repository.ICdBalanceTransactionRepository;
 import com.vimainsurance.vimaadmin.specification.CdBalanceTransactionSpecification;
 import com.vimainsurance.vimaadmin.repository.ICdTransactionDocumentRepository;
@@ -61,6 +63,9 @@ public class CdBalanceServiceImpl implements ICdBalanceService {
     private IPolicyRepository policyRepository;
 
     @Autowired
+    private ICdAccountRepository cdAccountRepository;
+
+    @Autowired
     private IEndorsementRepository endorsementRepository;
 
     @Autowired
@@ -77,15 +82,18 @@ public class CdBalanceServiceImpl implements ICdBalanceService {
 
     @Override
     @Transactional(readOnly = true)
-    public ResponseEntity<ResponseDto<CdBalanceResponseDto>> getCdBalance(Long policyId) {
+    public ResponseEntity<ResponseDto<CdBalanceResponseDto>> getCdBalance(UUID cdAccountId) {
         BaseResponse<CdBalanceResponseDto> responseObj = new BaseResponse<>();
         try {
-            Policy policy = policyRepository.findById(policyId)
-                    .orElseThrow(() -> new RuntimeException("Policy not found"));
-            CdBalanceResponseDto responseDto = CdBalanceMapper.toBalanceResponseDto(policy);
+            CdAccount cdAccount = cdAccountRepository.findById(cdAccountId)
+                    .orElseThrow(() -> new RuntimeException("CD account not found"));
+            CdBalanceResponseDto responseDto = new CdBalanceResponseDto();
+            responseDto.setOrganizationId(cdAccount.getOrganizationId());
+            responseDto.setCdBalance(cdAccount.getCdBalance() == null ? BigDecimal.ZERO : cdAccount.getCdBalance());
+            responseDto.setUpdatedAt(cdAccount.getUpdatedAt());
             return responseObj.render(responseObj.formSuccessResponse(Constants.SUCCESS, responseDto));
         } catch (Exception e) {
-            logger.error("[correlationId:{}] Error fetching CD balance for policyId={}", MDC.get("correlationId"), policyId, e);
+            logger.error("[correlationId:{}] Error fetching CD balance for cdAccountId={}", MDC.get("correlationId"), cdAccountId, e);
             return responseObj.render(responseObj.formErrorResponse(e.getMessage()));
         }
     }
@@ -98,10 +106,18 @@ public class CdBalanceServiceImpl implements ICdBalanceService {
             MultipartFile[] files) {
         BaseResponse<CdBalanceTransactionResponseDto> responseObj = new BaseResponse<>();
         try {
-            Policy policy = policyRepository.findByIdForUpdate(requestDto.getPolicyId())
-                    .orElseThrow(() -> new RuntimeException("Policy not found"));
-
-            validatePolicyOrganization(policy, requestDto.getOrganizationId());
+            Policy policy = null;
+            if (requestDto.getPolicyId() != null) {
+                policy = policyRepository.findByIdForUpdate(requestDto.getPolicyId())
+                        .orElseThrow(() -> new RuntimeException("Policy not found"));
+                validatePolicyOrganization(policy, requestDto.getOrganizationId());
+                if (policy.getCdAccountId() != null && !policy.getCdAccountId().equals(requestDto.getCdAccountId())) {
+                    throw new RuntimeException("Policy does not belong to provided CD account");
+                }
+            }
+            CdAccount cdAccount = cdAccountRepository.findByIdForUpdate(requestDto.getCdAccountId())
+                    .orElseThrow(() -> new RuntimeException("CD account not found"));
+            validateCdAccountOrganization(cdAccount, requestDto.getOrganizationId());
             validateDocumentCount(files, requestDto.getDocuments());
 
             Endorsement endorsement = null;
@@ -110,10 +126,11 @@ public class CdBalanceServiceImpl implements ICdBalanceService {
                         .orElseThrow(() -> new RuntimeException("Endorsement not found"));
             }
 
-            BigDecimal currentBalance = policy.getCdBalance() == null ? BigDecimal.ZERO : policy.getCdBalance();
+            BigDecimal currentBalance = cdAccount.getCdBalance() == null ? BigDecimal.ZERO : cdAccount.getCdBalance();
             BigDecimal runningBalance = currentBalance.add(requestDto.getAmount());
 
             CdBalanceTransaction transaction = new CdBalanceTransaction();
+            transaction.setCdAccountId(requestDto.getCdAccountId());
             transaction.setPolicy(policy);
             transaction.setOrganizationId(requestDto.getOrganizationId());
             transaction.setEndorsement(endorsement);
@@ -127,14 +144,19 @@ public class CdBalanceServiceImpl implements ICdBalanceService {
             transaction.setPerformedBy(resolvePerformedBy(requestDto.getPerformedBy()));
             CdBalanceTransaction saved = cdBalanceTransactionRepository.save(transaction);
 
-            List<UUID> uploadedDocumentIds = uploadAndLinkProofDocuments(saved, policy, files, requestDto.getDocuments());
+            List<UUID> uploadedDocumentIds = uploadAndLinkProofDocuments(
+                    saved,
+                    policy,
+                    requestDto.getOrganizationId(),
+                    files,
+                    requestDto.getDocuments());
 
-            policy.setCdBalance(runningBalance);
-            policyRepository.save(policy);
+            cdAccount.setCdBalance(runningBalance);
+            cdAccountRepository.save(cdAccount);
 
             return responseObj.render(responseObj.formSuccessResponse(Constants.SUCCESS, CdBalanceMapper.toTransactionResponseDto(saved, uploadedDocumentIds)));
         } catch (Exception e) {
-            logger.error("[correlationId:{}] Error recording CD transaction for policyId={}", MDC.get("correlationId"), requestDto.getPolicyId(), e);
+            logger.error("[correlationId:{}] Error recording CD transaction for cdAccountId={}", MDC.get("correlationId"), requestDto.getCdAccountId(), e);
             return responseObj.render(responseObj.formErrorResponse(e.getMessage()));
         }
     }
@@ -156,9 +178,19 @@ public class CdBalanceServiceImpl implements ICdBalanceService {
                 .orElseThrow(() -> new RuntimeException("Endorsement not found"));
 
         for (EndorsementCdBalanceEntryDto entry : entries) {
-            Policy policy = policyRepository.findByIdForUpdate(entry.getPolicyId())
-                    .orElseThrow(() -> new RuntimeException("Policy not found"));
-            validatePolicyOrganization(policy, organizationId);
+            validateEndorsementCdBalanceEntry(entry);
+            Policy policy = null;
+            if (entry.getPolicyId() != null) {
+                policy = policyRepository.findByIdForUpdate(entry.getPolicyId())
+                        .orElseThrow(() -> new RuntimeException("Policy not found"));
+                validatePolicyOrganization(policy, organizationId);
+                if (policy.getCdAccountId() != null && !policy.getCdAccountId().equals(entry.getCdAccountId())) {
+                    throw new RuntimeException("Policy does not belong to provided CD account");
+                }
+            }
+            CdAccount cdAccount = cdAccountRepository.findByIdForUpdate(entry.getCdAccountId())
+                    .orElseThrow(() -> new RuntimeException("CD account not found"));
+            validateCdAccountOrganization(cdAccount, organizationId);
             validateDocumentCount(entry.getDocuments(), null);
 
             BigDecimal signedAmount = endorsementType == EndorsementType.ADDITION
@@ -168,10 +200,11 @@ public class CdBalanceServiceImpl implements ICdBalanceService {
                     ? CdTransactionType.ENDORSEMENT_DEBIT
                     : CdTransactionType.ENDORSEMENT_CREDIT;
 
-            BigDecimal currentBalance = policy.getCdBalance() == null ? BigDecimal.ZERO : policy.getCdBalance();
+            BigDecimal currentBalance = cdAccount.getCdBalance() == null ? BigDecimal.ZERO : cdAccount.getCdBalance();
             BigDecimal runningBalance = currentBalance.add(signedAmount);
 
             CdBalanceTransaction transaction = new CdBalanceTransaction();
+            transaction.setCdAccountId(entry.getCdAccountId());
             transaction.setPolicy(policy);
             transaction.setOrganizationId(organizationId);
             transaction.setEndorsement(endorsement);
@@ -185,16 +218,17 @@ public class CdBalanceServiceImpl implements ICdBalanceService {
             transaction.setPerformedBy(resolvePerformedBy(performedBy));
             CdBalanceTransaction saved = cdBalanceTransactionRepository.save(transaction);
 
-            uploadAndLinkProofDocuments(saved, policy, entry.getDocuments(), null);
+            uploadAndLinkProofDocuments(saved, policy, organizationId, entry.getDocuments(), null);
 
-            policy.setCdBalance(runningBalance);
-            policyRepository.save(policy);
+            cdAccount.setCdBalance(runningBalance);
+            cdAccountRepository.save(cdAccount);
         }
     }
 
     @Override
     @Transactional(readOnly = true)
     public ResponseEntity<ResponseDto<List<CdBalanceTransactionResponseDto>>> getTransactionLedger(
+            UUID cdAccountId,
             Long policyId,
             int page,
             int size,
@@ -206,9 +240,8 @@ public class CdBalanceServiceImpl implements ICdBalanceService {
             CdTransactionType txType = (type == null || type.isBlank()) ? null : CdTransactionType.fromValue(type);
             LocalDateTime from = dateFrom == null ? null : dateFrom.atStartOfDay();
             LocalDateTime to = dateTo == null ? null : dateTo.atTime(LocalTime.MAX);
-
             Page<CdBalanceTransaction> transactionPage = cdBalanceTransactionRepository.findAll(
-                    CdBalanceTransactionSpecification.ledgerByPolicy(policyId, txType, from, to),
+                    CdBalanceTransactionSpecification.ledgerByCdAccount(cdAccountId, policyId, txType, from, to),
                     PageRequest.of(
                             Math.max(page, 0),
                             Math.max(size, 1),
@@ -225,7 +258,7 @@ public class CdBalanceServiceImpl implements ICdBalanceService {
 
             return responseObj.render(responseObj.formSuccessResponse(Constants.SUCCESS, payload, transactionPage.getTotalElements()));
         } catch (Exception e) {
-            logger.error("[correlationId:{}] Error fetching CD ledger for policyId={}", MDC.get("correlationId"), policyId, e);
+            logger.error("[correlationId:{}] Error fetching CD ledger for cdAccountId={}", MDC.get("correlationId"), cdAccountId, e);
             return responseObj.render(responseObj.formErrorResponse(e.getMessage()));
         }
     }
@@ -233,21 +266,44 @@ public class CdBalanceServiceImpl implements ICdBalanceService {
     @Override
     @Transactional(rollbackFor = Exception.class)
     @AuditedOperation(schemaName = "cpc", tableName = "cd_balance_transactions", entityType = "CD_BALANCE", action = "RECALCULATE")
-    public ResponseEntity<ResponseDto<CdBalanceResponseDto>> recalculateBalance(Long policyId) {
+    public ResponseEntity<ResponseDto<CdBalanceResponseDto>> recalculateBalance(UUID cdAccountId) {
         BaseResponse<CdBalanceResponseDto> responseObj = new BaseResponse<>();
         try {
             validateRecalculateAccess();
-            Policy policy = policyRepository.findByIdForUpdate(policyId)
-                    .orElseThrow(() -> new RuntimeException("Policy not found"));
+            CdAccount cdAccount = cdAccountRepository.findByIdForUpdate(cdAccountId)
+                    .orElseThrow(() -> new RuntimeException("CD account not found"));
 
-            BigDecimal recalculated = cdBalanceTransactionRepository.sumAmountByPolicyId(policyId);
-            policy.setCdBalance(recalculated);
-            policyRepository.save(policy);
-
-            return responseObj.render(responseObj.formSuccessResponse(Constants.SUCCESS, CdBalanceMapper.toBalanceResponseDto(policy)));
+            BigDecimal recalculated = cdBalanceTransactionRepository.sumAmountByCdAccountId(cdAccountId);
+            cdAccount.setCdBalance(recalculated);
+            cdAccountRepository.save(cdAccount);
+            CdBalanceResponseDto dto = new CdBalanceResponseDto();
+            dto.setOrganizationId(cdAccount.getOrganizationId());
+            dto.setCdBalance(recalculated);
+            dto.setUpdatedAt(cdAccount.getUpdatedAt());
+            return responseObj.render(responseObj.formSuccessResponse(Constants.SUCCESS, dto));
         } catch (Exception e) {
-            logger.error("[correlationId:{}] Error recalculating CD balance for policyId={}", MDC.get("correlationId"), policyId, e);
+            logger.error("[correlationId:{}] Error recalculating CD balance for cdAccountId={}", MDC.get("correlationId"), cdAccountId, e);
             return responseObj.render(responseObj.formErrorResponse(e.getMessage()));
+        }
+    }
+
+    private void validateEndorsementCdBalanceEntry(EndorsementCdBalanceEntryDto entry) {
+        if (entry.getCdAccountId() == null) {
+            throw new IllegalArgumentException("Each CD balance entry must include a CD account ID");
+        }
+        if (entry.getAmount() == null) {
+            throw new IllegalArgumentException(
+                    "CD balance entry for account " + entry.getCdAccountId() + " is missing amount; omit the row or send a positive amount");
+        }
+        if (entry.getAmount().signum() == 0) {
+            throw new IllegalArgumentException(
+                    "CD balance entry for account " + entry.getCdAccountId() + " must be a non-zero amount");
+        }
+    }
+
+    private void validateCdAccountOrganization(CdAccount cdAccount, UUID organizationId) {
+        if (cdAccount.getOrganizationId() == null || !cdAccount.getOrganizationId().equals(organizationId)) {
+            throw new RuntimeException("CD account does not belong to organization");
         }
     }
 
@@ -275,6 +331,7 @@ public class CdBalanceServiceImpl implements ICdBalanceService {
     private List<UUID> uploadAndLinkProofDocuments(
             CdBalanceTransaction transaction,
             Policy policy,
+            UUID organizationId,
             MultipartFile[] primaryFiles,
             MultipartFile[] fallbackFiles) {
         MultipartFile[] files = (primaryFiles != null && primaryFiles.length > 0) ? primaryFiles : fallbackFiles;
@@ -288,8 +345,8 @@ public class CdBalanceServiceImpl implements ICdBalanceService {
                     file,
                     DocumentType.OTHER.name(),
                     DocumentCategory.FINANCIAL_DOCUMENTS.name(),
-                    DocumentEntityType.POLICY.name(),
-                    String.valueOf(policy.getPolicyId()),
+                    policy != null ? DocumentEntityType.POLICY.name() : DocumentEntityType.ORGANIZATION.name(),
+                    policy != null ? String.valueOf(policy.getPolicyId()) : String.valueOf(organizationId),
                     "CD balance transaction proof");
             ResponseDto<String> body = uploadResponse.getBody();
             if (body == null || body.getPayload() == null || body.getPayload().isBlank()) {

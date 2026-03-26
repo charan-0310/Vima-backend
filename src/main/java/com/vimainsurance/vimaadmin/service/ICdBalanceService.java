@@ -16,7 +16,7 @@ import com.vimainsurance.vimaadmin.enums.EndorsementType;
 
 public interface ICdBalanceService {
 
-    ResponseEntity<ResponseDto<CdBalanceResponseDto>> getCdBalance(Long policyId);
+    ResponseEntity<ResponseDto<CdBalanceResponseDto>> getCdBalance(UUID cdAccountId);
 
     ResponseEntity<ResponseDto<CdBalanceTransactionResponseDto>> recordTransaction(
             CdBalanceTransactionRequestDto requestDto,
@@ -30,6 +30,7 @@ public interface ICdBalanceService {
             String performedBy);
 
     ResponseEntity<ResponseDto<List<CdBalanceTransactionResponseDto>>> getTransactionLedger(
+            UUID cdAccountId,
             Long policyId,
             int page,
             int size,
@@ -37,5 +38,5 @@ public interface ICdBalanceService {
             LocalDate dateFrom,
             LocalDate dateTo);
 
-    ResponseEntity<ResponseDto<CdBalanceResponseDto>> recalculateBalance(Long policyId);
+    ResponseEntity<ResponseDto<CdBalanceResponseDto>> recalculateBalance(UUID cdAccountId);
 }

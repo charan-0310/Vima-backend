@@ -11,6 +11,7 @@ import lombok.Data;
 public class CdBalanceTransactionResponseDto {
 
     private UUID transactionId;
+    private UUID cdAccountId;
     private Long policyId;
     private UUID organizationId;
     private UUID endorsementId;
