@@ -1,0 +1,17 @@
+---
+description: Require practical validation before finalizing backend changes
+alwaysApply: true
+---
+
+# Testing And Validation Guardrail (Backend)
+
+Before finalizing substantive changes:
+
+- Run relevant validation when feasible (`mvnd test` or targeted tests).
+- Prefer targeted validation when full-suite runtime is high.
+- If tests cannot be run, explicitly state:
+  - what was not validated,
+  - why it was skipped,
+  - recommended follow-up command.
+
+Minor documentation-only or comment-only edits can skip test execution.

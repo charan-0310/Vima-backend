@@ -1,0 +1,6 @@
+{
+  "instructionsFile": "CLAUDE.md",
+  "localInstructionsFile": "CLAUDE.local.md",
+  "rulesDirectory": ".cursor/rules",
+  "commandsDirectory": ".cursor/commands"
+}

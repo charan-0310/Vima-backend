@@ -6,7 +6,6 @@ import java.util.List;
 import java.util.UUID;
 
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 
 import com.vimainsurance.vimaadmin.dto.claim.ClaimNotification;
@@ -29,6 +28,7 @@ public class ClaimsNotificationService {
     private final List<ClaimsNotificationChannel> channels;
     private final IClaimRepository claimRepository;
     private final IAdminUserRepository adminUserRepository;
+    private final ClaimsNotificationDispatcher notificationDispatcher;
 
     @Value("${app.base-url:http://localhost:8080}")
     private String baseUrl;
@@ -62,7 +62,7 @@ public class ClaimsNotificationService {
         }
 
         if (!notifications.isEmpty()) {
-            sendToChannelsAsync(notifications, employeeId);
+            notificationDispatcher.dispatch(channels, notifications, employeeId);
         }
     }
 
@@ -86,7 +86,7 @@ public class ClaimsNotificationService {
                 .claimAmount(loaded.getClaimAmount())
                 .hospitalName(loaded.getHospitalName())
                 .build();
-        sendToChannelsAsync(List.of(n), employee.getIndividualId());
+        notificationDispatcher.dispatch(channels, List.of(n), employee.getIndividualId());
     }
 
     public void notifyQueryResponded(Claim claim, ClaimQuery query) {
@@ -108,7 +108,7 @@ public class ClaimsNotificationService {
                 .claimAmount(loaded.getClaimAmount())
                 .hospitalName(loaded.getHospitalName())
                 .build();
-        sendToChannelsAsync(List.of(n), employee.getIndividualId());
+        notificationDispatcher.dispatch(channels, List.of(n), employee.getIndividualId());
     }
 
     public void notifySettlement(Claim claim, ClaimSettlement settlement) {
@@ -132,7 +132,7 @@ public class ClaimsNotificationService {
                 .claimAmount(loaded.getClaimAmount())
                 .hospitalName(loaded.getHospitalName())
                 .build();
-        sendToChannelsAsync(List.of(n), employee.getIndividualId());
+        notificationDispatcher.dispatch(channels, List.of(n), employee.getIndividualId());
     }
 
     public void notifyAdminManualSubmission(Claim claim) {
@@ -157,26 +157,7 @@ public class ClaimsNotificationService {
                         .build()));
 
         if (!notifications.isEmpty()) {
-            sendToChannelsAsync(notifications, employeeId);
-        }
-    }
-
-    @Async
-    public void sendToChannelsAsync(List<ClaimNotification> notifications, UUID employeeIdForEnabled) {
-        try {
-            for (ClaimNotification n : notifications) {
-                for (ClaimsNotificationChannel channel : channels) {
-                    try {
-                        if (employeeIdForEnabled == null || channel.isEnabled(employeeIdForEnabled)) {
-                            channel.send(n);
-                        }
-                    } catch (Exception e) {
-                        log.warn("Claim notification channel failed for claim {}: {}", n.getClaimNumber(), e.getMessage(), e);
-                    }
-                }
-            }
-        } catch (Exception e) {
-            log.warn("Claim notification send failed: {}", e.getMessage(), e);
+            notificationDispatcher.dispatch(channels, notifications, employeeId);
         }
     }
 
