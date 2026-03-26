@@ -63,6 +63,7 @@ import com.vimainsurance.vimaadmin.repository.IEndorsementRepository;
 import com.vimainsurance.vimaadmin.repository.IOrganizationRepository;
 import com.vimainsurance.vimaadmin.service.IDocumentService;
 import com.vimainsurance.vimaadmin.service.IEmailService;
+import com.vimainsurance.vimaadmin.service.ICdBalanceService;
 import com.vimainsurance.vimaadmin.service.IEmployeePolicyMapService;
 import com.vimainsurance.vimaadmin.service.IEndorsementService;
 import com.vimainsurance.vimaadmin.service.ILifeEventEndorsementService;
@@ -127,6 +128,9 @@ public class EndorsementServiceImpl implements IEndorsementService {
 
     @Autowired(required = false)
     private ILifeEventEndorsementService lifeEventEndorsementService;
+
+    @Autowired(required = false)
+    private ICdBalanceService cdBalanceService;
 
     @Override
     @Transactional
@@ -535,6 +539,18 @@ public class EndorsementServiceImpl implements IEndorsementService {
             endorsement.setUpdatedAt(LocalDateTime.now());
             endorsementRepository.save(endorsement);
 
+            if (cdBalanceService != null && requestDto.getCdBalanceEntries() != null && !requestDto.getCdBalanceEntries().isEmpty()) {
+                String performedBy = requestDto.getApprovedBy() != null && !requestDto.getApprovedBy().isBlank()
+                        ? requestDto.getApprovedBy()
+                        : jwtUserExtractor.extractCurrentUsername();
+                cdBalanceService.recordEndorsementCdBalanceEntries(
+                        endorsement.getEndorsementId(),
+                        organization.getOrganizationId(),
+                        requestDto.getCdBalanceEntries(),
+                        endorsement.getEndorsementType(),
+                        performedBy);
+            }
+
             if (employeePolicyMapService != null) {
                 if (endorsement.getEndorsementType() == EndorsementType.ADDITION || endorsement.getEndorsementType() == EndorsementType.INITIAL_UPLOAD) {
                     employeePolicyMapService.createMappingsFromEndorsement(endorsement.getEndorsementId(), endorsement.getEndorsementType().name());
@@ -548,8 +564,8 @@ public class EndorsementServiceImpl implements IEndorsementService {
 
             return responseObj.render(responseObj.formSuccessResponse(Constants.SUCCESS, "Endorsement approved successfully"));
         } catch (IllegalArgumentException e) {
-            logger.error("[correlationId:{}] Invalid confirmation method value: {}", MDC.get("correlationId"), requestDto.getConfirmationMethod());
-            return responseObj.render(responseObj.formErrorResponse("Invalid confirmation method value: " + requestDto.getConfirmationMethod()));
+            logger.warn("[correlationId:{}] Endorsement approve rejected: {}", MDC.get("correlationId"), e.getMessage());
+            return responseObj.render(responseObj.formErrorResponse(e.getMessage()));
         } catch (Exception e) {
             logger.error("[correlationId:{}] Exception in Endorsement approve: {}", MDC.get("correlationId"), e.getMessage(), e);
             return responseObj.render(responseObj.formErrorResponse("Failed to approve endorsement!"));
