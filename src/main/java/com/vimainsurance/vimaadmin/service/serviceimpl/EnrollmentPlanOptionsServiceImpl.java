@@ -243,6 +243,97 @@ public class EnrollmentPlanOptionsServiceImpl implements IEnrollmentPlanOptionsS
     }
 
     /**
+     * Admin: company-scoped options for Bulk Upload / Manual Add.
+     * Returns only TOP_UP and SUPER_TOP_UP options (Parent/In-law excluded for bulk flow).
+     */
+    @Override
+    public ResponseEntity<ResponseDto<TopupOptionsResponseDto>> getActiveOptionsWithPremiumPreviewForCompany(UUID companyId) {
+        BaseResponse<TopupOptionsResponseDto> responseObj = new BaseResponse<>();
+        try {
+            if (companyId == null) {
+                return responseObj.render(responseObj.formErrorResponse(400, "companyId is required"));
+            }
+
+            // Require base GMC policy exists for the company before allowing top-up selection.
+            boolean hasGmc = !policyRepository.findByOrganizationIdAndProductTypeAndStatus(
+                    companyId, ProductType.GMC, PolicyStatus.ACTIVE).isEmpty()
+                    || !policyRepository.findByOrganizationIdAndProductTypeAndStatus(
+                    companyId, ProductType.GHI, PolicyStatus.ACTIVE).isEmpty();
+            if (!hasGmc) {
+                return responseObj.render(responseObj.formErrorResponse(400, "Base GMC coverage is required before adding top-up options"));
+            }
+
+            LocalDate today = LocalDate.now();
+            List<TopupOptionsResponseDto.TopupOptionWithPreview> withPreviews = new ArrayList<>();
+            List<ProductCatalog> catalogList = productCatalogRepository.findByOrganizationIdAndIsActive(companyId, true);
+
+            for (ProductCatalog pc : catalogList) {
+                if (pc.getProductType() == null) continue;
+                String pt = pc.getProductType().toUpperCase();
+                if (!("TOP_UP".equals(pt) || "SUPER_TOP_UP".equals(pt))) continue;
+                if (pc.getEffectiveFrom() != null && today.isBefore(pc.getEffectiveFrom())) continue;
+                if (pc.getEffectiveTo() != null && today.isAfter(pc.getEffectiveTo())) continue;
+
+                List<BigDecimal> sumInsuredList = parseSumInsuredFromJson(pc.getCoverageOptions());
+                if (sumInsuredList.isEmpty()) continue;
+
+                BigDecimal deductibleAmount = null;
+                Policy linkedPolicy = null;
+                if (pc.getPolicyId() != null) {
+                    linkedPolicy = policyRepository.findById(pc.getPolicyId()).orElse(null);
+                    if (linkedPolicy != null) {
+                        deductibleAmount = linkedPolicy.getDeductibleAmount();
+                    }
+                }
+                if (linkedPolicy == null) {
+                    linkedPolicy = resolveTopupPolicyForCatalog(pc, companyId, today);
+                    if (linkedPolicy != null && linkedPolicy.getDeductibleAmount() != null) {
+                        deductibleAmount = linkedPolicy.getDeductibleAmount();
+                    }
+                }
+
+                Map<BigDecimal, BigDecimal> premiumPreview = new LinkedHashMap<>();
+                Map<BigDecimal, BigDecimal> catalogPreview = parsePremiumPreviewOptionsMap(pc.getPremiumPreviewOptions());
+                if (!catalogPreview.isEmpty()) {
+                    List<BigDecimal> aligned = new ArrayList<>();
+                    for (BigDecimal si : sumInsuredList) {
+                        BigDecimal prem = catalogPreview.get(si);
+                        if (prem != null) {
+                            aligned.add(si);
+                            premiumPreview.put(si, prem);
+                        }
+                    }
+                    sumInsuredList = aligned;
+                } else if (linkedPolicy != null) {
+                    List<BigDecimal> policySi = TopupPremiumOptionsUtil.parseDecimalList(linkedPolicy.getSumInsuredOptions());
+                    List<BigDecimal> fixedPrem = TopupPremiumOptionsUtil.parseDecimalList(linkedPolicy.getTopupPremiumOptions());
+                    if (!policySi.isEmpty() && !fixedPrem.isEmpty() && policySi.size() == fixedPrem.size()) {
+                        sumInsuredList = policySi;
+                        for (int i = 0; i < policySi.size(); i++) {
+                            premiumPreview.put(policySi.get(i), fixedPrem.get(i).setScale(2, RoundingMode.HALF_UP));
+                        }
+                    }
+                }
+
+                withPreviews.add(TopupOptionsResponseDto.TopupOptionWithPreview.builder()
+                        .id(pc.getId())
+                        .planType(pc.getProductType())
+                        .name(pc.getName())
+                        .deductibleAmount(deductibleAmount)
+                        .sumInsuredOptions(sumInsuredList)
+                        .premiumPreviewPerOption(premiumPreview)
+                        .build());
+            }
+
+            TopupOptionsResponseDto result = TopupOptionsResponseDto.builder().options(withPreviews).build();
+            return responseObj.render(responseObj.formSuccessResponse("OK", result));
+        } catch (Exception e) {
+            log.error("getActiveOptionsWithPremiumPreviewForCompany error: {}", e.getMessage(), e);
+            return responseObj.render(responseObj.formErrorResponse("Failed to get top-up options"));
+        }
+    }
+
+    /**
      * Creates a product_catalog row for a PARENT_GMC policy so it appears in enrollment plans.
      * Used when the policy exists in the policy table but has no catalog entry (e.g. created before catalog sync).
      */

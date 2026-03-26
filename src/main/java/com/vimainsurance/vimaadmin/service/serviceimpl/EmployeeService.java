@@ -16,6 +16,7 @@ import java.util.UUID;
 import java.util.stream.Collectors;
 
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -24,13 +25,18 @@ import com.vimainsurance.vimaadmin.entity.Organization;
 import com.vimainsurance.vimaadmin.dto.BulkEmployeeDeletionRequestDto;
 import com.vimainsurance.vimaadmin.dto.EmployeeUploadDto;
 import com.vimainsurance.vimaadmin.dto.EmployeeUploadResponse;
+import com.vimainsurance.vimaadmin.dto.BulkEmployeePremiumPreviewRequestDto;
+import com.vimainsurance.vimaadmin.dto.BaseResponse;
+import com.vimainsurance.vimaadmin.dto.PremiumCalculationResponseDto;
+import com.vimainsurance.vimaadmin.dto.CostShareSplit;
+import com.vimainsurance.vimaadmin.dto.ResponseDto;
 import com.vimainsurance.vimaadmin.repository.IDealsRepository;
 import com.vimainsurance.vimaadmin.mapper.EmployeeToDeals;
 import com.vimainsurance.vimaadmin.entity.Deals;
 import com.vimainsurance.vimaadmin.enums.AccountStatus;
-import com.vimainsurance.vimaadmin.enums.AccountType;
 import com.vimainsurance.vimaadmin.enums.NomineeRelationship;
 import com.vimainsurance.vimaadmin.entity.AdminUser;
+import com.vimainsurance.vimaadmin.entity.Policy;
 
 import org.javers.core.Javers;
 import org.javers.core.diff.Diff;
@@ -48,18 +54,22 @@ import lombok.extern.slf4j.Slf4j;
 import com.vimainsurance.vimaadmin.repository.IEndorsementRepository;
 import com.vimainsurance.vimaadmin.repository.IDealEndorsementRepository;
 
-import org.springframework.core.env.Environment;
 import org.springframework.web.multipart.MultipartFile;
 
 import com.vimainsurance.vimaadmin.entity.DealEndorsement;
 import com.vimainsurance.vimaadmin.entity.Document;
 import com.vimainsurance.vimaadmin.enums.DocumentEntityType;
+import com.vimainsurance.vimaadmin.enums.PolicyStatus;
+import com.vimainsurance.vimaadmin.enums.ProductType;
 import com.vimainsurance.vimaadmin.service.IEmployeePolicyMapService;
 import com.vimainsurance.vimaadmin.service.IDocumentService;
+import com.vimainsurance.vimaadmin.service.IPremiumCalculationService;
+import com.vimainsurance.vimaadmin.service.ICostSharingRuleService;
+import com.vimainsurance.vimaadmin.repository.IPolicyRepository;
 import com.vimainsurance.vimaadmin.repository.IDocumentRepository;
 import com.vimainsurance.vimaadmin.exception.DocumentUploadException;
-import com.vimainsurance.vimaadmin.util.JwtUserExtractor;
 import com.vimainsurance.vimaadmin.util.SlackNotificationUtil;
+import com.vimainsurance.vimaadmin.util.TopupPremiumOptionsUtil;
 
 @Slf4j
 @Service
@@ -98,6 +108,219 @@ public class EmployeeService {
 
     @Autowired
     private SlackNotificationUtil slackNotificationUtil;
+
+    @Autowired
+    private IPolicyRepository policyRepository;
+
+    @Autowired
+    private IPremiumCalculationService premiumCalculationService;
+
+    @Autowired
+    private ICostSharingRuleService costSharingRuleService;
+
+    private static java.math.BigDecimal toBigDecimalSafe(String raw) {
+        if (raw == null) return null;
+        String t = raw.trim();
+        if (t.isEmpty()) return null;
+        try {
+            return new java.math.BigDecimal(t);
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    private static java.time.LocalDate parseDateSafe(String raw) {
+        if (raw == null) return null;
+        String t = raw.trim();
+        if (t.isEmpty()) return null;
+        try {
+            return java.time.LocalDate.parse(t);
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    private static List<IPremiumCalculationService.MemberInfo> buildMembersForBulk(List<EmployeeUploadDto> group) {
+        if (group == null) return List.of();
+        LocalDate today = LocalDate.now();
+        List<IPremiumCalculationService.MemberInfo> out = new ArrayList<>();
+        for (EmployeeUploadDto dto : group) {
+            if (dto == null) continue;
+            String rel = dto.getRelationship() != null ? dto.getRelationship().trim() : "";
+            LocalDate dob = parseDateSafe(dto.getDateOfBirth());
+            int age = 0;
+            if (dob != null) {
+                age = java.time.Period.between(dob, today).getYears();
+            }
+            String memberType = "dependent";
+            if ("Self".equalsIgnoreCase(rel)) {
+                memberType = "EMPLOYEE";
+            } else if ("Father".equalsIgnoreCase(rel) || "Mother".equalsIgnoreCase(rel)) {
+                memberType = "parent";
+            } else if (rel != null && (rel.toLowerCase().contains("in law") || rel.toLowerCase().contains("in-law"))) {
+                memberType = "parent_in_law";
+            }
+            out.add(new IPremiumCalculationService.MemberInfo(memberType, age, dob));
+        }
+        return out;
+    }
+
+    /**
+     * Admin endpoint used by Bulk Upload review UI to compute premium breakdown for a single employee group.
+     * This uses the existing premium engine + cost-sharing rules. No premium input is accepted.
+     */
+    public ResponseEntity<ResponseDto<PremiumCalculationResponseDto>> previewBulkEmployeePremium(
+            UUID companyId,
+            BulkEmployeePremiumPreviewRequestDto request) {
+        BaseResponse<PremiumCalculationResponseDto> responseObj = new BaseResponse<>();
+        try {
+            if (companyId == null) {
+                return responseObj.render(responseObj.formErrorResponse(400, "companyId is required"));
+            }
+            if (request == null || request.getPolicyIds() == null || request.getPolicyIds().isEmpty()) {
+                return responseObj.render(responseObj.formErrorResponse(400, "policyIds is required"));
+            }
+            if (request.getEmployees() == null || request.getEmployees().isEmpty()) {
+                return responseObj.render(responseObj.formErrorResponse(400, "employees is required"));
+            }
+
+            // Validate optional cover SI values the same way upload does.
+            // (Reuses validateEmployee list-level checks by creating a fake Organization context would be heavy; do minimal here.)
+            EmployeeUploadDto self = request.getEmployees().stream()
+                    .filter(e -> e != null && e.getRelationship() != null && "Self".equalsIgnoreCase(e.getRelationship()))
+                    .findFirst().orElse(null);
+            if (self == null) {
+                return responseObj.render(responseObj.formErrorResponse(400, "Self row is required for premium preview"));
+            }
+
+            List<Policy> policies = policyRepository.findAllById(request.getPolicyIds());
+            if (policies == null || policies.isEmpty()) {
+                return responseObj.render(responseObj.formErrorResponse(400, "No policies found for given policyIds"));
+            }
+
+            List<IPremiumCalculationService.MemberInfo> members = buildMembersForBulk(request.getEmployees());
+            List<IPremiumCalculationService.MemberInfo> membersForBase = members; // includes employee + dependents
+            IPremiumCalculationService.MemberInfo employeeOnly = members.stream()
+                    .filter(m -> m.memberType() != null && ("EMPLOYEE".equalsIgnoreCase(m.memberType()) || "self".equalsIgnoreCase(m.memberType())))
+                    .findFirst()
+                    .orElse(members.isEmpty() ? null : members.get(0));
+            List<IPremiumCalculationService.MemberInfo> membersEmployeeOnly =
+                    employeeOnly != null ? List.of(employeeOnly) : membersForBase;
+
+            List<PremiumCalculationResponseDto.PlanBreakdownItemDto> breakdowns = new ArrayList<>();
+            java.math.BigDecimal totalAnnual = java.math.BigDecimal.ZERO;
+            java.math.BigDecimal totalEmployer = java.math.BigDecimal.ZERO;
+            java.math.BigDecimal totalEmployee = java.math.BigDecimal.ZERO;
+            java.math.BigDecimal totalGst = java.math.BigDecimal.ZERO;
+
+            for (Policy p : policies) {
+                if (p == null || p.getProductType() == null) continue;
+                String planType = p.getProductType().name();
+                String upper = planType.toUpperCase();
+
+                // Bulk flow: exclude parent coverage from preview.
+                if ("PARENT_GMC".equals(upper)) continue;
+
+                // Sum insured resolution:
+                java.math.BigDecimal sumInsured = null;
+                if ("GMC".equals(upper) || "GHI".equals(upper)) {
+                    sumInsured = toBigDecimalSafe(self.getSumInsured());
+                    if (sumInsured == null) sumInsured = p.getSumInsured();
+                } else if ("TOP_UP".equals(upper)) {
+                    sumInsured = toBigDecimalSafe(self.getTopupSumInsured());
+                } else if ("SUPER_TOP_UP".equals(upper)) {
+                    sumInsured = toBigDecimalSafe(self.getSuperTopupSumInsured());
+                } else {
+                    sumInsured = p.getSumInsured();
+                }
+                if (sumInsured == null) continue;
+
+                // Skip optional covers if not selected in input.
+                if ("TOP_UP".equals(upper) && (self.getTopupSumInsured() == null || self.getTopupSumInsured().trim().isEmpty())) continue;
+                if ("SUPER_TOP_UP".equals(upper) && (self.getSuperTopupSumInsured() == null || self.getSuperTopupSumInsured().trim().isEmpty())) continue;
+
+                String coverageTier = "INDIVIDUAL";
+                List<IPremiumCalculationService.MemberInfo> coveredMembers =
+                        ("TOP_UP".equals(upper) || "SUPER_TOP_UP".equals(upper))
+                                ? membersEmployeeOnly
+                                : membersForBase;
+
+                // Compute plan premium
+                IPremiumCalculationService.PlanPremiumBreakdown b = premiumCalculationService.calculatePlanPremium(
+                        companyId, planType, coverageTier, sumInsured, coveredMembers);
+
+                java.math.BigDecimal planPremium = b.premium() != null ? b.premium() : java.math.BigDecimal.ZERO;
+                java.math.BigDecimal gst = b.gstAmount() != null ? b.gstAmount() : java.math.BigDecimal.ZERO;
+
+                // Apply cost sharing
+                String coverageCategory = "FAMILY";
+                CostShareSplit split = costSharingRuleService.applyCostSharing(companyId, planType, coverageCategory, planPremium);
+
+                // Voluntary add-ons always 100% employee-paid
+                if ("TOP_UP".equals(upper) || "SUPER_TOP_UP".equals(upper)) {
+                    split = CostShareSplit.builder()
+                            .employerShare(java.math.BigDecimal.ZERO.setScale(2, java.math.RoundingMode.HALF_UP))
+                            .employeeShare(planPremium.setScale(2, java.math.RoundingMode.HALF_UP))
+                            .shareType(split.getShareType())
+                            .shareValue(split.getShareValue())
+                            .ruleId(split.getRuleId())
+                            .build();
+                }
+
+                breakdowns.add(PremiumCalculationResponseDto.PlanBreakdownItemDto.builder()
+                        .planType(planType)
+                        .premium(planPremium)
+                        .employerShare(split.getEmployerShare())
+                        .employeeShare(split.getEmployeeShare())
+                        .gstAmount(gst)
+                        .build());
+
+                totalAnnual = totalAnnual.add(planPremium);
+                totalEmployer = totalEmployer.add(split.getEmployerShare());
+                totalEmployee = totalEmployee.add(split.getEmployeeShare());
+                totalGst = totalGst.add(gst);
+            }
+
+            PremiumCalculationResponseDto out = PremiumCalculationResponseDto.builder()
+                    .totalAnnualPremium(totalAnnual)
+                    .totalEmployerShare(totalEmployer)
+                    .totalEmployeeShare(totalEmployee)
+                    .gstAmount(totalGst)
+                    .perPlanBreakdown(breakdowns)
+                    .deductionOptions(costSharingRuleService.calculateDeductions(totalEmployee))
+                    .build();
+
+            return responseObj.render(responseObj.formSuccessResponse("OK", out));
+        } catch (Exception e) {
+            log.error("previewBulkEmployeePremium error: {}", e.getMessage(), e);
+            return responseObj.render(responseObj.formErrorResponse("Failed to preview premium"));
+        }
+    }
+
+    private static String formatLakhs(java.math.BigDecimal value) {
+        if (value == null) return "";
+        try {
+            java.math.BigDecimal lakh = new java.math.BigDecimal("100000");
+            if (value.compareTo(lakh) >= 0) {
+                return value.divide(lakh, 0, java.math.RoundingMode.HALF_UP).toPlainString() + "L";
+            }
+        } catch (Exception ignored) {
+        }
+        return value.stripTrailingZeros().toPlainString();
+    }
+
+    private List<java.math.BigDecimal> getTopupSumInsuredOptions(UUID organizationId, ProductType productType) {
+        if (organizationId == null || productType == null) return List.of();
+        List<com.vimainsurance.vimaadmin.entity.Policy> policies =
+                policyRepository.findByOrganizationIdAndProductTypeAndStatus(organizationId, productType, PolicyStatus.ACTIVE);
+        if (policies == null || policies.isEmpty()) return List.of();
+        // If multiple active policies exist for same product type, treat as ambiguous for CSV/manual add selection.
+        if (policies.size() > 1) {
+            return List.of(new java.math.BigDecimal("-1")); // sentinel for ambiguity
+        }
+        String json = policies.get(0).getSumInsuredOptions();
+        return TopupPremiumOptionsUtil.parseDecimalList(json);
+    }
 
 
     public EmployeeUploadResponse validateEmployee(List<EmployeeUploadDto> employeeUploadDtoList, Organization organization) {
@@ -187,6 +410,64 @@ public class EmployeeService {
                 if (childIndexEntry.getValue() > 1) {
                     errors.add("employeeId: " + employeeId + " - Duplicate Child" + childIndexEntry.getKey() + 
                         " found. Only one Child" + childIndexEntry.getKey() + " is allowed per employee");
+                }
+            }
+
+            // Optional covers (Top-Up / Super Top-Up): validate SI on Self row only and against configured options
+            EmployeeUploadDto selfDtoForCovers = employeeUploadDtoListByEmployeeId.stream()
+                    .filter(e -> e != null && e.getRelationship() != null && "Self".equalsIgnoreCase(e.getRelationship()))
+                    .findFirst()
+                    .orElse(null);
+            if (selfDtoForCovers != null && organization != null && organization.getOrganizationId() != null) {
+                // Reject SI columns on non-self rows
+                for (EmployeeUploadDto dto : employeeUploadDtoListByEmployeeId) {
+                    if (dto == null) continue;
+                    String rel = dto.getRelationship();
+                    if (rel != null && !"Self".equalsIgnoreCase(rel)) {
+                        boolean hasAny = (dto.getTopupSumInsured() != null && !dto.getTopupSumInsured().trim().isEmpty())
+                                || (dto.getSuperTopupSumInsured() != null && !dto.getSuperTopupSumInsured().trim().isEmpty());
+                        if (hasAny) {
+                            errors.add("employeeId: " + employeeId + " - Top-Up/Super Top-Up selection is allowed only on the Self row");
+                        }
+                    }
+                }
+
+                String topupRaw = selfDtoForCovers.getTopupSumInsured() != null ? selfDtoForCovers.getTopupSumInsured().trim() : "";
+                String superRaw = selfDtoForCovers.getSuperTopupSumInsured() != null ? selfDtoForCovers.getSuperTopupSumInsured().trim() : "";
+                boolean hasTopup = !topupRaw.isEmpty();
+                boolean hasSuper = !superRaw.isEmpty();
+                if (hasTopup && hasSuper) {
+                    errors.add("employeeId: " + employeeId + " - Select only one optional cover: topup_sum_insured or super_topup_sum_insured (not both)");
+                }
+
+                if (hasTopup) {
+                    try {
+                        java.math.BigDecimal selected = new java.math.BigDecimal(topupRaw);
+                        List<java.math.BigDecimal> opts = getTopupSumInsuredOptions(organization.getOrganizationId(), ProductType.TOP_UP);
+                        if (opts.size() == 1 && opts.get(0).compareTo(new java.math.BigDecimal("-1")) == 0) {
+                            errors.add("employeeId: " + employeeId + " - Multiple active TOP_UP policies found. CSV selection is ambiguous; please keep only one active TOP_UP policy.");
+                        } else if (!opts.isEmpty() && opts.stream().noneMatch(o -> o != null && o.compareTo(selected) == 0)) {
+                            errors.add("employeeId: " + employeeId + " - Invalid top-up sum insured: " + formatLakhs(selected)
+                                    + ". Available options: " + opts.stream().map(EmployeeService::formatLakhs).collect(Collectors.joining(", ")));
+                        }
+                    } catch (Exception e) {
+                        errors.add("employeeId: " + employeeId + " - Invalid topup_sum_insured value. Must be numeric (e.g. 1000000 for 10L).");
+                    }
+                }
+
+                if (hasSuper) {
+                    try {
+                        java.math.BigDecimal selected = new java.math.BigDecimal(superRaw);
+                        List<java.math.BigDecimal> opts = getTopupSumInsuredOptions(organization.getOrganizationId(), ProductType.SUPER_TOP_UP);
+                        if (opts.size() == 1 && opts.get(0).compareTo(new java.math.BigDecimal("-1")) == 0) {
+                            errors.add("employeeId: " + employeeId + " - Multiple active SUPER_TOP_UP policies found. CSV selection is ambiguous; please keep only one active SUPER_TOP_UP policy.");
+                        } else if (!opts.isEmpty() && opts.stream().noneMatch(o -> o != null && o.compareTo(selected) == 0)) {
+                            errors.add("employeeId: " + employeeId + " - Invalid super top-up sum insured: " + formatLakhs(selected)
+                                    + ". Available options: " + opts.stream().map(EmployeeService::formatLakhs).collect(Collectors.joining(", ")));
+                        }
+                    } catch (Exception e) {
+                        errors.add("employeeId: " + employeeId + " - Invalid super_topup_sum_insured value. Must be numeric (e.g. 1000000 for 10L).");
+                    }
                 }
             }
             
