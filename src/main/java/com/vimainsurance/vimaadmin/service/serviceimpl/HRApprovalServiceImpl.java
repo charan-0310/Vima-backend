@@ -6,10 +6,12 @@ import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 
 import org.slf4j.MDC;
@@ -339,6 +341,7 @@ public class HRApprovalServiceImpl implements IHRApprovalService {
 
             long approvedCount = submissions.stream().filter(s -> s.getStatus() == EnrollementStatus.APPROVED).count();
             log.info("[correlationId:{}] finalizeEnrollmentWindow window {}: {} submissions, {} approved", MDC.get("correlationId"), windowId, submissions.size(), approvedCount);
+            UUID splitGroupId = UUID.randomUUID();
 
             for (EnrollmentSubmission sub : submissions) {
                 if (sub.getStatus() != EnrollementStatus.APPROVED) {
@@ -358,7 +361,7 @@ public class HRApprovalServiceImpl implements IHRApprovalService {
                     sub.setStatus(EnrollementStatus.COMPLETED);
                     enrollmentSubmissionRepository.save(sub);
                 }
-                createEndorsementAndDealEndorsementsForSubmission(sub, sub.getId());
+                createEndorsementAndDealEndorsementsForSubmission(sub, sub.getId(), splitGroupId);
             }
 
             // Update invitation status on close: mark non-completed invitations as EXPIRED
@@ -600,7 +603,7 @@ public class HRApprovalServiceImpl implements IHRApprovalService {
      * employee + dependents to it (deal_endorsement). All approved submissions in the same window
      * share one endorsement. Runs inside the same transaction as finalizeEnrollmentWindow.
      */
-    private void createEndorsementAndDealEndorsementsForSubmission(EnrollmentSubmission sub, UUID submissionId) {
+    private void createEndorsementAndDealEndorsementsForSubmission(EnrollmentSubmission sub, UUID submissionId, UUID splitGroupId) {
         Deals employee = sub.getEmployee();
         EnrollmentWindows window = sub.getEnrollmentWindow();
         if (window == null) {
@@ -623,81 +626,82 @@ public class HRApprovalServiceImpl implements IHRApprovalService {
         UUID windowId = window.getId();
 
         List<Deals> dependents = dealsRepository.findByEnrollmentSubmission_Id(submissionId);
-        int thisSubmissionDependents = dependents.size();
-        int thisSubmissionEmployees = 1;
-
-        Endorsement savedEndorsement = endorsementRepository
-                .findFirstByOrganization_OrganizationIdAndEnrollmentWindow_IdAndSourceOrderByCreatedAtDesc(
-                        orgId, windowId, EndorsementSource.SELF_ENROLLMENT)
-                .orElse(null);
-
-        if (savedEndorsement == null) { 
+        Set<Long> policyIds = extractPolicyIdsFromPlanSelections(sub.getPlanSelections());
+        if (policyIds.isEmpty()) {
+            log.warn("[correlationId:{}] No policy IDs found in plan selections for submission {}", MDC.get("correlationId"), submissionId);
+            return;
+        }
+        String username = jwtUserExtractor.extractCurrentUsername();
+        AdminUser uploadedBy = adminUserRepository.findByUsername(username).orElse(null);
+        Endorsement primary = null;
+        List<Deals> allDeals = new ArrayList<>();
+        allDeals.add(employee);
+        allDeals.addAll(dependents);
+        for (Long policyId : policyIds) {
             Endorsement endorsement = new Endorsement();
-            String username = jwtUserExtractor.extractCurrentUsername();
-            AdminUser uploadedBy = adminUserRepository.findByUsername(username).orElse(null);
-            if (uploadedBy != null) {
-                endorsement.setUploadedBy(uploadedBy);
-            }
+            if (uploadedBy != null) endorsement.setUploadedBy(uploadedBy);
             endorsement.setOrganization(org);
             endorsement.setEnrollmentWindow(window);
             endorsement.setEndorsementType(EndorsementType.ADDITION);
             endorsement.setSource(EndorsementSource.SELF_ENROLLMENT);
             endorsement.setStatus(AccountStatus.PENDING_APPROVAL);
-            endorsement.setTotalEmployees(thisSubmissionEmployees);
-            endorsement.setTotalDependents(thisSubmissionDependents);
+            endorsement.setTotalEmployees(1);
+            endorsement.setTotalDependents(dependents.size());
             endorsement.setSubmissionCount(1);
             endorsement.setCreatedAt(LocalDateTime.now());
             endorsement.setUpdatedAt(LocalDateTime.now());
-            savedEndorsement = endorsementRepository.save(endorsement);
-            log.info("[correlationId:{}] Created endorsement {} for window {} org {}", MDC.get("correlationId"), savedEndorsement.getEndorsementId(), windowId, orgId);
-        } else {
-            String username = jwtUserExtractor.extractCurrentUsername();
-            AdminUser uploadedBy = adminUserRepository.findByUsername(username).orElse(null);
-            if (uploadedBy != null) {
-                savedEndorsement.setUploadedBy(uploadedBy);
+            endorsement.setSplitGroupId(splitGroupId);
+            endorsement.setPolicy(policyRepository.findById(policyId).orElse(null));
+            if (primary != null) {
+                endorsement.setParentEndorsement(primary);
             }
-            int prevEmployees = savedEndorsement.getTotalEmployees() != null ? savedEndorsement.getTotalEmployees() : 0;
-            int prevDependents = savedEndorsement.getTotalDependents() != null ? savedEndorsement.getTotalDependents() : 0;
-            savedEndorsement.setTotalEmployees(prevEmployees + thisSubmissionEmployees);
-            savedEndorsement.setTotalDependents(prevDependents + thisSubmissionDependents);
-            savedEndorsement.setSubmissionCount(savedEndorsement.getSubmissionCount() != null ? savedEndorsement.getSubmissionCount() + 1 : 1);
-            savedEndorsement.setUpdatedAt(LocalDateTime.now());
-            savedEndorsement = endorsementRepository.save(savedEndorsement);
-        }
-        UUID endorsementId = savedEndorsement.getEndorsementId();        
-     
-        sub.setEndorsement(savedEndorsement);
-        enrollmentSubmissionRepository.save(sub);
-
-        employee.setEndorsementId(endorsementId);
-        dealsRepository.save(employee);
-        for (Deals d : dependents) {
-            d.setEndorsementId(endorsementId);
-        }
-        if (!dependents.isEmpty()) {
-            saveDealsInBatches(dependents);
-        }
-
-        List<DealEndorsement> toSave = new ArrayList<>();
-        if (employee.getIndividualId() != null && !dealEndorsementRepository.existsByDeal_IndividualIdAndEndorsement_EndorsementId(employee.getIndividualId(), endorsementId)) {
-            DealEndorsement de = new DealEndorsement();
-            de.setDeal(employee);
-            de.setEndorsement(savedEndorsement);
-            toSave.add(de);
-        }
-        for (Deals d : dependents) {
-            if (d.getIndividualId() != null && !dealEndorsementRepository.existsByDeal_IndividualIdAndEndorsement_EndorsementId(d.getIndividualId(), endorsementId)) {
-                DealEndorsement de = new DealEndorsement();
-                de.setDeal(d);
-                de.setEndorsement(savedEndorsement);
-                toSave.add(de);
+            Endorsement savedEndorsement = endorsementRepository.save(endorsement);
+            if (primary == null) {
+                primary = savedEndorsement;
+                sub.setEndorsement(savedEndorsement);
+                enrollmentSubmissionRepository.save(sub);
+                employee.setEndorsementId(savedEndorsement.getEndorsementId());
+                dealsRepository.save(employee);
+                for (Deals d : dependents) {
+                    d.setEndorsementId(savedEndorsement.getEndorsementId());
+                }
+                if (!dependents.isEmpty()) {
+                    saveDealsInBatches(dependents);
+                }
+            }
+            List<DealEndorsement> toSave = new ArrayList<>();
+            for (Deals d : allDeals) {
+                if (d.getIndividualId() != null && !dealEndorsementRepository.existsByDeal_IndividualIdAndEndorsement_EndorsementId(d.getIndividualId(), savedEndorsement.getEndorsementId())) {
+                    DealEndorsement de = new DealEndorsement();
+                    de.setDeal(d);
+                    de.setEndorsement(savedEndorsement);
+                    toSave.add(de);
+                }
+            }
+            if (!toSave.isEmpty()) {
+                dealEndorsementRepository.saveAll(toSave);
             }
         }
-        for (int i = 0; i < toSave.size(); i += BATCH_SIZE) {
-            int end = Math.min(i + BATCH_SIZE, toSave.size());
-            dealEndorsementRepository.saveAll(toSave.subList(i, end));
+    }
+
+    private Set<Long> extractPolicyIdsFromPlanSelections(String planSelectionsJson) {
+        Set<Long> policyIds = new HashSet<>();
+        if (planSelectionsJson == null || planSelectionsJson.isBlank()) {
+            return policyIds;
         }
-        log.debug("[correlationId:{}] Endorsement {} (window): added submission {} with {} deal endorsement(s)", MDC.get("correlationId"), endorsementId, submissionId, toSave.size());
+        try {
+            JsonNode root = OBJECT_MAPPER.readTree(planSelectionsJson);
+            if (root.isArray()) {
+                for (JsonNode node : root) {
+                    if (node.has("policyId") && node.get("policyId").canConvertToLong()) {
+                        policyIds.add(node.get("policyId").asLong());
+                    }
+                }
+            }
+        } catch (Exception e) {
+            log.warn("[correlationId:{}] Failed to parse plan selections for policy extraction: {}", MDC.get("correlationId"), e.getMessage());
+        }
+        return policyIds;
     }
 
     private void sendRejectionEmail(EnrollmentSubmission sub, String reason) {

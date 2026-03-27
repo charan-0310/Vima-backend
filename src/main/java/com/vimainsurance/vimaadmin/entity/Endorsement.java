@@ -78,6 +78,17 @@ public class Endorsement {
     @JoinColumn(name = "enrollment_window_id")
     private EnrollmentWindows enrollmentWindow;
 
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "policy_id")
+    private Policy policy;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "parent_endorsement_id")
+    private Endorsement parentEndorsement;
+
+    @Column(name = "split_group_id")
+    private UUID splitGroupId;
+
     @Column(name = "submission_count")
     private Integer submissionCount = 0;
 

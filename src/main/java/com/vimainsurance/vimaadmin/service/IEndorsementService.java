@@ -39,6 +39,8 @@ public interface IEndorsementService {
         String status, 
         String endorsementType,
         String uploadedBy,
+        UUID splitGroupId,
+        Long policyId,
         String fromDate,
         String toDate,
         int page, 

@@ -28,5 +28,9 @@ public class EndorsementResponseDto {
     private LocalDateTime updatedAt;
     private String source;
     private String lifeEventType;
+    private Long policyId;
+    private String policyType;
+    private UUID splitGroupId;
+    private UUID parentEndorsementId;
 }
 

@@ -1,5 +1,6 @@
 package com.vimainsurance.vimaadmin.dto;
 
+import com.fasterxml.jackson.annotation.JsonProperty;
 import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Pattern;
@@ -38,6 +39,14 @@ public class EmployeeUploadDto {
 
     /** Original relationship (e.g. Son, Daughter) before frontend normalizes to CHILD1–CHILD4; optional. */
     public String actualRelationship;
+
+    /** Optional cover SI (numeric rupees). Present only on SELF row when Top-Up selected. */
+    @JsonProperty("topup_sum_insured")
+    public String topupSumInsured;
+
+    /** Optional cover SI (numeric rupees). Present only on SELF row when Super Top-Up selected. */
+    @JsonProperty("super_topup_sum_insured")
+    public String superTopupSumInsured;
 
     public String getComparisonString() {
         return this.employeeId + this.relationship + this.name + this.dateOfBirth + this.gender + this.email + this.mobile + this.dateOfJoining + this.designation + this.department + this.maritalStatus + this.sumInsured;
