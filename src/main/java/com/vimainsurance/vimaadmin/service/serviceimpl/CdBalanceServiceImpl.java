@@ -162,7 +162,7 @@ public class CdBalanceServiceImpl implements ICdBalanceService {
     }
 
     @Override
-    @Transactional(rollbackFor = Exception.class)
+    @Transactional(rollbackFor = Exception.class, noRollbackFor = IllegalArgumentException.class)
     @AuditedOperation(schemaName = "cpc", tableName = "cd_balance_transactions", entityType = "CD_BALANCE", action = "ENDORSEMENT_UPDATE")
     public void recordEndorsementCdBalanceEntries(
             UUID endorsementId,
@@ -202,6 +202,7 @@ public class CdBalanceServiceImpl implements ICdBalanceService {
 
             BigDecimal currentBalance = cdAccount.getCdBalance() == null ? BigDecimal.ZERO : cdAccount.getCdBalance();
             BigDecimal runningBalance = currentBalance.add(signedAmount);
+            validateSufficientBalanceForAddition(endorsementType, currentBalance, signedAmount, cdAccount, endorsement);
 
             CdBalanceTransaction transaction = new CdBalanceTransaction();
             transaction.setCdAccountId(entry.getCdAccountId());
@@ -298,6 +299,35 @@ public class CdBalanceServiceImpl implements ICdBalanceService {
         if (entry.getAmount().signum() == 0) {
             throw new IllegalArgumentException(
                     "CD balance entry for account " + entry.getCdAccountId() + " must be a non-zero amount");
+        }
+    }
+
+    private void validateSufficientBalanceForAddition(
+            EndorsementType endorsementType,
+            BigDecimal currentBalance,
+            BigDecimal signedAmount,
+            CdAccount cdAccount,
+            Endorsement endorsement) {
+        if (endorsementType != EndorsementType.ADDITION) {
+            return;
+        }
+        BigDecimal available = currentBalance == null ? BigDecimal.ZERO : currentBalance;
+        BigDecimal debitAmount = signedAmount == null ? BigDecimal.ZERO : signedAmount.abs();
+        if (available.compareTo(debitAmount) < 0) {
+            String insurerName = (cdAccount != null && cdAccount.getInsurerName() != null && !cdAccount.getInsurerName().isBlank())
+                    ? cdAccount.getInsurerName().trim()
+                    : "Insurer";
+            String organizationName = (endorsement != null
+                    && endorsement.getOrganization() != null
+                    && endorsement.getOrganization().getOrganizationName() != null
+                    && !endorsement.getOrganization().getOrganizationName().isBlank())
+                            ? endorsement.getOrganization().getOrganizationName().trim()
+                            : "Organization";
+            throw new IllegalArgumentException(
+                    "Insufficient CD balance for insurer " + insurerName
+                            + " in organization " + organizationName
+                            + ". Available: " + available.toPlainString()
+                            + ", required debit: " + debitAmount.toPlainString());
         }
     }
 
