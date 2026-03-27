@@ -524,6 +524,18 @@ public class EndorsementServiceImpl implements IEndorsementService {
                 return responseObj.render(responseObj.formErrorResponse("No deals found to approve"));
             }
          
+            if (cdBalanceService != null && requestDto.getCdBalanceEntries() != null && !requestDto.getCdBalanceEntries().isEmpty()) {
+                String performedBy = requestDto.getApprovedBy() != null && !requestDto.getApprovedBy().isBlank()
+                        ? requestDto.getApprovedBy()
+                        : jwtUserExtractor.extractCurrentUsername();
+                cdBalanceService.recordEndorsementCdBalanceEntries(
+                        endorsement.getEndorsementId(),
+                        organization.getOrganizationId(),
+                        requestDto.getCdBalanceEntries(),
+                        endorsement.getEndorsementType(),
+                        performedBy);
+            }
+
             deals.stream().filter(deal -> deal.getStatus().equals(AccountStatus.PENDING_APPROVAL)).forEach(deal -> {
                 deal.setStatus(AccountStatus.ACTIVE);
                 deal.setUpdatedAt(LocalDateTime.now());
@@ -538,18 +550,6 @@ public class EndorsementServiceImpl implements IEndorsementService {
             endorsement.setStatus(AccountStatus.COMPLETED);
             endorsement.setUpdatedAt(LocalDateTime.now());
             endorsementRepository.save(endorsement);
-
-            if (cdBalanceService != null && requestDto.getCdBalanceEntries() != null && !requestDto.getCdBalanceEntries().isEmpty()) {
-                String performedBy = requestDto.getApprovedBy() != null && !requestDto.getApprovedBy().isBlank()
-                        ? requestDto.getApprovedBy()
-                        : jwtUserExtractor.extractCurrentUsername();
-                cdBalanceService.recordEndorsementCdBalanceEntries(
-                        endorsement.getEndorsementId(),
-                        organization.getOrganizationId(),
-                        requestDto.getCdBalanceEntries(),
-                        endorsement.getEndorsementType(),
-                        performedBy);
-            }
 
             if (employeePolicyMapService != null) {
                 if (endorsement.getEndorsementType() == EndorsementType.ADDITION || endorsement.getEndorsementType() == EndorsementType.INITIAL_UPLOAD) {
