@@ -46,6 +46,7 @@ import com.vimainsurance.vimaadmin.dto.EndorsementResponseDto;
 import com.vimainsurance.vimaadmin.dto.HealthIdUploadDto;
 import com.vimainsurance.vimaadmin.dto.ResponseDto;
 import com.vimainsurance.vimaadmin.entity.AdminUser;
+import com.vimainsurance.vimaadmin.entity.DealEndorsement;
 import com.vimainsurance.vimaadmin.entity.Deals;
 import com.vimainsurance.vimaadmin.entity.Document;
 import com.vimainsurance.vimaadmin.entity.Endorsement;
@@ -57,6 +58,7 @@ import com.vimainsurance.vimaadmin.enums.DocumentType;
 import com.vimainsurance.vimaadmin.enums.EndorsementType;
 import com.vimainsurance.vimaadmin.mapper.EndorsementMapper;
 import com.vimainsurance.vimaadmin.repository.IAdminUserRepository;
+import com.vimainsurance.vimaadmin.repository.IDealEndorsementRepository;
 import com.vimainsurance.vimaadmin.repository.IDealsRepository;
 import com.vimainsurance.vimaadmin.repository.IDocumentRepository;
 import com.vimainsurance.vimaadmin.repository.IEndorsementRepository;
@@ -98,6 +100,9 @@ public class EndorsementServiceImpl implements IEndorsementService {
 
     @Autowired
     private IDealsRepository dealsRepository;
+
+    @Autowired
+    private IDealEndorsementRepository dealEndorsementRepository;
 
     @Autowired
     private Environment environment;
@@ -518,7 +523,40 @@ public class EndorsementServiceImpl implements IEndorsementService {
            }
             EndorsementMapper.updateEntityFromDto(endorsement, requestDto, organization, null, uploadedBy);
 
-            List<Deals> deals = dealsRepository.findByEndorsementId(requestDto.getEndorsementId());
+            // Policy-based endorsement splitting may store people across multiple split endorsements.
+            // Build a scoped set of endorsement IDs (current + same split group) and resolve deals from:
+            // 1) customers.endorsement_id and 2) deal_endorsements join table.
+            List<UUID> scopedEndorsementIds = new ArrayList<>();
+            scopedEndorsementIds.add(endorsement.getEndorsementId());
+            if (endorsement.getSplitGroupId() != null) {
+                List<Endorsement> splitGroup = endorsementRepository.findBySplitGroupId(endorsement.getSplitGroupId());
+                if (splitGroup != null && !splitGroup.isEmpty()) {
+                    scopedEndorsementIds = splitGroup.stream()
+                            .map(Endorsement::getEndorsementId)
+                            .filter(Objects::nonNull)
+                            .distinct()
+                            .collect(Collectors.toList());
+                }
+            }
+
+            Map<UUID, Deals> dealsById = new java.util.LinkedHashMap<>();
+            for (UUID eid : scopedEndorsementIds) {
+                dealsRepository.findByEndorsementId(eid)
+                        .forEach(d -> {
+                            if (d != null && d.getIndividualId() != null) {
+                                dealsById.put(d.getIndividualId(), d);
+                            }
+                        });
+                List<DealEndorsement> links = dealEndorsementRepository.findByEndorsement_EndorsementId(eid);
+                if (links != null) {
+                    links.stream()
+                            .map(DealEndorsement::getDeal)
+                            .filter(Objects::nonNull)
+                            .filter(d -> d.getIndividualId() != null)
+                            .forEach(d -> dealsById.put(d.getIndividualId(), d));
+                }
+            }
+            List<Deals> deals = new ArrayList<>(dealsById.values());
             if(deals.isEmpty()) {
                 return responseObj.render(responseObj.formErrorResponse("No deals found to approve"));
             }

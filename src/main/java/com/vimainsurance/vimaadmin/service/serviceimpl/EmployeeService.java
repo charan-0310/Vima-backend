@@ -160,11 +160,12 @@ public class EmployeeService {
                 age = java.time.Period.between(dob, today).getYears();
             }
             String memberType = "dependent";
+            String relNorm = rel == null ? "" : rel.trim().toLowerCase().replace('_', ' ');
             if ("Self".equalsIgnoreCase(rel)) {
                 memberType = "EMPLOYEE";
-            } else if ("Father".equalsIgnoreCase(rel) || "Mother".equalsIgnoreCase(rel)) {
+            } else if ("father".equals(relNorm) || "mother".equals(relNorm)) {
                 memberType = "parent";
-            } else if (rel != null && (rel.toLowerCase().contains("in law") || rel.toLowerCase().contains("in-law"))) {
+            } else if (relNorm.contains("in law") || relNorm.contains("in-law")) {
                 memberType = "parent_in_law";
             }
             out.add(new IPremiumCalculationService.MemberInfo(memberType, age, dob));
@@ -225,9 +226,6 @@ public class EmployeeService {
                 String planType = p.getProductType().name();
                 String upper = planType.toUpperCase();
 
-                // Bulk flow: exclude parent coverage from preview.
-                if ("PARENT_GMC".equals(upper)) continue;
-
                 // Sum insured resolution:
                 java.math.BigDecimal sumInsured = null;
                 if ("GMC".equals(upper) || "GHI".equals(upper)) {
@@ -239,6 +237,11 @@ public class EmployeeService {
                     sumInsured = toBigDecimalSafe(self.getSuperTopupSumInsured());
                 } else {
                     sumInsured = p.getSumInsured();
+                    if (sumInsured == null) {
+                        // GPA/GTL can be multiplier-based and may not persist absolute SI.
+                        // Keep plan visible in breakdown by allowing premium engine lookup to proceed.
+                        sumInsured = java.math.BigDecimal.ZERO;
+                    }
                 }
                 if (sumInsured == null) continue;
 
@@ -247,10 +250,21 @@ public class EmployeeService {
                 if ("SUPER_TOP_UP".equals(upper) && (self.getSuperTopupSumInsured() == null || self.getSuperTopupSumInsured().trim().isEmpty())) continue;
 
                 String coverageTier = "INDIVIDUAL";
-                List<IPremiumCalculationService.MemberInfo> coveredMembers =
-                        ("TOP_UP".equals(upper) || "SUPER_TOP_UP".equals(upper))
-                                ? membersEmployeeOnly
-                                : membersForBase;
+                List<IPremiumCalculationService.MemberInfo> membersForParentOnly = members.stream()
+                        .filter(m -> {
+                            String mt = m.memberType() != null ? m.memberType().toLowerCase() : "";
+                            return "parent".equals(mt) || "parent_in_law".equals(mt);
+                        })
+                        .toList();
+                List<IPremiumCalculationService.MemberInfo> coveredMembers;
+                if ("TOP_UP".equals(upper) || "SUPER_TOP_UP".equals(upper)) {
+                    coveredMembers = membersEmployeeOnly;
+                } else if ("PARENT_GMC".equals(upper)) {
+                    coveredMembers = membersForParentOnly;
+                } else {
+                    coveredMembers = membersForBase;
+                }
+                if (coveredMembers == null || coveredMembers.isEmpty()) continue;
 
                 // Compute plan premium
                 IPremiumCalculationService.PlanPremiumBreakdown b = premiumCalculationService.calculatePlanPremium(
@@ -261,7 +275,41 @@ public class EmployeeService {
 
                 // Apply cost sharing
                 String coverageCategory = "FAMILY";
-                CostShareSplit split = costSharingRuleService.applyCostSharing(companyId, planType, coverageCategory, planPremium);
+                if ("PARENT_GMC".equals(upper)) {
+                    boolean hasParent = coveredMembers.stream().anyMatch(m -> "parent".equalsIgnoreCase(m.memberType()));
+                    boolean hasInLaw = coveredMembers.stream().anyMatch(m -> "parent_in_law".equalsIgnoreCase(m.memberType()));
+                    if (hasParent && !hasInLaw) {
+                        coverageCategory = "PARENT";
+                    } else if (!hasParent && hasInLaw) {
+                        coverageCategory = "PARENT_IN_LAW";
+                    } else {
+                        coverageCategory = "PARENT";
+                    }
+                }
+                String costSharingPlanType =
+                        ("PARENT_GMC".equals(upper) || "GMC_PARENT".equals(upper)) ? "GMC" : planType;
+                CostShareSplit split = costSharingRuleService.applyCostSharing(
+                        companyId, costSharingPlanType, coverageCategory, planPremium);
+                // Keep parent review aligned with enrollment review behavior: 50/50 by default
+                // when parent-specific rule is missing and engine falls back to 100% employer.
+                if (("PARENT_GMC".equals(upper) || "GMC_PARENT".equals(upper))
+                        && split != null
+                        && split.getEmployeeShare() != null
+                        && split.getEmployerShare() != null
+                        && split.getEmployeeShare().compareTo(java.math.BigDecimal.ZERO) == 0
+                        && split.getEmployerShare().compareTo(planPremium) == 0) {
+                    java.math.BigDecimal employer = planPremium
+                            .divide(java.math.BigDecimal.valueOf(2), 2, java.math.RoundingMode.HALF_UP);
+                    java.math.BigDecimal employee = planPremium.subtract(employer)
+                            .setScale(2, java.math.RoundingMode.HALF_UP);
+                    split = CostShareSplit.builder()
+                            .employerShare(employer)
+                            .employeeShare(employee)
+                            .shareType(split.getShareType())
+                            .shareValue(split.getShareValue())
+                            .ruleId(split.getRuleId())
+                            .build();
+                }
 
                 // Voluntary add-ons always 100% employee-paid
                 if ("TOP_UP".equals(upper) || "SUPER_TOP_UP".equals(upper)) {
