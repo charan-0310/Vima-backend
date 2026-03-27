@@ -388,7 +388,7 @@ public class EndorsementServiceImpl implements IEndorsementService {
     @Override
     public ResponseEntity<ResponseDto<List<EndorsementResponseDto>>> getAllWithFilters(
             UUID organizationId, String organizationName, String status, String endorsementType, String uploadedBy,
-            String fromDate, String toDate, int page, int size, String sortBy, String sortDirection) {
+            UUID splitGroupId, Long policyId, String fromDate, String toDate, int page, int size, String sortBy, String sortDirection) {
         logger.info("[correlationId:{}] Endorsement getAllWithFilters called - organizationId: {}, organizationName: {}, status: {}, endorsementType: {}, page: {}, size: {}",
                 MDC.get("correlationId"), organizationId, organizationName, status, endorsementType, page, size);
         BaseResponse<List<EndorsementResponseDto>> responseObj = new BaseResponse<>();
@@ -440,6 +440,8 @@ public class EndorsementServiceImpl implements IEndorsementService {
                 status,
                 type,
                 uploadedBy,
+                splitGroupId,
+                policyId,
                 fromDateTime,
                 toDateTime
             );

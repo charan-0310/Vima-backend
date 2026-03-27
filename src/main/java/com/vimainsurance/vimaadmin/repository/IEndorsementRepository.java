@@ -32,6 +32,8 @@ public interface IEndorsementRepository extends JpaRepository<Endorsement, UUID>
     Page<Endorsement> findByStatus(AccountStatus status, Pageable pageable);
     
     List<Endorsement> findByEndorsementType(EndorsementType endorsementType);
+
+    List<Endorsement> findBySplitGroupId(UUID splitGroupId);
     
     Page<Endorsement> findByEndorsementType(EndorsementType endorsementType, Pageable pageable);
 

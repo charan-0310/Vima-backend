@@ -155,6 +155,8 @@ public class EndorsementController {
             @RequestParam(required = false) String status,
             @RequestParam(required = false) String endorsementType,
             @RequestParam(required = false) String uploadedBy,
+            @RequestParam(required = false) UUID splitGroupId,
+            @RequestParam(required = false) Long policyId,
             @RequestParam(required = false) String fromDate,
             @RequestParam(required = false) String toDate,
             @RequestParam(defaultValue = "0", required = false) int page,
@@ -162,7 +164,7 @@ public class EndorsementController {
             @RequestParam(required = false) String sortBy,
             @RequestParam(defaultValue = "desc", required = false) String sortDirection) {
         logger.info("[correlationId:{}] /endorsements/filtered (GET) endpoint called", MDC.get("correlationId"));
-        return endorsementService.getAllWithFilters(organizationId, organizationName, status, endorsementType, uploadedBy, fromDate, toDate, page, size, sortBy, sortDirection);
+        return endorsementService.getAllWithFilters(organizationId, organizationName, status, endorsementType, uploadedBy, splitGroupId, policyId, fromDate, toDate, page, size, sortBy, sortDirection);
     }
 
     /**

@@ -20,5 +20,16 @@ public class EmployeeUploadResponse {
     private String message;
     private int totalEmployees;
     private int totalDependents;
+    private List<EndorsementSplitSummaryDto> endorsements;
+
+    public EmployeeUploadResponse(int totalRows, int successCount, int errorCount, List<String> errors, String message, int totalEmployees, int totalDependents) {
+        this.totalRows = totalRows;
+        this.successCount = successCount;
+        this.errorCount = errorCount;
+        this.errors = errors;
+        this.message = message;
+        this.totalEmployees = totalEmployees;
+        this.totalDependents = totalDependents;
+    }
 }
 
