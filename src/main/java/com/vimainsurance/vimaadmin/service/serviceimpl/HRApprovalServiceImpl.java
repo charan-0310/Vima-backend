@@ -51,6 +51,7 @@ import com.vimainsurance.vimaadmin.enums.AccountType;
 import com.vimainsurance.vimaadmin.enums.EndorsementSource;
 import com.vimainsurance.vimaadmin.enums.EndorsementType;
 import com.vimainsurance.vimaadmin.enums.EnrollementStatus;
+import com.vimainsurance.vimaadmin.enums.ProductType;
 import com.vimainsurance.vimaadmin.repository.IAdminUserRepository;
 import com.vimainsurance.vimaadmin.repository.IDealEndorsementRepository;
 import com.vimainsurance.vimaadmin.repository.IDealsRepository;
@@ -645,13 +646,31 @@ public class HRApprovalServiceImpl implements IHRApprovalService {
             endorsement.setEndorsementType(EndorsementType.ADDITION);
             endorsement.setSource(EndorsementSource.SELF_ENROLLMENT);
             endorsement.setStatus(AccountStatus.PENDING_APPROVAL);
-            endorsement.setTotalEmployees(1);
-            endorsement.setTotalDependents(dependents.size());
+            Policy policy = policyRepository.findById(policyId).orElse(null);
+            ProductType pt = policy != null ? policy.getProductType() : null;
+            if (pt == ProductType.GPA || pt == ProductType.GTL || pt == ProductType.TOP_UP || pt == ProductType.SUPER_TOP_UP) {
+                endorsement.setTotalEmployees(1);
+                endorsement.setTotalDependents(0);
+            } else if (pt == ProductType.PARENT_GMC) {
+                int self = (int) allDeals.stream()
+                        .filter(d -> d.getRelationship() != null && "SELF".equalsIgnoreCase(d.getRelationship()))
+                        .count();
+                int parents = (int) allDeals.stream().filter(d -> isParentDealRelationship(d.getRelationship())).count();
+                endorsement.setTotalEmployees(self);
+                endorsement.setTotalDependents(parents);
+            } else {
+                int depCount = (int) allDeals.stream()
+                        .filter(d -> d.getRelationship() != null && !"SELF".equalsIgnoreCase(d.getRelationship()))
+                        .filter(d -> !isParentDealRelationship(d.getRelationship()))
+                        .count();
+                endorsement.setTotalEmployees(1);
+                endorsement.setTotalDependents(depCount);
+            }
             endorsement.setSubmissionCount(1);
             endorsement.setCreatedAt(LocalDateTime.now());
             endorsement.setUpdatedAt(LocalDateTime.now());
             endorsement.setSplitGroupId(splitGroupId);
-            endorsement.setPolicy(policyRepository.findById(policyId).orElse(null));
+            endorsement.setPolicy(policy);
             if (primary != null) {
                 endorsement.setParentEndorsement(primary);
             }
@@ -1014,6 +1033,19 @@ public class HRApprovalServiceImpl implements IHRApprovalService {
         }
         n.setIsActive(true);
         return n;
+    }
+
+    /** Same rules as EmployeeService: parent/in-law rows for PARENT_GMC vs floater dependents. */
+    private boolean isParentDealRelationship(String relationship) {
+        if (relationship == null) {
+            return false;
+        }
+        String r = relationship.trim();
+        if ("FATHER".equalsIgnoreCase(r) || "MOTHER".equalsIgnoreCase(r)) {
+            return true;
+        }
+        String compact = r.replaceAll("[\\s_-]+", "").toUpperCase();
+        return "FATHERINLAW".equals(compact) || "MOTHERINLAW".equals(compact);
     }
 
     private void saveDealsInBatches(List<Deals> deals) {

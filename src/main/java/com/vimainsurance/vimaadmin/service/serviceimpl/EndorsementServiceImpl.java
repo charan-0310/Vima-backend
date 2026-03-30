@@ -56,6 +56,7 @@ import com.vimainsurance.vimaadmin.enums.DocumentCategory;
 import com.vimainsurance.vimaadmin.enums.DocumentEntityType;
 import com.vimainsurance.vimaadmin.enums.DocumentType;
 import com.vimainsurance.vimaadmin.enums.EndorsementType;
+import com.vimainsurance.vimaadmin.enums.ProductType;
 import com.vimainsurance.vimaadmin.mapper.EndorsementMapper;
 import com.vimainsurance.vimaadmin.repository.IAdminUserRepository;
 import com.vimainsurance.vimaadmin.repository.IDealEndorsementRepository;
@@ -136,6 +137,8 @@ public class EndorsementServiceImpl implements IEndorsementService {
 
     @Autowired(required = false)
     private ICdBalanceService cdBalanceService;
+
+    private record MemberCounts(int employeeCount, int dependentCount) {}
 
     @Override
     @Transactional
@@ -307,6 +310,7 @@ public class EndorsementServiceImpl implements IEndorsementService {
                 com.vimainsurance.vimaadmin.audit.AuditContextSupplier.setOrganizationId(orgId);
             }
             EndorsementResponseDto dto = EndorsementMapper.mapToResponseDto(opt.get());
+            applyDynamicMemberCounts(dto, opt.get());
             return responseObj.render(responseObj.formSuccessResponse(Constants.SUCCESS, dto));
         } catch (Exception e) {
             logger.error("[correlationId:{}] Exception in Endorsement getById: {}", MDC.get("correlationId"), e.getMessage(), e);
@@ -322,7 +326,9 @@ public class EndorsementServiceImpl implements IEndorsementService {
             List<Endorsement> list = endorsementRepository.findAll();
             List<EndorsementResponseDto> out = new ArrayList<>();
             for (Endorsement endorsement : list) {
-                out.add(EndorsementMapper.mapToResponseDto(endorsement));
+                EndorsementResponseDto dto = EndorsementMapper.mapToResponseDto(endorsement);
+                applyDynamicMemberCounts(dto, endorsement);
+                out.add(dto);
             }
             return responseObj.render(responseObj.formSuccessResponse(Constants.SUCCESS, out, out.size()));
         } catch (Exception e) {
@@ -339,7 +345,9 @@ public class EndorsementServiceImpl implements IEndorsementService {
             List<Endorsement> list = endorsementRepository.findByOrganization_OrganizationId(organizationId);
             List<EndorsementResponseDto> out = new ArrayList<>();
             for (Endorsement endorsement : list) {
-                out.add(EndorsementMapper.mapToResponseDto(endorsement));
+                EndorsementResponseDto dto = EndorsementMapper.mapToResponseDto(endorsement);
+                applyDynamicMemberCounts(dto, endorsement);
+                out.add(dto);
             }
             return responseObj.render(responseObj.formSuccessResponse(Constants.SUCCESS, out, out.size()));
         } catch (Exception e) {
@@ -357,7 +365,9 @@ public class EndorsementServiceImpl implements IEndorsementService {
             List<Endorsement> list = endorsementRepository.findByStatus(accountStatus);
             List<EndorsementResponseDto> out = new ArrayList<>();
             for (Endorsement endorsement : list) {
-                out.add(EndorsementMapper.mapToResponseDto(endorsement));
+                EndorsementResponseDto dto = EndorsementMapper.mapToResponseDto(endorsement);
+                applyDynamicMemberCounts(dto, endorsement);
+                out.add(dto);
             }
             return responseObj.render(responseObj.formSuccessResponse(Constants.SUCCESS, out, out.size()));
         } catch (IllegalArgumentException e) {
@@ -378,7 +388,9 @@ public class EndorsementServiceImpl implements IEndorsementService {
             List<Endorsement> list = endorsementRepository.findByEndorsementType(type);
             List<EndorsementResponseDto> out = new ArrayList<>();
             for (Endorsement endorsement : list) {
-                out.add(EndorsementMapper.mapToResponseDto(endorsement));
+                EndorsementResponseDto dto = EndorsementMapper.mapToResponseDto(endorsement);
+                applyDynamicMemberCounts(dto, endorsement);
+                out.add(dto);
             }
             return responseObj.render(responseObj.formSuccessResponse(Constants.SUCCESS, out, out.size()));
         } catch (IllegalArgumentException e) {
@@ -461,7 +473,9 @@ public class EndorsementServiceImpl implements IEndorsementService {
             // Map to DTOs
             List<EndorsementResponseDto> out = new ArrayList<>();
             for (Endorsement endorsement : endorsementPage.getContent()) {
-                out.add(EndorsementMapper.mapToResponseDto(endorsement));
+                EndorsementResponseDto dto = EndorsementMapper.mapToResponseDto(endorsement);
+                applyDynamicMemberCounts(dto, endorsement);
+                out.add(dto);
             }
 
             return responseObj.render(responseObj.formSuccessResponse(Constants.SUCCESS, out, endorsementPage.getTotalElements()));
@@ -1083,6 +1097,99 @@ public class EndorsementServiceImpl implements IEndorsementService {
 
         Sort.Direction direction = sortDirection.equalsIgnoreCase("ASC") ? Sort.Direction.ASC : Sort.Direction.DESC;
         return Sort.by(direction, sortBy);
+    }
+
+    private void applyDynamicMemberCounts(EndorsementResponseDto dto, Endorsement endorsement) {
+        MemberCounts counts = calculateMemberCounts(endorsement, dto);
+        dto.setTotalEmployees(counts.employeeCount());
+        dto.setTotalDependents(counts.dependentCount());
+    }
+
+    private MemberCounts calculateMemberCounts(Endorsement endorsement, EndorsementResponseDto dto) {
+        if (endorsement == null || endorsement.getEndorsementId() == null) {
+            return new MemberCounts(0, 0);
+        }
+        UUID endorsementId = endorsement.getEndorsementId();
+        Map<UUID, Deals> uniqueMembers = new java.util.LinkedHashMap<>();
+
+        dealsRepository.findByEndorsementId(endorsementId).forEach(deal -> {
+            if (deal != null && deal.getIndividualId() != null) {
+                uniqueMembers.put(deal.getIndividualId(), deal);
+            }
+        });
+
+        List<DealEndorsement> links = dealEndorsementRepository.findByEndorsement_EndorsementId(endorsementId);
+        if (links != null) {
+            links.stream()
+                    .map(DealEndorsement::getDeal)
+                    .filter(Objects::nonNull)
+                    .filter(deal -> deal.getIndividualId() != null)
+                    .forEach(deal -> uniqueMembers.put(deal.getIndividualId(), deal));
+        }
+
+        ProductType pt = resolveProductTypeForMemberCounts(endorsement, dto);
+        // GPA/GTL/top-up: employee-only products — never count spouses/children as dependents on these endorsements.
+        if (pt == ProductType.GPA || pt == ProductType.GTL || pt == ProductType.TOP_UP || pt == ProductType.SUPER_TOP_UP) {
+            int self = (int) uniqueMembers.values().stream()
+                    .filter(d -> d != null && d.getRelationship() != null && "SELF".equalsIgnoreCase(d.getRelationship()))
+                    .count();
+            return new MemberCounts(self, 0);
+        }
+        // PARENT_GMC: SELF / parent members (second figure), not generic non-SELF.
+        if (pt == ProductType.PARENT_GMC) {
+            int self = (int) uniqueMembers.values().stream()
+                    .filter(d -> d != null && d.getRelationship() != null && "SELF".equalsIgnoreCase(d.getRelationship()))
+                    .count();
+            int parents = (int) uniqueMembers.values().stream()
+                    .filter(d -> d != null && isParentRelationshipForEndorsementCounts(d.getRelationship()))
+                    .count();
+            return new MemberCounts(self, parents);
+        }
+
+        int employeeCount = 0;
+        int dependentCount = 0;
+        for (Deals deal : uniqueMembers.values()) {
+            if (isEmployeeRelationship(deal != null ? deal.getRelationship() : null)) {
+                employeeCount++;
+            } else {
+                dependentCount++;
+            }
+        }
+        return new MemberCounts(employeeCount, dependentCount);
+    }
+
+    private ProductType resolveProductTypeForMemberCounts(Endorsement endorsement, EndorsementResponseDto dto) {
+        if (endorsement != null && endorsement.getPolicy() != null && endorsement.getPolicy().getProductType() != null) {
+            return endorsement.getPolicy().getProductType();
+        }
+        if (dto != null && dto.getPolicyType() != null && !dto.getPolicyType().isBlank()) {
+            try {
+                return ProductType.fromValue(dto.getPolicyType());
+            } catch (IllegalArgumentException ignored) {
+                return null;
+            }
+        }
+        return null;
+    }
+
+    private boolean isParentRelationshipForEndorsementCounts(String relationship) {
+        if (relationship == null) {
+            return false;
+        }
+        String r = relationship.trim();
+        if ("FATHER".equalsIgnoreCase(r) || "MOTHER".equalsIgnoreCase(r)) {
+            return true;
+        }
+        String compact = r.replaceAll("[\\s_-]+", "").toUpperCase();
+        return "FATHERINLAW".equals(compact) || "MOTHERINLAW".equals(compact);
+    }
+
+    private boolean isEmployeeRelationship(String relationship) {
+        if (relationship == null || relationship.isBlank()) {
+            return false;
+        }
+        String normalized = relationship.trim();
+        return "SELF".equalsIgnoreCase(normalized) || "EMPLOYEE".equalsIgnoreCase(normalized);
     }
 
     @Override

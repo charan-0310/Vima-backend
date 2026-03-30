@@ -74,6 +74,7 @@ import com.vimainsurance.vimaadmin.repository.IEmployeePolicyMapRepository;
 import com.vimainsurance.vimaadmin.exception.DocumentUploadException;
 import com.vimainsurance.vimaadmin.util.SlackNotificationUtil;
 import com.vimainsurance.vimaadmin.util.TopupPremiumOptionsUtil;
+import com.vimainsurance.vimaadmin.service.policy.PolicyMemberMappingHelper;
 
 @Slf4j
 @Service
@@ -256,11 +257,17 @@ public class EmployeeService {
                             return "parent".equals(mt) || "parent_in_law".equals(mt);
                         })
                         .toList();
+                List<IPremiumCalculationService.MemberInfo> membersForGmcFloater =
+                        PolicyMemberMappingHelper.membersForGmcFloater(members);
                 List<IPremiumCalculationService.MemberInfo> coveredMembers;
                 if ("TOP_UP".equals(upper) || "SUPER_TOP_UP".equals(upper)) {
                     coveredMembers = membersEmployeeOnly;
                 } else if ("PARENT_GMC".equals(upper)) {
                     coveredMembers = membersForParentOnly;
+                } else if ("GMC".equals(upper) || "GHI".equals(upper)) {
+                    coveredMembers = membersForGmcFloater;
+                } else if ("GPA".equals(upper) || "GTL".equals(upper)) {
+                    coveredMembers = membersEmployeeOnly;
                 } else {
                     coveredMembers = membersForBase;
                 }
@@ -995,8 +1002,7 @@ public class EmployeeService {
               splitEndorsement.setUploadedBy(adminUser);
               splitEndorsement.setPolicy(policy);
               splitEndorsement.setSplitGroupId(splitGroupId);
-              splitEndorsement.setTotalEmployees((int) entry.getValue().stream().filter(d -> "SELF".equalsIgnoreCase(d.getRelationship())).count());
-              splitEndorsement.setTotalDependents((int) entry.getValue().stream().filter(d -> !"SELF".equalsIgnoreCase(d.getRelationship())).count());
+              applyPolicyAwareSplitEndorsementTotals(splitEndorsement, policy, entry.getValue());
               if (primaryEndorsement != null) {
                   splitEndorsement.setParentEndorsement(primaryEndorsement);
               }
@@ -1355,6 +1361,41 @@ public class EmployeeService {
     }
 
     /**
+     * Sets endorsement totalEmployees/totalDependents for UI as "employees / dependents":
+     * GPA/GTL/top-up: SELF count / 0; PARENT_GMC: SELF count / parent-in-law count (parents use the dependents field);
+     * GMC/GHI: SELF count / other covered members on this endorsement.
+     */
+    private void applyPolicyAwareSplitEndorsementTotals(Endorsement endorsement, Policy policy, List<Deals> deals) {
+        List<Deals> list = deals != null ? deals : List.of();
+        ProductType pt = policy != null ? policy.getProductType() : null;
+        if (pt == ProductType.GPA || pt == ProductType.GTL || pt == ProductType.TOP_UP || pt == ProductType.SUPER_TOP_UP) {
+            int self = (int) list.stream()
+                    .filter(d -> d.getRelationship() != null && "SELF".equalsIgnoreCase(d.getRelationship()))
+                    .count();
+            endorsement.setTotalEmployees(self);
+            endorsement.setTotalDependents(0);
+            return;
+        }
+        if (pt == ProductType.PARENT_GMC) {
+            int self = (int) list.stream()
+                    .filter(d -> d.getRelationship() != null && "SELF".equalsIgnoreCase(d.getRelationship()))
+                    .count();
+            int parents = (int) list.stream().filter(d -> isParentRelationship(d.getRelationship())).count();
+            endorsement.setTotalEmployees(self);
+            endorsement.setTotalDependents(parents);
+            return;
+        }
+        int self = (int) list.stream()
+                .filter(d -> d.getRelationship() != null && "SELF".equalsIgnoreCase(d.getRelationship()))
+                .count();
+        int nonSelf = (int) list.stream()
+                .filter(d -> d.getRelationship() == null || !"SELF".equalsIgnoreCase(d.getRelationship()))
+                .count();
+        endorsement.setTotalEmployees(self);
+        endorsement.setTotalDependents(nonSelf);
+    }
+
+    /**
      * Maps input relationship string to NomineeRelationship enum value (as string)
      * Maps: Self -> SELF, Spouse -> SPOUSE, Father -> FATHER, Mother -> MOTHER, 
      *       Father in law -> FATHER_IN_LAW, Mother in law -> MOTHER_IN_LAW,
@@ -1517,11 +1558,27 @@ public class EmployeeService {
             if (parentMember && parentPolicy != null) {
                 policyIdsForDeal.add(parentPolicy.getPolicyId());
             } else {
-                selectedPolicyMap.values().stream()
-                        .filter(p -> p != null && p.getProductType() != ProductType.PARENT_GMC
-                                && p.getProductType() != ProductType.TOP_UP
-                                && p.getProductType() != ProductType.SUPER_TOP_UP)
-                        .forEach(p -> policyIdsForDeal.add(p.getPolicyId()));
+                boolean isSelf = "SELF".equalsIgnoreCase(deal.getRelationship());
+                for (Policy pol : selectedPolicyMap.values()) {
+                    if (pol == null || pol.getProductType() == null) {
+                        continue;
+                    }
+                    ProductType pt = pol.getProductType();
+                    if (pt == ProductType.PARENT_GMC || pt == ProductType.TOP_UP || pt == ProductType.SUPER_TOP_UP) {
+                        continue;
+                    }
+                    if (pt == ProductType.GMC || pt == ProductType.GHI) {
+                        policyIdsForDeal.add(pol.getPolicyId());
+                    } else if (pt == ProductType.GPA || pt == ProductType.GTL) {
+                        if (isSelf) {
+                            policyIdsForDeal.add(pol.getPolicyId());
+                        }
+                    } else {
+                        if (isSelf) {
+                            policyIdsForDeal.add(pol.getPolicyId());
+                        }
+                    }
+                }
             }
             if ("SELF".equalsIgnoreCase(deal.getRelationship())) {
                 EmployeeUploadDto selfDto = selfByEmployeeNumber.get(deal.getEmployeeNumber());
