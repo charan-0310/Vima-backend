@@ -50,5 +50,5 @@ jobs:
       - name: Restart Docker Compose service (Dev)
         run: |
           cd ~/vima-app-deployment
-          docker compose up -d --build -vima-stage
+          docker compose up -d --build vima-stage
           echo "✅ Docker Compose service '-vima-stage' restarted for STAGE environment"    
