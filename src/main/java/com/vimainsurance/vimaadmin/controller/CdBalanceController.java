@@ -51,6 +51,18 @@ public class CdBalanceController {
     @Autowired
     private ICdAccountService cdAccountService;
 
+    /**
+     * Creates (or reuses) the default CD account for the policy’s insurer and links the policy; returns the account for navigation to the ledger.
+     */
+    @PostMapping("/policies/{policyId}/cd-account")
+    @PreAuthorize("hasAnyRole('VIMA_ADMIN', 'ADMIN')")
+    public ResponseEntity<ResponseDto<CdAccountResponseDto>> createCdAccountAndLinkPolicy(@PathVariable Long policyId) {
+        logger.info("[correlationId:{}] POST /api/v1/cd-balance/policies/{}/cd-account", MDC.get("correlationId"), policyId);
+        CdAccount account = cdAccountService.createDefaultAccountAndLinkPolicy(policyId);
+        BaseResponse<CdAccountResponseDto> responseObj = new BaseResponse<>();
+        return responseObj.render(responseObj.formSuccessResponse("SUCCESS", mapCdAccount(account)));
+    }
+
     @GetMapping("/organization/{orgId}/cd-accounts")
     @PreAuthorize("hasAnyRole('VIMA_ADMIN', 'ADMIN')")
     public ResponseEntity<ResponseDto<List<CdAccountResponseDto>>> listCdAccountsByOrganization(@PathVariable java.util.UUID orgId) {
