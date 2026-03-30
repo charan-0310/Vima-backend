@@ -64,7 +64,6 @@ import com.vimainsurance.vimaadmin.repository.IMotorPolicyDetailsRepository;
 import com.vimainsurance.vimaadmin.repository.INomineeRepository;
 import com.vimainsurance.vimaadmin.repository.IPolicyRepository;
 import com.vimainsurance.vimaadmin.repository.IProductCatalogRepository;
-import com.vimainsurance.vimaadmin.service.ICdAccountService;
 import com.vimainsurance.vimaadmin.service.IDocumentService;
 import com.vimainsurance.vimaadmin.service.IPolicyService;
 import com.vimainsurance.vimaadmin.service.IProductCatalogService;
@@ -121,9 +120,6 @@ public class PolicyServiceImpl implements IPolicyService {
 
     @Autowired
     private IProductCatalogRepository productCatalogRepository;
-
-    @Autowired
-    private ICdAccountService cdAccountService;
 
     @Autowired
     private ICostSharingRuleRepository costSharingRuleRepository;
@@ -280,7 +276,6 @@ public class PolicyServiceImpl implements IPolicyService {
             }
 
             Policy savedPolicy = policyRepository.save(policy);
-            autoLinkPolicyToDefaultCdAccount(savedPolicy);
             logger.info("[correlationId:{}] Policy created successfully with ID: {}",
                        MDC.get("correlationId"), savedPolicy.getPolicyId());
 
@@ -423,7 +418,6 @@ public class PolicyServiceImpl implements IPolicyService {
             }
 
             policyRepository.save(policy);
-            autoLinkPolicyToDefaultCdAccount(policy);
             if (policyType == ProductType.TOP_UP || policyType == ProductType.SUPER_TOP_UP) {
                 createProductCatalogForTopup(policy, requestDto.getPricingModel());
             }
@@ -790,34 +784,6 @@ public class PolicyServiceImpl implements IPolicyService {
                 .orElseThrow(() -> new RuntimeException("Document not found"));
     }
 
-    private void autoLinkPolicyToDefaultCdAccount(Policy policy) {
-        if (policy == null || policy.getPolicyId() == null || policy.getOrganizationId() == null) {
-            return;
-        }
-        String insurerName = resolveInsurerNameForCdAccount(policy);
-        if (insurerName == null || insurerName.isBlank()) {
-            return;
-        }
-        UUID accountId = cdAccountService
-                .getOrCreateDefaultAccount(policy.getOrganizationId(), insurerName)
-                .getCdAccountId();
-        if (!accountId.equals(policy.getCdAccountId())) {
-            cdAccountService.linkPolicyToAccount(policy.getPolicyId(), accountId);
-        }
-    }
-
-    private String resolveInsurerNameForCdAccount(Policy policy) {
-        if (policy.getInsurerName() != null && !policy.getInsurerName().isBlank()) {
-            return policy.getInsurerName().trim();
-        }
-        if (policy.getInsuranceProviderId() != null) {
-            return insuranceProviderRepository.findById(policy.getInsuranceProviderId())
-                    .map(p -> p.getProviderName() != null ? p.getProviderName().trim() : null)
-                    .orElse(null);
-        }
-        return null;
-    }
-
     /**
      * Maps Deals entity to simplified dependent response with only name, date of birth, and relationship
      */
@@ -1087,7 +1053,6 @@ public class PolicyServiceImpl implements IPolicyService {
             
             // Save policy to database
             Policy savedPolicy = policyRepository.save(policy);
-            autoLinkPolicyToDefaultCdAccount(savedPolicy);
             logger.info("[correlationId:{}] Policy saved with ID: {}", MDC.get("correlationId"), savedPolicy.getPolicyId());
 
             // TOP_UP / SUPER_TOP_UP: create product_catalog row so the product appears in the catalog

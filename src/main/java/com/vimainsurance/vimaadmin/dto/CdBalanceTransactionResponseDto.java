@@ -15,6 +15,12 @@ public class CdBalanceTransactionResponseDto {
     private Long policyId;
     private UUID organizationId;
     private UUID endorsementId;
+    /** Linked endorsement: client/org name (for ledger display). */
+    private String endorsementOrganizationName;
+    /** Linked endorsement: ADDITION, DELETION, BULK_UPLOAD, etc. */
+    private String endorsementType;
+    private String endorsementInsurerRefNumber;
+    private String endorsementEnrollmentWindowName;
     private String transactionType;
     private BigDecimal amount;
     private BigDecimal runningBalance;

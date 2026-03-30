@@ -7,6 +7,7 @@ import java.util.UUID;
 import com.vimainsurance.vimaadmin.dto.CdBalanceResponseDto;
 import com.vimainsurance.vimaadmin.dto.CdBalanceTransactionResponseDto;
 import com.vimainsurance.vimaadmin.entity.CdBalanceTransaction;
+import com.vimainsurance.vimaadmin.entity.Endorsement;
 import com.vimainsurance.vimaadmin.entity.Policy;
 
 public final class CdBalanceMapper {
@@ -31,7 +32,22 @@ public final class CdBalanceMapper {
         dto.setCdAccountId(transaction.getCdAccountId());
         dto.setPolicyId(transaction.getPolicy() != null ? transaction.getPolicy().getPolicyId() : null);
         dto.setOrganizationId(transaction.getOrganizationId());
-        dto.setEndorsementId(transaction.getEndorsement() != null ? transaction.getEndorsement().getEndorsementId() : null);
+        Endorsement endorsement = transaction.getEndorsement();
+        if (endorsement != null) {
+            dto.setEndorsementId(endorsement.getEndorsementId());
+            if (endorsement.getOrganization() != null) {
+                dto.setEndorsementOrganizationName(endorsement.getOrganization().getOrganizationName());
+            }
+            if (endorsement.getEndorsementType() != null) {
+                dto.setEndorsementType(endorsement.getEndorsementType().getValue());
+            }
+            dto.setEndorsementInsurerRefNumber(endorsement.getInsurerRefNumber());
+            if (endorsement.getEnrollmentWindow() != null) {
+                dto.setEndorsementEnrollmentWindowName(endorsement.getEnrollmentWindow().getName());
+            }
+        } else {
+            dto.setEndorsementId(null);
+        }
         dto.setTransactionType(transaction.getTransactionType() != null ? transaction.getTransactionType().name() : null);
         dto.setAmount(transaction.getAmount());
         dto.setRunningBalance(transaction.getRunningBalance());
