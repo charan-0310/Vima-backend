@@ -42,6 +42,7 @@ import com.vimainsurance.vimaadmin.service.PremiumRateTableCacheService;
 import com.vimainsurance.vimaadmin.repository.IPolicyRepository;
 import com.vimainsurance.vimaadmin.repository.IProductCatalogRepository;
 import com.vimainsurance.vimaadmin.util.TopupPremiumOptionsUtil;
+import com.vimainsurance.vimaadmin.service.policy.PolicyMemberMappingHelper;
 
 import lombok.RequiredArgsConstructor;
 
@@ -232,8 +233,8 @@ public class PremiumCalculationServiceImpl implements IPremiumCalculationService
             String selPlanType = sel.getPlanType();
             String planUpper = selPlanType != null ? selPlanType.trim().toUpperCase() : "";
 
-            // PARENT_GMC: only include parent/in-law members for premium calculation
-            // TOP_UP / SUPER_TOP_UP: only include employee (self) so premium matches the option dropdown (e.g. 1L = ₹5,000/yr)
+            // PARENT_GMC: only parent/in-law. TOP_UP / SUPER_TOP_UP / GPA / GTL: employee only.
+            // GMC / GHI: floater (self + spouse + children; parents use PARENT_GMC).
             List<MemberInfo> membersForPlan = members;
             if ("PARENT_GMC".equals(planUpper)) {
                 List<MemberInfo> parentOnly = members.stream()
@@ -250,6 +251,14 @@ public class PremiumCalculationServiceImpl implements IPremiumCalculationService
                         .findFirst()
                         .orElse(members.isEmpty() ? null : members.get(0));
                 membersForPlan = employeeOnly != null ? List.of(employeeOnly) : members;
+            } else if ("GPA".equals(planUpper) || "GTL".equals(planUpper)) {
+                MemberInfo employeeOnly = members.stream()
+                        .filter(m -> "EMPLOYEE".equalsIgnoreCase(m.memberType()) || "self".equalsIgnoreCase(m.memberType()))
+                        .findFirst()
+                        .orElse(members.isEmpty() ? null : members.get(0));
+                membersForPlan = employeeOnly != null ? List.of(employeeOnly) : members;
+            } else if ("GMC".equals(planUpper) || "GHI".equals(planUpper)) {
+                membersForPlan = PolicyMemberMappingHelper.membersForGmcFloater(members);
             }
 
             BigDecimal sumInsured = sel.getSumInsured();
