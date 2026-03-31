@@ -6,6 +6,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -16,6 +17,7 @@ import java.util.UUID;
 import java.util.stream.Collectors;
 
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -24,13 +26,20 @@ import com.vimainsurance.vimaadmin.entity.Organization;
 import com.vimainsurance.vimaadmin.dto.BulkEmployeeDeletionRequestDto;
 import com.vimainsurance.vimaadmin.dto.EmployeeUploadDto;
 import com.vimainsurance.vimaadmin.dto.EmployeeUploadResponse;
+import com.vimainsurance.vimaadmin.dto.EndorsementSplitSummaryDto;
+import com.vimainsurance.vimaadmin.dto.BulkEmployeePremiumPreviewRequestDto;
+import com.vimainsurance.vimaadmin.dto.BaseResponse;
+import com.vimainsurance.vimaadmin.dto.PremiumCalculationResponseDto;
+import com.vimainsurance.vimaadmin.dto.CostShareSplit;
+import com.vimainsurance.vimaadmin.dto.ResponseDto;
 import com.vimainsurance.vimaadmin.repository.IDealsRepository;
 import com.vimainsurance.vimaadmin.mapper.EmployeeToDeals;
 import com.vimainsurance.vimaadmin.entity.Deals;
 import com.vimainsurance.vimaadmin.enums.AccountStatus;
-import com.vimainsurance.vimaadmin.enums.AccountType;
 import com.vimainsurance.vimaadmin.enums.NomineeRelationship;
 import com.vimainsurance.vimaadmin.entity.AdminUser;
+import com.vimainsurance.vimaadmin.entity.Policy;
+import com.vimainsurance.vimaadmin.entity.EmployeePolicyMap;
 
 import org.javers.core.Javers;
 import org.javers.core.diff.Diff;
@@ -48,18 +57,25 @@ import lombok.extern.slf4j.Slf4j;
 import com.vimainsurance.vimaadmin.repository.IEndorsementRepository;
 import com.vimainsurance.vimaadmin.repository.IDealEndorsementRepository;
 
-import org.springframework.core.env.Environment;
 import org.springframework.web.multipart.MultipartFile;
 
 import com.vimainsurance.vimaadmin.entity.DealEndorsement;
 import com.vimainsurance.vimaadmin.entity.Document;
 import com.vimainsurance.vimaadmin.enums.DocumentEntityType;
+import com.vimainsurance.vimaadmin.enums.PolicyStatus;
+import com.vimainsurance.vimaadmin.enums.ProductType;
 import com.vimainsurance.vimaadmin.service.IEmployeePolicyMapService;
 import com.vimainsurance.vimaadmin.service.IDocumentService;
+import com.vimainsurance.vimaadmin.service.IPremiumCalculationService;
+import com.vimainsurance.vimaadmin.service.ICostSharingRuleService;
+import com.vimainsurance.vimaadmin.repository.IPolicyRepository;
 import com.vimainsurance.vimaadmin.repository.IDocumentRepository;
+import com.vimainsurance.vimaadmin.repository.IEmployeePolicyMapRepository;
 import com.vimainsurance.vimaadmin.exception.DocumentUploadException;
-import com.vimainsurance.vimaadmin.util.JwtUserExtractor;
 import com.vimainsurance.vimaadmin.util.SlackNotificationUtil;
+import com.vimainsurance.vimaadmin.util.TopupPremiumOptionsUtil;
+import com.vimainsurance.vimaadmin.util.GmcCoverageUploadValidationUtil;
+import com.vimainsurance.vimaadmin.service.policy.PolicyMemberMappingHelper;
 
 @Slf4j
 @Service
@@ -98,6 +114,317 @@ public class EmployeeService {
 
     @Autowired
     private SlackNotificationUtil slackNotificationUtil;
+
+    @Autowired
+    private IPolicyRepository policyRepository;
+
+    @Autowired
+    private IEmployeePolicyMapRepository employeePolicyMapRepository;
+
+    @Autowired
+    private IPremiumCalculationService premiumCalculationService;
+
+    @Autowired
+    private ICostSharingRuleService costSharingRuleService;
+
+    private static java.math.BigDecimal toBigDecimalSafe(String raw) {
+        if (raw == null) return null;
+        String t = raw.trim();
+        if (t.isEmpty()) return null;
+        try {
+            return new java.math.BigDecimal(t);
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    private static java.time.LocalDate parseDateSafe(String raw) {
+        if (raw == null) return null;
+        String t = raw.trim();
+        if (t.isEmpty()) return null;
+        try {
+            return java.time.LocalDate.parse(t);
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    private static List<IPremiumCalculationService.MemberInfo> buildMembersForBulk(List<EmployeeUploadDto> group) {
+        if (group == null) return List.of();
+        LocalDate today = LocalDate.now();
+        List<IPremiumCalculationService.MemberInfo> out = new ArrayList<>();
+        for (EmployeeUploadDto dto : group) {
+            if (dto == null) continue;
+            String rel = dto.getRelationship() != null ? dto.getRelationship().trim() : "";
+            LocalDate dob = parseDateSafe(dto.getDateOfBirth());
+            int age = 0;
+            if (dob != null) {
+                age = java.time.Period.between(dob, today).getYears();
+            }
+            String memberType = "dependent";
+            String relNorm = rel == null ? "" : rel.trim().toLowerCase().replace('_', ' ');
+            if ("Self".equalsIgnoreCase(rel)) {
+                memberType = "EMPLOYEE";
+            } else if ("father".equals(relNorm) || "mother".equals(relNorm)) {
+                memberType = "parent";
+            } else if (relNorm.contains("in law") || relNorm.contains("in-law")) {
+                memberType = "parent_in_law";
+            }
+            out.add(new IPremiumCalculationService.MemberInfo(memberType, age, dob));
+        }
+        return out;
+    }
+
+    /**
+     * Active policy IDs mapped to the primary employee (SELF row) and dependents under that primary, for this org.
+     */
+    private Set<Long> allowedPolicyIdsForPrimaryEmployee(UUID organizationId, UUID primaryIndividualId) {
+        Set<Long> out = new LinkedHashSet<>();
+        if (organizationId == null || primaryIndividualId == null || employeePolicyMapRepository == null) {
+            return out;
+        }
+        String active = "ACTIVE";
+        for (EmployeePolicyMap m : employeePolicyMapRepository.findByIndividualIdAndRelationshipAndStatus(
+                primaryIndividualId, "SELF", active)) {
+            if (m.getPolicyId() != null && organizationId.equals(m.getOrganizationId())) {
+                out.add(m.getPolicyId());
+            }
+        }
+        for (EmployeePolicyMap m : employeePolicyMapRepository.findByPrimaryEmployeeIdAndStatus(primaryIndividualId, active)) {
+            if (m.getPolicyId() != null && organizationId.equals(m.getOrganizationId())) {
+                out.add(m.getPolicyId());
+            }
+        }
+        return out;
+    }
+
+    /**
+     * Admin endpoint used by Bulk Upload review UI to compute premium breakdown for a single employee group.
+     * This uses the existing premium engine + cost-sharing rules. No premium input is accepted.
+     */
+    public ResponseEntity<ResponseDto<PremiumCalculationResponseDto>> previewBulkEmployeePremium(
+            UUID companyId,
+            BulkEmployeePremiumPreviewRequestDto request) {
+        BaseResponse<PremiumCalculationResponseDto> responseObj = new BaseResponse<>();
+        try {
+            if (companyId == null) {
+                return responseObj.render(responseObj.formErrorResponse(400, "companyId is required"));
+            }
+            if (request == null || request.getPolicyIds() == null || request.getPolicyIds().isEmpty()) {
+                return responseObj.render(responseObj.formErrorResponse(400, "policyIds is required"));
+            }
+            if (request.getEmployees() == null || request.getEmployees().isEmpty()) {
+                return responseObj.render(responseObj.formErrorResponse(400, "employees is required"));
+            }
+
+            // Validate optional cover SI values the same way upload does.
+            // (Reuses validateEmployee list-level checks by creating a fake Organization context would be heavy; do minimal here.)
+            EmployeeUploadDto self = request.getEmployees().stream()
+                    .filter(e -> e != null && e.getRelationship() != null && "Self".equalsIgnoreCase(e.getRelationship()))
+                    .findFirst().orElse(null);
+            if (self == null) {
+                return responseObj.render(responseObj.formErrorResponse(400, "Self row is required for premium preview"));
+            }
+
+            List<Long> effectivePolicyIds = new ArrayList<>(request.getPolicyIds());
+            if (request.getPrimaryIndividualId() != null) {
+                Set<Long> allowed = allowedPolicyIdsForPrimaryEmployee(companyId, request.getPrimaryIndividualId());
+                if (!allowed.isEmpty()) {
+                    effectivePolicyIds = effectivePolicyIds.stream()
+                            .filter(allowed::contains)
+                            .distinct()
+                            .collect(Collectors.toCollection(ArrayList::new));
+                    if (effectivePolicyIds.isEmpty()) {
+                        return responseObj.render(responseObj.formErrorResponse(400,
+                                "No requested policies match this employee's active policy mappings"));
+                    }
+                }
+            }
+
+            List<Policy> policies = policyRepository.findAllById(effectivePolicyIds);
+            if (policies == null || policies.isEmpty()) {
+                return responseObj.render(responseObj.formErrorResponse(400, "No policies found for given policyIds"));
+            }
+
+            List<IPremiumCalculationService.MemberInfo> members = buildMembersForBulk(request.getEmployees());
+            List<IPremiumCalculationService.MemberInfo> membersForBase = members; // includes employee + dependents
+            IPremiumCalculationService.MemberInfo employeeOnly = members.stream()
+                    .filter(m -> m.memberType() != null && ("EMPLOYEE".equalsIgnoreCase(m.memberType()) || "self".equalsIgnoreCase(m.memberType())))
+                    .findFirst()
+                    .orElse(members.isEmpty() ? null : members.get(0));
+            List<IPremiumCalculationService.MemberInfo> membersEmployeeOnly =
+                    employeeOnly != null ? List.of(employeeOnly) : membersForBase;
+
+            List<PremiumCalculationResponseDto.PlanBreakdownItemDto> breakdowns = new ArrayList<>();
+            java.math.BigDecimal totalAnnual = java.math.BigDecimal.ZERO;
+            java.math.BigDecimal totalEmployer = java.math.BigDecimal.ZERO;
+            java.math.BigDecimal totalEmployee = java.math.BigDecimal.ZERO;
+            java.math.BigDecimal totalGst = java.math.BigDecimal.ZERO;
+
+            for (Policy p : policies) {
+                if (p == null || p.getProductType() == null) continue;
+                String planType = p.getProductType().name();
+                String upper = planType.toUpperCase();
+
+                // Sum insured resolution:
+                java.math.BigDecimal sumInsured = null;
+                if ("GMC".equals(upper) || "GHI".equals(upper)) {
+                    sumInsured = toBigDecimalSafe(self.getSumInsured());
+                    if (sumInsured == null) sumInsured = p.getSumInsured();
+                } else if ("TOP_UP".equals(upper)) {
+                    sumInsured = toBigDecimalSafe(self.getTopupSumInsured());
+                } else if ("SUPER_TOP_UP".equals(upper)) {
+                    sumInsured = toBigDecimalSafe(self.getSuperTopupSumInsured());
+                } else {
+                    sumInsured = p.getSumInsured();
+                    if (sumInsured == null) {
+                        // GPA/GTL can be multiplier-based and may not persist absolute SI.
+                        // Keep plan visible in breakdown by allowing premium engine lookup to proceed.
+                        sumInsured = java.math.BigDecimal.ZERO;
+                    }
+                }
+                if (sumInsured == null) continue;
+
+                // Skip optional covers if not selected in input.
+                if ("TOP_UP".equals(upper) && (self.getTopupSumInsured() == null || self.getTopupSumInsured().trim().isEmpty())) continue;
+                if ("SUPER_TOP_UP".equals(upper) && (self.getSuperTopupSumInsured() == null || self.getSuperTopupSumInsured().trim().isEmpty())) continue;
+
+                String coverageTier = "INDIVIDUAL";
+                List<IPremiumCalculationService.MemberInfo> membersForParentOnly = members.stream()
+                        .filter(m -> {
+                            String mt = m.memberType() != null ? m.memberType().toLowerCase() : "";
+                            return "parent".equals(mt) || "parent_in_law".equals(mt);
+                        })
+                        .toList();
+                List<IPremiumCalculationService.MemberInfo> membersForGmcFloater =
+                        PolicyMemberMappingHelper.membersForGmcFloater(members);
+                List<IPremiumCalculationService.MemberInfo> coveredMembers;
+                if ("TOP_UP".equals(upper) || "SUPER_TOP_UP".equals(upper)) {
+                    coveredMembers = membersEmployeeOnly;
+                } else if ("PARENT_GMC".equals(upper)) {
+                    coveredMembers = membersForParentOnly;
+                } else if ("GMC".equals(upper) || "GHI".equals(upper)) {
+                    coveredMembers = membersForGmcFloater;
+                } else if ("GPA".equals(upper) || "GTL".equals(upper)) {
+                    coveredMembers = membersEmployeeOnly;
+                } else {
+                    coveredMembers = membersForBase;
+                }
+                if (coveredMembers == null || coveredMembers.isEmpty()) continue;
+
+                // Compute plan premium
+                IPremiumCalculationService.PlanPremiumBreakdown b = premiumCalculationService.calculatePlanPremium(
+                        companyId, planType, coverageTier, sumInsured, coveredMembers);
+
+                java.math.BigDecimal planPremium = b.premium() != null ? b.premium() : java.math.BigDecimal.ZERO;
+                java.math.BigDecimal gst = b.gstAmount() != null ? b.gstAmount() : java.math.BigDecimal.ZERO;
+
+                // Apply cost sharing
+                String coverageCategory = "FAMILY";
+                if ("PARENT_GMC".equals(upper)) {
+                    boolean hasParent = coveredMembers.stream().anyMatch(m -> "parent".equalsIgnoreCase(m.memberType()));
+                    boolean hasInLaw = coveredMembers.stream().anyMatch(m -> "parent_in_law".equalsIgnoreCase(m.memberType()));
+                    if (hasParent && !hasInLaw) {
+                        coverageCategory = "PARENT";
+                    } else if (!hasParent && hasInLaw) {
+                        coverageCategory = "PARENT_IN_LAW";
+                    } else {
+                        coverageCategory = "PARENT";
+                    }
+                }
+                String costSharingPlanType =
+                        ("PARENT_GMC".equals(upper) || "GMC_PARENT".equals(upper)) ? "GMC" : planType;
+                CostShareSplit split = costSharingRuleService.applyCostSharing(
+                        companyId, costSharingPlanType, coverageCategory, planPremium);
+                // Keep parent review aligned with enrollment review behavior: 50/50 by default
+                // when parent-specific rule is missing and engine falls back to 100% employer.
+                if (("PARENT_GMC".equals(upper) || "GMC_PARENT".equals(upper))
+                        && split != null
+                        && split.getEmployeeShare() != null
+                        && split.getEmployerShare() != null
+                        && split.getEmployeeShare().compareTo(java.math.BigDecimal.ZERO) == 0
+                        && split.getEmployerShare().compareTo(planPremium) == 0) {
+                    java.math.BigDecimal employer = planPremium
+                            .divide(java.math.BigDecimal.valueOf(2), 2, java.math.RoundingMode.HALF_UP);
+                    java.math.BigDecimal employee = planPremium.subtract(employer)
+                            .setScale(2, java.math.RoundingMode.HALF_UP);
+                    split = CostShareSplit.builder()
+                            .employerShare(employer)
+                            .employeeShare(employee)
+                            .shareType(split.getShareType())
+                            .shareValue(split.getShareValue())
+                            .ruleId(split.getRuleId())
+                            .build();
+                }
+
+                // Voluntary add-ons always 100% employee-paid
+                if ("TOP_UP".equals(upper) || "SUPER_TOP_UP".equals(upper)) {
+                    split = CostShareSplit.builder()
+                            .employerShare(java.math.BigDecimal.ZERO.setScale(2, java.math.RoundingMode.HALF_UP))
+                            .employeeShare(planPremium.setScale(2, java.math.RoundingMode.HALF_UP))
+                            .shareType(split.getShareType())
+                            .shareValue(split.getShareValue())
+                            .ruleId(split.getRuleId())
+                            .build();
+                }
+
+                breakdowns.add(PremiumCalculationResponseDto.PlanBreakdownItemDto.builder()
+                        .planType(planType)
+                        .premium(planPremium)
+                        .employerShare(split.getEmployerShare())
+                        .employeeShare(split.getEmployeeShare())
+                        .gstAmount(gst)
+                        .build());
+
+                totalAnnual = totalAnnual.add(planPremium);
+                totalEmployer = totalEmployer.add(split.getEmployerShare());
+                totalEmployee = totalEmployee.add(split.getEmployeeShare());
+                totalGst = totalGst.add(gst);
+            }
+
+            PremiumCalculationResponseDto out = PremiumCalculationResponseDto.builder()
+                    .totalAnnualPremium(totalAnnual)
+                    .totalEmployerShare(totalEmployer)
+                    .totalEmployeeShare(totalEmployee)
+                    .gstAmount(totalGst)
+                    .perPlanBreakdown(breakdowns)
+                    .deductionOptions(costSharingRuleService.calculateDeductions(totalEmployee))
+                    .build();
+
+            return responseObj.render(responseObj.formSuccessResponse("OK", out));
+        } catch (IllegalArgumentException e) {
+            log.error("previewBulkEmployeePremium validation error: {}", e.getMessage(), e);
+            return responseObj.render(responseObj.formErrorResponse(400, e.getMessage()));
+        } catch (Exception e) {
+            log.error("previewBulkEmployeePremium unexpected error: {}", e.getMessage(), e);
+            return responseObj.render(responseObj.formErrorResponse(500, "Failed to preview premium"));
+        }
+    }
+
+    private static String formatLakhs(java.math.BigDecimal value) {
+        if (value == null) return "";
+        try {
+            java.math.BigDecimal lakh = new java.math.BigDecimal("100000");
+            if (value.compareTo(lakh) >= 0) {
+                return value.divide(lakh, 0, java.math.RoundingMode.HALF_UP).toPlainString() + "L";
+            }
+        } catch (Exception ignored) {
+        }
+        return value.stripTrailingZeros().toPlainString();
+    }
+
+    private List<java.math.BigDecimal> getTopupSumInsuredOptions(UUID organizationId, ProductType productType) {
+        if (organizationId == null || productType == null) return List.of();
+        List<com.vimainsurance.vimaadmin.entity.Policy> policies =
+                policyRepository.findByOrganizationIdAndProductTypeAndStatus(organizationId, productType, PolicyStatus.ACTIVE);
+        if (policies == null || policies.isEmpty()) return List.of();
+        // If multiple active policies exist for same product type, treat as ambiguous for CSV/manual add selection.
+        if (policies.size() > 1) {
+            return List.of(new java.math.BigDecimal("-1")); // sentinel for ambiguity
+        }
+        String json = policies.get(0).getSumInsuredOptions();
+        return TopupPremiumOptionsUtil.parseDecimalList(json);
+    }
 
 
     public EmployeeUploadResponse validateEmployee(List<EmployeeUploadDto> employeeUploadDtoList, Organization organization) {
@@ -187,6 +514,64 @@ public class EmployeeService {
                 if (childIndexEntry.getValue() > 1) {
                     errors.add("employeeId: " + employeeId + " - Duplicate Child" + childIndexEntry.getKey() + 
                         " found. Only one Child" + childIndexEntry.getKey() + " is allowed per employee");
+                }
+            }
+
+            // Optional covers (Top-Up / Super Top-Up): validate SI on Self row only and against configured options
+            EmployeeUploadDto selfDtoForCovers = employeeUploadDtoListByEmployeeId.stream()
+                    .filter(e -> e != null && e.getRelationship() != null && "Self".equalsIgnoreCase(e.getRelationship()))
+                    .findFirst()
+                    .orElse(null);
+            if (selfDtoForCovers != null && organization != null && organization.getOrganizationId() != null) {
+                // Reject SI columns on non-self rows
+                for (EmployeeUploadDto dto : employeeUploadDtoListByEmployeeId) {
+                    if (dto == null) continue;
+                    String rel = dto.getRelationship();
+                    if (rel != null && !"Self".equalsIgnoreCase(rel)) {
+                        boolean hasAny = (dto.getTopupSumInsured() != null && !dto.getTopupSumInsured().trim().isEmpty())
+                                || (dto.getSuperTopupSumInsured() != null && !dto.getSuperTopupSumInsured().trim().isEmpty());
+                        if (hasAny) {
+                            errors.add("employeeId: " + employeeId + " - Top-Up/Super Top-Up selection is allowed only on the Self row");
+                        }
+                    }
+                }
+
+                String topupRaw = selfDtoForCovers.getTopupSumInsured() != null ? selfDtoForCovers.getTopupSumInsured().trim() : "";
+                String superRaw = selfDtoForCovers.getSuperTopupSumInsured() != null ? selfDtoForCovers.getSuperTopupSumInsured().trim() : "";
+                boolean hasTopup = !topupRaw.isEmpty();
+                boolean hasSuper = !superRaw.isEmpty();
+                if (hasTopup && hasSuper) {
+                    errors.add("employeeId: " + employeeId + " - Select only one optional cover: topup_sum_insured or super_topup_sum_insured (not both)");
+                }
+
+                if (hasTopup) {
+                    try {
+                        java.math.BigDecimal selected = new java.math.BigDecimal(topupRaw);
+                        List<java.math.BigDecimal> opts = getTopupSumInsuredOptions(organization.getOrganizationId(), ProductType.TOP_UP);
+                        if (opts.size() == 1 && opts.get(0).compareTo(new java.math.BigDecimal("-1")) == 0) {
+                            errors.add("employeeId: " + employeeId + " - Multiple active TOP_UP policies found. CSV selection is ambiguous; please keep only one active TOP_UP policy.");
+                        } else if (!opts.isEmpty() && opts.stream().noneMatch(o -> o != null && o.compareTo(selected) == 0)) {
+                            errors.add("employeeId: " + employeeId + " - Invalid top-up sum insured: " + formatLakhs(selected)
+                                    + ". Available options: " + opts.stream().map(EmployeeService::formatLakhs).collect(Collectors.joining(", ")));
+                        }
+                    } catch (Exception e) {
+                        errors.add("employeeId: " + employeeId + " - Invalid topup_sum_insured value. Must be numeric (e.g. 1000000 for 10L).");
+                    }
+                }
+
+                if (hasSuper) {
+                    try {
+                        java.math.BigDecimal selected = new java.math.BigDecimal(superRaw);
+                        List<java.math.BigDecimal> opts = getTopupSumInsuredOptions(organization.getOrganizationId(), ProductType.SUPER_TOP_UP);
+                        if (opts.size() == 1 && opts.get(0).compareTo(new java.math.BigDecimal("-1")) == 0) {
+                            errors.add("employeeId: " + employeeId + " - Multiple active SUPER_TOP_UP policies found. CSV selection is ambiguous; please keep only one active SUPER_TOP_UP policy.");
+                        } else if (!opts.isEmpty() && opts.stream().noneMatch(o -> o != null && o.compareTo(selected) == 0)) {
+                            errors.add("employeeId: " + employeeId + " - Invalid super top-up sum insured: " + formatLakhs(selected)
+                                    + ". Available options: " + opts.stream().map(EmployeeService::formatLakhs).collect(Collectors.joining(", ")));
+                        }
+                    } catch (Exception e) {
+                        errors.add("employeeId: " + employeeId + " - Invalid super_topup_sum_insured value. Must be numeric (e.g. 1000000 for 10L).");
+                    }
                 }
             }
             
@@ -343,6 +728,20 @@ public class EmployeeService {
                 Collectors.toList()
         ));
     }
+
+    private EmployeeUploadResponse buildValidationFailureResponse(List<EmployeeUploadDto> rows, List<String> errors) {
+        List<EmployeeUploadDto> safeRows = rows != null ? rows : List.of();
+        EmployeeUploadResponse response = new EmployeeUploadResponse();
+        int totalEmployees = selfCount(safeRows).intValue();
+        response.setTotalRows(safeRows.size());
+        response.setTotalEmployees(totalEmployees);
+        response.setTotalDependents(dependentCount(safeRows).intValue());
+        response.setSuccessCount(0);
+        response.setErrorCount(errors != null ? errors.size() : 0);
+        response.setErrors(errors != null ? errors : new ArrayList<>());
+        response.setMessage("Validation errors");
+        return response;
+    }
     
     /**
      * Groups bulk employee deletion request DTOs by employee ID
@@ -378,6 +777,18 @@ public class EmployeeService {
           endorsement.setUpdatedAt(LocalDateTime.now());
           endorsement.setUploadedBy(adminUser);
           EmployeeUploadResponse response = new EmployeeUploadResponse();
+          List<Policy> selectedPolicies = policyRepository.findAllById(policyIds);
+          Map<Long, Policy> selectedPolicyMap = selectedPolicies.stream()
+              .collect(Collectors.toMap(Policy::getPolicyId, p -> p, (a, b) -> a, LinkedHashMap::new));
+          if (selectedPolicyMap.isEmpty()) {
+            return buildValidationFailureResponse(
+                employeeUploadDtoList,
+                List.of("No policies found for provided policyIds"));
+          }
+          List<String> coverageErrors = GmcCoverageUploadValidationUtil.validateBulkUploadRows(employeeUploadDtoList, selectedPolicies);
+          if (!coverageErrors.isEmpty()) {
+            return buildValidationFailureResponse(employeeUploadDtoList, coverageErrors);
+          }
           EmployeeUploadResponse validateResponse = validateEmployee(employeeUploadDtoList, organization);
           if (validateResponse.getErrorCount() > 0)
             return validateResponse; 
@@ -624,59 +1035,79 @@ public class EmployeeService {
           log.info("Saving {} deals ({} new, {} updated) in batches of {}", new Object[] { dealsToSave.size(), createdCount, updatedCount, batchSize });
           int i;
           Endorsement savedEndorsement = null;
+          List<EndorsementSplitSummaryDto> splitSummaries = new ArrayList<>();
           if(updatedCount > 0 || createdCount > 0) {
-          endorsement.setTotalEmployees((int)dealsToSave.stream().filter(deal -> deal.getRelationship().equalsIgnoreCase("Self")).count());
-          endorsement.setTotalDependents((int)dealsToSave.stream().filter(deal -> !deal.getRelationship().equalsIgnoreCase("Self")).count());
-          savedEndorsement = endorsementRepository.save(endorsement);
-          if (file != null) {
-              try {
-                  Document document = uploadDocuments(file, organization, adminUser, savedEndorsement);
-                  savedEndorsement.setDocument(document);
-                  savedEndorsement = endorsementRepository.save(savedEndorsement);
-                  savedEndorsement = endorsementRepository.findByEndorsementId(savedEndorsement.getEndorsementId())
-                      .orElseThrow(() -> new RuntimeException("Endorsement not found after save"));
-              } catch (DocumentUploadException e) {
-                  log.error("Failed to upload document for endorsement {}: {}", savedEndorsement.getEndorsementId(), e.getMessage(), e);
-                  return new EmployeeUploadResponse(0, 0, 0, new ArrayList<>(), "Failed to upload documents: " + e.getMessage(), 0, 0);
-              }
-          }
-          UUID endorsementId = savedEndorsement.getEndorsementId();
-
-          // Save deals first, then create DealEndorsement relationships
+          List<Deals> allSavedDeals = new ArrayList<>();
+          // Save deals first
           for (i = 0; i < dealsToSave.size(); i += batchSize) {
             int end = Math.min(i + batchSize, dealsToSave.size());
             List<Deals> batch = dealsToSave.subList(i, end);
-            batch.forEach(deal -> deal.setEndorsementId(endorsementId));
             List<Deals> savedDeals = this.dealsRepository.saveAll(batch);
             totalSaved += savedDeals.size();
-            
-            // Create and save DealEndorsement relationships after deals are saved
-            // Maintain endorsement history: preserve existing relationships, only create new ones
-            // A deal can have multiple endorsements, and all historical relationships must be preserved
-            List<DealEndorsement> dealEndorsementsBatch = new ArrayList<>();
-            for (Deals deal : savedDeals) {
-              // Only create if relationship doesn't already exist (to maintain history)
-              // This ensures the deal remains associated with all previous endorsements
-              boolean exists = dealEndorsementRepository.existsByDeal_IndividualIdAndEndorsement_EndorsementId(
-                  deal.getIndividualId(), endorsementId);
-              if (!exists) {
-                DealEndorsement dealEndorsement = new DealEndorsement();
-                dealEndorsement.setDeal(deal);
-                dealEndorsement.setEndorsement(savedEndorsement);
-                dealEndorsementsBatch.add(dealEndorsement);
-                log.debug("Creating new DealEndorsement relationship for deal {} and endorsement {}", 
-                    deal.getIndividualId(), endorsementId);
-              } else {
-                log.debug("DealEndorsement relationship already exists for deal {} and endorsement {}. Preserving history.", 
-                    deal.getIndividualId(), endorsementId);
+            allSavedDeals.addAll(savedDeals);
+          }
+          UUID splitGroupId = UUID.randomUUID();
+          Endorsement primaryEndorsement = null;
+          Map<Long, List<Deals>> dealsByPolicy = mapDealsByPolicyForUpload(allSavedDeals, groupedByEmployeeId, selectedPolicyMap);
+          for (Map.Entry<Long, List<Deals>> entry : dealsByPolicy.entrySet()) {
+              if (entry.getValue().isEmpty()) {
+                  continue;
               }
-            }
-            if (!dealEndorsementsBatch.isEmpty()) {
-              dealEndorsementRepository.saveAll(dealEndorsementsBatch);
-            }
+              Policy policy = selectedPolicyMap.get(entry.getKey());
+              Endorsement splitEndorsement = new Endorsement();
+              splitEndorsement.setOrganization(organization);
+              splitEndorsement.setStatus(AccountStatus.PENDING_APPROVAL);
+              splitEndorsement.setEndorsementType(getEndorsementType(uploadType));
+              splitEndorsement.setConfirmationMethod(ConfirmationMethod.PORTAL);
+              splitEndorsement.setCreatedAt(LocalDateTime.now());
+              splitEndorsement.setUpdatedAt(LocalDateTime.now());
+              splitEndorsement.setUploadedBy(adminUser);
+              splitEndorsement.setPolicy(policy);
+              splitEndorsement.setSplitGroupId(splitGroupId);
+              applyPolicyAwareSplitEndorsementTotals(splitEndorsement, policy, entry.getValue());
+              if (primaryEndorsement != null) {
+                  splitEndorsement.setParentEndorsement(primaryEndorsement);
+              }
+              splitEndorsement = endorsementRepository.save(splitEndorsement);
+              if (primaryEndorsement == null) {
+                  primaryEndorsement = splitEndorsement;
+                  savedEndorsement = splitEndorsement;
+              }
+              for (Deals deal : entry.getValue()) {
+                  if (deal.getEndorsementId() == null) {
+                      deal.setEndorsementId(primaryEndorsement.getEndorsementId());
+                  }
+                  boolean exists = dealEndorsementRepository.existsByDeal_IndividualIdAndEndorsement_EndorsementId(
+                      deal.getIndividualId(), splitEndorsement.getEndorsementId());
+                  if (!exists) {
+                      DealEndorsement de = new DealEndorsement();
+                      de.setDeal(deal);
+                      de.setEndorsement(splitEndorsement);
+                      dealEndorsementRepository.save(de);
+                  }
+              }
+              splitSummaries.add(new EndorsementSplitSummaryDto(
+                  splitEndorsement.getEndorsementId(),
+                  policy != null ? policy.getPolicyId() : null,
+                  policy != null && policy.getProductType() != null ? policy.getProductType().getValue() : null,
+                  splitEndorsement.getTotalEmployees(),
+                  splitEndorsement.getTotalDependents(),
+                  splitEndorsement.getSplitGroupId(),
+                  splitEndorsement.getParentEndorsement() != null ? splitEndorsement.getParentEndorsement().getEndorsementId() : null
+              ));
+          }
+          if (file != null && primaryEndorsement != null) {
+              try {
+                  Document document = uploadDocuments(file, organization, adminUser, primaryEndorsement);
+                  primaryEndorsement.setDocument(document);
+                  endorsementRepository.save(primaryEndorsement);
+              } catch (DocumentUploadException e) {
+                  log.error("Failed to upload document for endorsement {}: {}", primaryEndorsement.getEndorsementId(), e.getMessage(), e);
+                  return new EmployeeUploadResponse(0, 0, 0, new ArrayList<>(), "Failed to upload documents: " + e.getMessage(), 0, 0, new ArrayList<>());
+              }
           }
           if (employeePolicyMapService != null) {
-            List<UUID> primaryEmployeeIds = dealsToSave.stream()
+            List<UUID> primaryEmployeeIds = allSavedDeals.stream()
                 .filter(deal -> deal.getRelationship() != null && "SELF".equalsIgnoreCase(deal.getRelationship()))
                 .map(Deals::getIndividualId)
                 .distinct()
@@ -693,6 +1124,7 @@ public class EmployeeService {
           response.setSuccessCount(totalSaved);
           response.setErrorCount(0);
           response.setErrors(new ArrayList());
+          response.setEndorsements(splitSummaries);
           response.setMessage(String.format("Employees processed successfully: %d created, %d updated", new Object[] { createdCount, updatedCount }));
           if(createdCount == 0 && updatedCount == 0) {
             response.setMessage("No changes detected!");
@@ -831,64 +1263,84 @@ public class EmployeeService {
                 return new EmployeeUploadResponse(0, 0, 0, new ArrayList<>(), "No individuals to delete", 0, 0);
             }
             if(!individualIdsToDelete.isEmpty()) {
-            Endorsement endorsement = new Endorsement();
-            endorsement.setOrganization(organization);
-            endorsement.setStatus(AccountStatus.PENDING_EXIT);
-            endorsement.setEndorsementType(getEndorsementType(uploadType));
-            endorsement.setConfirmationMethod(ConfirmationMethod.PORTAL);
-            endorsement.setCreatedAt(LocalDateTime.now());
-            endorsement.setUpdatedAt(LocalDateTime.now());
-            endorsement.setUploadedBy(adminUser);
-            endorsement.setTotalEmployees(employeeCount);
-            endorsement.setTotalDependents(dependentCount);
-            Endorsement savedEndorsement = endorsementRepository.save(endorsement);
-            try {
-                Document document = uploadDocuments(file, organization, adminUser, savedEndorsement);
-                savedEndorsement.setDocument(document);
-                savedEndorsement = endorsementRepository.save(savedEndorsement);
-                // Fetch fresh entity to avoid Hibernate proxy issues
-                savedEndorsement = endorsementRepository.findByEndorsementId(savedEndorsement.getEndorsementId())
-                    .orElseThrow(() -> new RuntimeException("Endorsement not found after save"));
-            } catch (DocumentUploadException e) {
-                log.error("Failed to upload document for endorsement {}: {}", savedEndorsement.getEndorsementId(), e.getMessage(), e);
-                return new EmployeeUploadResponse(0, 0, 0, new ArrayList<>(), "Failed to upload documents: " + e.getMessage(), 0, 0);
-            }
-            UUID endorsementId = savedEndorsement.getEndorsementId();
             List<Deals> dealsToDelete = dealsRepository.findByIndividualIdIn(new ArrayList<>(individualIdsToDelete));
+            Set<Long> policyIds = employeePolicyMapRepository.findAll().stream()
+                    .filter(m -> "ACTIVE".equalsIgnoreCase(m.getStatus()) && individualIdsToDelete.contains(m.getIndividualId()))
+                    .map(EmployeePolicyMap::getPolicyId)
+                    .collect(Collectors.toCollection(LinkedHashSet::new));
+            if (policyIds.isEmpty()) {
+                policyIds.add(null);
+            }
+            UUID splitGroupId = UUID.randomUUID();
+            Endorsement primaryEndorsement = null;
+            List<Endorsement> splitEndorsements = new ArrayList<>();
+            for (Long policyId : policyIds) {
+                Endorsement endorsement = new Endorsement();
+                endorsement.setOrganization(organization);
+                endorsement.setStatus(AccountStatus.PENDING_EXIT);
+                endorsement.setEndorsementType(getEndorsementType(uploadType));
+                endorsement.setConfirmationMethod(ConfirmationMethod.PORTAL);
+                endorsement.setCreatedAt(LocalDateTime.now());
+                endorsement.setUpdatedAt(LocalDateTime.now());
+                endorsement.setUploadedBy(adminUser);
+                endorsement.setTotalEmployees(employeeCount);
+                endorsement.setTotalDependents(dependentCount);
+                endorsement.setSplitGroupId(splitGroupId);
+                if (policyId != null) {
+                    endorsement.setPolicy(policyRepository.findById(policyId).orElse(null));
+                }
+                if (primaryEndorsement != null) {
+                    endorsement.setParentEndorsement(primaryEndorsement);
+                }
+                Endorsement saved = endorsementRepository.save(endorsement);
+                if (primaryEndorsement == null) {
+                    primaryEndorsement = saved;
+                }
+                splitEndorsements.add(saved);
+            }
+            if (file != null && primaryEndorsement != null) {
+                try {
+                    Document document = uploadDocuments(file, organization, adminUser, primaryEndorsement);
+                    primaryEndorsement.setDocument(document);
+                    endorsementRepository.save(primaryEndorsement);
+                } catch (DocumentUploadException e) {
+                    log.error("Failed to upload document for endorsement {}: {}", primaryEndorsement.getEndorsementId(), e.getMessage(), e);
+                    return new EmployeeUploadResponse(0, 0, 0, new ArrayList<>(), "Failed to upload documents: " + e.getMessage(), 0, 0);
+                }
+            }
             dealsToDelete.forEach(deal -> deal.setStatus(AccountStatus.PENDING_EXIT));
             dealsToDelete.forEach(deal -> deal.setDateOfExit(dateOfExitMap.get(deal.getEmployeeNumber())));
             dealsToDelete.forEach(deal -> deal.setReasonForExit(reasonForExitMap.get(deal.getEmployeeNumber())));
             dealsToDelete.forEach(deal -> deal.setUpdatedAt(LocalDateTime.now()));
-            dealsToDelete.forEach(deal -> deal.setEndorsementId(endorsementId));
+            if (primaryEndorsement != null) {
+                UUID primaryEndorsementId = primaryEndorsement.getEndorsementId();
+                dealsToDelete.forEach(deal -> deal.setEndorsementId(primaryEndorsementId));
+            }
             
             // Save deals first, then create DealEndorsement relationships
             // Maintain endorsement history: preserve existing relationships, only create new ones
             // A deal can have multiple endorsements, and all historical relationships must be preserved
             List<Deals> savedDeals = dealsRepository.saveAll(dealsToDelete);
-            final Endorsement finalSavedEndorsement = savedEndorsement;
             List<DealEndorsement> dealEndorsements = new ArrayList<>();
             for (Deals deal : savedDeals) {
-              // Only create if relationship doesn't already exist (to maintain history)
-              // This ensures the deal remains associated with all previous endorsements
-              boolean exists = dealEndorsementRepository.existsByDeal_IndividualIdAndEndorsement_EndorsementId(
-                  deal.getIndividualId(), endorsementId);
-              if (!exists) {
-                DealEndorsement dealEndorsement = new DealEndorsement();
-                dealEndorsement.setDeal(deal);
-                dealEndorsement.setEndorsement(finalSavedEndorsement);
-                dealEndorsements.add(dealEndorsement);
-                log.debug("Creating new DealEndorsement relationship for deal {} and endorsement {}", 
-                    deal.getIndividualId(), endorsementId);
-              } else {
-                log.debug("DealEndorsement relationship already exists for deal {} and endorsement {}. Preserving history.", 
-                    deal.getIndividualId(), endorsementId);
+              for (Endorsement splitEndorsement : splitEndorsements) {
+                  boolean exists = dealEndorsementRepository.existsByDeal_IndividualIdAndEndorsement_EndorsementId(
+                          deal.getIndividualId(), splitEndorsement.getEndorsementId());
+                  if (!exists) {
+                      DealEndorsement dealEndorsement = new DealEndorsement();
+                      dealEndorsement.setDeal(deal);
+                      dealEndorsement.setEndorsement(splitEndorsement);
+                      dealEndorsements.add(dealEndorsement);
+                  }
               }
             }
             if (!dealEndorsements.isEmpty()) {
               dealEndorsementRepository.saveAll(dealEndorsements);
             }
             deletedCount = dealsToDelete.size();
-            slackNotificationUtil.sendSlackMessage(slackNotificationUtil.buildEndorsementNotificationMessage(savedEndorsement), false);
+            if (primaryEndorsement != null) {
+                slackNotificationUtil.sendSlackMessage(slackNotificationUtil.buildEndorsementNotificationMessage(primaryEndorsement), false);
+            }
         }
             return new EmployeeUploadResponse(deletedCount, deletedCount, 0, new ArrayList<>(), "Employees" + "(" + employeeCount + ")" + " and dependents" + "(" + dependentCount + ")" + " deleted successfully", employeeCount, dependentCount);
         }
@@ -960,6 +1412,49 @@ public class EmployeeService {
 
     private boolean isMotherInLawRelationship(String relationship) {
         return NomineeRelationship.MOTHER_IN_LAW.getValue().equals(normalizeInLawRelationship(relationship));
+    }
+
+    private boolean isParentRelationship(String relationship) {
+        if (relationship == null) return false;
+        return "FATHER".equalsIgnoreCase(relationship)
+                || "MOTHER".equalsIgnoreCase(relationship)
+                || isFatherInLawRelationship(relationship)
+                || isMotherInLawRelationship(relationship);
+    }
+
+    /**
+     * Sets endorsement totalEmployees/totalDependents for UI as "employees / dependents":
+     * GPA/GTL/top-up: SELF count / 0; PARENT_GMC: SELF count / parent-in-law count (parents use the dependents field);
+     * GMC/GHI: SELF count / other covered members on this endorsement.
+     */
+    private void applyPolicyAwareSplitEndorsementTotals(Endorsement endorsement, Policy policy, List<Deals> deals) {
+        List<Deals> list = deals != null ? deals : List.of();
+        ProductType pt = policy != null ? policy.getProductType() : null;
+        if (pt == ProductType.GPA || pt == ProductType.GTL || pt == ProductType.TOP_UP || pt == ProductType.SUPER_TOP_UP) {
+            int self = (int) list.stream()
+                    .filter(d -> d.getRelationship() != null && "SELF".equalsIgnoreCase(d.getRelationship()))
+                    .count();
+            endorsement.setTotalEmployees(self);
+            endorsement.setTotalDependents(0);
+            return;
+        }
+        if (pt == ProductType.PARENT_GMC) {
+            int self = (int) list.stream()
+                    .filter(d -> d.getRelationship() != null && "SELF".equalsIgnoreCase(d.getRelationship()))
+                    .count();
+            int parents = (int) list.stream().filter(d -> isParentRelationship(d.getRelationship())).count();
+            endorsement.setTotalEmployees(self);
+            endorsement.setTotalDependents(parents);
+            return;
+        }
+        int self = (int) list.stream()
+                .filter(d -> d.getRelationship() != null && "SELF".equalsIgnoreCase(d.getRelationship()))
+                .count();
+        int nonSelf = (int) list.stream()
+                .filter(d -> d.getRelationship() == null || !"SELF".equalsIgnoreCase(d.getRelationship()))
+                .count();
+        endorsement.setTotalEmployees(self);
+        endorsement.setTotalDependents(nonSelf);
     }
 
     /**
@@ -1092,6 +1587,77 @@ public class EmployeeService {
         }
     }
 
+    private Map<Long, List<Deals>> mapDealsByPolicyForUpload(
+            List<Deals> savedDeals,
+            Map<String, List<EmployeeUploadDto>> groupedByEmployeeId,
+            Map<Long, Policy> selectedPolicyMap) {
+        Map<Long, List<Deals>> result = new LinkedHashMap<>();
+        for (Long policyId : selectedPolicyMap.keySet()) {
+            result.put(policyId, new ArrayList<>());
+        }
+        Map<String, EmployeeUploadDto> selfByEmployeeNumber = new HashMap<>();
+        groupedByEmployeeId.forEach((employeeId, rows) -> {
+            EmployeeUploadDto self = rows.stream()
+                    .filter(r -> r != null && r.getRelationship() != null && "Self".equalsIgnoreCase(r.getRelationship()))
+                    .findFirst()
+                    .orElse(null);
+            if (self != null) {
+                selfByEmployeeNumber.put(employeeId, self);
+            }
+        });
+        Policy parentPolicy = selectedPolicyMap.values().stream()
+                .filter(p -> p != null && p.getProductType() == ProductType.PARENT_GMC)
+                .findFirst().orElse(null);
+        Policy topupPolicy = selectedPolicyMap.values().stream()
+                .filter(p -> p != null && p.getProductType() == ProductType.TOP_UP)
+                .findFirst().orElse(null);
+        Policy superTopupPolicy = selectedPolicyMap.values().stream()
+                .filter(p -> p != null && p.getProductType() == ProductType.SUPER_TOP_UP)
+                .findFirst().orElse(null);
+        for (Deals deal : savedDeals) {
+            Set<Long> policyIdsForDeal = new LinkedHashSet<>();
+            boolean parentMember = isParentRelationship(deal.getRelationship());
+            if (parentMember && parentPolicy != null) {
+                policyIdsForDeal.add(parentPolicy.getPolicyId());
+            } else {
+                boolean isSelf = "SELF".equalsIgnoreCase(deal.getRelationship());
+                for (Policy pol : selectedPolicyMap.values()) {
+                    if (pol == null || pol.getProductType() == null) {
+                        continue;
+                    }
+                    ProductType pt = pol.getProductType();
+                    if (pt == ProductType.PARENT_GMC || pt == ProductType.TOP_UP || pt == ProductType.SUPER_TOP_UP) {
+                        continue;
+                    }
+                    if (pt == ProductType.GMC || pt == ProductType.GHI) {
+                        policyIdsForDeal.add(pol.getPolicyId());
+                    } else if (pt == ProductType.GPA || pt == ProductType.GTL) {
+                        if (isSelf) {
+                            policyIdsForDeal.add(pol.getPolicyId());
+                        }
+                    } else {
+                        if (isSelf) {
+                            policyIdsForDeal.add(pol.getPolicyId());
+                        }
+                    }
+                }
+            }
+            if ("SELF".equalsIgnoreCase(deal.getRelationship())) {
+                EmployeeUploadDto selfDto = selfByEmployeeNumber.get(deal.getEmployeeNumber());
+                if (selfDto != null && topupPolicy != null && selfDto.getTopupSumInsured() != null && !selfDto.getTopupSumInsured().trim().isEmpty()) {
+                    policyIdsForDeal.add(topupPolicy.getPolicyId());
+                }
+                if (selfDto != null && superTopupPolicy != null && selfDto.getSuperTopupSumInsured() != null && !selfDto.getSuperTopupSumInsured().trim().isEmpty()) {
+                    policyIdsForDeal.add(superTopupPolicy.getPolicyId());
+                }
+            }
+            for (Long policyId : policyIdsForDeal) {
+                result.computeIfAbsent(policyId, k -> new ArrayList<>()).add(deal);
+            }
+        }
+        return result;
+    }
+
     public static EndorsementType getEndorsementType(String uploadType) {
         if(uploadType.equalsIgnoreCase("addition")) {
             return EndorsementType.ADDITION;
@@ -1145,41 +1711,69 @@ public class EmployeeService {
                 return new EmployeeUploadResponse(0, 0, 0, new ArrayList<>(), "No individuals to delete", 0, 0);
             }
 
-            Endorsement endorsement = new Endorsement();
-            endorsement.setOrganization(organization);
-            endorsement.setStatus(AccountStatus.PENDING_EXIT);
-            endorsement.setEndorsementType(EndorsementType.DELETION);
-            endorsement.setConfirmationMethod(ConfirmationMethod.PORTAL);
-            endorsement.setCreatedAt(LocalDateTime.now());
-            endorsement.setUpdatedAt(LocalDateTime.now());
-            endorsement.setUploadedBy(adminUser);
-            endorsement.setTotalEmployees(employeeCount);
-            endorsement.setTotalDependents(dependentCount);
-            Endorsement savedEndorsement = endorsementRepository.save(endorsement);
-
-            UUID endorsementId = savedEndorsement.getEndorsementId();
             List<Deals> dealsToDelete = dealsRepository.findByIndividualIdIn(new ArrayList<>(individualIdsToDelete));
+            Set<Long> policyIds = employeePolicyMapRepository.findAll().stream()
+                    .filter(m -> "ACTIVE".equalsIgnoreCase(m.getStatus()) && individualIdsToDelete.contains(m.getIndividualId()))
+                    .map(EmployeePolicyMap::getPolicyId)
+                    .collect(Collectors.toCollection(LinkedHashSet::new));
+            if (policyIds.isEmpty()) {
+                policyIds.add(null);
+            }
+            UUID splitGroupId = UUID.randomUUID();
+            Endorsement primaryEndorsement = null;
+            List<Endorsement> splitEndorsements = new ArrayList<>();
+            for (Long policyId : policyIds) {
+                Endorsement endorsement = new Endorsement();
+                endorsement.setOrganization(organization);
+                endorsement.setStatus(AccountStatus.PENDING_EXIT);
+                endorsement.setEndorsementType(EndorsementType.DELETION);
+                endorsement.setConfirmationMethod(ConfirmationMethod.PORTAL);
+                endorsement.setCreatedAt(LocalDateTime.now());
+                endorsement.setUpdatedAt(LocalDateTime.now());
+                endorsement.setUploadedBy(adminUser);
+                endorsement.setTotalEmployees(employeeCount);
+                endorsement.setTotalDependents(dependentCount);
+                endorsement.setSplitGroupId(splitGroupId);
+                if (policyId != null) {
+                    endorsement.setPolicy(policyRepository.findById(policyId).orElse(null));
+                }
+                if (primaryEndorsement != null) {
+                    endorsement.setParentEndorsement(primaryEndorsement);
+                }
+                Endorsement saved = endorsementRepository.save(endorsement);
+                if (primaryEndorsement == null) {
+                    primaryEndorsement = saved;
+                }
+                splitEndorsements.add(saved);
+            }
             dealsToDelete.forEach(deal -> deal.setStatus(AccountStatus.PENDING_EXIT));
             dealsToDelete.forEach(deal -> deal.setUpdatedAt(LocalDateTime.now()));
-            dealsToDelete.forEach(deal -> deal.setEndorsementId(endorsementId));
+            if (primaryEndorsement != null) {
+                UUID primaryEndorsementId = primaryEndorsement.getEndorsementId();
+                dealsToDelete.forEach(deal -> deal.setEndorsementId(primaryEndorsementId));
+            }
 
             List<Deals> savedDeals = dealsRepository.saveAll(dealsToDelete);
             List<DealEndorsement> dealEndorsements = new ArrayList<>();
             for (Deals deal : savedDeals) {
-                boolean exists = dealEndorsementRepository.existsByDeal_IndividualIdAndEndorsement_EndorsementId(
-                    deal.getIndividualId(), endorsementId);
-                if (!exists) {
-                    DealEndorsement dealEndorsement = new DealEndorsement();
-                    dealEndorsement.setDeal(deal);
-                    dealEndorsement.setEndorsement(savedEndorsement);
-                    dealEndorsements.add(dealEndorsement);
+                for (Endorsement splitEndorsement : splitEndorsements) {
+                    boolean exists = dealEndorsementRepository.existsByDeal_IndividualIdAndEndorsement_EndorsementId(
+                        deal.getIndividualId(), splitEndorsement.getEndorsementId());
+                    if (!exists) {
+                        DealEndorsement dealEndorsement = new DealEndorsement();
+                        dealEndorsement.setDeal(deal);
+                        dealEndorsement.setEndorsement(splitEndorsement);
+                        dealEndorsements.add(dealEndorsement);
+                    }
                 }
             }
             if (!dealEndorsements.isEmpty()) {
                 dealEndorsementRepository.saveAll(dealEndorsements);
             }
 
-            slackNotificationUtil.sendSlackMessage(slackNotificationUtil.buildEndorsementNotificationMessage(savedEndorsement), false);
+            if (primaryEndorsement != null) {
+                slackNotificationUtil.sendSlackMessage(slackNotificationUtil.buildEndorsementNotificationMessage(primaryEndorsement), false);
+            }
 
             String message = String.format("Employees (%d) and dependents (%d) submitted for deletion successfully. Endorsement created with status Pending.", employeeCount, dependentCount);
             return new EmployeeUploadResponse(dealsToDelete.size(), dealsToDelete.size(), 0, new ArrayList<>(), message, employeeCount, dependentCount);

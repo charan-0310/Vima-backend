@@ -8,10 +8,12 @@ import java.util.UUID;
 
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
+import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
+import jakarta.persistence.LockModeType;
 
 import com.vimainsurance.vimaadmin.entity.Policy;
 import com.vimainsurance.vimaadmin.enums.PolicyStatus;
@@ -154,4 +156,8 @@ public interface IPolicyRepository extends JpaRepository<Policy, Long> {
      * Find active policies by organization and product type.
      */
     List<Policy> findByOrganizationIdAndProductTypeAndStatus(UUID organizationId, ProductType productType, PolicyStatus status);
+
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("SELECT p FROM Policy p WHERE p.policyId = :policyId")
+    Optional<Policy> findByIdForUpdate(@Param("policyId") Long policyId);
 }

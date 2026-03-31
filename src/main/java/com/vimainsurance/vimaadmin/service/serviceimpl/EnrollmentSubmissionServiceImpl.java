@@ -2,8 +2,12 @@ package com.vimainsurance.vimaadmin.service.serviceimpl;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
+import java.time.LocalDate;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -42,6 +46,8 @@ import com.vimainsurance.vimaadmin.util.Constants;
 public class EnrollmentSubmissionServiceImpl implements IEnrollmentSubmissionService {
 
     private static final Logger logger = LoggerFactory.getLogger(EnrollmentSubmissionServiceImpl.class);
+    private static final String DEFAULT_COMPANY_NAME = "Vima Insurance";
+    private static final DateTimeFormatter SUBMISSION_DATE_FORMAT = DateTimeFormatter.ofPattern("d MMMM uuuu");
 
     @Autowired
     private IEnrollmentSubmissionRepository enrollmentSubmissionRepository;
@@ -265,19 +271,56 @@ public class EnrollmentSubmissionServiceImpl implements IEnrollmentSubmissionSer
             if (emp == null || emp.getEmail() == null || emp.getEmail().isBlank()) {
                 return;
             }
-            String subject = "Enrollment Submission – " + (submission.getReferenceNumber() != null ? submission.getReferenceNumber() : submission.getId());
-            String body = "Your enrollment submission has been submitted.\n\nReference: "
-                    + (submission.getReferenceNumber() != null ? submission.getReferenceNumber() : submission.getId())
-                    + "\n\nThank you.";
+            LocalDateTime submittedAt = submission.getSubmittedAt() != null ? submission.getSubmittedAt() : submission.getCreatedAt();
+            String reference = resolveReferenceNumber(submission, submittedAt);
+            String submissionDate = submittedAt != null ? submittedAt.format(SUBMISSION_DATE_FORMAT) : "";
+            String employeeName = (emp.getFullName() != null && !emp.getFullName().isBlank())
+                    ? emp.getFullName()
+                    : ((emp.getFirstName() != null ? emp.getFirstName() : "") + " " + (emp.getLastName() != null ? emp.getLastName() : "")).trim();
+            if (employeeName.isBlank()) {
+                employeeName = "Employee";
+            }
+            String companyName = emp.getOrganization() != null
+                    && emp.getOrganization().getOrganizationName() != null
+                    && !emp.getOrganization().getOrganizationName().isBlank()
+                    ? emp.getOrganization().getOrganizationName()
+                    : DEFAULT_COMPANY_NAME;
+
+            String subject = "Enrollment Submission - " + reference;
             EmailRequest req = EmailRequest.builder()
                     .to(emp.getEmail())
                     .subject(subject)
-                    .body(body)
-                    .isHtml(false)
+                    .templateName("enrollment-submission")
+                    .templateVariables(Map.of(
+                            "employeeName", employeeName,
+                            "companyName", companyName,
+                            "referenceNumber", reference,
+                            "submissionDate", submissionDate
+                    ))
                     .build();
-            emailService.sendSimpleEmail(req);
+            emailService.sendTemplateEmail(req);
         } catch (Exception e) {
             logger.warn("[correlationId:{}] Failed to send submission email: {}", MDC.get("correlationId"), e.getMessage());
+        }
+    }
+
+    private String resolveReferenceNumber(EnrollmentSubmission submission, LocalDateTime submittedAt) {
+        String rawReference = submission.getReferenceNumber();
+        if (rawReference != null && !rawReference.isBlank() && !isUuidValue(rawReference)) {
+            return rawReference;
+        }
+        int year = submittedAt != null ? submittedAt.getYear() : LocalDate.now().getYear();
+        String uuidSource = submission.getId() != null ? submission.getId().toString() : UUID.randomUUID().toString();
+        String compact = uuidSource.replace("-", "").toUpperCase();
+        return "ENR-" + year + "-" + compact.substring(0, 8);
+    }
+
+    private boolean isUuidValue(String value) {
+        try {
+            UUID.fromString(value.trim());
+            return true;
+        } catch (IllegalArgumentException ex) {
+            return false;
         }
     }
 }

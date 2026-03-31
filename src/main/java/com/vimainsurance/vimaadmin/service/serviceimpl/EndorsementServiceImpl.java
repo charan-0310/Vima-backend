@@ -46,6 +46,7 @@ import com.vimainsurance.vimaadmin.dto.EndorsementResponseDto;
 import com.vimainsurance.vimaadmin.dto.HealthIdUploadDto;
 import com.vimainsurance.vimaadmin.dto.ResponseDto;
 import com.vimainsurance.vimaadmin.entity.AdminUser;
+import com.vimainsurance.vimaadmin.entity.DealEndorsement;
 import com.vimainsurance.vimaadmin.entity.Deals;
 import com.vimainsurance.vimaadmin.entity.Document;
 import com.vimainsurance.vimaadmin.entity.Endorsement;
@@ -55,14 +56,17 @@ import com.vimainsurance.vimaadmin.enums.DocumentCategory;
 import com.vimainsurance.vimaadmin.enums.DocumentEntityType;
 import com.vimainsurance.vimaadmin.enums.DocumentType;
 import com.vimainsurance.vimaadmin.enums.EndorsementType;
+import com.vimainsurance.vimaadmin.enums.ProductType;
 import com.vimainsurance.vimaadmin.mapper.EndorsementMapper;
 import com.vimainsurance.vimaadmin.repository.IAdminUserRepository;
+import com.vimainsurance.vimaadmin.repository.IDealEndorsementRepository;
 import com.vimainsurance.vimaadmin.repository.IDealsRepository;
 import com.vimainsurance.vimaadmin.repository.IDocumentRepository;
 import com.vimainsurance.vimaadmin.repository.IEndorsementRepository;
 import com.vimainsurance.vimaadmin.repository.IOrganizationRepository;
 import com.vimainsurance.vimaadmin.service.IDocumentService;
 import com.vimainsurance.vimaadmin.service.IEmailService;
+import com.vimainsurance.vimaadmin.service.ICdBalanceService;
 import com.vimainsurance.vimaadmin.service.IEmployeePolicyMapService;
 import com.vimainsurance.vimaadmin.service.IEndorsementService;
 import com.vimainsurance.vimaadmin.service.ILifeEventEndorsementService;
@@ -99,6 +103,9 @@ public class EndorsementServiceImpl implements IEndorsementService {
     private IDealsRepository dealsRepository;
 
     @Autowired
+    private IDealEndorsementRepository dealEndorsementRepository;
+
+    @Autowired
     private Environment environment;
 
     @Autowired
@@ -127,6 +134,11 @@ public class EndorsementServiceImpl implements IEndorsementService {
 
     @Autowired(required = false)
     private ILifeEventEndorsementService lifeEventEndorsementService;
+
+    @Autowired(required = false)
+    private ICdBalanceService cdBalanceService;
+
+    private record MemberCounts(int employeeCount, int dependentCount) {}
 
     @Override
     @Transactional
@@ -298,6 +310,7 @@ public class EndorsementServiceImpl implements IEndorsementService {
                 com.vimainsurance.vimaadmin.audit.AuditContextSupplier.setOrganizationId(orgId);
             }
             EndorsementResponseDto dto = EndorsementMapper.mapToResponseDto(opt.get());
+            applyDynamicMemberCounts(dto, opt.get());
             return responseObj.render(responseObj.formSuccessResponse(Constants.SUCCESS, dto));
         } catch (Exception e) {
             logger.error("[correlationId:{}] Exception in Endorsement getById: {}", MDC.get("correlationId"), e.getMessage(), e);
@@ -313,7 +326,9 @@ public class EndorsementServiceImpl implements IEndorsementService {
             List<Endorsement> list = endorsementRepository.findAll();
             List<EndorsementResponseDto> out = new ArrayList<>();
             for (Endorsement endorsement : list) {
-                out.add(EndorsementMapper.mapToResponseDto(endorsement));
+                EndorsementResponseDto dto = EndorsementMapper.mapToResponseDto(endorsement);
+                applyDynamicMemberCounts(dto, endorsement);
+                out.add(dto);
             }
             return responseObj.render(responseObj.formSuccessResponse(Constants.SUCCESS, out, out.size()));
         } catch (Exception e) {
@@ -330,7 +345,9 @@ public class EndorsementServiceImpl implements IEndorsementService {
             List<Endorsement> list = endorsementRepository.findByOrganization_OrganizationId(organizationId);
             List<EndorsementResponseDto> out = new ArrayList<>();
             for (Endorsement endorsement : list) {
-                out.add(EndorsementMapper.mapToResponseDto(endorsement));
+                EndorsementResponseDto dto = EndorsementMapper.mapToResponseDto(endorsement);
+                applyDynamicMemberCounts(dto, endorsement);
+                out.add(dto);
             }
             return responseObj.render(responseObj.formSuccessResponse(Constants.SUCCESS, out, out.size()));
         } catch (Exception e) {
@@ -348,7 +365,9 @@ public class EndorsementServiceImpl implements IEndorsementService {
             List<Endorsement> list = endorsementRepository.findByStatus(accountStatus);
             List<EndorsementResponseDto> out = new ArrayList<>();
             for (Endorsement endorsement : list) {
-                out.add(EndorsementMapper.mapToResponseDto(endorsement));
+                EndorsementResponseDto dto = EndorsementMapper.mapToResponseDto(endorsement);
+                applyDynamicMemberCounts(dto, endorsement);
+                out.add(dto);
             }
             return responseObj.render(responseObj.formSuccessResponse(Constants.SUCCESS, out, out.size()));
         } catch (IllegalArgumentException e) {
@@ -369,7 +388,9 @@ public class EndorsementServiceImpl implements IEndorsementService {
             List<Endorsement> list = endorsementRepository.findByEndorsementType(type);
             List<EndorsementResponseDto> out = new ArrayList<>();
             for (Endorsement endorsement : list) {
-                out.add(EndorsementMapper.mapToResponseDto(endorsement));
+                EndorsementResponseDto dto = EndorsementMapper.mapToResponseDto(endorsement);
+                applyDynamicMemberCounts(dto, endorsement);
+                out.add(dto);
             }
             return responseObj.render(responseObj.formSuccessResponse(Constants.SUCCESS, out, out.size()));
         } catch (IllegalArgumentException e) {
@@ -384,7 +405,7 @@ public class EndorsementServiceImpl implements IEndorsementService {
     @Override
     public ResponseEntity<ResponseDto<List<EndorsementResponseDto>>> getAllWithFilters(
             UUID organizationId, String organizationName, String status, String endorsementType, String uploadedBy,
-            String fromDate, String toDate, int page, int size, String sortBy, String sortDirection) {
+            UUID splitGroupId, Long policyId, String fromDate, String toDate, int page, int size, String sortBy, String sortDirection) {
         logger.info("[correlationId:{}] Endorsement getAllWithFilters called - organizationId: {}, organizationName: {}, status: {}, endorsementType: {}, page: {}, size: {}",
                 MDC.get("correlationId"), organizationId, organizationName, status, endorsementType, page, size);
         BaseResponse<List<EndorsementResponseDto>> responseObj = new BaseResponse<>();
@@ -436,6 +457,8 @@ public class EndorsementServiceImpl implements IEndorsementService {
                 status,
                 type,
                 uploadedBy,
+                splitGroupId,
+                policyId,
                 fromDateTime,
                 toDateTime
             );
@@ -450,7 +473,9 @@ public class EndorsementServiceImpl implements IEndorsementService {
             // Map to DTOs
             List<EndorsementResponseDto> out = new ArrayList<>();
             for (Endorsement endorsement : endorsementPage.getContent()) {
-                out.add(EndorsementMapper.mapToResponseDto(endorsement));
+                EndorsementResponseDto dto = EndorsementMapper.mapToResponseDto(endorsement);
+                applyDynamicMemberCounts(dto, endorsement);
+                out.add(dto);
             }
 
             return responseObj.render(responseObj.formSuccessResponse(Constants.SUCCESS, out, endorsementPage.getTotalElements()));
@@ -512,14 +537,73 @@ public class EndorsementServiceImpl implements IEndorsementService {
            }
             EndorsementMapper.updateEntityFromDto(endorsement, requestDto, organization, null, uploadedBy);
 
-            List<Deals> deals = dealsRepository.findByEndorsementId(requestDto.getEndorsementId());
-            if(deals.isEmpty()) {
+            // Policy-based endorsement splitting may store people across multiple split endorsements.
+            // Build a scoped set of endorsement IDs (current + same split group) and resolve deals from:
+            // 1) customers.endorsement_id and 2) deal_endorsements join table.
+            List<UUID> scopedEndorsementIds = new ArrayList<>();
+            scopedEndorsementIds.add(endorsement.getEndorsementId());
+            if (endorsement.getSplitGroupId() != null) {
+                List<Endorsement> splitGroup = endorsementRepository.findBySplitGroupId(endorsement.getSplitGroupId());
+                if (splitGroup != null && !splitGroup.isEmpty()) {
+                    scopedEndorsementIds = splitGroup.stream()
+                            .map(Endorsement::getEndorsementId)
+                            .filter(Objects::nonNull)
+                            .distinct()
+                            .collect(Collectors.toList());
+                }
+            }
+
+            Map<UUID, Deals> dealsById = new java.util.LinkedHashMap<>();
+            for (UUID eid : scopedEndorsementIds) {
+                dealsRepository.findByEndorsementId(eid)
+                        .forEach(d -> {
+                            if (d != null && d.getIndividualId() != null) {
+                                dealsById.put(d.getIndividualId(), d);
+                            }
+                        });
+                List<DealEndorsement> links = dealEndorsementRepository.findByEndorsement_EndorsementId(eid);
+                if (links != null) {
+                    links.stream()
+                            .map(DealEndorsement::getDeal)
+                            .filter(Objects::nonNull)
+                            .filter(d -> d.getIndividualId() != null)
+                            .forEach(d -> dealsById.put(d.getIndividualId(), d));
+                }
+            }
+            List<Deals> deals = new ArrayList<>(dealsById.values());
+            if (deals.isEmpty()) {
                 return responseObj.render(responseObj.formErrorResponse("No deals found to approve"));
             }
-            if(!deals.stream().anyMatch(deal -> deal.getStatus().equals(AccountStatus.PENDING_APPROVAL) || deal.getStatus().equals(AccountStatus.PENDING_EXIT))) {
-                return responseObj.render(responseObj.formErrorResponse("No deals found to approve"));
+            boolean hasPendingDealAction = deals.stream()
+                    .anyMatch(deal -> deal.getStatus().equals(AccountStatus.PENDING_APPROVAL)
+                            || deal.getStatus().equals(AccountStatus.PENDING_EXIT));
+            if (!hasPendingDealAction) {
+                // Multi-policy uploads share one splitGroupId and the same customer (Deals) rows across
+                // endorsements. Approve() already activates all scoped deals when any sibling endorsement
+                // is approved, so a second per-policy approval finds no pending deals — complete this
+                // endorsement without re-running deal transitions.
+                AccountStatus endorsementStatus = endorsement.getStatus();
+                boolean awaitingApproval = AccountStatus.PENDING_APPROVAL.equals(endorsementStatus)
+                        || AccountStatus.PENDING_EXIT.equals(endorsementStatus);
+                if (endorsement.getSplitGroupId() == null || !awaitingApproval) {
+                    return responseObj.render(responseObj.formErrorResponse("No deals found to approve"));
+                }
+                logger.info(
+                        "[correlationId:{}] Split-group idempotent approval: endorsement {} has no pending deals (sibling policy likely approved already)",
+                        MDC.get("correlationId"),
+                        endorsement.getEndorsementId());
+            } else if (cdBalanceService != null && requestDto.getCdBalanceEntries() != null && !requestDto.getCdBalanceEntries().isEmpty()) {
+                String performedBy = requestDto.getApprovedBy() != null && !requestDto.getApprovedBy().isBlank()
+                        ? requestDto.getApprovedBy()
+                        : jwtUserExtractor.extractCurrentUsername();
+                cdBalanceService.recordEndorsementCdBalanceEntries(
+                        endorsement.getEndorsementId(),
+                        organization.getOrganizationId(),
+                        requestDto.getCdBalanceEntries(),
+                        endorsement.getEndorsementType(),
+                        performedBy);
             }
-         
+
             deals.stream().filter(deal -> deal.getStatus().equals(AccountStatus.PENDING_APPROVAL)).forEach(deal -> {
                 deal.setStatus(AccountStatus.ACTIVE);
                 deal.setUpdatedAt(LocalDateTime.now());
@@ -548,8 +632,8 @@ public class EndorsementServiceImpl implements IEndorsementService {
 
             return responseObj.render(responseObj.formSuccessResponse(Constants.SUCCESS, "Endorsement approved successfully"));
         } catch (IllegalArgumentException e) {
-            logger.error("[correlationId:{}] Invalid confirmation method value: {}", MDC.get("correlationId"), requestDto.getConfirmationMethod());
-            return responseObj.render(responseObj.formErrorResponse("Invalid confirmation method value: " + requestDto.getConfirmationMethod()));
+            logger.warn("[correlationId:{}] Endorsement approve rejected: {}", MDC.get("correlationId"), e.getMessage());
+            return responseObj.render(responseObj.formErrorResponse(e.getMessage()));
         } catch (Exception e) {
             logger.error("[correlationId:{}] Exception in Endorsement approve: {}", MDC.get("correlationId"), e.getMessage(), e);
             return responseObj.render(responseObj.formErrorResponse("Failed to approve endorsement!"));
@@ -1027,6 +1111,99 @@ public class EndorsementServiceImpl implements IEndorsementService {
 
         Sort.Direction direction = sortDirection.equalsIgnoreCase("ASC") ? Sort.Direction.ASC : Sort.Direction.DESC;
         return Sort.by(direction, sortBy);
+    }
+
+    private void applyDynamicMemberCounts(EndorsementResponseDto dto, Endorsement endorsement) {
+        MemberCounts counts = calculateMemberCounts(endorsement, dto);
+        dto.setTotalEmployees(counts.employeeCount());
+        dto.setTotalDependents(counts.dependentCount());
+    }
+
+    private MemberCounts calculateMemberCounts(Endorsement endorsement, EndorsementResponseDto dto) {
+        if (endorsement == null || endorsement.getEndorsementId() == null) {
+            return new MemberCounts(0, 0);
+        }
+        UUID endorsementId = endorsement.getEndorsementId();
+        Map<UUID, Deals> uniqueMembers = new java.util.LinkedHashMap<>();
+
+        dealsRepository.findByEndorsementId(endorsementId).forEach(deal -> {
+            if (deal != null && deal.getIndividualId() != null) {
+                uniqueMembers.put(deal.getIndividualId(), deal);
+            }
+        });
+
+        List<DealEndorsement> links = dealEndorsementRepository.findByEndorsement_EndorsementId(endorsementId);
+        if (links != null) {
+            links.stream()
+                    .map(DealEndorsement::getDeal)
+                    .filter(Objects::nonNull)
+                    .filter(deal -> deal.getIndividualId() != null)
+                    .forEach(deal -> uniqueMembers.put(deal.getIndividualId(), deal));
+        }
+
+        ProductType pt = resolveProductTypeForMemberCounts(endorsement, dto);
+        // GPA/GTL/top-up: employee-only products — never count spouses/children as dependents on these endorsements.
+        if (pt == ProductType.GPA || pt == ProductType.GTL || pt == ProductType.TOP_UP || pt == ProductType.SUPER_TOP_UP) {
+            int self = (int) uniqueMembers.values().stream()
+                    .filter(d -> d != null && d.getRelationship() != null && "SELF".equalsIgnoreCase(d.getRelationship()))
+                    .count();
+            return new MemberCounts(self, 0);
+        }
+        // PARENT_GMC: SELF / parent members (second figure), not generic non-SELF.
+        if (pt == ProductType.PARENT_GMC) {
+            int self = (int) uniqueMembers.values().stream()
+                    .filter(d -> d != null && d.getRelationship() != null && "SELF".equalsIgnoreCase(d.getRelationship()))
+                    .count();
+            int parents = (int) uniqueMembers.values().stream()
+                    .filter(d -> d != null && isParentRelationshipForEndorsementCounts(d.getRelationship()))
+                    .count();
+            return new MemberCounts(self, parents);
+        }
+
+        int employeeCount = 0;
+        int dependentCount = 0;
+        for (Deals deal : uniqueMembers.values()) {
+            if (isEmployeeRelationship(deal != null ? deal.getRelationship() : null)) {
+                employeeCount++;
+            } else {
+                dependentCount++;
+            }
+        }
+        return new MemberCounts(employeeCount, dependentCount);
+    }
+
+    private ProductType resolveProductTypeForMemberCounts(Endorsement endorsement, EndorsementResponseDto dto) {
+        if (endorsement != null && endorsement.getPolicy() != null && endorsement.getPolicy().getProductType() != null) {
+            return endorsement.getPolicy().getProductType();
+        }
+        if (dto != null && dto.getPolicyType() != null && !dto.getPolicyType().isBlank()) {
+            try {
+                return ProductType.fromValue(dto.getPolicyType());
+            } catch (IllegalArgumentException ignored) {
+                return null;
+            }
+        }
+        return null;
+    }
+
+    private boolean isParentRelationshipForEndorsementCounts(String relationship) {
+        if (relationship == null) {
+            return false;
+        }
+        String r = relationship.trim();
+        if ("FATHER".equalsIgnoreCase(r) || "MOTHER".equalsIgnoreCase(r)) {
+            return true;
+        }
+        String compact = r.replaceAll("[\\s_-]+", "").toUpperCase();
+        return "FATHERINLAW".equals(compact) || "MOTHERINLAW".equals(compact);
+    }
+
+    private boolean isEmployeeRelationship(String relationship) {
+        if (relationship == null || relationship.isBlank()) {
+            return false;
+        }
+        String normalized = relationship.trim();
+        return "SELF".equalsIgnoreCase(normalized) || "EMPLOYEE".equalsIgnoreCase(normalized);
     }
 
     @Override

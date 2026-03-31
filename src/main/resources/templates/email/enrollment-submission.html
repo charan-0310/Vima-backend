@@ -1,0 +1,156 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org" lang="en" xml:lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Enrollment Confirmed - Vima Insurance</title>
+    <!--[if mso]>
+    <style type="text/css">
+        body, table, td {font-family: Arial, sans-serif !important;}
+    </style>
+    <![endif]-->
+    <style>
+        @media only screen and (max-width: 600px) {
+            .wrapper  { padding: 0 !important; }
+            .card     { border-radius: 0 !important; }
+            .pad-logo { padding: 24px 20px 20px 20px !important; }
+            .pad      { padding-left: 20px !important; padding-right: 20px !important; }
+            .btn-wrap { padding: 24px 20px !important; }
+            .btn-tbl  { width: 100% !important; }
+            .btn-cell { width: 100% !important; text-align: center !important; }
+            .btn-a    { display: block !important; text-align: center !important; }
+            .ftr-pad  { padding-left: 20px !important; padding-right: 20px !important; }
+        }
+    </style>
+</head>
+<body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; line-height: 1.6; color: #1a1a1a; margin: 0; padding: 0; background-color: #f3f4f6; -webkit-font-smoothing: antialiased;">
+
+    <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="background-color: #f3f4f6;">
+        <tr>
+            <td class="wrapper" style="padding: 40px 20px;">
+
+                <!-- Card -->
+                <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" class="card" style="max-width: 560px; margin: 0 auto; background-color: #ffffff; border-radius: 12px;">
+
+                    <!-- Logo -->
+                    <tr>
+                        <td class="pad-logo" style="padding: 40px 40px 32px 40px;">
+                            <table role="presentation" cellspacing="0" cellpadding="0" border="0">
+                                <tr>
+                                    <td style="background-color: #ffffff; padding: 8px 12px; border-radius: 6px;">
+                                        <!--[if !mso]><!-->
+                                        <img src="https://vimainsurance.com/assets/vima-logo-main.DiciI4hf.png"
+                                             alt="Vima Insurance"
+                                             width="200" height="64" border="0"
+                                             style="height: 64px; width: 200px; max-width: 100%; display: block; border: 0;">
+                                        <!--<![endif]-->
+                                        <!--[if mso]>
+                                        <img src="https://vimainsurance.com/assets/vima-logo-main.DiciI4hf.png"
+                                             alt="Vima Insurance"
+                                             width="200" height="64" border="0"
+                                             style="height: 64px; width: 200px; display: block;">
+                                        <![endif]-->
+                                    </td>
+                                </tr>
+                            </table>
+                        </td>
+                    </tr>
+
+                    <!-- Headline -->
+                    <tr>
+                        <td class="pad" style="padding: 0 40px;">
+                            <h1 style="font-size: 26px; font-weight: 600; color: #1a1a1a; margin: 0 0 16px 0; letter-spacing: -0.3px;">
+                                Your benefits enrollment is confirmed
+                            </h1>
+                            <p style="font-size: 16px; color: #525252; margin: 0 0 32px 0;">
+                                Hi <strong th:text="${employeeName}">Employee</strong>, your <strong th:text="${companyName}">Employer</strong> benefits enrollment has been successfully submitted. Keep your reference number for your records.
+                            </p>
+                        </td>
+                    </tr>
+
+                    <!-- Submission details box -->
+                    <tr>
+                        <td class="pad" style="padding: 0 40px;">
+                            <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="background-color: #f0fdf4; border-radius: 8px; border-left: 3px solid #16a34a;">
+                                <tr>
+                                    <td style="padding: 24px;">
+
+                                        <p style="font-size: 12px; font-weight: 600; color: #15803d; text-transform: uppercase; letter-spacing: 0.8px; margin: 0 0 16px 0;">
+                                            Submission Details
+                                        </p>
+
+                                        <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%">
+                                            <tr>
+                                                <td style="padding-bottom: 12px;">
+                                                    <span style="font-size: 13px; color: #6b7280; display: block;">Reference Number</span>
+                                                    <span style="font-size: 16px; color: #1a1a1a; font-family: 'SF Mono', Monaco, 'Courier New', monospace; font-weight: 600; letter-spacing: 1px;" th:text="${referenceNumber}">VIM-ENR-000000</span>
+                                                </td>
+                                            </tr>
+                                            <tr>
+                                                <td style="padding-bottom: 4px;">
+                                                    <span style="font-size: 13px; color: #6b7280; display: block;">Submitted On</span>
+                                                    <span style="font-size: 15px; color: #1a1a1a; font-weight: 500;" th:text="${submissionDate}">1 January 2026</span>
+                                                </td>
+                                            </tr>
+                                        </table>
+
+                                    </td>
+                                </tr>
+                            </table>
+                        </td>
+                    </tr>
+
+                    <!-- What happens next -->
+                    <tr>
+                        <td class="pad" style="padding: 24px 40px 32px 40px;">
+                            <p style="font-size: 15px; color: #525252; margin: 0;">
+                                Your HR team will review your submission and activate your coverage.
+                            </p>
+                        </td>
+                    </tr>
+
+                    <!-- Support contact -->
+                    <tr>
+                        <td class="pad" style="padding: 0 40px 32px 40px;">
+                            <p style="font-size: 14px; color: #6b7280; margin: 0 0 8px 0;">
+                                Questions about your enrollment? Contact our support team:
+                            </p>
+                            <p style="font-size: 14px; margin: 0;">
+                                <a href="mailto:protect@vimainsurance.com" style="color: #1e40af; text-decoration: none; font-weight: 500;">protect@vimainsurance.com</a>
+                                <span style="color: #d1d5db; padding: 0 8px;">·</span>
+                                <a href="tel:+919514675818" style="color: #1e40af; text-decoration: none; font-weight: 500;">+91 95146 75818</a>
+                            </p>
+                        </td>
+                    </tr>
+
+                    <!-- Security note -->
+                    <tr>
+                        <td class="pad" style="padding: 0 40px 40px 40px;">
+                            <p style="font-size: 13px; color: #9ca3af; margin: 0;">
+                                If you believe this submission was made in error, please contact us immediately with your reference number.
+                            </p>
+                        </td>
+                    </tr>
+
+                </table>
+
+                <!-- Footer: branding only -->
+                <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="max-width: 560px; margin: 0 auto;">
+                    <tr>
+                        <td class="ftr-pad" style="padding: 32px 40px 0 40px; text-align: center;">
+                            <p style="font-size: 13px; color: #6b7280; margin: 0 0 8px 0;">
+                                <a href="https://www.vimainsurance.com" style="color: #1e40af; text-decoration: none;">www.vimainsurance.com</a>
+                            </p>
+                            <p style="font-size: 12px; color: #9ca3af; margin: 12px 0 0 0;">
+                                &copy; 2026 Vima Insurance &middot; Chennai, India
+                            </p>
+                        </td>
+                    </tr>
+                </table>
+
+            </td>
+        </tr>
+    </table>
+
+</body>
+</html>

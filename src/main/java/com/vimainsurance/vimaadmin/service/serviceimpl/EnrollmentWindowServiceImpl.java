@@ -63,6 +63,7 @@ import com.vimainsurance.vimaadmin.service.IHRApprovalService;
 import com.vimainsurance.vimaadmin.specification.EnrollmentWindowSpecification;
 import com.vimainsurance.vimaadmin.util.Constants;
 import com.vimainsurance.vimaadmin.util.EnrollmentUploadParserUtil;
+import com.vimainsurance.vimaadmin.util.GmcCoverageUploadValidationUtil;
 import com.vimainsurance.vimaadmin.util.JwtUserExtractor;
 import com.vimainsurance.vimaadmin.util.OrganizationAccessHelper;
 import com.vimainsurance.vimaadmin.util.TenantContext;
@@ -193,9 +194,66 @@ public class EnrollmentWindowServiceImpl implements IEnrollmentWindowService {
             if (!errors.isEmpty()) {
                 return responseObj.render(new ResponseDto<>(400, "Validation failed", errors));
             }
+            List<String> renewalErrors = validateExistingEmployeesForRenewal(organizationId, selfEmployeeEnrollmentRequestDtos);
+            if (!renewalErrors.isEmpty()) {
+                return responseObj.render(new ResponseDto<>(400, "Validation failed", renewalErrors));
+            }
             return responseObj.render(responseObj.formSuccessResponse(Constants.SUCCESS, Collections.emptyList()));
         } catch (Exception e) {
             logger.error("[correlationId:{}] Exception in EnrollmentWindow validateEmployees: {}", MDC.get("correlationId"), e.getMessage(), e);
+            return responseObj.render(responseObj.formErrorResponse("Validation request failed"));
+        }
+    }
+
+    @Override
+    public ResponseEntity<ResponseDto<List<String>>> validateUploadFile(UUID organizationId, MultipartFile file) {
+        logger.info("[correlationId:{}] EnrollmentWindow validateUploadFile called for organization {}", MDC.get("correlationId"), organizationId);
+        BaseResponse<List<String>> responseObj = new BaseResponse<>();
+        try {
+            Optional<Organization> orgOpt = organizationRepository.findByOrganizationId(organizationId);
+            if (orgOpt.isEmpty()) {
+                return responseObj.render(responseObj.formErrorResponse("Organization not found"));
+            }
+            validateAndSetOrganizationContext(organizationId);
+
+            if (file == null || file.isEmpty()) {
+                return responseObj.render(responseObj.formErrorResponse("File is required"));
+            }
+
+            EnrollmentUploadParserUtil.EnrollmentParseResult parseResult = EnrollmentUploadParserUtil.parse(file);
+            if (!parseResult.hasSelfRows()) {
+                return responseObj.render(new ResponseDto<>(400, "Validation failed",
+                        List.of("No employee SELF rows found in upload file")));
+            }
+
+            EnrollmentUploadParserUtil.normalizeChildRelationships(parseResult);
+            EnrollmentUploadParserUtil.validateSelfRows(parseResult);
+
+            List<Policy> activePolicies = policyRepository.findByOrganizationIdAndStatus(
+                    organizationId, PolicyStatus.ACTIVE);
+            List<String> coverageErrors = GmcCoverageUploadValidationUtil
+                    .validateEnrollmentUploadRows(parseResult, activePolicies);
+            if (!coverageErrors.isEmpty()) {
+                parseResult.getErrors().addAll(coverageErrors);
+            }
+            if (parseResult.hasFatalErrors()) {
+                return responseObj.render(new ResponseDto<>(400, "Validation failed", parseResult.getErrors()));
+            }
+
+            List<SelfEmployeeEnrollmentRequestDto> selfRows = parseResult.getSelfRows();
+            List<String> errors = validateSelfEmployeeEnrollmentRequest(selfRows, organizationId);
+            if (!errors.isEmpty()) {
+                return responseObj.render(new ResponseDto<>(400, "Validation failed", errors));
+            }
+
+            List<String> renewalErrors = validateExistingEmployeesForRenewal(organizationId, selfRows);
+            if (!renewalErrors.isEmpty()) {
+                return responseObj.render(new ResponseDto<>(400, "Validation failed", renewalErrors));
+            }
+
+            return responseObj.render(responseObj.formSuccessResponse(Constants.SUCCESS, Collections.emptyList()));
+        } catch (Exception e) {
+            logger.error("[correlationId:{}] Exception in EnrollmentWindow validateUploadFile: {}", MDC.get("correlationId"), e.getMessage(), e);
             return responseObj.render(responseObj.formErrorResponse("Validation request failed"));
         }
     }
@@ -225,6 +283,13 @@ public class EnrollmentWindowServiceImpl implements IEnrollmentWindowService {
                 if (parseResult.hasSelfRows()) {
                     EnrollmentUploadParserUtil.normalizeChildRelationships(parseResult);
                     EnrollmentUploadParserUtil.validateSelfRows(parseResult);
+                    List<Policy> activePolicies = policyRepository.findByOrganizationIdAndStatus(
+                            organization.getOrganizationId(), PolicyStatus.ACTIVE);
+                    List<String> coverageErrors = GmcCoverageUploadValidationUtil
+                            .validateEnrollmentUploadRows(parseResult, activePolicies);
+                    if (!coverageErrors.isEmpty()) {
+                        parseResult.getErrors().addAll(coverageErrors);
+                    }
                     if (!parseResult.hasFatalErrors()) {
                         selfRowsToUse = parseResult.getSelfRows();
                     } else {
@@ -254,7 +319,7 @@ public class EnrollmentWindowServiceImpl implements IEnrollmentWindowService {
                 return responseObj.render(errorDto);
             }
 
-            List<String> renewalErrors = validateExistingEmployeesForRenewal(window, organization.getOrganizationId(), selfRowsToUse);
+            List<String> renewalErrors = validateExistingEmployeesForRenewal(organization.getOrganizationId(), selfRowsToUse);
             if (!renewalErrors.isEmpty()) {
                 @SuppressWarnings("unchecked")
                 ResponseDto<EnrollmentWindowResponseDto> errorDto = (ResponseDto<EnrollmentWindowResponseDto>) (ResponseDto<?>) responseObj.formErrorResponse("Validation failed", renewalErrors);
@@ -685,7 +750,7 @@ public class EnrollmentWindowServiceImpl implements IEnrollmentWindowService {
      * For employees who already exist in customers: if there is no new policy for the company, reject with "Employee already exists.";
      * if there is a new policy, allow only when new policy start date is after the employee's current policy end date (renewal).
      */
-    private List<String> validateExistingEmployeesForRenewal(EnrollmentWindows window, UUID organizationId, List<SelfEmployeeEnrollmentRequestDto> requestDtos) {
+    private List<String> validateExistingEmployeesForRenewal(UUID organizationId, List<SelfEmployeeEnrollmentRequestDto> requestDtos) {
         List<String> errors = new ArrayList<>();
         if (requestDtos == null || requestDtos.isEmpty()) {
             return errors;

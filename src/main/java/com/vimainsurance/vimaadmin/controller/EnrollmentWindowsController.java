@@ -56,7 +56,7 @@ public class EnrollmentWindowsController {
 
     /**
      * Validate employees for enrollment (no window or employees created).
-     * Use before create + upload to avoid creating a window when validation would fail.
+     * Mirrors upload-time business validations so create can be safely blocked before persistence.
      */
     @PostMapping(value = "/validate-employees", consumes = MediaType.APPLICATION_JSON_VALUE, produces = MediaType.APPLICATION_JSON_VALUE)
     @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'VIMA_ADMIN', 'HR_ADMIN')")
@@ -66,6 +66,18 @@ public class EnrollmentWindowsController {
         return enrollmentWindowService.validateEmployees(
                 requestDto.getOrganizationId(),
                 dtos != null ? dtos : List.of());
+    }
+
+    /**
+     * Validate uploaded employee file (SELF + dependents) before window creation.
+     */
+    @PostMapping(value = "/validate-upload", consumes = MediaType.MULTIPART_FORM_DATA_VALUE, produces = MediaType.APPLICATION_JSON_VALUE)
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'VIMA_ADMIN', 'HR_ADMIN')")
+    public ResponseEntity<ResponseDto<List<String>>> validateUpload(
+            @RequestParam("organizationId") UUID organizationId,
+            @RequestPart("file") MultipartFile file) {
+        logger.info("[correlationId:{}] POST /api/admin/enrollment-windows/validate-upload called", MDC.get("correlationId"));
+        return enrollmentWindowService.validateUploadFile(organizationId, file);
     }
 
     /**
