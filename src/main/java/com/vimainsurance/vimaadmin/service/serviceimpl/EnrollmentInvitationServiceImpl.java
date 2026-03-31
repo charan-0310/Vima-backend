@@ -123,11 +123,12 @@ public class EnrollmentInvitationServiceImpl implements IEnrollmentInvitation {
             invitation = invitationRepository.save(invitation);
 
             String magicLink = baseUrl + "/enrollment/" + rawToken;
+            // Avoid lazy-loading organization in async bulk-send path where no Hibernate session may be active.
             boolean emailSent = sendEnrollmentInvitationEmail(
                 employee.getEmail(),
                 employee.getFullName(),
                 magicLink,
-                employee.getOrganization() != null ? employee.getOrganization().getOrganizationName() : null,
+                null,
                 expiresAt
             );
             if (emailSent) {
