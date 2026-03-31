@@ -123,6 +123,7 @@ public class EndorsementMapper {
             if (endorsement.getPolicy().getProductType() != null) {
                 dto.setPolicyType(endorsement.getPolicy().getProductType().getValue());
             }
+            dto.setInsuranceCompanyName(endorsement.getPolicy().getInsurerName());
         }
         dto.setSplitGroupId(endorsement.getSplitGroupId());
         if (endorsement.getParentEndorsement() != null) {

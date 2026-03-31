@@ -30,6 +30,7 @@ public class EndorsementResponseDto {
     private String lifeEventType;
     private Long policyId;
     private String policyType;
+    private String insuranceCompanyName;
     private UUID splitGroupId;
     private UUID parentEndorsementId;
 }

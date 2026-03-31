@@ -571,14 +571,28 @@ public class EndorsementServiceImpl implements IEndorsementService {
                 }
             }
             List<Deals> deals = new ArrayList<>(dealsById.values());
-            if(deals.isEmpty()) {
+            if (deals.isEmpty()) {
                 return responseObj.render(responseObj.formErrorResponse("No deals found to approve"));
             }
-            if(!deals.stream().anyMatch(deal -> deal.getStatus().equals(AccountStatus.PENDING_APPROVAL) || deal.getStatus().equals(AccountStatus.PENDING_EXIT))) {
-                return responseObj.render(responseObj.formErrorResponse("No deals found to approve"));
-            }
-         
-            if (cdBalanceService != null && requestDto.getCdBalanceEntries() != null && !requestDto.getCdBalanceEntries().isEmpty()) {
+            boolean hasPendingDealAction = deals.stream()
+                    .anyMatch(deal -> deal.getStatus().equals(AccountStatus.PENDING_APPROVAL)
+                            || deal.getStatus().equals(AccountStatus.PENDING_EXIT));
+            if (!hasPendingDealAction) {
+                // Multi-policy uploads share one splitGroupId and the same customer (Deals) rows across
+                // endorsements. Approve() already activates all scoped deals when any sibling endorsement
+                // is approved, so a second per-policy approval finds no pending deals — complete this
+                // endorsement without re-running deal transitions.
+                AccountStatus endorsementStatus = endorsement.getStatus();
+                boolean awaitingApproval = AccountStatus.PENDING_APPROVAL.equals(endorsementStatus)
+                        || AccountStatus.PENDING_EXIT.equals(endorsementStatus);
+                if (endorsement.getSplitGroupId() == null || !awaitingApproval) {
+                    return responseObj.render(responseObj.formErrorResponse("No deals found to approve"));
+                }
+                logger.info(
+                        "[correlationId:{}] Split-group idempotent approval: endorsement {} has no pending deals (sibling policy likely approved already)",
+                        MDC.get("correlationId"),
+                        endorsement.getEndorsementId());
+            } else if (cdBalanceService != null && requestDto.getCdBalanceEntries() != null && !requestDto.getCdBalanceEntries().isEmpty()) {
                 String performedBy = requestDto.getApprovedBy() != null && !requestDto.getApprovedBy().isBlank()
                         ? requestDto.getApprovedBy()
                         : jwtUserExtractor.extractCurrentUsername();
