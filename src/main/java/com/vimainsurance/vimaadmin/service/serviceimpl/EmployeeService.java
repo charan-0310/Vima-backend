@@ -74,6 +74,7 @@ import com.vimainsurance.vimaadmin.repository.IEmployeePolicyMapRepository;
 import com.vimainsurance.vimaadmin.exception.DocumentUploadException;
 import com.vimainsurance.vimaadmin.util.SlackNotificationUtil;
 import com.vimainsurance.vimaadmin.util.TopupPremiumOptionsUtil;
+import com.vimainsurance.vimaadmin.util.GmcCoverageUploadValidationUtil;
 import com.vimainsurance.vimaadmin.service.policy.PolicyMemberMappingHelper;
 
 @Slf4j
@@ -724,6 +725,20 @@ public class EmployeeService {
                 Collectors.toList()
         ));
     }
+
+    private EmployeeUploadResponse buildValidationFailureResponse(List<EmployeeUploadDto> rows, List<String> errors) {
+        List<EmployeeUploadDto> safeRows = rows != null ? rows : List.of();
+        EmployeeUploadResponse response = new EmployeeUploadResponse();
+        int totalEmployees = selfCount(safeRows).intValue();
+        response.setTotalRows(safeRows.size());
+        response.setTotalEmployees(totalEmployees);
+        response.setTotalDependents(dependentCount(safeRows).intValue());
+        response.setSuccessCount(0);
+        response.setErrorCount(errors != null ? errors.size() : 0);
+        response.setErrors(errors != null ? errors : new ArrayList<>());
+        response.setMessage("Validation errors");
+        return response;
+    }
     
     /**
      * Groups bulk employee deletion request DTOs by employee ID
@@ -759,6 +774,18 @@ public class EmployeeService {
           endorsement.setUpdatedAt(LocalDateTime.now());
           endorsement.setUploadedBy(adminUser);
           EmployeeUploadResponse response = new EmployeeUploadResponse();
+          List<Policy> selectedPolicies = policyRepository.findAllById(policyIds);
+          Map<Long, Policy> selectedPolicyMap = selectedPolicies.stream()
+              .collect(Collectors.toMap(Policy::getPolicyId, p -> p, (a, b) -> a, LinkedHashMap::new));
+          if (selectedPolicyMap.isEmpty()) {
+            return buildValidationFailureResponse(
+                employeeUploadDtoList,
+                List.of("No policies found for provided policyIds"));
+          }
+          List<String> coverageErrors = GmcCoverageUploadValidationUtil.validateBulkUploadRows(employeeUploadDtoList, selectedPolicies);
+          if (!coverageErrors.isEmpty()) {
+            return buildValidationFailureResponse(employeeUploadDtoList, coverageErrors);
+          }
           EmployeeUploadResponse validateResponse = validateEmployee(employeeUploadDtoList, organization);
           if (validateResponse.getErrorCount() > 0)
             return validateResponse; 
@@ -1015,12 +1042,6 @@ public class EmployeeService {
             List<Deals> savedDeals = this.dealsRepository.saveAll(batch);
             totalSaved += savedDeals.size();
             allSavedDeals.addAll(savedDeals);
-          }
-          List<Policy> selectedPolicies = policyRepository.findAllById(policyIds);
-          Map<Long, Policy> selectedPolicyMap = selectedPolicies.stream()
-              .collect(Collectors.toMap(Policy::getPolicyId, p -> p, (a, b) -> a, LinkedHashMap::new));
-          if (selectedPolicyMap.isEmpty()) {
-              throw new RuntimeException("No active policies found for split endorsement creation");
           }
           UUID splitGroupId = UUID.randomUUID();
           Endorsement primaryEndorsement = null;

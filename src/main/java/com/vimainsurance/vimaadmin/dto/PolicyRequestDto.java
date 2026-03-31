@@ -47,6 +47,8 @@ public class PolicyRequestDto {
 
     // Coverage type - required for GMC (E, ES, ESC, ESCP), optional for traditional policies
     private String coverageType;
+    /** Applies to GMC/GHI with ESC/ESCP. Range: 1..4. Defaults to 4 when omitted. */
+    private Integer maxChildrenAllowed;
 
 
     private String status;

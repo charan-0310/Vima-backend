@@ -173,6 +173,9 @@ public class Policy {
     @Column(name = "covers_parents")
     private Boolean coversParents;
 
+    @Column(name = "max_children_allowed")
+    private Integer maxChildrenAllowed;
+
     @Column(name = "is_deleted")
     private Boolean isDeleted;
 

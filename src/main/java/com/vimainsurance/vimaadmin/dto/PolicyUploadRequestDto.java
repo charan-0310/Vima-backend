@@ -22,6 +22,8 @@ public class PolicyUploadRequestDto {
     private String productType;
     private String providerCode;
     private String coverageType;
+    /** Applies to GMC/GHI with ESC/ESCP. Range: 1..4. Defaults to 4 when omitted. */
+    private Integer maxChildrenAllowed;
     private String status;
     private BigDecimal sumInsured;
     /** For GPA/GTL: 1-5 when sumInsuredOption=MULTIPLIER; stored in sum_insured_multiplier. */

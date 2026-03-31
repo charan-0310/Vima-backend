@@ -63,6 +63,7 @@ import com.vimainsurance.vimaadmin.service.IHRApprovalService;
 import com.vimainsurance.vimaadmin.specification.EnrollmentWindowSpecification;
 import com.vimainsurance.vimaadmin.util.Constants;
 import com.vimainsurance.vimaadmin.util.EnrollmentUploadParserUtil;
+import com.vimainsurance.vimaadmin.util.GmcCoverageUploadValidationUtil;
 import com.vimainsurance.vimaadmin.util.JwtUserExtractor;
 import com.vimainsurance.vimaadmin.util.OrganizationAccessHelper;
 import com.vimainsurance.vimaadmin.util.TenantContext;
@@ -229,6 +230,13 @@ public class EnrollmentWindowServiceImpl implements IEnrollmentWindowService {
                 if (parseResult.hasSelfRows()) {
                     EnrollmentUploadParserUtil.normalizeChildRelationships(parseResult);
                     EnrollmentUploadParserUtil.validateSelfRows(parseResult);
+                    List<Policy> activePolicies = policyRepository.findByOrganizationIdAndStatus(
+                            organization.getOrganizationId(), PolicyStatus.ACTIVE);
+                    List<String> coverageErrors = GmcCoverageUploadValidationUtil
+                            .validateEnrollmentUploadRows(parseResult, activePolicies);
+                    if (!coverageErrors.isEmpty()) {
+                        parseResult.getErrors().addAll(coverageErrors);
+                    }
                     if (!parseResult.hasFatalErrors()) {
                         selfRowsToUse = parseResult.getSelfRows();
                     } else {
