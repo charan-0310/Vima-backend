@@ -2,6 +2,7 @@ package com.vimainsurance.vimaadmin.service.serviceimpl;
 
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
@@ -57,6 +58,7 @@ public class EnrollmentInvitationServiceImpl implements IEnrollmentInvitation {
 
     private static final Logger logger = LoggerFactory.getLogger(EnrollmentInvitationServiceImpl.class);
     private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
+    private static final DateTimeFormatter INVITATION_EXPIRY_FORMAT = DateTimeFormatter.ofPattern("d MMM uuuu, h:mm a");
 
     @Autowired
     private IEnrollmentInvitationRepository invitationRepository;
@@ -121,7 +123,13 @@ public class EnrollmentInvitationServiceImpl implements IEnrollmentInvitation {
             invitation = invitationRepository.save(invitation);
 
             String magicLink = baseUrl + "/enrollment/" + rawToken;
-            boolean emailSent = sendEnrollmentInvitationEmail(employee.getEmail(), employee.getFullName(), magicLink);
+            boolean emailSent = sendEnrollmentInvitationEmail(
+                employee.getEmail(),
+                employee.getFullName(),
+                magicLink,
+                employee.getOrganization() != null ? employee.getOrganization().getOrganizationName() : null,
+                expiresAt
+            );
             if (emailSent) {
                 invitation.setStatus(EnrollementStatus.SENT);
                 invitation.setSentAt(LocalDateTime.now());
@@ -234,7 +242,13 @@ public class EnrollmentInvitationServiceImpl implements IEnrollmentInvitation {
                     invitationRepository.save(inv);
                 }
                 String magicLink = baseUrl + "/enrollment/" + rawToken;
-                boolean emailSent = sendEnrollmentReminderEmail(inv.getEmployee().getEmail(), inv.getEmployee().getFullName(), magicLink);
+                boolean emailSent = sendEnrollmentReminderEmail(
+                    inv.getEmployee().getEmail(),
+                    inv.getEmployee().getFullName(),
+                    magicLink,
+                    inv.getEmployee().getOrganization() != null ? inv.getEmployee().getOrganization().getOrganizationName() : null,
+                    inv.getExpiresAt()
+                );
                 if (emailSent) {
                     inv.setStatus(inv.getStatus() == EnrollementStatus.REJECTED ? EnrollementStatus.SENT : inv.getStatus());
                     inv.setReminderCount(inv.getReminderCount() == null ? 1 : inv.getReminderCount() + 1);
@@ -307,7 +321,9 @@ public class EnrollmentInvitationServiceImpl implements IEnrollmentInvitation {
                 boolean emailSent = sendEnrollmentReminderEmail(
                         inv.getEmployee().getEmail(),
                         inv.getEmployee().getFullName(),
-                        magicLink);
+                        magicLink,
+                        inv.getEmployee().getOrganization() != null ? inv.getEmployee().getOrganization().getOrganizationName() : null,
+                        inv.getExpiresAt());
                 if (emailSent) {
                     inv.setReminderCount(inv.getReminderCount() == null ? 1 : inv.getReminderCount() + 1);
                     inv.setLastReminderAt(LocalDateTime.now());
@@ -484,7 +500,13 @@ public class EnrollmentInvitationServiceImpl implements IEnrollmentInvitation {
                 invitationRepository.save(inv);
             }
             String magicLink = baseUrl + "/enrollment/" + rawToken;
-            boolean emailSent = sendEnrollmentInvitationEmail(employee.getEmail(), employee.getFullName(), magicLink);
+            boolean emailSent = sendEnrollmentInvitationEmail(
+                employee.getEmail(),
+                employee.getFullName(),
+                magicLink,
+                employee.getOrganization() != null ? employee.getOrganization().getOrganizationName() : null,
+                inv.getExpiresAt()
+            );
             if (emailSent) {
                 inv.setStatus(EnrollementStatus.SENT);
                 inv.setSentAt(LocalDateTime.now());
@@ -686,7 +708,7 @@ public class EnrollmentInvitationServiceImpl implements IEnrollmentInvitation {
         }
     }
 
-    private boolean sendEnrollmentInvitationEmail(String to, String employeeName, String magicLink) {
+    private boolean sendEnrollmentInvitationEmail(String to, String employeeName, String magicLink, String companyName, LocalDateTime expiresAt) {
         try {
             EmailRequest req = EmailRequest.builder()
                 .to(to)
@@ -695,7 +717,8 @@ public class EnrollmentInvitationServiceImpl implements IEnrollmentInvitation {
                 .templateVariables(java.util.Map.of(
                     "employeeName", employeeName != null ? employeeName : "Employee",
                     "magicLink", magicLink,
-                    "companyName", "Vima Insurance"
+                    "companyName", (companyName != null && !companyName.isBlank()) ? companyName : "Vima Insurance",
+                    "linkExpiry", formatInvitationExpiry(expiresAt)
                 ))
                 .build();
             return emailService.sendTemplateEmail(req).isSuccess();
@@ -705,17 +728,17 @@ public class EnrollmentInvitationServiceImpl implements IEnrollmentInvitation {
         }
     }
 
-    private boolean sendEnrollmentReminderEmail(String to, String employeeName, String magicLink) {
+    private boolean sendEnrollmentReminderEmail(String to, String employeeName, String magicLink, String companyName, LocalDateTime expiresAt) {
         try {
             EmailRequest req = EmailRequest.builder()
                 .to(to)
                 .subject("Reminder: Complete your enrollment - Vima Insurance")
-                .templateName("enrollment-invitation")
+                .templateName("enrollment-reminder")
                 .templateVariables(java.util.Map.of(
                     "employeeName", employeeName != null ? employeeName : "Employee",
                     "magicLink", magicLink,
-                    "companyName", "Vima Insurance",
-                    "isReminder", true
+                    "companyName", (companyName != null && !companyName.isBlank()) ? companyName : "Vima Insurance",
+                    "linkExpiry", formatInvitationExpiry(expiresAt)
                 ))
                 .build();
             return emailService.sendTemplateEmail(req).isSuccess();
@@ -723,5 +746,9 @@ public class EnrollmentInvitationServiceImpl implements IEnrollmentInvitation {
             logger.warn("Enrollment reminder email failed for {}: {}", to, e.getMessage());
             return false;
         }
+    }
+
+    private String formatInvitationExpiry(LocalDateTime expiresAt) {
+        return expiresAt != null ? expiresAt.format(INVITATION_EXPIRY_FORMAT) : "the enrollment window end time";
     }
 }
