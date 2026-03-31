@@ -1,70 +1,133 @@
 <!DOCTYPE html>
-<html>
+<html lang="en" xml:lang="en">
 <head>
-  <meta charset="UTF-8">
-  <title>Password Reset</title>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Password Reset - Vima Insurance</title>
+    <!--[if mso]>
+    <style type="text/css">
+        body, table, td {font-family: Arial, sans-serif !important;}
+    </style>
+    <![endif]-->
+    <style>
+        @media only screen and (max-width: 600px) {
+            .wrapper  { padding: 0 !important; }
+            .card     { border-radius: 0 !important; }
+            .pad-logo { padding: 24px 20px 20px 20px !important; }
+            .pad      { padding-left: 20px !important; padding-right: 20px !important; }
+            .btn-wrap { padding: 24px 20px !important; }
+            .btn-tbl  { width: 100% !important; }
+            .btn-cell { width: 100% !important; text-align: center !important; }
+            .btn-a    { display: block !important; text-align: center !important; }
+            .ftr-pad  { padding-left: 20px !important; padding-right: 20px !important; }
+        }
+    </style>
 </head>
-<body style="margin:0;padding:0;background:#f3f4f6;font-family:Arial,Helvetica,sans-serif;">
-  <table width="100%" cellpadding="0" cellspacing="0" style="padding:40px 0;">
-    <tr>
-      <td align="center">
-        <table width="500" cellpadding="0" cellspacing="0"
-               style="background:#ffffff;border-radius:12px;padding:30px;
-                      box-shadow:0 4px 20px rgba(0,0,0,0.05);">
+<body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; line-height: 1.6; color: #1a1a1a; margin: 0; padding: 0; background-color: #f3f4f6; -webkit-font-smoothing: antialiased;">
 
-          <!-- Logo -->
-          <tr>
-            <td align="center" style="padding-bottom:20px;">
-              <img src="https://vimainsurance.com/assets/vima-logo-main.DiciI4hf.png"
-                   alt="VIMA"
-                   width="140"
-                   style="display:block;">
+    <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="background-color: #f3f4f6;">
+        <tr>
+            <td class="wrapper" style="padding: 40px 20px;">
+
+                <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" class="card" style="max-width: 560px; margin: 0 auto; background-color: #ffffff; border-radius: 12px;">
+                    <tr>
+                        <td class="pad-logo" style="padding: 40px 40px 32px 40px;">
+                            <table role="presentation" cellspacing="0" cellpadding="0" border="0">
+                                <tr>
+                                    <td style="background-color: #ffffff; padding: 8px 12px; border-radius: 6px;">
+                                        <img src="https://vimainsurance.com/assets/vima-logo-main.DiciI4hf.png"
+                                             alt="Vima Insurance"
+                                             width="200" height="64" border="0"
+                                             style="height: 64px; width: 200px; max-width: 100%; display: block; border: 0;">
+                                    </td>
+                                </tr>
+                            </table>
+                        </td>
+                    </tr>
+
+                    <tr>
+                        <td class="pad" style="padding: 0 40px;">
+                            <h1 style="font-size: 26px; font-weight: 600; color: #1a1a1a; margin: 0 0 16px 0; letter-spacing: -0.3px;">
+                                Reset your password
+                            </h1>
+                            <p style="font-size: 16px; color: #525252; margin: 0 0 24px 0;">
+                                Hi ${user.firstName!'User'}, we received a request to reset your password for your
+                                <strong>${realmName!'Vima Insurance'}</strong> account.
+                            </p>
+                        </td>
+                    </tr>
+
+                    <tr>
+                        <td class="pad" style="padding: 0 40px;">
+                            <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="background-color: #eff6ff; border-radius: 8px; border-left: 3px solid #1e40af;">
+                                <tr>
+                                    <td style="padding: 24px;">
+                                        <p style="font-size: 12px; font-weight: 600; color: #1e40af; text-transform: uppercase; letter-spacing: 0.8px; margin: 0 0 12px 0;">
+                                            Password Reset Link
+                                        </p>
+                                        <p style="font-size: 14px; color: #1a1a1a; margin: 0;">
+                                            This link will expire in <strong>${linkExpiration}</strong> minutes.
+                                        </p>
+                                    </td>
+                                </tr>
+                            </table>
+                        </td>
+                    </tr>
+
+                    <tr>
+                        <td class="btn-wrap pad" style="padding: 32px 40px;">
+                            <table role="presentation" cellspacing="0" cellpadding="0" border="0" class="btn-tbl">
+                                <tr>
+                                    <td class="btn-cell" style="background-color: #1e40af; border-radius: 6px;">
+                                        <a href="${link}" class="btn-a"
+                                           style="display: inline-block; color: #ffffff; padding: 14px 32px; text-decoration: none; font-size: 15px; font-weight: 600; border-radius: 6px;">
+                                            Reset password
+                                        </a>
+                                    </td>
+                                </tr>
+                            </table>
+                        </td>
+                    </tr>
+
+                    <tr>
+                        <td class="pad" style="padding: 0 40px 40px 40px;">
+                            <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="background-color: #fffbeb; border-radius: 8px; border-left: 3px solid #d97706;">
+                                <tr>
+                                    <td style="padding: 16px 20px;">
+                                        <p style="font-size: 13px; color: #92400e; margin: 0 0 6px 0; font-weight: 600;">
+                                            Didn't request this reset?
+                                        </p>
+                                        <p style="font-size: 13px; color: #92400e; margin: 0;">
+                                            You can safely ignore this email if you did not request a password reset.
+                                        </p>
+                                    </td>
+                                </tr>
+                            </table>
+                        </td>
+                    </tr>
+                </table>
+
+                <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="max-width: 560px; margin: 0 auto;">
+                    <tr>
+                        <td class="ftr-pad" style="padding: 32px 40px 0 40px; text-align: center;">
+                            <p style="font-size: 13px; color: #6b7280; margin: 0 0 8px 0;">
+                                <a href="mailto:protect@vimainsurance.com" style="color: #1e40af; text-decoration: none; font-weight: 500;">protect@vimainsurance.com</a>
+                                <span style="color: #d1d5db; padding: 0 8px;">·</span>
+                                <a href="tel:+919514675818" style="color: #1e40af; text-decoration: none; font-weight: 500;">+91 95146 75818</a>
+                            </p>
+                            <p style="font-size: 13px; color: #6b7280; margin: 0 0 8px 0;">
+                                <a href="https://www.vimainsurance.com" style="color: #1e40af; text-decoration: none;">www.vimainsurance.com</a>
+                            </p>
+                            <p style="font-size: 12px; color: #9ca3af; margin: 12px 0 0 0;">
+                                &copy; 2026 Vima Insurance &middot; Chennai, India
+                            </p>
+                        </td>
+                    </tr>
+                </table>
+
             </td>
-          </tr>
+        </tr>
+    </table>
 
-          <!-- Title -->
-          <tr>
-            <td align="center" style="font-size:20px;font-weight:bold;color:#111827;">
-              Reset Your Password
-            </td>
-          </tr>
-
-          <!-- Message -->
-          <tr>
-            <td style="padding:20px 0;color:#374151;font-size:14px;text-align:center;">
-              Hello ${user.firstName!},<br/><br/>
-              Click the button below to reset your password.
-              This link will expire in ${linkExpiration} minutes.
-            </td>
-          </tr>
-
-          <!-- Button -->
-          <tr>
-            <td align="center">
-              <a href="${link}"
-                 style="background:#2563eb;
-                        color:#ffffff;
-                        padding:12px 24px;
-                        border-radius:8px;
-                        text-decoration:none;
-                        font-size:14px;
-                        font-weight:bold;
-                        display:inline-block;">
-                Reset Password
-              </a>
-            </td>
-          </tr>
-
-          <!-- Footer -->
-          <tr>
-            <td style="padding-top:30px;color:#6b7280;font-size:12px;text-align:center;">
-              If you did not request this password reset, please ignore this email.
-            </td>
-          </tr>
-
-        </table>
-      </td>
-    </tr>
-  </table>
 </body>
 </html>

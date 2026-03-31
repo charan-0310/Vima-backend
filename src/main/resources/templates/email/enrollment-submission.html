@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Enrollment Invitation - Vima Insurance</title>
+    <title>Enrollment Confirmed - Vima Insurance</title>
     <!--[if mso]>
     <style type="text/css">
         body, table, td {font-family: Arial, sans-serif !important;}
@@ -60,47 +60,51 @@
                     <tr>
                         <td class="pad" style="padding: 0 40px;">
                             <h1 style="font-size: 26px; font-weight: 600; color: #1a1a1a; margin: 0 0 16px 0; letter-spacing: -0.3px;">
-                                You're invited to enroll in your benefits
+                                Your benefits enrollment is confirmed
                             </h1>
-                        </td>
-                    </tr>
-
-                    <!-- Body -->
-                    <tr>
-                        <td class="pad" style="padding: 0 40px;">
                             <p style="font-size: 16px; color: #525252; margin: 0 0 32px 0;">
-                                Hi <strong th:text="${employeeName}">Employee</strong>, <strong th:text="${companyName}">Employer</strong> has set up employee benefits enrollment for you. Click the button below to get started.
+                                Hi <strong th:text="${employeeName}">Employee</strong>, your <strong th:text="${companyName}">Employer</strong> benefits enrollment has been successfully submitted. Keep your reference number for your records.
                             </p>
                         </td>
                     </tr>
 
-                    <!-- CTA -->
+                    <!-- Submission details box -->
                     <tr>
-                        <td class="btn-wrap pad" style="padding: 0 40px 16px 40px;">
-                            <table role="presentation" cellspacing="0" cellpadding="0" border="0" class="btn-tbl">
+                        <td class="pad" style="padding: 0 40px;">
+                            <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="background-color: #f0fdf4; border-radius: 8px; border-left: 3px solid #16a34a;">
                                 <tr>
-                                    <td class="btn-cell" style="background-color: #1e40af; border-radius: 6px;">
-                                        <a th:href="${magicLink}" href="#" class="btn-a"
-                                           style="display: inline-block; color: #ffffff; padding: 14px 32px; text-decoration: none; font-size: 15px; font-weight: 600; border-radius: 6px;">
-                                            Complete your enrollment
-                                        </a>
+                                    <td style="padding: 24px;">
+
+                                        <p style="font-size: 12px; font-weight: 600; color: #15803d; text-transform: uppercase; letter-spacing: 0.8px; margin: 0 0 16px 0;">
+                                            Submission Details
+                                        </p>
+
+                                        <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%">
+                                            <tr>
+                                                <td style="padding-bottom: 12px;">
+                                                    <span style="font-size: 13px; color: #6b7280; display: block;">Reference Number</span>
+                                                    <span style="font-size: 16px; color: #1a1a1a; font-family: 'SF Mono', Monaco, 'Courier New', monospace; font-weight: 600; letter-spacing: 1px;" th:text="${referenceNumber}">VIM-ENR-000000</span>
+                                                </td>
+                                            </tr>
+                                            <tr>
+                                                <td style="padding-bottom: 4px;">
+                                                    <span style="font-size: 13px; color: #6b7280; display: block;">Submitted On</span>
+                                                    <span style="font-size: 15px; color: #1a1a1a; font-weight: 500;" th:text="${submissionDate}">1 January 2026</span>
+                                                </td>
+                                            </tr>
+                                        </table>
+
                                     </td>
                                 </tr>
                             </table>
                         </td>
                     </tr>
 
-                    <!-- Expiry + fallback link -->
+                    <!-- What happens next -->
                     <tr>
-                        <td class="pad" style="padding: 0 40px 32px 40px;">
-                            <p style="font-size: 13px; color: #6b7280; margin: 0 0 12px 0;">
-                                This link expires on <strong th:text="${linkExpiry}">1 Jan 2026, 11:59 PM</strong>. If it expires, contact your HR administrator for a new invitation.
-                            </p>
-                            <p style="font-size: 12px; color: #9ca3af; margin: 0 0 4px 0;">
-                                Button not working? Copy and paste this link into your browser:
-                            </p>
-                            <p style="font-size: 12px; color: #9ca3af; word-break: break-all; font-family: 'SF Mono', Monaco, 'Courier New', monospace; margin: 0;" th:text="${magicLink}">
-                                https://app.vimainsurance.com/enroll/...
+                        <td class="pad" style="padding: 24px 40px 32px 40px;">
+                            <p style="font-size: 15px; color: #525252; margin: 0;">
+                                Your HR team will review your submission and activate your coverage.
                             </p>
                         </td>
                     </tr>
@@ -123,7 +127,7 @@
                     <tr>
                         <td class="pad" style="padding: 0 40px 40px 40px;">
                             <p style="font-size: 13px; color: #9ca3af; margin: 0;">
-                                If you didn't expect this invitation or believe it was sent in error, please contact us immediately.
+                                If you believe this submission was made in error, please contact us immediately with your reference number.
                             </p>
                         </td>
                     </tr>
