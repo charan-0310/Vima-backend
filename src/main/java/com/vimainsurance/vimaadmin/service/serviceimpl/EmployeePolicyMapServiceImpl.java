@@ -31,6 +31,7 @@ import com.vimainsurance.vimaadmin.dto.BulkEmployeePolicyMapRequestDto;
 import com.vimainsurance.vimaadmin.dto.EmployeePolicyMapRequestDto;
 import com.vimainsurance.vimaadmin.dto.EmployeePolicyMapResponseDto;
 import com.vimainsurance.vimaadmin.dto.ResponseDto;
+import com.vimainsurance.vimaadmin.entity.DealEndorsement;
 import com.vimainsurance.vimaadmin.entity.Deals;
 import com.vimainsurance.vimaadmin.entity.EmployeePolicyMap;
 import com.vimainsurance.vimaadmin.entity.EnrollmentSubmission;
@@ -42,6 +43,7 @@ import com.vimainsurance.vimaadmin.enums.PolicyStatus;
 import com.vimainsurance.vimaadmin.enums.ProductType;
 import com.vimainsurance.vimaadmin.mapper.EmployeePolicyMapMapper;
 import com.vimainsurance.vimaadmin.repository.IDealsRepository;
+import com.vimainsurance.vimaadmin.repository.IDealEndorsementRepository;
 import com.vimainsurance.vimaadmin.repository.IEmployeePolicyMapRepository;
 import com.vimainsurance.vimaadmin.repository.IEndorsementRepository;
 import com.vimainsurance.vimaadmin.repository.IEnrollmentSubmissionRepository;
@@ -63,6 +65,8 @@ public class EmployeePolicyMapServiceImpl implements IEmployeePolicyMapService {
     private IEmployeePolicyMapRepository employeePolicyMapRepository;
     @Autowired
     private IDealsRepository dealsRepository;
+    @Autowired
+    private IDealEndorsementRepository dealEndorsementRepository;
     @Autowired
     private IPolicyRepository policyRepository;
     @Autowired
@@ -588,10 +592,29 @@ public class EmployeePolicyMapServiceImpl implements IEmployeePolicyMapService {
         }
         UUID orgId = endorsement.getOrganization().getOrganizationId();
         List<Deals> deals = dealsRepository.findByEndorsementId(endorsementId);
+        if (deals.isEmpty() && dealEndorsementRepository != null) {
+            Map<UUID, Deals> byId = new HashMap<>();
+            List<DealEndorsement> links = dealEndorsementRepository.findByEndorsement_EndorsementId(endorsementId);
+            if (links != null) {
+                links.stream()
+                        .map(DealEndorsement::getDeal)
+                        .filter(d -> d != null && d.getIndividualId() != null)
+                        .forEach(d -> byId.put(d.getIndividualId(), d));
+            }
+            deals = new ArrayList<>(byId.values());
+        }
         if (deals.isEmpty()) {
             return;
         }
-        List<Policy> policies = getApplicablePolicies(orgId);
+        List<Policy> policies;
+        if (endorsement.getPolicy() != null
+                && endorsement.getPolicy().getPolicyId() != null
+                && Boolean.TRUE.equals(endorsement.getPolicy().getAppliesToEmployees())) {
+            policies = List.of(endorsement.getPolicy());
+        } else {
+            // Legacy fallback (endorsements without linked policy)
+            policies = getApplicablePolicies(orgId);
+        }
         if (policies.isEmpty()) {
             return;
         }
@@ -605,6 +628,9 @@ public class EmployeePolicyMapServiceImpl implements IEmployeePolicyMapService {
                 primaryEmployeeId = null;
             }
             for (Policy policy : policies) {
+                if (!appliesPolicyToRelationship(policy, relationship)) {
+                    continue;
+                }
                 if (employeePolicyMapRepository.existsByIndividualIdAndPolicyIdAndStatus(individualId, policy.getPolicyId(), STATUS_ACTIVE)) {
                     continue;
                 }
@@ -628,6 +654,28 @@ public class EmployeePolicyMapServiceImpl implements IEmployeePolicyMapService {
             employeePolicyMapRepository.saveAll(toSave.subList(i, end));
         }
         log.info("createMappingsFromEndorsement: created {} mappings for endorsement {}", toSave.size(), endorsementId);
+    }
+
+    /**
+     * Keep endorsement mapping aligned with policy rules:
+     * GPA/GTL/TOP_UP/SUPER_TOP_UP => SELF only,
+     * PARENT_GMC => parent / in-law only,
+     * GMC/GHI/others => self + valid dependents.
+     */
+    private boolean appliesPolicyToRelationship(Policy policy, String relationship) {
+        if (policy == null || policy.getProductType() == null) {
+            return true;
+        }
+        String rel = relationship != null ? relationship.trim() : "";
+        boolean isSelf = "SELF".equalsIgnoreCase(rel);
+        ProductType pt = policy.getProductType();
+        if (pt == ProductType.GPA || pt == ProductType.GTL || pt == ProductType.TOP_UP || pt == ProductType.SUPER_TOP_UP) {
+            return isSelf;
+        }
+        if (pt == ProductType.PARENT_GMC) {
+            return isParentRelationship(rel);
+        }
+        return true;
     }
 
     @Override
