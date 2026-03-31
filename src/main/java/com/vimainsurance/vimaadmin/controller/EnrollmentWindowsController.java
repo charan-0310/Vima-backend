@@ -69,6 +69,18 @@ public class EnrollmentWindowsController {
     }
 
     /**
+     * Validate uploaded employee file (SELF + dependents) before window creation.
+     */
+    @PostMapping(value = "/validate-upload", consumes = MediaType.MULTIPART_FORM_DATA_VALUE, produces = MediaType.APPLICATION_JSON_VALUE)
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'VIMA_ADMIN', 'HR_ADMIN')")
+    public ResponseEntity<ResponseDto<List<String>>> validateUpload(
+            @RequestParam("organizationId") UUID organizationId,
+            @RequestPart("file") MultipartFile file) {
+        logger.info("[correlationId:{}] POST /api/admin/enrollment-windows/validate-upload called", MDC.get("correlationId"));
+        return enrollmentWindowService.validateUploadFile(organizationId, file);
+    }
+
+    /**
      * Upload employees and document for an existing enrollment window.
      */
     @PostMapping(value = "/{id}/upload", consumes = MediaType.MULTIPART_FORM_DATA_VALUE, produces = MediaType.APPLICATION_JSON_VALUE)
