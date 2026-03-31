@@ -1,6 +1,7 @@
 package com.vimainsurance.vimaadmin.util;
 
 import com.vimainsurance.vimaadmin.dto.PolicyRequestDto;
+import com.vimainsurance.vimaadmin.enums.CoverageType;
 import com.vimainsurance.vimaadmin.enums.ProductType;
 import com.vimainsurance.vimaadmin.exception.BadRequestException;
 
@@ -82,6 +83,14 @@ public class PolicyValidationUtil {
         if (request.getCoverageType() == null || request.getCoverageType().trim().isEmpty()) {
             errors.add("Coverage Type is required for GMC policies (E, ES, ESC, or ESCP)");
         }
+        CoverageType coverageType = null;
+        if (request.getCoverageType() != null && !request.getCoverageType().trim().isEmpty()) {
+            try {
+                coverageType = CoverageType.fromValue(request.getCoverageType());
+            } catch (Exception e) {
+                errors.add("Invalid coverage type for GMC policy: " + request.getCoverageType());
+            }
+        }
 
         // Sum Insured is required for GMC
         if (request.getSumInsured() == null || request.getSumInsured().compareTo(java.math.BigDecimal.ZERO) <= 0) {
@@ -91,6 +100,13 @@ public class PolicyValidationUtil {
         // Sum Insured Multiplier should not be provided for GMC
         if (request.getSumInsuredMultiplier() != null) {
             errors.add("Sum Insured Multiplier should not be provided for GMC policies. It's only applicable for GPA/GTL");
+        }
+
+        if (coverageType == CoverageType.ESC || coverageType == CoverageType.ESCP) {
+            Integer maxChildrenAllowed = request.getMaxChildrenAllowed() != null ? request.getMaxChildrenAllowed() : 4;
+            if (maxChildrenAllowed < 1 || maxChildrenAllowed > 4) {
+                errors.add("maxChildrenAllowed must be between 1 and 4 for GMC policies with ESC/ESCP coverage");
+            }
         }
     }
 

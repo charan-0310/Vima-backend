@@ -6,5 +6,14 @@ package com.vimainsurance.vimaadmin.enums;
 public enum CdTransactionSource {
     MANUAL,
     ENDORSEMENT_APPROVAL,
-    API_SYNC
+    API_SYNC;
+
+    public static CdTransactionSource fromValue(String value) {
+        for (CdTransactionSource source : values()) {
+            if (source.name().equalsIgnoreCase(value)) {
+                return source;
+            }
+        }
+        throw new IllegalArgumentException("Unknown CdTransactionSource: " + value);
+    }
 }

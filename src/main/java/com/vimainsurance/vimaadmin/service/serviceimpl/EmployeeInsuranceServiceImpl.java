@@ -4,6 +4,7 @@ import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
@@ -173,17 +174,43 @@ public class EmployeeInsuranceServiceImpl implements IEmployeeInsuranceService {
     }
 
     /**
-     * Covered members (employee + dependents) are only attached to GMC (Group Medical Cover).
-     * GTL and GPA policies return empty coveredMembers.
+     * Covered members per policy: GMC/GHI floater (employee + spouse + children, no parents);
+     * PARENT_GMC only parent/in-law rows; GPA/GTL return empty (nominees used for accident/life).
      */
     private List<EmployeeInsuranceResponseDto.CoveredMemberDto> coveredMembersForPolicy(List<Deals> allMembers, Policy policy) {
-        if (policy.getProductType() == null || (policy.getProductType() != ProductType.GMC && policy.getProductType() != ProductType.GHI)) {
+        if (policy.getProductType() == null) {
+            return Collections.emptyList();
+        }
+        ProductType pt = policy.getProductType();
+        if (pt == ProductType.GPA || pt == ProductType.GTL) {
             return Collections.emptyList();
         }
         Long policyId = policy.getPolicyId();
-        return allMembers.stream()
-                .map(d -> mapToCoveredMember(d, policyId, policy))
-                .collect(Collectors.toList());
+        if (pt == ProductType.PARENT_GMC) {
+            return allMembers.stream()
+                    .filter(d -> isParentRelationshipForPolicy(d.getRelationship()))
+                    .map(d -> mapToCoveredMember(d, policyId, policy))
+                    .collect(Collectors.toList());
+        }
+        if (pt == ProductType.GMC || pt == ProductType.GHI) {
+            return allMembers.stream()
+                    .filter(d -> !isParentRelationshipForPolicy(d.getRelationship()))
+                    .map(d -> mapToCoveredMember(d, policyId, policy))
+                    .collect(Collectors.toList());
+        }
+        return Collections.emptyList();
+    }
+
+    private boolean isParentRelationshipForPolicy(String relationship) {
+        if (relationship == null) {
+            return false;
+        }
+        String r = relationship.trim();
+        if ("FATHER".equalsIgnoreCase(r) || "MOTHER".equalsIgnoreCase(r)) {
+            return true;
+        }
+        String compact = r.replaceAll("[\\s_-]+", "").toUpperCase(Locale.ROOT);
+        return "FATHERINLAW".equals(compact) || "MOTHERINLAW".equals(compact);
     }
 
     /**

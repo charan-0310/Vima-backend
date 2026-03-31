@@ -9,5 +9,14 @@ public enum CdTransactionType {
     ENDORSEMENT_CREDIT,
     ADJUSTMENT,
     TOP_UP,
-    SETTLEMENT
+    SETTLEMENT;
+
+    public static CdTransactionType fromValue(String value) {
+        for (CdTransactionType type : values()) {
+            if (type.name().equalsIgnoreCase(value)) {
+                return type;
+            }
+        }
+        throw new IllegalArgumentException("Unknown CdTransactionType: " + value);
+    }
 }

@@ -1,6 +1,7 @@
 package com.vimainsurance.vimaadmin.dto;
 
 import java.math.BigDecimal;
+import java.util.List;
 import java.util.UUID;
 
 import jakarta.validation.constraints.NotNull;
@@ -41,5 +42,7 @@ public class EndorsementRequestDto {
 
     /** Life event type: MARRIAGE, BIRTH, ADOPTION, DIVORCE, DEATH */
     private String lifeEventType;
+
+    private List<EndorsementCdBalanceEntryDto> cdBalanceEntries;
 }
 

@@ -118,6 +118,17 @@ public class EndorsementMapper {
             dto.setSource(endorsement.getSource().getValue());
         }
         dto.setLifeEventType(endorsement.getLifeEventType());
+        if (endorsement.getPolicy() != null) {
+            dto.setPolicyId(endorsement.getPolicy().getPolicyId());
+            if (endorsement.getPolicy().getProductType() != null) {
+                dto.setPolicyType(endorsement.getPolicy().getProductType().getValue());
+            }
+            dto.setInsuranceCompanyName(endorsement.getPolicy().getInsurerName());
+        }
+        dto.setSplitGroupId(endorsement.getSplitGroupId());
+        if (endorsement.getParentEndorsement() != null) {
+            dto.setParentEndorsementId(endorsement.getParentEndorsement().getEndorsementId());
+        }
         
         return dto;
     }

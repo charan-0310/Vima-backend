@@ -56,7 +56,7 @@ public class EnrollmentWindowsController {
 
     /**
      * Validate employees for enrollment (no window or employees created).
-     * Use before create + upload to avoid creating a window when validation would fail.
+     * Mirrors upload-time business validations so create can be safely blocked before persistence.
      */
     @PostMapping(value = "/validate-employees", consumes = MediaType.APPLICATION_JSON_VALUE, produces = MediaType.APPLICATION_JSON_VALUE)
     @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'VIMA_ADMIN', 'HR_ADMIN')")

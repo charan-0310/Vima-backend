@@ -30,6 +30,7 @@ public class PolicyResponseDto {
 
 
     private String coverageType; // E, ES, ESC, ESCP (for GMC) or INDIVIDUAL, FAMILY_FLOATER, GROUP (traditional)
+    private Integer maxChildrenAllowed;
     private String status;
     private List<UUID> coveredIndividuals;
     private BigDecimal sumInsured;
@@ -37,6 +38,8 @@ public class PolicyResponseDto {
     private BigDecimal premiumAmount;
     private BigDecimal netAmount;
     private BigDecimal gst;
+    private UUID cdAccountId;
+    private BigDecimal cdBalance;
     private Long employeesCount;
     private Long dependentsCount;
 

@@ -168,6 +168,7 @@ public class PolicyController {
      * Delete policy (soft delete)
      */
     @DeleteMapping("/{policyId}")
+    @PreAuthorize("hasRole('VIMA_ADMIN')")
     public ResponseEntity<ResponseDto<String>> deletePolicy(@PathVariable Long policyId) {
         return policyService.deletePolicy(policyId);
     }

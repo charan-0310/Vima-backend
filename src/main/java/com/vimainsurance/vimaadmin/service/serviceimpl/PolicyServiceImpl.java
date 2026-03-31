@@ -34,6 +34,7 @@ import com.vimainsurance.vimaadmin.dto.PolicyUploadRequestDto;
 import com.vimainsurance.vimaadmin.dto.ProductCatalogRequestDto;
 import com.vimainsurance.vimaadmin.dto.ResponseDto;
 import com.vimainsurance.vimaadmin.entity.AdminUser;
+import com.vimainsurance.vimaadmin.entity.CdAccount;
 import com.vimainsurance.vimaadmin.entity.CostSharingRule;
 import com.vimainsurance.vimaadmin.entity.Deals;
 import com.vimainsurance.vimaadmin.entity.Document;
@@ -54,6 +55,7 @@ import com.vimainsurance.vimaadmin.enums.ProductType;
 import com.vimainsurance.vimaadmin.enums.UserRole;
 import com.vimainsurance.vimaadmin.exception.BadRequestException;
 import com.vimainsurance.vimaadmin.repository.IAdminUserRepository;
+import com.vimainsurance.vimaadmin.repository.ICdAccountRepository;
 import com.vimainsurance.vimaadmin.repository.IDealsRepository;
 import com.vimainsurance.vimaadmin.repository.IDocumentRepository;
 import com.vimainsurance.vimaadmin.repository.IInsuranceProviderRepository;
@@ -82,6 +84,9 @@ public class PolicyServiceImpl implements IPolicyService {
 
     @Autowired
     private IPolicyRepository policyRepository;
+
+    @Autowired
+    private ICdAccountRepository cdAccountRepository;
 
     @Autowired
     private IDealsRepository dealsRepository;
@@ -210,6 +215,8 @@ public class PolicyServiceImpl implements IPolicyService {
             if (requestDto.getCoverageType() != null && !requestDto.getCoverageType().isEmpty()) {
                 policy.setCoverageType(CoverageType.fromValue(requestDto.getCoverageType()));
             }
+            policy.setMaxChildrenAllowed(resolveAndValidateMaxChildrenAllowed(
+                    policyType, policy.getCoverageType(), requestDto.getMaxChildrenAllowed()));
 
             // Set sum insured multiplier (for GPA/GTL only)
             if ((policyType == ProductType.GPA || policyType == ProductType.GTL) && requestDto.getSumInsuredMultiplier() != null) {
@@ -345,6 +352,8 @@ public class PolicyServiceImpl implements IPolicyService {
             } else {
                 policy.setCoverageType(null);
             }
+            policy.setMaxChildrenAllowed(resolveAndValidateMaxChildrenAllowed(
+                    policyType, policy.getCoverageType(), requestDto.getMaxChildrenAllowed()));
 
             // Update sum insured multiplier (for GPA/GTL only)
             // Update sum insured multiplier (for GPA/GTL only)
@@ -646,7 +655,13 @@ public class PolicyServiceImpl implements IPolicyService {
             }
             
             Policy policy = policyOpt.get();
-            // Document document = policyOpt.get().getDocument();
+            if (policy.getOrganizationId() != null) {
+                long organizationPolicyCount = policyRepository.countByOrganizationId(policy.getOrganizationId());
+                if (organizationPolicyCount <= 1) {
+                    return responseObj.render(responseObj.formErrorResponse(
+                            "Cannot delete policy. At least one policy must remain for the company."));
+                }
+            }
             policyRepository.delete(policy);
             
             logger.info("[correlationId:{}] Policy deleted successfully", MDC.get("correlationId"));
@@ -713,6 +728,7 @@ public class PolicyServiceImpl implements IPolicyService {
 
         // Map coverage type (E, ES, ESC, ESCP for GMC or INDIVIDUAL, FAMILY_FLOATER, GROUP for traditional)
         responseDto.setCoverageType(policy.getCoverageType() != null ? policy.getCoverageType().getValue() : null);
+        responseDto.setMaxChildrenAllowed(policy.getMaxChildrenAllowed());
 
         responseDto.setStatus(policy.getStatus().getValue());
         responseDto.setSumInsured(policy.getSumInsured());
@@ -727,6 +743,15 @@ public class PolicyServiceImpl implements IPolicyService {
         responseDto.setUpdatedAt(policy.getUpdatedAt());
         responseDto.setNetAmount(policy.getNetAmount());
         responseDto.setGst(policy.getGst());
+        responseDto.setCdAccountId(policy.getCdAccountId());
+        BigDecimal hydratedCdBalance = policy.getCdBalance();
+        if (policy.getCdAccountId() != null) {
+            CdAccount cdAccount = cdAccountRepository.findById(policy.getCdAccountId()).orElse(null);
+            if (cdAccount != null && cdAccount.getCdBalance() != null) {
+                hydratedCdBalance = cdAccount.getCdBalance();
+            }
+        }
+        responseDto.setCdBalance(hydratedCdBalance);
 
         // Map TPA details (for GMC only)
         responseDto.setTpaOrganizationName(policy.getTpaOrganizationName());
@@ -962,6 +987,8 @@ public class PolicyServiceImpl implements IPolicyService {
             if (productType != ProductType.PARENT_GMC) {
                 policy.setCoverageType(CoverageType.fromValue(requestDto.getCoverageType()));
             }
+            policy.setMaxChildrenAllowed(resolveAndValidateMaxChildrenAllowed(
+                    productType, policy.getCoverageType(), requestDto.getMaxChildrenAllowed()));
             policy.setStatus(PolicyStatus.fromValue(requestDto.getStatus()));
             policy.setCoveredIndividuals(Arrays.asList(organizationId));
 
@@ -1143,6 +1170,23 @@ public class PolicyServiceImpl implements IPolicyService {
         if (topupPremiumRaw == null || topupPremiumRaw.isBlank()) {
             throw new BadRequestException("Premium amounts are required for Top-Up / Super Top-Up.");
         }
+    }
+
+    private Integer resolveAndValidateMaxChildrenAllowed(
+            ProductType policyType,
+            CoverageType coverageType,
+            Integer requestMaxChildrenAllowed) {
+        if (policyType != ProductType.GMC && policyType != ProductType.GHI) {
+            return null;
+        }
+        if (coverageType != CoverageType.ESC && coverageType != CoverageType.ESCP) {
+            return null;
+        }
+        int resolved = requestMaxChildrenAllowed != null ? requestMaxChildrenAllowed : 4;
+        if (resolved < 1 || resolved > 4) {
+            throw new BadRequestException("maxChildrenAllowed must be between 1 and 4 for GMC/GHI with ESC/ESCP coverage");
+        }
+        return resolved;
     }
 
     private String buildPremiumPreviewOptionsForCatalog(Policy savedPolicy) {

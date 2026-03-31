@@ -48,7 +48,10 @@ public class SwaggerUIConfig implements WebMvcConfigurer {
 								.description("Production Server"),
 						new Server()
 								.url("https://dev-api.vimainsurance.com")
-								.description("Development Server")
+								.description("Development Server"),
+						new Server()
+								.url("http://localhost:7220/dev")
+								.description("Local Development Server")
 				))
 				.addSecurityItem(new SecurityRequirement().addList("Bearer Authentication"))
 				.components(new Components()

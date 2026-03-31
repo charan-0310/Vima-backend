@@ -115,6 +115,13 @@ public class Policy {
     @Column(name = "gst", nullable = false, precision = 15, scale = 2)
     private BigDecimal gst;
 
+    @Column(name = "cd_account_id")
+    private UUID cdAccountId;
+
+    // Deprecated as source of truth in CD v2; account balance is maintained on cpc.cd_accounts.
+    @Column(name = "cd_balance", nullable = false, precision = 15, scale = 2)
+    private BigDecimal cdBalance = BigDecimal.ZERO;
+
     // Dates
     @Column(name = "start_date")
     private LocalDate startDate;
@@ -165,6 +172,9 @@ public class Policy {
 
     @Column(name = "covers_parents")
     private Boolean coversParents;
+
+    @Column(name = "max_children_allowed")
+    private Integer maxChildrenAllowed;
 
     @Column(name = "is_deleted")
     private Boolean isDeleted;

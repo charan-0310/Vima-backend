@@ -26,6 +26,8 @@ public class EndorsementSpecification {
             String status,
             EndorsementType endorsementType,
             String uploadedBy,
+            UUID splitGroupId,
+            Long policyId,
             LocalDateTime fromDate,
             LocalDateTime toDate) {
         
@@ -77,6 +79,18 @@ public class EndorsementSpecification {
                         criteriaBuilder.lower(root.get("uploadedBy").get("username")),
                         "%" + uploadedBy + "%"
                     )                
+                );
+            }
+            if (splitGroupId != null) {
+                predicate = criteriaBuilder.and(
+                    predicate,
+                    criteriaBuilder.equal(root.get("splitGroupId"), splitGroupId)
+                );
+            }
+            if (policyId != null) {
+                predicate = criteriaBuilder.and(
+                    predicate,
+                    criteriaBuilder.equal(root.get("policy").get("policyId"), policyId)
                 );
             }
             // Filter by status

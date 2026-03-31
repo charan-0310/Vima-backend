@@ -31,8 +31,11 @@ import com.vimainsurance.vimaadmin.dto.ResponseDto;
 import com.vimainsurance.vimaadmin.entity.Policy;
 import com.vimainsurance.vimaadmin.entity.PremiumRateTable;
 import com.vimainsurance.vimaadmin.entity.ProductCatalog;
+import com.vimainsurance.vimaadmin.enums.CoverageType;
 import com.vimainsurance.vimaadmin.enums.CoverageCategory;
+import com.vimainsurance.vimaadmin.enums.PolicyStatus;
 import com.vimainsurance.vimaadmin.enums.PricingModel;
+import com.vimainsurance.vimaadmin.enums.ProductType;
 import com.vimainsurance.vimaadmin.enums.RateSource;
 import com.vimainsurance.vimaadmin.service.ICompanyEnrollmentConfigService;
 import com.vimainsurance.vimaadmin.service.ICostSharingRuleService;
@@ -42,6 +45,7 @@ import com.vimainsurance.vimaadmin.service.PremiumRateTableCacheService;
 import com.vimainsurance.vimaadmin.repository.IPolicyRepository;
 import com.vimainsurance.vimaadmin.repository.IProductCatalogRepository;
 import com.vimainsurance.vimaadmin.util.TopupPremiumOptionsUtil;
+import com.vimainsurance.vimaadmin.service.policy.PolicyMemberMappingHelper;
 
 import lombok.RequiredArgsConstructor;
 
@@ -217,8 +221,13 @@ public class PremiumCalculationServiceImpl implements IPremiumCalculationService
             List<PremiumCalculationRequestDto.PlanSelectionItemDto> planSelections,
             List<PremiumCalculationRequestDto.DependentItemDto> dependents) {
         CompanyEnrollmentConfigResponseDto config = companyEnrollmentConfigService.getConfigForCompany(context.getCompanyId());
-        validateParentDependents(dependents, config);
         List<EmployeePolicyMapResponseDto> familyMappings = getEmployeeMappings(context.getEmployeeId());
+        boolean parentCoveredByBaseGmc = isParentCoveredByBaseGmc(
+                planSelections,
+                familyMappings,
+                context.getEmployeeId(),
+                context.getCompanyId());
+        validateParentDependents(dependents, config, parentCoveredByBaseGmc);
         List<MemberInfo> members = buildMemberList(context.getEmployeeDateOfBirth(), dependents);
 
         BigDecimal totalAnnual = BigDecimal.ZERO;
@@ -231,26 +240,6 @@ public class PremiumCalculationServiceImpl implements IPremiumCalculationService
             if (!Boolean.TRUE.equals(sel.getOpted())) continue;
             String selPlanType = sel.getPlanType();
             String planUpper = selPlanType != null ? selPlanType.trim().toUpperCase() : "";
-
-            // PARENT_GMC: only include parent/in-law members for premium calculation
-            // TOP_UP / SUPER_TOP_UP: only include employee (self) so premium matches the option dropdown (e.g. 1L = ₹5,000/yr)
-            List<MemberInfo> membersForPlan = members;
-            if ("PARENT_GMC".equals(planUpper)) {
-                List<MemberInfo> parentOnly = members.stream()
-                        .filter(m -> {
-                            String mt = m.memberType();
-                            return mt != null && ("parent".equalsIgnoreCase(mt) || "parent_in_law".equalsIgnoreCase(mt));
-                        })
-                        .toList();
-                if (parentOnly.isEmpty()) continue; // no parent dependents, skip this selection
-                membersForPlan = parentOnly;
-            } else if ("TOP_UP".equals(planUpper) || "SUPER_TOP_UP".equals(planUpper)) {
-                MemberInfo employeeOnly = members.stream()
-                        .filter(m -> "EMPLOYEE".equalsIgnoreCase(m.memberType()) || "self".equalsIgnoreCase(m.memberType()))
-                        .findFirst()
-                        .orElse(members.isEmpty() ? null : members.get(0));
-                membersForPlan = employeeOnly != null ? List.of(employeeOnly) : members;
-            }
 
             BigDecimal sumInsured = sel.getSumInsured();
             String coverageTier = sel.getCoverageTier();
@@ -268,6 +257,36 @@ public class PremiumCalculationServiceImpl implements IPremiumCalculationService
                 }
             }
             if (sumInsured == null) sumInsured = BigDecimal.valueOf(500000);
+
+            // PARENT_GMC: only parent/in-law. TOP_UP / SUPER_TOP_UP / GPA / GTL: employee only.
+            // GMC / GHI: floater. For ESCP tier, parents are part of base GMC (not separate PARENT_GMC).
+            List<MemberInfo> membersForPlan = members;
+            if ("PARENT_GMC".equals(planUpper)) {
+                List<MemberInfo> parentOnly = members.stream()
+                        .filter(m -> {
+                            String mt = m.memberType();
+                            return mt != null && ("parent".equalsIgnoreCase(mt) || "parent_in_law".equalsIgnoreCase(mt));
+                        })
+                        .toList();
+                if (parentOnly.isEmpty()) continue; // no parent dependents, skip this selection
+                membersForPlan = parentOnly;
+            } else if ("TOP_UP".equals(planUpper) || "SUPER_TOP_UP".equals(planUpper)) {
+                MemberInfo employeeOnly = members.stream()
+                        .filter(m -> "EMPLOYEE".equalsIgnoreCase(m.memberType()) || "self".equalsIgnoreCase(m.memberType()))
+                        .findFirst()
+                        .orElse(members.isEmpty() ? null : members.get(0));
+                membersForPlan = employeeOnly != null ? List.of(employeeOnly) : members;
+            } else if ("GPA".equals(planUpper) || "GTL".equals(planUpper)) {
+                MemberInfo employeeOnly = members.stream()
+                        .filter(m -> "EMPLOYEE".equalsIgnoreCase(m.memberType()) || "self".equalsIgnoreCase(m.memberType()))
+                        .findFirst()
+                        .orElse(members.isEmpty() ? null : members.get(0));
+                membersForPlan = employeeOnly != null ? List.of(employeeOnly) : members;
+            } else if ("GMC".equals(planUpper) || "GHI".equals(planUpper)) {
+                membersForPlan = isEscpCoverageTier(coverageTier)
+                        ? members
+                        : PolicyMemberMappingHelper.membersForGmcFloater(members);
+            }
             try {
                 PlanPremiumBreakdown b;
                 if (("TOP_UP".equals(planUpper) || "SUPER_TOP_UP".equals(planUpper)) && sel.getTopupPlanOptionId() != null) {
@@ -464,7 +483,7 @@ public class PremiumCalculationServiceImpl implements IPremiumCalculationService
     }
 
     private void validateParentDependents(List<PremiumCalculationRequestDto.DependentItemDto> dependents,
-            CompanyEnrollmentConfigResponseDto config) {
+            CompanyEnrollmentConfigResponseDto config, boolean parentCoveredByBaseGmc) {
         if (dependents == null || dependents.isEmpty()) return;
         int parentCount = 0;
         int inLawCount = 0;
@@ -477,6 +496,10 @@ public class PremiumCalculationServiceImpl implements IPremiumCalculationService
             String rel = d.getRelationship() != null ? d.getRelationship().trim().toUpperCase() : "";
             boolean isParent = "PARENT".equals(rel) || "FATHER".equals(rel) || "MOTHER".equals(rel);
             boolean isParentInLaw = "PARENT_IN_LAW".equals(rel) || "FATHER-IN-LAW".equals(rel) || "MOTHER-IN-LAW".equals(rel);
+            if (parentCoveredByBaseGmc && (isParent || isParentInLaw)) {
+                // ESCP base GMC includes parents within core family coverage.
+                continue;
+            }
             if (isParent) {
                 if (!parentEnabled) throw new IllegalArgumentException("Parent coverage is not enabled for this company");
                 parentCount++;
@@ -499,6 +522,58 @@ public class PremiumCalculationServiceImpl implements IPremiumCalculationService
                 }
             }
         }
+    }
+
+    private boolean isParentCoveredByBaseGmc(List<PremiumCalculationRequestDto.PlanSelectionItemDto> planSelections,
+            List<EmployeePolicyMapResponseDto> familyMappings, UUID employeeId, UUID companyId) {
+        boolean hasOptedBaseHealthPlan = false;
+        if (planSelections == null || planSelections.isEmpty()) {
+            return false;
+        }
+        for (PremiumCalculationRequestDto.PlanSelectionItemDto sel : planSelections) {
+            if (!Boolean.TRUE.equals(sel.getOpted()) || sel.getPlanType() == null) {
+                continue;
+            }
+            String planUpper = sel.getPlanType().trim().toUpperCase();
+            if (!"GMC".equals(planUpper) && !"GHI".equals(planUpper)) {
+                continue;
+            }
+            hasOptedBaseHealthPlan = true;
+            String coverageTier = sel.getCoverageTier();
+            if (coverageTier == null) {
+                coverageTier = familyMappings.stream()
+                        .filter(m -> employeeId.equals(m.getIndividualId()))
+                        .filter(m -> planTypeMatchesRateProductType(sel.getPlanType(), m.getProductType()))
+                        .map(EmployeePolicyMapResponseDto::getCoverageTier)
+                        .findFirst()
+                        .orElse(null);
+            }
+            if (isEscpCoverageTier(coverageTier)) {
+                return true;
+            }
+        }
+        return hasOptedBaseHealthPlan && isEscpBasePolicyForCompany(companyId);
+    }
+
+    private boolean isEscpCoverageTier(String coverageTier) {
+        return coverageTier != null && "ESCP".equalsIgnoreCase(coverageTier.trim());
+    }
+
+    private boolean isEscpBasePolicyForCompany(UUID companyId) {
+        List<Policy> gmcPolicies = policyRepository.findByOrganizationIdAndProductTypeAndStatus(
+                companyId,
+                ProductType.GMC,
+                PolicyStatus.ACTIVE);
+        boolean gmcEscp = gmcPolicies.stream()
+                .anyMatch(p -> p.getCoverageType() == CoverageType.ESCP);
+        if (gmcEscp) {
+            return true;
+        }
+        List<Policy> ghiPolicies = policyRepository.findByOrganizationIdAndProductTypeAndStatus(
+                companyId,
+                ProductType.GHI,
+                PolicyStatus.ACTIVE);
+        return ghiPolicies.stream().anyMatch(p -> p.getCoverageType() == CoverageType.ESCP);
     }
 
     private String resolveCoverageCategoryForCostSharing(List<MemberInfo> members) {
