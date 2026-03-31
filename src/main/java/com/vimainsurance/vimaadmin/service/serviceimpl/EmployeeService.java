@@ -392,9 +392,12 @@ public class EmployeeService {
                     .build();
 
             return responseObj.render(responseObj.formSuccessResponse("OK", out));
+        } catch (IllegalArgumentException e) {
+            log.error("previewBulkEmployeePremium validation error: {}", e.getMessage(), e);
+            return responseObj.render(responseObj.formErrorResponse(400, e.getMessage()));
         } catch (Exception e) {
-            log.error("previewBulkEmployeePremium error: {}", e.getMessage(), e);
-            return responseObj.render(responseObj.formErrorResponse("Failed to preview premium"));
+            log.error("previewBulkEmployeePremium unexpected error: {}", e.getMessage(), e);
+            return responseObj.render(responseObj.formErrorResponse(500, "Failed to preview premium"));
         }
     }
 
