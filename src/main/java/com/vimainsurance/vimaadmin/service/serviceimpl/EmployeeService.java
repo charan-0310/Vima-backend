@@ -175,6 +175,29 @@ public class EmployeeService {
     }
 
     /**
+     * Active policy IDs mapped to the primary employee (SELF row) and dependents under that primary, for this org.
+     */
+    private Set<Long> allowedPolicyIdsForPrimaryEmployee(UUID organizationId, UUID primaryIndividualId) {
+        Set<Long> out = new LinkedHashSet<>();
+        if (organizationId == null || primaryIndividualId == null || employeePolicyMapRepository == null) {
+            return out;
+        }
+        String active = "ACTIVE";
+        for (EmployeePolicyMap m : employeePolicyMapRepository.findByIndividualIdAndRelationshipAndStatus(
+                primaryIndividualId, "SELF", active)) {
+            if (m.getPolicyId() != null && organizationId.equals(m.getOrganizationId())) {
+                out.add(m.getPolicyId());
+            }
+        }
+        for (EmployeePolicyMap m : employeePolicyMapRepository.findByPrimaryEmployeeIdAndStatus(primaryIndividualId, active)) {
+            if (m.getPolicyId() != null && organizationId.equals(m.getOrganizationId())) {
+                out.add(m.getPolicyId());
+            }
+        }
+        return out;
+    }
+
+    /**
      * Admin endpoint used by Bulk Upload review UI to compute premium breakdown for a single employee group.
      * This uses the existing premium engine + cost-sharing rules. No premium input is accepted.
      */
@@ -202,7 +225,22 @@ public class EmployeeService {
                 return responseObj.render(responseObj.formErrorResponse(400, "Self row is required for premium preview"));
             }
 
-            List<Policy> policies = policyRepository.findAllById(request.getPolicyIds());
+            List<Long> effectivePolicyIds = new ArrayList<>(request.getPolicyIds());
+            if (request.getPrimaryIndividualId() != null) {
+                Set<Long> allowed = allowedPolicyIdsForPrimaryEmployee(companyId, request.getPrimaryIndividualId());
+                if (!allowed.isEmpty()) {
+                    effectivePolicyIds = effectivePolicyIds.stream()
+                            .filter(allowed::contains)
+                            .distinct()
+                            .collect(Collectors.toCollection(ArrayList::new));
+                    if (effectivePolicyIds.isEmpty()) {
+                        return responseObj.render(responseObj.formErrorResponse(400,
+                                "No requested policies match this employee's active policy mappings"));
+                    }
+                }
+            }
+
+            List<Policy> policies = policyRepository.findAllById(effectivePolicyIds);
             if (policies == null || policies.isEmpty()) {
                 return responseObj.render(responseObj.formErrorResponse(400, "No policies found for given policyIds"));
             }
