@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Password Reset - Vima Insurance</title>
+    <title>Password Reset - VIMA Insurance Brokers Pvt. Ltd</title>
     <!--[if mso]>
     <style type="text/css">
         body, table, td {font-family: Arial, sans-serif !important;}
@@ -36,7 +36,7 @@
                                 <tr>
                                     <td style="background-color: #ffffff; padding: 8px 12px; border-radius: 6px;">
                                         <img src="https://vimainsurance.com/assets/vima-logo-main.DiciI4hf.png"
-                                             alt="Vima Insurance"
+                                             alt="VIMA Insurance Brokers Pvt. Ltd"
                                              width="200" height="64" border="0"
                                              style="height: 64px; width: 200px; max-width: 100%; display: block; border: 0;">
                                     </td>
@@ -52,7 +52,7 @@
                             </h1>
                             <p style="font-size: 16px; color: #525252; margin: 0 0 24px 0;">
                                 Hi ${user.firstName!'User'}, we received a request to reset your password for your
-                                <strong>${realmName!'Vima Insurance'}</strong> account.
+                                <strong>${realmName!'VIMA Insurance Brokers Pvt. Ltd'}</strong> account.
                             </p>
                         </td>
                     </tr>
@@ -119,7 +119,7 @@
                                 <a href="https://www.vimainsurance.com" style="color: #1e40af; text-decoration: none;">www.vimainsurance.com</a>
                             </p>
                             <p style="font-size: 12px; color: #9ca3af; margin: 12px 0 0 0;">
-                                &copy; 2026 Vima Insurance &middot; Chennai, India
+                                &copy; 2026 VIMA Insurance Brokers Pvt. Ltd &middot; Chennai, India
                             </p>
                         </td>
                     </tr>

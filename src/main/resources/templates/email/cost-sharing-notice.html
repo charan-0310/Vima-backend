@@ -21,7 +21,7 @@
     <div class="container">
         <div class="header">
             <h1>Enrollment Approved</h1>
-            <p th:text="${companyName}">Company Name</p>
+            <p th:text="${#strings.isEmpty(companyName) ? 'VIMA Insurance Brokers Pvt. Ltd' : companyName}">Company Name</p>
         </div>
         <div class="content">
             <p>Hello <strong th:text="${employeeName}">Employee</strong>,</p>
@@ -36,7 +36,7 @@
             <p style="font-size: 14px; color: #64748b;">If you have questions, please contact your HR department.</p>
         </div>
         <div class="footer">
-            <p th:text="${companyName}">Company Name</p>
+            <p th:text="${#strings.isEmpty(companyName) ? 'VIMA Insurance Brokers Pvt. Ltd' : companyName}">Company Name</p>
         </div>
     </div>
 </body>
