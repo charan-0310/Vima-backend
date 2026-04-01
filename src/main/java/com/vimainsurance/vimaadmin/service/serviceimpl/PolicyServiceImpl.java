@@ -994,8 +994,18 @@ public class PolicyServiceImpl implements IPolicyService {
                     return responseObj.render(responseObj.formErrorResponse(BASE_GMC_REQUIRED_MESSAGE));
                 }
             }
-            if (productType != ProductType.PARENT_GMC) {
-                policy.setCoverageType(CoverageType.fromValue(requestDto.getCoverageType()));
+            if (productType == ProductType.PARENT_GMC) {
+                policy.setCoverageType(CoverageType.PARENT);
+            } else if (productType == ProductType.GMC || productType == ProductType.GHI) {
+                if (requestDto.getCoverageType() == null || requestDto.getCoverageType().trim().isEmpty()) {
+                    return responseObj.render(responseObj.formErrorResponse(
+                        "Coverage Type is required for GMC/GHI policies (E, ES, ESC, or ESCP)"));
+                }
+                policy.setCoverageType(CoverageType.fromValue(requestDto.getCoverageType().trim()));
+            } else if (requestDto.getCoverageType() != null && !requestDto.getCoverageType().trim().isEmpty()) {
+                policy.setCoverageType(CoverageType.fromValue(requestDto.getCoverageType().trim()));
+            } else {
+                policy.setCoverageType(null);
             }
             policy.setMaxChildrenAllowed(resolveAndValidateMaxChildrenAllowed(
                     productType, policy.getCoverageType(), requestDto.getMaxChildrenAllowed()));
