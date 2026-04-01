@@ -54,7 +54,7 @@ public interface IDealsRepository extends JpaRepository<Deals, UUID> , JpaSpecif
         OR LOWER(d.firstName) = LOWER(:name)
         OR LOWER(d.lastName) = LOWER(:name)
     )
-    AND (d.employeeNumber = :employeeNumber OR (d.primaryIndividual IS NOT NULL AND d.primaryIndividual.employeeNumber = :employeeNumber))
+    AND (LOWER(TRIM(d.employeeNumber)) = LOWER(TRIM(:employeeNumber)) OR (d.primaryIndividual IS NOT NULL AND LOWER(TRIM(d.primaryIndividual.employeeNumber)) = LOWER(TRIM(:employeeNumber))))
     AND (LOWER(d.relationship) = LOWER(:relationship) OR (LOWER(:relationship) = 'self' AND LOWER(d.relationship) = 'employee'))
     AND d.organization.organizationId = :organizationId
     """)
@@ -78,7 +78,10 @@ public interface IDealsRepository extends JpaRepository<Deals, UUID> , JpaSpecif
         OR LOWER(c.first_name) = LOWER(:name)
         OR LOWER(c.last_name) = LOWER(:name)
     )
-    AND (c.employee_number = :employeeNumber OR (p.employee_number = :employeeNumber))
+    AND (
+        UPPER(TRIM(COALESCE(c.employee_number, ''))) = UPPER(TRIM(:employeeNumber))
+        OR (p.employee_number IS NOT NULL AND UPPER(TRIM(p.employee_number)) = UPPER(TRIM(:employeeNumber)))
+    )
     AND (LOWER(c.relationship) = LOWER(:relationship) OR (LOWER(:relationship) = 'self' AND LOWER(c.relationship) = 'employee'))
     AND c.organization_id = :organizationId
     AND (c.endorsement_id = :endorsementId OR EXISTS (
@@ -92,6 +95,45 @@ public interface IDealsRepository extends JpaRepository<Deals, UUID> , JpaSpecif
             @Param("relationship") String relationship,
             @Param("organizationId") UUID organizationId,
             @Param("endorsementId") UUID endorsementId
+    );
+
+    /**
+     * Fallback lookup for health ID upload: match by employee number + relationship only (ignore name/date fields).
+     */
+    @Query(value = """
+    SELECT c.* FROM cpc.customers c
+    LEFT JOIN cpc.customers p ON c.primary_individual_id = p.individual_id
+    WHERE (
+        UPPER(TRIM(COALESCE(c.employee_number, ''))) = UPPER(TRIM(:employeeNumber))
+        OR (p.employee_number IS NOT NULL AND UPPER(TRIM(p.employee_number)) = UPPER(TRIM(:employeeNumber)))
+    )
+    AND (LOWER(c.relationship) = LOWER(:relationship) OR (LOWER(:relationship) = 'self' AND LOWER(c.relationship) = 'employee'))
+    AND c.organization_id = :organizationId
+    AND (c.endorsement_id = :endorsementId OR EXISTS (
+        SELECT 1 FROM cpc.deal_endorsements de WHERE de.individual_id = c.individual_id AND de.endorsement_id = :endorsementId
+    ))
+    LIMIT 1
+    """, nativeQuery = true)
+    Optional<Deals> findByEmployeeNumberAndRelationshipAndOrganizationIdForEndorsement(
+            @Param("employeeNumber") String employeeNumber,
+            @Param("relationship") String relationship,
+            @Param("organizationId") UUID organizationId,
+            @Param("endorsementId") UUID endorsementId
+    );
+
+    /**
+     * Organization-scope fallback lookup for SELF/EMPLOYEE by employee number + relationship only.
+     */
+    @Query("""
+    SELECT d FROM Deals d
+    WHERE (LOWER(TRIM(d.employeeNumber)) = LOWER(TRIM(:employeeNumber)) OR (d.primaryIndividual IS NOT NULL AND LOWER(TRIM(d.primaryIndividual.employeeNumber)) = LOWER(TRIM(:employeeNumber))))
+    AND (LOWER(d.relationship) = LOWER(:relationship) OR (LOWER(:relationship) = 'self' AND LOWER(d.relationship) = 'employee'))
+    AND d.organization.organizationId = :organizationId
+    """)
+    Optional<Deals> findByEmployeeNumberAndRelationshipAndOrganizationId(
+            @Param("employeeNumber") String employeeNumber,
+            @Param("relationship") String relationship,
+            @Param("organizationId") UUID organizationId
     );
 
     /**
