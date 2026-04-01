@@ -617,9 +617,12 @@ public class EnrollmentWindowServiceImpl implements IEnrollmentWindowService {
             enrollmentWindowsRepository.save(entity);
             AuditContextSupplier.setNewSnapshotEntity(entity);
             return responseObj.render(responseObj.formSuccessResponse(Constants.SUCCESS, "Enrollment window closed successfully"));
+        } catch (IllegalStateException e) {
+            logger.error("[correlationId:{}] Cannot close enrollment window: {}", MDC.get("correlationId"), e.getMessage(), e);
+            return responseObj.render(responseObj.formErrorResponse(e.getMessage()));
         } catch (Exception e) {
             logger.error("[correlationId:{}] Exception in EnrollmentWindow close: {}", MDC.get("correlationId"), e.getMessage(), e);
-            return responseObj.render(responseObj.formErrorResponse("Failed to close enrollment window"));
+            return responseObj.render(responseObj.formErrorResponse("Failed to close enrollment window: " + e.getMessage()));
         }
     }
 

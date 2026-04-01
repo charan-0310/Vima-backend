@@ -22,6 +22,7 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
 import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
 import com.fasterxml.jackson.databind.JsonNode;
@@ -326,65 +327,65 @@ public class HRApprovalServiceImpl implements IHRApprovalService {
     }
 
     @Override
-    @Transactional(rollbackFor = Exception.class)
+    @Transactional(propagation = Propagation.REQUIRES_NEW, rollbackFor = Exception.class)
     @AuditedOperation(schemaName = "cpc", tableName = "enrollment_windows", entityType = "ENROLLMENT_WINDOW", action = "UPDATE")
     public ResponseEntity<ResponseDto<String>> finalizeEnrollmentWindow(UUID windowId) {
         BaseResponse<String> responseObj = new BaseResponse<>();
-        try {
-            List<EnrollmentSubmission> submissions = enrollmentSubmissionRepository.findAllByEnrollmentWindow_Id(windowId);
-            long pending = submissions.stream()
-                    .filter(s -> s.getStatus() == EnrollementStatus.SUBMITTED || s.getStatus() == EnrollementStatus.DRAFT)
-                    .count();
-            if (pending > 0) {
-                return responseObj.render(responseObj.formErrorResponse(400,
-                        "Cannot close window: " + pending + " submission(s) must be approved or rejected first."));
-            }
 
-            long approvedCount = submissions.stream().filter(s -> s.getStatus() == EnrollementStatus.APPROVED).count();
-            log.info("[correlationId:{}] finalizeEnrollmentWindow window {}: {} submissions, {} approved", MDC.get("correlationId"), windowId, submissions.size(), approvedCount);
-            UUID splitGroupId = UUID.randomUUID();
-
-            for (EnrollmentSubmission sub : submissions) {
-                if (sub.getStatus() != EnrollementStatus.APPROVED) {
-                    continue;
-                }
-                Deals employee = sub.getEmployee();
-                if (employee != null) {
-                    updateEmployeeFromPersonalDetails(employee, sub.getPersonalDetails());
-                    dealsRepository.save(employee);
-
-                    List<Deals> newDependents = createDependentsFromJson(sub, employee, sub.getDependents());
-                    saveDealsInBatches(newDependents);
-
-                    List<Nominee> nominees = createNomineesFromJson(sub, employee, sub.getNomineeData());
-                    saveNomineesInBatches(nominees);
-                    
-                    sub.setStatus(EnrollementStatus.COMPLETED);
-                    enrollmentSubmissionRepository.save(sub);
-                }
-                createEndorsementAndDealEndorsementsForSubmission(sub, sub.getId(), splitGroupId);
-            }
-
-            // Update invitation status on close: mark non-completed invitations as EXPIRED
-            List<EnrollmentInvitation> invitations = enrollmentInvitationRepository.findAllByEnrollmentWindow_Id(windowId);
-            int expiredCount = 0;
-            for (EnrollmentInvitation inv : invitations) {
-                if (inv.getStatus() != EnrollementStatus.COMPLETED) {
-                    inv.setStatus(EnrollementStatus.EXPIRED);
-                    enrollmentInvitationRepository.save(inv);
-                    expiredCount++;
-                }
-            }
-            if (expiredCount > 0) {
-                log.info("[correlationId:{}] finalizeEnrollmentWindow window {}: updated {} invitation(s) to EXPIRED", MDC.get("correlationId"), windowId, expiredCount);
-            }
-
-            return responseObj.render(responseObj.formSuccessResponse("Window finalized successfully"));
-        } catch (Exception e) {
-            TransactionUtil.markRollbackOnly();
-            log.error("[correlationId:{}] finalizeEnrollmentWindow error: {}", MDC.get("correlationId"), e.getMessage(), e);
-            return responseObj.render(responseObj.formErrorResponse("Failed to finalize enrollment window"));
+        List<EnrollmentSubmission> submissions = enrollmentSubmissionRepository.findAllByEnrollmentWindow_Id(windowId);
+        long pending = submissions.stream()
+                .filter(s -> s.getStatus() == EnrollementStatus.SUBMITTED || s.getStatus() == EnrollementStatus.DRAFT)
+                .count();
+        if (pending > 0) {
+            return responseObj.render(responseObj.formErrorResponse(400,
+                    "Cannot close window: " + pending + " submission(s) must be approved or rejected first."));
         }
+
+        List<EnrollmentSubmission> approved = submissions.stream()
+                .filter(s -> s.getStatus() == EnrollementStatus.APPROVED)
+                .toList();
+        log.info("[correlationId:{}] finalizeEnrollmentWindow window {}: {} submissions, {} approved",
+                MDC.get("correlationId"), windowId, submissions.size(), approved.size());
+
+        UUID splitGroupId = UUID.randomUUID();
+
+        for (EnrollmentSubmission sub : approved) {
+            Deals employee = sub.getEmployee();
+            if (employee == null) {
+                throw new IllegalStateException(
+                        "Cannot finalize: approved submission " + sub.getId() + " has no linked employee");
+            }
+
+            updateEmployeeFromPersonalDetails(employee, sub.getPersonalDetails());
+            dealsRepository.save(employee);
+
+            List<Deals> newDependents = createDependentsFromJson(sub, employee, sub.getDependents());
+            saveDealsInBatches(newDependents);
+
+            List<Nominee> nominees = createNomineesFromJson(sub, employee, sub.getNomineeData());
+            saveNomineesInBatches(nominees);
+
+            createEndorsementForSubmission(sub, sub.getId(), splitGroupId);
+
+            sub.setStatus(EnrollementStatus.COMPLETED);
+            enrollmentSubmissionRepository.save(sub);
+        }
+
+        List<EnrollmentInvitation> invitations = enrollmentInvitationRepository.findAllByEnrollmentWindow_Id(windowId);
+        int expiredCount = 0;
+        for (EnrollmentInvitation inv : invitations) {
+            if (inv.getStatus() != EnrollementStatus.COMPLETED) {
+                inv.setStatus(EnrollementStatus.EXPIRED);
+                enrollmentInvitationRepository.save(inv);
+                expiredCount++;
+            }
+        }
+        if (expiredCount > 0) {
+            log.info("[correlationId:{}] finalizeEnrollmentWindow window {}: updated {} invitation(s) to EXPIRED",
+                    MDC.get("correlationId"), windowId, expiredCount);
+        }
+
+        return responseObj.render(responseObj.formSuccessResponse("Window finalized successfully"));
     }
 
     /**
@@ -600,37 +601,35 @@ public class HRApprovalServiceImpl implements IHRApprovalService {
     }
 
     /**
-     * Uses or creates the single endorsement for the whole enrollment window and adds this submission's
-     * employee + dependents to it (deal_endorsement). All approved submissions in the same window
-     * share one endorsement. Runs inside the same transaction as finalizeEnrollmentWindow.
+     * Creates endorsement(s) per policy for the submission and links the employee + dependents
+     * via deal_endorsement rows. Throws on any missing data so the caller can block window close.
+     * Runs inside finalizeEnrollmentWindow's REQUIRES_NEW transaction.
      */
-    private void createEndorsementAndDealEndorsementsForSubmission(EnrollmentSubmission sub, UUID submissionId, UUID splitGroupId) {
+    private void createEndorsementForSubmission(EnrollmentSubmission sub, UUID submissionId, UUID splitGroupId) {
         Deals employee = sub.getEmployee();
         EnrollmentWindows window = sub.getEnrollmentWindow();
         if (window == null) {
-            log.warn("[correlationId:{}] Skipping endorsement for submission {}: enrollment window is null", MDC.get("correlationId"), submissionId);
-            return;
+            throw new IllegalStateException(
+                    "Cannot create endorsement for submission " + submissionId + ": enrollment window is null");
         }
-        // Resolve organization: prefer employee's org, fallback to window's org so endorsement is still created
         Organization org = (employee != null && employee.getOrganization() != null)
                 ? employee.getOrganization()
                 : window.getOrganization();
         if (org == null) {
-            log.warn("[correlationId:{}] Skipping endorsement for submission {}: no organization (employee and window have no org)", MDC.get("correlationId"), submissionId);
-            return;
+            throw new IllegalStateException(
+                    "Cannot create endorsement for submission " + submissionId + ": no organization found");
         }
         if (employee == null) {
-            log.warn("[correlationId:{}] Skipping endorsement for submission {}: employee is null", MDC.get("correlationId"), submissionId);
-            return;
+            throw new IllegalStateException(
+                    "Cannot create endorsement for submission " + submissionId + ": employee is null");
         }
-        UUID orgId = org.getOrganizationId();
-        UUID windowId = window.getId();
 
         List<Deals> dependents = dealsRepository.findByEnrollmentSubmission_Id(submissionId);
         Set<Long> policyIds = extractPolicyIdsFromPlanSelections(sub.getPlanSelections(), org);
         if (policyIds.isEmpty()) {
-            log.warn("[correlationId:{}] No policy IDs found in plan selections for submission {}", MDC.get("correlationId"), submissionId);
-            return;
+            throw new IllegalStateException(
+                    "Cannot create endorsement for submission " + submissionId
+                    + ": no policies resolved from plan selections (org " + org.getOrganizationId() + ")");
         }
         String username = jwtUserExtractor.extractCurrentUsername();
         AdminUser uploadedBy = adminUserRepository.findByUsername(username).orElse(null);
