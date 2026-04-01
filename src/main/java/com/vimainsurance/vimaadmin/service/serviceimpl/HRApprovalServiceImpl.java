@@ -627,7 +627,7 @@ public class HRApprovalServiceImpl implements IHRApprovalService {
         UUID windowId = window.getId();
 
         List<Deals> dependents = dealsRepository.findByEnrollmentSubmission_Id(submissionId);
-        Set<Long> policyIds = extractPolicyIdsFromPlanSelections(sub.getPlanSelections());
+        Set<Long> policyIds = extractPolicyIdsFromPlanSelections(sub.getPlanSelections(), org);
         if (policyIds.isEmpty()) {
             log.warn("[correlationId:{}] No policy IDs found in plan selections for submission {}", MDC.get("correlationId"), submissionId);
             return;
@@ -703,24 +703,105 @@ public class HRApprovalServiceImpl implements IHRApprovalService {
         }
     }
 
-    private Set<Long> extractPolicyIdsFromPlanSelections(String planSelectionsJson) {
+    private Set<Long> extractPolicyIdsFromPlanSelections(String planSelectionsJson, Organization org) {
         Set<Long> policyIds = new HashSet<>();
         if (planSelectionsJson == null || planSelectionsJson.isBlank()) {
             return policyIds;
         }
+        Set<String> unresolvedPlanTypes = new HashSet<>();
         try {
             JsonNode root = OBJECT_MAPPER.readTree(planSelectionsJson);
             if (root.isArray()) {
                 for (JsonNode node : root) {
-                    if (node.has("policyId") && node.get("policyId").canConvertToLong()) {
-                        policyIds.add(node.get("policyId").asLong());
+                    if (node.has("policyId")) {
+                        JsonNode pidNode = node.get("policyId");
+                        Long parsed = parsePolicyIdNode(pidNode);
+                        if (parsed != null) {
+                            policyIds.add(parsed);
+                            continue;
+                        }
+                    }
+                    String planType = text(node.get("planType"));
+                    if (planType != null && !planType.isBlank()) {
+                        unresolvedPlanTypes.add(planType.trim().toUpperCase());
                     }
                 }
             }
         } catch (Exception e) {
             log.warn("[correlationId:{}] Failed to parse plan selections for policy extraction: {}", MDC.get("correlationId"), e.getMessage());
         }
+
+        if (org == null || org.getOrganizationId() == null) {
+            return policyIds;
+        }
+
+        try {
+            List<Policy> organizationPolicies = policyRepository.findByOrganizationId(org.getOrganizationId());
+            if (!unresolvedPlanTypes.isEmpty()) {
+                for (String planType : unresolvedPlanTypes) {
+                    Policy matched = organizationPolicies.stream()
+                            .filter(p -> p.getPolicyId() != null && matchesPlanType(planType, p.getProductType()))
+                            .findFirst()
+                            .orElse(null);
+                    if (matched != null && matched.getPolicyId() != null) {
+                        policyIds.add(matched.getPolicyId());
+                    }
+                }
+            }
+            // Last resort: planSelections missing policyId/planType but window has approved submissions — use all org policies
+            if (policyIds.isEmpty()) {
+                for (Policy p : organizationPolicies) {
+                    if (p.getPolicyId() != null) {
+                        policyIds.add(p.getPolicyId());
+                    }
+                }
+                if (!policyIds.isEmpty()) {
+                    log.info("[correlationId:{}] Resolved policy IDs from organization {} policies (fallback): {}",
+                            MDC.get("correlationId"), org.getOrganizationId(), policyIds);
+                }
+            }
+        } catch (Exception e) {
+            log.warn("[correlationId:{}] Failed fallback policy resolution from planType for org {}: {}",
+                    MDC.get("correlationId"),
+                    org.getOrganizationId(),
+                    e.getMessage());
+        }
         return policyIds;
+    }
+
+    private Long parsePolicyIdNode(JsonNode pidNode) {
+        if (pidNode == null || pidNode.isNull()) {
+            return null;
+        }
+        try {
+            if (pidNode.canConvertToLong()) {
+                return pidNode.asLong();
+            }
+            if (pidNode.isTextual()) {
+                String t = pidNode.asText();
+                if (t != null && !t.isBlank()) {
+                    return Long.parseLong(t.trim());
+                }
+            }
+        } catch (Exception e) {
+            log.warn("[correlationId:{}] Could not parse policyId from planSelections: {}", MDC.get("correlationId"), e.getMessage());
+        }
+        return null;
+    }
+
+    private boolean matchesPlanType(String planType, ProductType productType) {
+        if (planType == null || productType == null) {
+            return false;
+        }
+        String normalizedPlanType = planType.trim().toUpperCase();
+        String normalizedProductType = productType.name().toUpperCase();
+        if ("GMC".equals(normalizedPlanType) || "GHI".equals(normalizedPlanType)) {
+            return "GMC".equals(normalizedProductType) || "GHI".equals(normalizedProductType);
+        }
+        if ("PARENT_GMC".equals(normalizedPlanType)) {
+            return "PARENT_GMC".equals(normalizedProductType);
+        }
+        return normalizedPlanType.equals(normalizedProductType);
     }
 
     private void sendRejectionEmail(EnrollmentSubmission sub, String reason) {
