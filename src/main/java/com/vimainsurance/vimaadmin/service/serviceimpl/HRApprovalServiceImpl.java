@@ -349,6 +349,11 @@ public class HRApprovalServiceImpl implements IHRApprovalService {
 
         UUID splitGroupId = UUID.randomUUID();
 
+        // Phase 1: process each submission (employee data, dependents, nominees) and collect all deals per policy
+        Map<Long, List<Deals>> dealsByPolicy = new LinkedHashMap<>();
+        Map<Long, Policy> policyCache = new LinkedHashMap<>();
+        Organization windowOrg = null;
+
         for (EnrollmentSubmission sub : approved) {
             Deals employee = sub.getEmployee();
             if (employee == null) {
@@ -365,8 +370,119 @@ public class HRApprovalServiceImpl implements IHRApprovalService {
             List<Nominee> nominees = createNomineesFromJson(sub, employee, sub.getNomineeData());
             saveNomineesInBatches(nominees);
 
-            createEndorsementForSubmission(sub, sub.getId(), splitGroupId);
+            Organization org = (employee.getOrganization() != null) ? employee.getOrganization()
+                    : sub.getEnrollmentWindow() != null ? sub.getEnrollmentWindow().getOrganization() : null;
+            if (org == null) {
+                throw new IllegalStateException(
+                        "Cannot finalize: submission " + sub.getId() + " has no organization");
+            }
+            if (windowOrg == null) {
+                windowOrg = org;
+            }
 
+            Set<Long> policyIds = extractPolicyIdsFromPlanSelections(sub.getPlanSelections(), org);
+            if (policyIds.isEmpty()) {
+                throw new IllegalStateException(
+                        "Cannot finalize: no policies resolved for submission " + sub.getId()
+                        + " (org " + org.getOrganizationId() + ")");
+            }
+
+            List<Deals> submissionDependents = dealsRepository.findByEnrollmentSubmission_Id(sub.getId());
+            List<Deals> submissionDeals = new ArrayList<>();
+            submissionDeals.add(employee);
+            submissionDeals.addAll(submissionDependents);
+
+            for (Long policyId : policyIds) {
+                dealsByPolicy.computeIfAbsent(policyId, k -> new ArrayList<>()).addAll(submissionDeals);
+                policyCache.computeIfAbsent(policyId, k -> policyRepository.findById(policyId).orElse(null));
+            }
+        }
+
+        // Phase 2: create ONE endorsement per policy, aggregate all employees + dependents
+        String username = jwtUserExtractor.extractCurrentUsername();
+        AdminUser uploadedBy = adminUserRepository.findByUsername(username).orElse(null);
+        EnrollmentWindows window = approved.isEmpty() ? null : approved.get(0).getEnrollmentWindow();
+        Endorsement primaryEndorsement = null;
+
+        for (Map.Entry<Long, List<Deals>> entry : dealsByPolicy.entrySet()) {
+            Long policyId = entry.getKey();
+            List<Deals> allDeals = entry.getValue();
+            Policy policy = policyCache.get(policyId);
+            ProductType pt = policy != null ? policy.getProductType() : null;
+
+            Endorsement endorsement = new Endorsement();
+            if (uploadedBy != null) endorsement.setUploadedBy(uploadedBy);
+            endorsement.setOrganization(windowOrg);
+            endorsement.setEnrollmentWindow(window);
+            endorsement.setEndorsementType(EndorsementType.ADDITION);
+            endorsement.setSource(EndorsementSource.SELF_ENROLLMENT);
+            endorsement.setStatus(AccountStatus.PENDING_APPROVAL);
+            endorsement.setPolicy(policy);
+            endorsement.setSplitGroupId(splitGroupId);
+            endorsement.setCreatedAt(LocalDateTime.now());
+            endorsement.setUpdatedAt(LocalDateTime.now());
+            endorsement.setSubmissionCount(approved.size());
+
+            int employees = (int) allDeals.stream()
+                    .filter(d -> d.getRelationship() == null || "SELF".equalsIgnoreCase(d.getRelationship()) || "EMPLOYEE".equalsIgnoreCase(d.getRelationship()))
+                    .count();
+            if (pt == ProductType.GPA || pt == ProductType.GTL || pt == ProductType.TOP_UP || pt == ProductType.SUPER_TOP_UP) {
+                endorsement.setTotalEmployees(employees);
+                endorsement.setTotalDependents(0);
+            } else if (pt == ProductType.PARENT_GMC) {
+                int parents = (int) allDeals.stream().filter(d -> isParentDealRelationship(d.getRelationship())).count();
+                endorsement.setTotalEmployees(employees);
+                endorsement.setTotalDependents(parents);
+            } else {
+                int depCount = (int) allDeals.stream()
+                        .filter(d -> d.getRelationship() != null && !"SELF".equalsIgnoreCase(d.getRelationship()) && !"EMPLOYEE".equalsIgnoreCase(d.getRelationship()))
+                        .filter(d -> !isParentDealRelationship(d.getRelationship()))
+                        .count();
+                endorsement.setTotalEmployees(employees);
+                endorsement.setTotalDependents(depCount);
+            }
+
+            if (primaryEndorsement != null) {
+                endorsement.setParentEndorsement(primaryEndorsement);
+            }
+            Endorsement savedEndorsement = endorsementRepository.save(endorsement);
+            if (primaryEndorsement == null) {
+                primaryEndorsement = savedEndorsement;
+            }
+
+            List<Deals> eligibleDeals = filterDealsForPolicyType(allDeals, pt);
+            List<DealEndorsement> deToSave = new ArrayList<>();
+            for (Deals d : eligibleDeals) {
+                if (d.getIndividualId() != null && !dealEndorsementRepository.existsByDeal_IndividualIdAndEndorsement_EndorsementId(
+                        d.getIndividualId(), savedEndorsement.getEndorsementId())) {
+                    DealEndorsement de = new DealEndorsement();
+                    de.setDeal(d);
+                    de.setEndorsement(savedEndorsement);
+                    deToSave.add(de);
+                }
+            }
+            if (!deToSave.isEmpty()) {
+                dealEndorsementRepository.saveAll(deToSave);
+            }
+        }
+
+        // Phase 3: link submissions + employees to the primary endorsement and mark COMPLETED
+        for (EnrollmentSubmission sub : approved) {
+            if (primaryEndorsement != null) {
+                sub.setEndorsement(primaryEndorsement);
+                Deals emp = sub.getEmployee();
+                if (emp != null) {
+                    emp.setEndorsementId(primaryEndorsement.getEndorsementId());
+                    dealsRepository.save(emp);
+                }
+                List<Deals> deps = dealsRepository.findByEnrollmentSubmission_Id(sub.getId());
+                for (Deals d : deps) {
+                    d.setEndorsementId(primaryEndorsement.getEndorsementId());
+                }
+                if (!deps.isEmpty()) {
+                    saveDealsInBatches(deps);
+                }
+            }
             sub.setStatus(EnrollementStatus.COMPLETED);
             enrollmentSubmissionRepository.save(sub);
         }
@@ -600,106 +716,33 @@ public class HRApprovalServiceImpl implements IHRApprovalService {
         }
     }
 
-    /**
-     * Creates endorsement(s) per policy for the submission and links the employee + dependents
-     * via deal_endorsement rows. Throws on any missing data so the caller can block window close.
-     * Runs inside finalizeEnrollmentWindow's REQUIRES_NEW transaction.
-     */
-    private void createEndorsementForSubmission(EnrollmentSubmission sub, UUID submissionId, UUID splitGroupId) {
-        Deals employee = sub.getEmployee();
-        EnrollmentWindows window = sub.getEnrollmentWindow();
-        if (window == null) {
-            throw new IllegalStateException(
-                    "Cannot create endorsement for submission " + submissionId + ": enrollment window is null");
-        }
-        Organization org = (employee != null && employee.getOrganization() != null)
-                ? employee.getOrganization()
-                : window.getOrganization();
-        if (org == null) {
-            throw new IllegalStateException(
-                    "Cannot create endorsement for submission " + submissionId + ": no organization found");
-        }
-        if (employee == null) {
-            throw new IllegalStateException(
-                    "Cannot create endorsement for submission " + submissionId + ": employee is null");
-        }
 
-        List<Deals> dependents = dealsRepository.findByEnrollmentSubmission_Id(submissionId);
-        Set<Long> policyIds = extractPolicyIdsFromPlanSelections(sub.getPlanSelections(), org);
-        if (policyIds.isEmpty()) {
-            throw new IllegalStateException(
-                    "Cannot create endorsement for submission " + submissionId
-                    + ": no policies resolved from plan selections (org " + org.getOrganizationId() + ")");
+    /**
+     * Filters deals eligible for a given policy type:
+     * - GPA/GTL/TOP_UP/SUPER_TOP_UP: employees only (SELF/EMPLOYEE)
+     * - PARENT_GMC: employees + parent relationships
+     * - GMC/GHI and others: employees + all non-parent dependents
+     */
+    private List<Deals> filterDealsForPolicyType(List<Deals> allDeals, ProductType pt) {
+        if (pt == ProductType.GPA || pt == ProductType.GTL || pt == ProductType.TOP_UP || pt == ProductType.SUPER_TOP_UP) {
+            return allDeals.stream()
+                    .filter(d -> d.getRelationship() == null
+                            || "SELF".equalsIgnoreCase(d.getRelationship())
+                            || "EMPLOYEE".equalsIgnoreCase(d.getRelationship()))
+                    .toList();
         }
-        String username = jwtUserExtractor.extractCurrentUsername();
-        AdminUser uploadedBy = adminUserRepository.findByUsername(username).orElse(null);
-        Endorsement primary = null;
-        List<Deals> allDeals = new ArrayList<>();
-        allDeals.add(employee);
-        allDeals.addAll(dependents);
-        for (Long policyId : policyIds) {
-            Endorsement endorsement = new Endorsement();
-            if (uploadedBy != null) endorsement.setUploadedBy(uploadedBy);
-            endorsement.setOrganization(org);
-            endorsement.setEnrollmentWindow(window);
-            endorsement.setEndorsementType(EndorsementType.ADDITION);
-            endorsement.setSource(EndorsementSource.SELF_ENROLLMENT);
-            endorsement.setStatus(AccountStatus.PENDING_APPROVAL);
-            Policy policy = policyRepository.findById(policyId).orElse(null);
-            ProductType pt = policy != null ? policy.getProductType() : null;
-            if (pt == ProductType.GPA || pt == ProductType.GTL || pt == ProductType.TOP_UP || pt == ProductType.SUPER_TOP_UP) {
-                endorsement.setTotalEmployees(1);
-                endorsement.setTotalDependents(0);
-            } else if (pt == ProductType.PARENT_GMC) {
-                int self = (int) allDeals.stream()
-                        .filter(d -> d.getRelationship() != null && "SELF".equalsIgnoreCase(d.getRelationship()))
-                        .count();
-                int parents = (int) allDeals.stream().filter(d -> isParentDealRelationship(d.getRelationship())).count();
-                endorsement.setTotalEmployees(self);
-                endorsement.setTotalDependents(parents);
-            } else {
-                int depCount = (int) allDeals.stream()
-                        .filter(d -> d.getRelationship() != null && !"SELF".equalsIgnoreCase(d.getRelationship()))
-                        .filter(d -> !isParentDealRelationship(d.getRelationship()))
-                        .count();
-                endorsement.setTotalEmployees(1);
-                endorsement.setTotalDependents(depCount);
-            }
-            endorsement.setSubmissionCount(1);
-            endorsement.setCreatedAt(LocalDateTime.now());
-            endorsement.setUpdatedAt(LocalDateTime.now());
-            endorsement.setSplitGroupId(splitGroupId);
-            endorsement.setPolicy(policy);
-            if (primary != null) {
-                endorsement.setParentEndorsement(primary);
-            }
-            Endorsement savedEndorsement = endorsementRepository.save(endorsement);
-            if (primary == null) {
-                primary = savedEndorsement;
-                sub.setEndorsement(savedEndorsement);
-                enrollmentSubmissionRepository.save(sub);
-                employee.setEndorsementId(savedEndorsement.getEndorsementId());
-                dealsRepository.save(employee);
-                for (Deals d : dependents) {
-                    d.setEndorsementId(savedEndorsement.getEndorsementId());
-                }
-                if (!dependents.isEmpty()) {
-                    saveDealsInBatches(dependents);
-                }
-            }
-            List<DealEndorsement> toSave = new ArrayList<>();
-            for (Deals d : allDeals) {
-                if (d.getIndividualId() != null && !dealEndorsementRepository.existsByDeal_IndividualIdAndEndorsement_EndorsementId(d.getIndividualId(), savedEndorsement.getEndorsementId())) {
-                    DealEndorsement de = new DealEndorsement();
-                    de.setDeal(d);
-                    de.setEndorsement(savedEndorsement);
-                    toSave.add(de);
-                }
-            }
-            if (!toSave.isEmpty()) {
-                dealEndorsementRepository.saveAll(toSave);
-            }
+        if (pt == ProductType.PARENT_GMC) {
+            return allDeals.stream()
+                    .filter(d -> d.getRelationship() == null
+                            || "SELF".equalsIgnoreCase(d.getRelationship())
+                            || "EMPLOYEE".equalsIgnoreCase(d.getRelationship())
+                            || isParentDealRelationship(d.getRelationship()))
+                    .toList();
         }
+        // GMC/GHI/default: employees + all non-parent dependents
+        return allDeals.stream()
+                .filter(d -> !isParentDealRelationship(d.getRelationship()))
+                .toList();
     }
 
     private Set<Long> extractPolicyIdsFromPlanSelections(String planSelectionsJson, Organization org) {
