@@ -1254,9 +1254,10 @@ public class EndorsementServiceImpl implements IEndorsementService {
                                 employeeIdTrimmed, normalizedRelationship, organizationId, endorsementId);
                     }
 
-                    // Fallback for SELF/Employee: if not found in endorsement, try organization scope.
-                    // Employees may exist as primaryIndividual of dependents in endorsement but not be directly linked.
-                    if (customerOpt.isEmpty() && ("SELF".equalsIgnoreCase(normalizedRelationship) || "EMPLOYEE".equalsIgnoreCase(normalizedRelationship))) {
+                    // Organization scope: many dependents are not linked via endorsement_id or deal_endorsements
+                    // but still match primary's employee number + relationship under the same organization.
+                    // (Previously only SELF/EMPLOYEE used this path, so SPOUSE/CHILD*/PARENT rows always failed.)
+                    if (customerOpt.isEmpty()) {
                         customerOpt = dealsRepository.findByNameAndEmployeeNumberAndRelationshipAndOrganizationId(
                                 healthIdDto.getName(), employeeIdTrimmed, normalizedRelationship, organizationId);
                         if (customerOpt.isEmpty()) {

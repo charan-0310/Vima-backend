@@ -54,7 +54,7 @@ public interface IDealsRepository extends JpaRepository<Deals, UUID> , JpaSpecif
         OR LOWER(d.firstName) = LOWER(:name)
         OR LOWER(d.lastName) = LOWER(:name)
     )
-    AND (d.employeeNumber = :employeeNumber OR (d.primaryIndividual IS NOT NULL AND d.primaryIndividual.employeeNumber = :employeeNumber))
+    AND (LOWER(TRIM(d.employeeNumber)) = LOWER(TRIM(:employeeNumber)) OR (d.primaryIndividual IS NOT NULL AND LOWER(TRIM(d.primaryIndividual.employeeNumber)) = LOWER(TRIM(:employeeNumber))))
     AND (LOWER(d.relationship) = LOWER(:relationship) OR (LOWER(:relationship) = 'self' AND LOWER(d.relationship) = 'employee'))
     AND d.organization.organizationId = :organizationId
     """)
@@ -78,7 +78,10 @@ public interface IDealsRepository extends JpaRepository<Deals, UUID> , JpaSpecif
         OR LOWER(c.first_name) = LOWER(:name)
         OR LOWER(c.last_name) = LOWER(:name)
     )
-    AND (c.employee_number = :employeeNumber OR (p.employee_number = :employeeNumber))
+    AND (
+        UPPER(TRIM(COALESCE(c.employee_number, ''))) = UPPER(TRIM(:employeeNumber))
+        OR (p.employee_number IS NOT NULL AND UPPER(TRIM(p.employee_number)) = UPPER(TRIM(:employeeNumber)))
+    )
     AND (LOWER(c.relationship) = LOWER(:relationship) OR (LOWER(:relationship) = 'self' AND LOWER(c.relationship) = 'employee'))
     AND c.organization_id = :organizationId
     AND (c.endorsement_id = :endorsementId OR EXISTS (
@@ -100,7 +103,10 @@ public interface IDealsRepository extends JpaRepository<Deals, UUID> , JpaSpecif
     @Query(value = """
     SELECT c.* FROM cpc.customers c
     LEFT JOIN cpc.customers p ON c.primary_individual_id = p.individual_id
-    WHERE (c.employee_number = :employeeNumber OR (p.employee_number = :employeeNumber))
+    WHERE (
+        UPPER(TRIM(COALESCE(c.employee_number, ''))) = UPPER(TRIM(:employeeNumber))
+        OR (p.employee_number IS NOT NULL AND UPPER(TRIM(p.employee_number)) = UPPER(TRIM(:employeeNumber)))
+    )
     AND (LOWER(c.relationship) = LOWER(:relationship) OR (LOWER(:relationship) = 'self' AND LOWER(c.relationship) = 'employee'))
     AND c.organization_id = :organizationId
     AND (c.endorsement_id = :endorsementId OR EXISTS (
@@ -120,7 +126,7 @@ public interface IDealsRepository extends JpaRepository<Deals, UUID> , JpaSpecif
      */
     @Query("""
     SELECT d FROM Deals d
-    WHERE (d.employeeNumber = :employeeNumber OR (d.primaryIndividual IS NOT NULL AND d.primaryIndividual.employeeNumber = :employeeNumber))
+    WHERE (LOWER(TRIM(d.employeeNumber)) = LOWER(TRIM(:employeeNumber)) OR (d.primaryIndividual IS NOT NULL AND LOWER(TRIM(d.primaryIndividual.employeeNumber)) = LOWER(TRIM(:employeeNumber))))
     AND (LOWER(d.relationship) = LOWER(:relationship) OR (LOWER(:relationship) = 'self' AND LOWER(d.relationship) = 'employee'))
     AND d.organization.organizationId = :organizationId
     """)
