@@ -95,6 +95,42 @@ public interface IDealsRepository extends JpaRepository<Deals, UUID> , JpaSpecif
     );
 
     /**
+     * Fallback lookup for health ID upload: match by employee number + relationship only (ignore name/date fields).
+     */
+    @Query(value = """
+    SELECT c.* FROM cpc.customers c
+    LEFT JOIN cpc.customers p ON c.primary_individual_id = p.individual_id
+    WHERE (c.employee_number = :employeeNumber OR (p.employee_number = :employeeNumber))
+    AND (LOWER(c.relationship) = LOWER(:relationship) OR (LOWER(:relationship) = 'self' AND LOWER(c.relationship) = 'employee'))
+    AND c.organization_id = :organizationId
+    AND (c.endorsement_id = :endorsementId OR EXISTS (
+        SELECT 1 FROM cpc.deal_endorsements de WHERE de.individual_id = c.individual_id AND de.endorsement_id = :endorsementId
+    ))
+    LIMIT 1
+    """, nativeQuery = true)
+    Optional<Deals> findByEmployeeNumberAndRelationshipAndOrganizationIdForEndorsement(
+            @Param("employeeNumber") String employeeNumber,
+            @Param("relationship") String relationship,
+            @Param("organizationId") UUID organizationId,
+            @Param("endorsementId") UUID endorsementId
+    );
+
+    /**
+     * Organization-scope fallback lookup for SELF/EMPLOYEE by employee number + relationship only.
+     */
+    @Query("""
+    SELECT d FROM Deals d
+    WHERE (d.employeeNumber = :employeeNumber OR (d.primaryIndividual IS NOT NULL AND d.primaryIndividual.employeeNumber = :employeeNumber))
+    AND (LOWER(d.relationship) = LOWER(:relationship) OR (LOWER(:relationship) = 'self' AND LOWER(d.relationship) = 'employee'))
+    AND d.organization.organizationId = :organizationId
+    """)
+    Optional<Deals> findByEmployeeNumberAndRelationshipAndOrganizationId(
+            @Param("employeeNumber") String employeeNumber,
+            @Param("relationship") String relationship,
+            @Param("organizationId") UUID organizationId
+    );
+
+    /**
      * Find deal by employee number and organizationId
      */
     @Query("""
