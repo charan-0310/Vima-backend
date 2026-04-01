@@ -2,9 +2,21 @@
 <@layout.registrationLayout displayMessage=!messagesPerField.existsError('username','password') displayInfo=realm.password && realm.registrationAllowed && !registrationDisabled??; section>
     <#if section = "header">
     <#elseif section = "form">
-        <div id="kc-form">
+        <div id="kc-form"<#if usernameHidden??> class="modern-login-password"</#if>>
           <div id="kc-form-wrapper">
             <img src="${url.resourcesPath}/img/vima-logo-main.DiciI4hf.png" class="modern-logo" alt="VIMA Logo"/>
+            <#if usernameHidden??>
+                <#assign visibleUsername = (login.username!'') />
+                <#if !visibleUsername?has_content && auth?has_content && auth.attemptedUsername?has_content>
+                    <#assign visibleUsername = auth.attemptedUsername />
+                </#if>
+                <#if visibleUsername?has_content>
+                    <div class="modern-card-username" dir="ltr">
+                        <span class="modern-card-username-label"><#if !realm.loginWithEmailAllowed>${msg("username")}<#elseif !realm.registrationEmailAsUsername>${msg("usernameOrEmail")}<#else>${msg("email")}</#if></span>
+                        <span class="modern-card-username-value">${kcSanitize(visibleUsername)?no_esc}</span>
+                    </div>
+                </#if>
+            </#if>
             <#if realm.password>
                 <form id="kc-form-login" onsubmit="login.disabled = true; return true;" action="${url.loginAction}" method="post">
                     <#if !usernameHidden??>
@@ -69,7 +81,7 @@
                       </div>
 
                       <div id="kc-form-buttons" class="${properties.kcFormGroupClass!}">
-                          <input type="hidden" id="id-hidden-input" name="credentialId" <#if auth.selectedCredential?has_content>value="${auth.selectedCredential}"</#if>/>
+                          <input type="hidden" id="id-hidden-input" name="credentialId" <#if auth?has_content && auth.selectedCredential?has_content>value="${auth.selectedCredential}"</#if>/>
                           <input tabindex="7" class="${properties.kcButtonClass!} ${properties.kcButtonPrimaryClass!} ${properties.kcButtonBlockClass!} ${properties.kcButtonLargeClass!}" name="login" id="kc-login" type="submit" value="${msg("doLogIn")}"/>
                       </div>
                 </form>

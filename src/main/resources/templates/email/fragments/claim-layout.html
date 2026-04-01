@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Claim Update - Vima Insurance</title>
+    <title>Claim Update - VIMA Insurance Brokers Pvt. Ltd</title>
 </head>
 <body>
     <!-- Fragment: claim email body with logo, message, claim card, status badge, CTA, footer -->
@@ -14,7 +14,7 @@
                     <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="max-width: 560px; margin: 0 auto; background-color: #ffffff; border-radius: 12px;">
                         <tr>
                             <td style="padding: 24px 24px 16px 24px;">
-                                <img src="https://vimainsurance.com/assets/vima-logo-main.DiciI4hf.png" alt="Vima Insurance" width="180" height="58" style="height: 58px; width: 180px; max-width: 100%; display: block; border: 0;">
+                                <img src="https://vimainsurance.com/assets/vima-logo-main.DiciI4hf.png" alt="VIMA Insurance Brokers Pvt. Ltd" width="180" height="58" style="height: 58px; width: 180px; max-width: 100%; display: block; border: 0;">
                             </td>
                         </tr>
                         <tr>
@@ -48,14 +48,14 @@
                         </tr>
                         <tr>
                             <td style="padding: 0 24px 24px 24px; font-size: 12px; color: #9ca3af;">
-                                <p th:text="${companyName}">Vima Insurance</p>
+                                <p th:text="${#strings.isEmpty(companyName) ? 'VIMA Insurance Brokers Pvt. Ltd' : companyName}">VIMA Insurance Brokers Pvt. Ltd</p>
                             </td>
                         </tr>
                     </table>
                     <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="max-width: 560px; margin: 0 auto;">
                         <tr>
                             <td style="padding: 24px 24px 0 24px; text-align: center; font-size: 12px; color: #9ca3af;">
-                                <p style="margin: 0;">© 2026 Vima Insurance · Chennai, India</p>
+                                <p style="margin: 0;">© 2026 VIMA Insurance Brokers Pvt. Ltd · Chennai, India</p>
                             </td>
                         </tr>
                     </table>
