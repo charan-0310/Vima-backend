@@ -249,8 +249,8 @@ public class PolicyServiceImpl implements IPolicyService {
             }
             policy.setCoveredIndividuals(coveredIndividualIds);
 
-            // Set TPA details (for GMC only)
-            if (policyType == ProductType.GMC) {
+            // Set TPA details (GMC and legacy GHI — same group medical form in portal)
+            if (policyType == ProductType.GMC || policyType == ProductType.GHI) {
                 policy.setTpaOrganizationName(requestDto.getTpaOrganizationName());
                 policy.setTpaContactInfo(requestDto.getTpaContactInfo());
             }
@@ -311,14 +311,13 @@ public class PolicyServiceImpl implements IPolicyService {
         
         try {
             // Validate policy request based on policy type
-            PolicyValidationUtil.validatePolicyRequest(requestDto);
-
             Optional<Policy> policyOpt = policyRepository.findById(policyId);
             if (policyOpt.isEmpty()) {
                 return responseObj.render(responseObj.formErrorResponse(Constants.RECORD_NOT_FOUND_MESSAGE));
             }
 
             Policy policy = policyOpt.get();
+            PolicyValidationUtil.validatePolicyRequest(requestDto, true);
             try {
                 AuditContextSupplier.setOldSnapshotJson(objectMapper.writeValueAsString(policy));
             } catch (Exception e) {
@@ -385,10 +384,18 @@ public class PolicyServiceImpl implements IPolicyService {
                 policy.setPaymentFrequency(PaymentFrequency.fromValue(requestDto.getPaymentFrequency()));
             }
 
-            // Update TPA details (for GMC only)
-            if (policyType == ProductType.GMC) {
-                policy.setTpaOrganizationName(requestDto.getTpaOrganizationName());
-                policy.setTpaContactInfo(requestDto.getTpaContactInfo());
+            // Update TPA details (GMC and legacy GHI); blank fields = leave existing values unchanged
+            if (policyType == ProductType.GMC || policyType == ProductType.GHI) {
+                boolean nameBlank = requestDto.getTpaOrganizationName() == null
+                        || requestDto.getTpaOrganizationName().trim().isEmpty();
+                boolean contactBlank = requestDto.getTpaContactInfo() == null
+                        || requestDto.getTpaContactInfo().trim().isEmpty();
+                if (!nameBlank) {
+                    policy.setTpaOrganizationName(requestDto.getTpaOrganizationName());
+                }
+                if (!contactBlank) {
+                    policy.setTpaContactInfo(requestDto.getTpaContactInfo());
+                }
             } else {
                 policy.setTpaOrganizationName(null);
                 policy.setTpaContactInfo(null);
@@ -715,7 +722,10 @@ public class PolicyServiceImpl implements IPolicyService {
         responseDto.setPolicyId(policy.getPolicyId());
         responseDto.setPolicyNumber(policy.getPolicyNumber());
         responseDto.setPrimaryIndividualId(policy.getPrimaryIndividualId());
-        responseDto.setInsuranceProvider(insuranceProviderRepository.findById(policy.getInsuranceProviderId()).orElseThrow(() -> new RuntimeException("Insurance provider not found")).getProviderName());
+        var insuranceProviderEntity = insuranceProviderRepository.findById(policy.getInsuranceProviderId())
+                .orElseThrow(() -> new RuntimeException("Insurance provider not found"));
+        responseDto.setInsuranceProvider(insuranceProviderEntity.getProviderName());
+        responseDto.setInsuranceProviderCode(insuranceProviderEntity.getProviderCode());
         responseDto.setInsuranceProductId(policy.getInsuranceProductId());
         responseDto.setOrganizationId(policy.getOrganizationId());
         responseDto.setDocumentId(policy.getDocument() != null ? policy.getDocument().getDocumentId() : null);
@@ -984,8 +994,18 @@ public class PolicyServiceImpl implements IPolicyService {
                     return responseObj.render(responseObj.formErrorResponse(BASE_GMC_REQUIRED_MESSAGE));
                 }
             }
-            if (productType != ProductType.PARENT_GMC) {
-                policy.setCoverageType(CoverageType.fromValue(requestDto.getCoverageType()));
+            if (productType == ProductType.PARENT_GMC) {
+                policy.setCoverageType(CoverageType.PARENT);
+            } else if (productType == ProductType.GMC || productType == ProductType.GHI) {
+                if (requestDto.getCoverageType() == null || requestDto.getCoverageType().trim().isEmpty()) {
+                    return responseObj.render(responseObj.formErrorResponse(
+                        "Coverage Type is required for GMC/GHI policies (E, ES, ESC, or ESCP)"));
+                }
+                policy.setCoverageType(CoverageType.fromValue(requestDto.getCoverageType().trim()));
+            } else if (requestDto.getCoverageType() != null && !requestDto.getCoverageType().trim().isEmpty()) {
+                policy.setCoverageType(CoverageType.fromValue(requestDto.getCoverageType().trim()));
+            } else {
+                policy.setCoverageType(null);
             }
             policy.setMaxChildrenAllowed(resolveAndValidateMaxChildrenAllowed(
                     productType, policy.getCoverageType(), requestDto.getMaxChildrenAllowed()));
