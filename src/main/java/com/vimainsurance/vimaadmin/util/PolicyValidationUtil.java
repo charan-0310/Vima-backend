@@ -14,22 +14,13 @@ import java.util.List;
 public class PolicyValidationUtil {
 
     /**
-     * Validate policy request based on policy type
+     * Validate policy request based on policy type.
+     * <p>GMC: TPA, coverage type, sum insured, etc. For {@code isUpdate == true}, both TPA fields may be
+     * omitted together to leave existing database values unchanged.</p>
      *
-     * GMC Policies must have:
-     * - TPA Name (required)
-     * - TPA Contact Info (required)
-     * - Coverage Type (required: E, ES, ESC, ESCP)
-     * - Fixed sum insured amount (required)
-     * - Cannot have sum_insured_multiplier
-     *
-     * GPA/GTL Policies must have:
-     * - Sum Insured Multiplier (required: 1-5)
-     * - Cannot have TPA fields
-     * - Cannot have coverage type
-     * - Cannot have dependents (enforced at enrollment level)
+     * @param isUpdate when true, GMC policies may omit both TPA fields to leave existing DB values unchanged
      */
-    public static void validatePolicyRequest(PolicyRequestDto request) {
+    public static void validatePolicyRequest(PolicyRequestDto request, boolean isUpdate) {
         List<String> errors = new ArrayList<>();
 
         if (request.getProductType() == null || request.getProductType().trim().isEmpty()) {
@@ -46,7 +37,7 @@ public class PolicyValidationUtil {
 
         switch (policyType) {
             case GMC:
-                validateGMCPolicy(request, errors);
+                validateGMCPolicy(request, errors, isUpdate);
                 break;
             case GPA:
             case GTL:
@@ -68,15 +59,23 @@ public class PolicyValidationUtil {
         }
     }
 
-    private static void validateGMCPolicy(PolicyRequestDto request, List<String> errors) {
-        // TPA Name is required for GMC
-        if (request.getTpaOrganizationName() == null || request.getTpaOrganizationName().trim().isEmpty()) {
-            errors.add("TPA Organization Name is required for GMC policies");
-        }
+    /** Create / full validation: TPA required for GMC. */
+    public static void validatePolicyRequest(PolicyRequestDto request) {
+        validatePolicyRequest(request, false);
+    }
 
-        // TPA Contact Info is required for GMC
-        if (request.getTpaContactInfo() == null || request.getTpaContactInfo().trim().isEmpty()) {
-            errors.add("TPA Contact Info is required for GMC policies");
+    private static void validateGMCPolicy(PolicyRequestDto request, List<String> errors, boolean isUpdate) {
+        boolean namePresent = request.getTpaOrganizationName() != null && !request.getTpaOrganizationName().trim().isEmpty();
+        boolean contactPresent = request.getTpaContactInfo() != null && !request.getTpaContactInfo().trim().isEmpty();
+        // Updates: omitting both TPA fields means "leave existing values" (legacy rows may have null TPA)
+        boolean skipTpaRequired = isUpdate && !namePresent && !contactPresent;
+        if (!skipTpaRequired) {
+            if (!namePresent) {
+                errors.add("TPA Organization Name is required for GMC policies");
+            }
+            if (!contactPresent) {
+                errors.add("TPA Contact Info is required for GMC policies");
+            }
         }
 
         // Coverage Type is required for GMC

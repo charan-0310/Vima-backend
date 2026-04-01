@@ -66,7 +66,7 @@ public enum ProductType {
      * Check if this product type requires TPA
      */
     public boolean requiresTPA() {
-        return this == GMC;
+        return this == GMC || this == GHI;
     }
 
     /**
