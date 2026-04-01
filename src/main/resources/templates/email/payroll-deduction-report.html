@@ -21,7 +21,7 @@
     <div class="container">
         <div class="header">
             <h1>Payroll Deduction Report</h1>
-            <p th:text="${companyName}">Company Name</p>
+            <p th:text="${#strings.isEmpty(companyName) ? 'VIMA Insurance Brokers Pvt. Ltd' : companyName}">Company Name</p>
         </div>
         <div class="content">
             <p>Please find attached the payroll deduction report for <strong th:text="${reportMonth}">Report month</strong>.</p>
@@ -33,7 +33,7 @@
             <p style="font-size: 14px; color: #64748b;">Attachment: <span th:text="${attachmentFileName}">report.xlsx</span></p>
         </div>
         <div class="footer">
-            <p th:text="${companyName}">Company Name</p>
+            <p th:text="${#strings.isEmpty(companyName) ? 'VIMA Insurance Brokers Pvt. Ltd' : companyName}">Company Name</p>
         </div>
     </div>
 </body>

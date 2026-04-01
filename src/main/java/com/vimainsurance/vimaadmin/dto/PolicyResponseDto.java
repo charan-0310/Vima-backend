@@ -18,7 +18,10 @@ public class PolicyResponseDto {
     private Long policyId;
     private String policyNumber;
     private UUID primaryIndividualId;
+    /** Display name from insurance_providers.provider_name */
     private String insuranceProvider;
+    /** Provider code (e.g. ICICI) for form selects; same as insurance_company_code on write */
+    private String insuranceProviderCode;
     private UUID insuranceProductId;
     private UUID organizationId;
     private UUID documentId;

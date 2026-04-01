@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>New Quote Generated - Vima Insurance</title>
+    <title>New Quote Generated - VIMA Insurance Brokers Pvt. Ltd</title>
     <style>
         body {
             font-family: Arial, sans-serif;
@@ -57,7 +57,7 @@
     <div class="content">
         <h2>Hello <span th:text="${customerName}">Customer</span>!</h2>
         
-        <p>Great news! A new insurance quote has been generated for you by <span th:text="${companyName}">Vima Insurance</span>.</p>
+        <p>Great news! A new insurance quote has been generated for you by <span th:text="${#strings.isEmpty(companyName) ? 'VIMA Insurance Brokers Pvt. Ltd' : companyName}">VIMA Insurance Brokers Pvt. Ltd</span>.</p>
         
         <div class="quote-info">
             <h3>Quote Details</h3>
@@ -72,12 +72,12 @@
         
         <p>If you have any questions about this quote or need assistance, please don't hesitate to contact our support team.</p>
         
-        <p>Thank you for choosing Vima Insurance!</p>
+        <p>Thank you for choosing VIMA Insurance Brokers Pvt. Ltd!</p>
     </div>
     
     <div class="footer">
-        <p>This email was sent by Vima Insurance. Please do not reply to this email.</p>
-        <p>&copy; 2024 Vima Insurance. All rights reserved.</p>
+        <p>This email was sent by VIMA Insurance Brokers Pvt. Ltd. Please do not reply to this email.</p>
+        <p>&copy; 2024 VIMA Insurance Brokers Pvt. Ltd. All rights reserved.</p>
     </div>
 </body>
 </html>
