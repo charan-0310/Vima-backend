@@ -4,7 +4,10 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
+import java.util.Locale;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
@@ -24,6 +27,7 @@ import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -44,6 +48,7 @@ import com.vimainsurance.vimaadmin.entity.Deals;
 import com.vimainsurance.vimaadmin.entity.EnrollmentInvitation;
 import com.vimainsurance.vimaadmin.entity.EnrollmentSubmission;
 import com.vimainsurance.vimaadmin.entity.EnrollmentWindows;
+import com.vimainsurance.vimaadmin.entity.Organization;
 import com.vimainsurance.vimaadmin.enums.EnrollementStatus;
 import com.vimainsurance.vimaadmin.mapper.EnrollmentInvitationMapper;
 import com.vimainsurance.vimaadmin.repository.IDealsRepository;
@@ -61,6 +66,7 @@ public class EnrollmentInvitationServiceImpl implements IEnrollmentInvitation {
     private static final Logger logger = LoggerFactory.getLogger(EnrollmentInvitationServiceImpl.class);
     private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
     private static final DateTimeFormatter INVITATION_EXPIRY_FORMAT = DateTimeFormatter.ofPattern("d MMM uuuu, h:mm a");
+    private static final DateTimeFormatter ENROLLMENT_WINDOW_DATE_EMAIL = DateTimeFormatter.ofPattern("dd-MMM-uuuu", Locale.ENGLISH);
 
     @Autowired
     private IEnrollmentInvitationRepository invitationRepository;
@@ -74,6 +80,8 @@ public class EnrollmentInvitationServiceImpl implements IEnrollmentInvitation {
     private IEmailService emailService;
     @Autowired
     private TokenSecurityService tokenSecurityService;
+    @Autowired
+    private TransactionTemplate transactionTemplate;
 
     @Autowired
     @Qualifier(AsyncConfig.ENROLLMENT_BULK_EXECUTOR)
@@ -125,13 +133,15 @@ public class EnrollmentInvitationServiceImpl implements IEnrollmentInvitation {
             invitation = invitationRepository.save(invitation);
 
             String magicLink = baseUrl + "/enrollment/" + rawToken;
-            // Avoid lazy-loading organization in async bulk-send path where no Hibernate session may be active.
+            Organization windowOrg = window.getOrganization();
             boolean emailSent = sendEnrollmentInvitationEmail(
                 employee.getEmail(),
                 employee.getFullName(),
                 magicLink,
-                null,
-                expiresAt
+                windowOrg != null ? windowOrg.getOrganizationName() : null,
+                expiresAt,
+                window.getStartDate(),
+                window.getEndDate()
             );
             if (emailSent) {
                 invitation.setStatus(EnrollementStatus.SENT);
@@ -175,7 +185,8 @@ public class EnrollmentInvitationServiceImpl implements IEnrollmentInvitation {
                                 .error("Invitation already exists for this employee and window")
                                 .build();
                         }
-                        ResponseEntity<ResponseDto<EnrollmentInvitationResponseDto>> single = sendInvitation(employeeId, windowId);
+                        ResponseEntity<ResponseDto<EnrollmentInvitationResponseDto>> single = transactionTemplate
+                            .execute(status -> sendInvitation(employeeId, windowId));
                         ResponseDto<EnrollmentInvitationResponseDto> body = single != null ? single.getBody() : null;
                         if (body != null && body.getErrorCode() == null && body.getPayload() != null) {
                             return null;
@@ -503,12 +514,19 @@ public class EnrollmentInvitationServiceImpl implements IEnrollmentInvitation {
                 invitationRepository.save(inv);
             }
             String magicLink = baseUrl + "/enrollment/" + rawToken;
+            Organization inviteOrg = inv.getEnrollmentWindow() != null ? inv.getEnrollmentWindow().getOrganization() : null;
+            if (inviteOrg == null) {
+                inviteOrg = employee.getOrganization();
+            }
+            EnrollmentWindows inviteWindow = inv.getEnrollmentWindow();
             boolean emailSent = sendEnrollmentInvitationEmail(
                 employee.getEmail(),
                 employee.getFullName(),
                 magicLink,
-                employee.getOrganization() != null ? employee.getOrganization().getOrganizationName() : null,
-                inv.getExpiresAt()
+                inviteOrg != null ? inviteOrg.getOrganizationName() : null,
+                inv.getExpiresAt(),
+                inviteWindow != null ? inviteWindow.getStartDate() : null,
+                inviteWindow != null ? inviteWindow.getEndDate() : null
             );
             if (emailSent) {
                 inv.setStatus(EnrollementStatus.SENT);
@@ -740,18 +758,31 @@ public class EnrollmentInvitationServiceImpl implements IEnrollmentInvitation {
         }
     }
 
-    private boolean sendEnrollmentInvitationEmail(String to, String employeeName, String magicLink, String companyName, LocalDateTime expiresAt) {
+    private Map<String, Object> buildEnrollmentEmailTemplateVariables(String employeeName, String magicLink, String companyName,
+                                                                      LocalDateTime expiresAt,
+                                                                      LocalDate windowStartDate, LocalDate windowEndDate) {
+        Map<String, Object> vars = new HashMap<>();
+        vars.put("employeeName", employeeName != null ? employeeName : "Employee");
+        vars.put("magicLink", magicLink);
+        vars.put("companyName", (companyName != null && !companyName.isBlank()) ? companyName : "Vima Insurance");
+        vars.put("linkExpiry", formatInvitationExpiry(expiresAt));
+        vars.put("enrollmentWindowRange", formatEnrollmentWindowRange(windowStartDate, windowEndDate));
+        vars.put("enrollmentDeadlineDate", formatEnrollmentDeadlineDate(windowEndDate));
+        vars.put("copyrightYear", String.valueOf(LocalDate.now().getYear()));
+        return vars;
+    }
+
+    private boolean sendEnrollmentInvitationEmail(String to, String employeeName, String magicLink, String companyName,
+                                                  LocalDateTime expiresAt,
+                                                  LocalDate windowStartDate, LocalDate windowEndDate) {
         try {
+            Map<String, Object> vars = buildEnrollmentEmailTemplateVariables(
+                employeeName, magicLink, companyName, expiresAt, windowStartDate, windowEndDate);
             EmailRequest req = EmailRequest.builder()
                 .to(to)
                 .subject("Enrollment invitation - Vima Insurance")
                 .templateName("enrollment-invitation")
-                .templateVariables(java.util.Map.of(
-                    "employeeName", employeeName != null ? employeeName : "Employee",
-                    "magicLink", magicLink,
-                    "companyName", (companyName != null && !companyName.isBlank()) ? companyName : "Vima Insurance",
-                    "linkExpiry", formatInvitationExpiry(expiresAt)
-                ))
+                .templateVariables(vars)
                 .build();
             return emailService.sendTemplateEmail(req).isSuccess();
         } catch (Exception e) {
@@ -782,5 +813,16 @@ public class EnrollmentInvitationServiceImpl implements IEnrollmentInvitation {
 
     private String formatInvitationExpiry(LocalDateTime expiresAt) {
         return expiresAt != null ? expiresAt.format(INVITATION_EXPIRY_FORMAT) : "the enrollment window end time";
+    }
+
+    private String formatEnrollmentWindowRange(LocalDate start, LocalDate end) {
+        if (start == null || end == null) {
+            return "";
+        }
+        return start.format(ENROLLMENT_WINDOW_DATE_EMAIL) + " to " + end.format(ENROLLMENT_WINDOW_DATE_EMAIL);
+    }
+
+    private String formatEnrollmentDeadlineDate(LocalDate end) {
+        return end != null ? end.format(ENROLLMENT_WINDOW_DATE_EMAIL) : "";
     }
 }

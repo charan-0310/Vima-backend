@@ -11,7 +11,7 @@
     <![endif]-->
     <style>
         @media only screen and (max-width: 600px) {
-            .wrapper  { padding: 0 !important; }
+            .wrapper  { padding: 16px 8px !important; }
             .card     { border-radius: 0 !important; }
             .pad-logo { padding: 24px 20px 20px 20px !important; }
             .pad      { padding-left: 20px !important; padding-right: 20px !important; }
@@ -20,6 +20,7 @@
             .btn-cell { width: 100% !important; text-align: center !important; }
             .btn-a    { display: block !important; text-align: center !important; }
             .ftr-pad  { padding-left: 20px !important; padding-right: 20px !important; }
+            .note-box { padding: 16px !important; }
         }
     </style>
 </head>
@@ -29,26 +30,25 @@
         <tr>
             <td class="wrapper" style="padding: 40px 20px;">
 
-                <!-- Card -->
-                <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" class="card" style="max-width: 560px; margin: 0 auto; background-color: #ffffff; border-radius: 12px;">
+                <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" class="card" style="max-width: 600px; margin: 0 auto; background-color: #ffffff; border-radius: 12px; box-shadow: 0 1px 3px rgba(0,0,0,0.08);">
 
                     <!-- Logo -->
                     <tr>
-                        <td class="pad-logo" style="padding: 40px 40px 32px 40px;">
+                        <td class="pad-logo" style="padding: 40px 40px 28px 40px;">
                             <table role="presentation" cellspacing="0" cellpadding="0" border="0">
                                 <tr>
-                                    <td style="background-color: #ffffff; padding: 8px 12px; border-radius: 6px;">
+                                    <td style="background-color: #ffffff; padding: 8px 12px; border-radius: 6px; vertical-align: middle;">
                                         <!--[if !mso]><!-->
                                         <img src="https://vimainsurance.com/assets/vima-logo-main.DiciI4hf.png"
                                              alt="VIMA Insurance Brokers Pvt. Ltd"
-                                             width="200" height="64" border="0"
-                                             style="height: 64px; width: 200px; max-width: 100%; display: block; border: 0;">
+                                             width="160" height="51" border="0"
+                                             style="height: 51px; width: 160px; max-width: 100%; display: block; border: 0;">
                                         <!--<![endif]-->
                                         <!--[if mso]>
                                         <img src="https://vimainsurance.com/assets/vima-logo-main.DiciI4hf.png"
                                              alt="VIMA Insurance Brokers Pvt. Ltd"
-                                             width="200" height="64" border="0"
-                                             style="height: 64px; width: 200px; display: block;">
+                                             width="160" height="51" border="0"
+                                             style="height: 51px; width: 160px; display: block;">
                                         <![endif]-->
                                     </td>
                                 </tr>
@@ -56,33 +56,90 @@
                         </td>
                     </tr>
 
-                    <!-- Headline -->
+                    <!-- Greeting -->
                     <tr>
                         <td class="pad" style="padding: 0 40px;">
-                            <h1 style="font-size: 26px; font-weight: 600; color: #1a1a1a; margin: 0 0 16px 0; letter-spacing: -0.3px;">
-                                You're invited to enroll in your benefits
-                            </h1>
+                            <p style="font-size: 16px; color: #1a1a1a; margin: 0 0 20px 0; font-weight: 500;">
+                                Hi <span th:text="${employeeName}">Team</span>,
+                            </p>
                         </td>
                     </tr>
 
-                    <!-- Body -->
+                    <!-- Invitation -->
                     <tr>
                         <td class="pad" style="padding: 0 40px;">
-                            <p style="font-size: 16px; color: #525252; margin: 0 0 32px 0;">
-                                Hi <strong th:text="${employeeName}">Employee</strong>, <strong th:text="${#strings.isEmpty(companyName) ? 'VIMA Insurance Brokers Pvt. Ltd' : companyName}">Employer</strong> has set up employee benefits enrollment for you. Click the button below to get started.
+                            <p style="font-size: 15px; color: #374151; margin: 0 0 16px 0;">
+                                You are invited to complete your benefits enrollment with VIMA.
                             </p>
+                            <p style="font-size: 15px; color: #374151; margin: 0 0 16px 0;">
+                                <strong th:text="${companyName}">Your employer</strong> has partnered with VIMA to provide Health Insurance &amp; Wellness Benefits for you and your family.
+                            </p>
+                        </td>
+                    </tr>
+
+                    <!-- Enrollment window -->
+                    <tr th:if="${enrollmentWindowRange != null and !#strings.isEmpty(enrollmentWindowRange)}">
+                        <td class="pad" style="padding: 8px 40px 8px 40px;">
+                            <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="background-color: #eff6ff; border-radius: 8px; border-left: 4px solid #1e40af;">
+                                <tr>
+                                    <td style="padding: 16px 20px;">
+                                        <p style="font-size: 14px; color: #1e40af; margin: 0 0 4px 0; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px;">
+                                            Enrollment Window
+                                        </p>
+                                        <p style="font-size: 16px; color: #1e3a5f; margin: 0; font-weight: 600;" th:text="${enrollmentWindowRange}">
+                                            01-Jan-2026 to 31-Jan-2026
+                                        </p>
+                                    </td>
+                                </tr>
+                            </table>
+                        </td>
+                    </tr>
+
+                    <tr>
+                        <td class="pad" style="padding: 16px 40px 0 40px;">
+                            <p style="font-size: 15px; color: #374151; margin: 0 0 16px 0;">
+                                During this time you can review, edit or add details for yourself and your dependents for the insurance benefits.
+                            </p>
+                        </td>
+                    </tr>
+
+                    <!-- Deadline -->
+                    <tr th:if="${enrollmentDeadlineDate != null and !#strings.isEmpty(enrollmentDeadlineDate)}">
+                        <td class="pad" style="padding: 4px 40px 24px 40px;">
+                            <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="background-color: #fef3c7; border-radius: 8px; border-left: 4px solid #d97706;">
+                                <tr>
+                                    <td style="padding: 14px 20px;">
+                                        <p style="font-size: 14px; color: #92400e; margin: 0; font-weight: 500;">
+                                            Please ensure any necessary updates and additions are made before <strong th:text="${enrollmentDeadlineDate}">the deadline</strong> as any changes after this deadline will not be honored.
+                                        </p>
+                                    </td>
+                                </tr>
+                            </table>
+                        </td>
+                    </tr>
+                    <tr th:if="${enrollmentDeadlineDate == null or #strings.isEmpty(enrollmentDeadlineDate)}">
+                        <td class="pad" style="padding: 4px 40px 24px 40px;">
+                            <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="background-color: #fef3c7; border-radius: 8px; border-left: 4px solid #d97706;">
+                                <tr>
+                                    <td style="padding: 14px 20px;">
+                                        <p style="font-size: 14px; color: #92400e; margin: 0; font-weight: 500;">
+                                            Please ensure any necessary updates and additions are made before your enrollment deadline as communicated by your HR team.
+                                        </p>
+                                    </td>
+                                </tr>
+                            </table>
                         </td>
                     </tr>
 
                     <!-- CTA -->
                     <tr>
-                        <td class="btn-wrap pad" style="padding: 0 40px 16px 40px;">
-                            <table role="presentation" cellspacing="0" cellpadding="0" border="0" class="btn-tbl">
+                        <td class="btn-wrap pad" style="padding: 0 40px 16px 40px; text-align: center;">
+                            <table role="presentation" cellspacing="0" cellpadding="0" border="0" class="btn-tbl" style="margin: 0 auto;">
                                 <tr>
-                                    <td class="btn-cell" style="background-color: #1e40af; border-radius: 6px;">
+                                    <td class="btn-cell" style="background-color: #1e40af; border-radius: 8px;">
                                         <a th:href="${magicLink}" href="#" class="btn-a"
-                                           style="display: inline-block; color: #ffffff; padding: 14px 32px; text-decoration: none; font-size: 15px; font-weight: 600; border-radius: 6px;">
-                                            Complete your enrollment
+                                           style="display: inline-block; color: #ffffff; padding: 16px 48px; text-decoration: none; font-size: 16px; font-weight: 700; border-radius: 8px; letter-spacing: 0.3px;">
+                                            Complete Enrollment
                                         </a>
                                     </td>
                                 </tr>
@@ -92,53 +149,155 @@
 
                     <!-- Expiry + fallback link -->
                     <tr>
-                        <td class="pad" style="padding: 0 40px 32px 40px;">
+                        <td class="pad" style="padding: 0 40px 28px 40px;">
                             <p style="font-size: 13px; color: #6b7280; margin: 0 0 12px 0;">
-                                This link expires on <strong th:text="${linkExpiry}">1 Jan 2026, 11:59 PM</strong>. If it expires, contact your HR administrator for a new invitation.
+                                This link expires on <strong th:text="${linkExpiry}">the enrollment window end time</strong>. If it expires, contact your HR administrator for a new invitation.
                             </p>
                             <p style="font-size: 12px; color: #9ca3af; margin: 0 0 4px 0;">
                                 Button not working? Copy and paste this link into your browser:
                             </p>
                             <p style="font-size: 12px; color: #9ca3af; word-break: break-all; font-family: 'SF Mono', Monaco, 'Courier New', monospace; margin: 0;" th:text="${magicLink}">
-                                https://app.vimainsurance.com/enroll/...
+                                https://app.vimainsurance.com/enrollment/...
                             </p>
                         </td>
                     </tr>
 
-                    <!-- Support contact -->
+                    <!-- Divider -->
                     <tr>
-                        <td class="pad" style="padding: 0 40px 32px 40px;">
-                            <p style="font-size: 14px; color: #6b7280; margin: 0 0 8px 0;">
-                                Questions about your enrollment? Contact our support team:
-                            </p>
-                            <p style="font-size: 14px; margin: 0;">
-                                <a href="mailto:protect@vimainsurance.com" style="color: #1e40af; text-decoration: none; font-weight: 500;">protect@vimainsurance.com</a>
-                                <span style="color: #d1d5db; padding: 0 8px;">·</span>
-                                <a href="tel:+919514675818" style="color: #1e40af; text-decoration: none; font-weight: 500;">+91 95146 75818</a>
+                        <td class="pad" style="padding: 0 40px;">
+                            <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%">
+                                <tr>
+                                    <td style="border-top: 1px solid #e5e7eb; height: 1px; font-size: 0; line-height: 0;">&nbsp;</td>
+                                </tr>
+                            </table>
+                        </td>
+                    </tr>
+
+                    <tr>
+                        <td class="pad" style="padding: 24px 40px 8px 40px;">
+                            <p style="font-size: 15px; font-weight: 700; color: #1a1a1a; margin: 0; letter-spacing: -0.2px;">
+                                Important notes:
                             </p>
                         </td>
                     </tr>
 
-                    <!-- Security note -->
                     <tr>
-                        <td class="pad" style="padding: 0 40px 40px 40px;">
-                            <p style="font-size: 13px; color: #9ca3af; margin: 0;">
-                                If you didn't expect this invitation or believe it was sent in error, please contact us immediately.
+                        <td class="pad" style="padding: 8px 40px 24px 40px;">
+                            <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" class="note-box" style="background-color: #f9fafb; border-radius: 8px; padding: 20px 24px;">
+                                <tr>
+                                    <td style="padding: 6px 0; vertical-align: top; width: 24px;">
+                                        <span style="color: #1e40af; font-size: 14px; font-weight: 700;">&bull;</span>
+                                    </td>
+                                    <td style="padding: 6px 0; font-size: 14px; color: #374151; line-height: 1.5;">
+                                        All details must match your government ID card.
+                                    </td>
+                                </tr>
+                                <tr>
+                                    <td style="padding: 6px 0; vertical-align: top; width: 24px;">
+                                        <span style="color: #1e40af; font-size: 14px; font-weight: 700;">&bull;</span>
+                                    </td>
+                                    <td style="padding: 6px 0; font-size: 14px; color: #374151; line-height: 1.5;">
+                                        Please ensure you cover all dependents, if any (1 spouse, 2 children, or parents/parents-in-law).
+                                    </td>
+                                </tr>
+                                <tr>
+                                    <td style="padding: 6px 0; vertical-align: top; width: 24px;">
+                                        <span style="color: #1e40af; font-size: 14px; font-weight: 700;">&bull;</span>
+                                    </td>
+                                    <td style="padding: 6px 0; font-size: 14px; color: #374151; line-height: 1.5;">
+                                        No addition of dependents will be allowed after
+                                        <strong th:if="${enrollmentDeadlineDate != null and !#strings.isEmpty(enrollmentDeadlineDate)}" th:text="${enrollmentDeadlineDate}">the deadline</strong>
+                                        <span th:if="${enrollmentDeadlineDate == null or #strings.isEmpty(enrollmentDeadlineDate)}">the enrollment deadline</span>
+                                        except for a newborn baby or newly-wedded spouse.
+                                    </td>
+                                </tr>
+                                <tr>
+                                    <td style="padding: 6px 0; vertical-align: top; width: 24px;">
+                                        <span style="color: #1e40af; font-size: 14px; font-weight: 700;">&bull;</span>
+                                    </td>
+                                    <td style="padding: 6px 0; font-size: 14px; color: #374151; line-height: 1.5;">
+                                        In the form of relationship status when adding yourself, it should be &quot;Self&quot;.
+                                    </td>
+                                </tr>
+                                <tr>
+                                    <td style="padding: 6px 0; vertical-align: top; width: 24px;">
+                                        <span style="color: #1e40af; font-size: 14px; font-weight: 700;">&bull;</span>
+                                    </td>
+                                    <td style="padding: 6px 0; font-size: 14px; color: #374151; line-height: 1.5;">
+                                        Dependent details include an upper limit: one spouse, two children (up to the age 25), and either parents or parents-in-law. Once opted in, you cannot opt-out until the policy lapses or unless the dependent is deceased or the employee leaves the organization.
+                                    </td>
+                                </tr>
+                                <tr>
+                                    <td style="padding: 6px 0; vertical-align: top; width: 24px;">
+                                        <span style="color: #1e40af; font-size: 14px; font-weight: 700;">&bull;</span>
+                                    </td>
+                                    <td style="padding: 6px 0; font-size: 14px; color: #374151; line-height: 1.5;">
+                                        Our team will take cashless claims offline until the enrollment window closes. Reimbursement claims can be initiated on the ACKO app once the health cards are generated.
+                                    </td>
+                                </tr>
+                                <tr>
+                                    <td style="padding: 6px 0; vertical-align: top; width: 24px;">
+                                        <span style="color: #1e40af; font-size: 14px; font-weight: 700;">&bull;</span>
+                                    </td>
+                                    <td style="padding: 6px 0; font-size: 14px; color: #374151; line-height: 1.5;">
+                                        If you have already enrolled and wish to make changes, you may log in again to do so until
+                                        <strong th:if="${enrollmentDeadlineDate != null and !#strings.isEmpty(enrollmentDeadlineDate)}" th:text="${enrollmentDeadlineDate}">the deadline</strong>
+                                        <span th:if="${enrollmentDeadlineDate == null or #strings.isEmpty(enrollmentDeadlineDate)}">the enrollment deadline</span>.
+                                    </td>
+                                </tr>
+                            </table>
+                        </td>
+                    </tr>
+
+                    <tr>
+                        <td class="pad" style="padding: 0 40px;">
+                            <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%">
+                                <tr>
+                                    <td style="border-top: 1px solid #e5e7eb; height: 1px; font-size: 0; line-height: 0;">&nbsp;</td>
+                                </tr>
+                            </table>
+                        </td>
+                    </tr>
+
+                    <tr>
+                        <td class="pad" style="padding: 24px 40px 16px 40px;">
+                            <p style="font-size: 15px; color: #374151; margin: 0 0 8px 0;">
+                                If you are facing any tech issues or are unable to complete enrolment, you can reach out to
+                                <a href="mailto:protect@vimainsurance.com" style="color: #1e40af; text-decoration: none; font-weight: 600;">protect@vimainsurance.com</a>
+                                &mdash; our support team will review the same and assist you at the earliest.
                             </p>
+                        </td>
+                    </tr>
+
+                    <tr>
+                        <td class="pad" style="padding: 0 40px 36px 40px;">
+                            <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="background-color: #fef2f2; border-radius: 8px; border-left: 4px solid #dc2626;">
+                                <tr>
+                                    <td style="padding: 14px 20px;">
+                                        <p style="font-size: 13px; color: #dc2626; margin: 0 0 2px 0; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px;">
+                                            Emergency Cashless Helpline
+                                        </p>
+                                        <p style="font-size: 14px; color: #7f1d1d; margin: 0;">
+                                            In the event that you need to utilize your insurance coverage during this period, please contact VIMA&apos;s emergency cashless helpline at
+                                            <a href="tel:+919514675818" style="color: #dc2626; text-decoration: none; font-weight: 700;">+91 9514675818</a>.
+                                            VIMA will assist you in obtaining offline cashless approval.
+                                        </p>
+                                    </td>
+                                </tr>
+                            </table>
                         </td>
                     </tr>
 
                 </table>
 
-                <!-- Footer: branding only -->
-                <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="max-width: 560px; margin: 0 auto;">
+                <table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="max-width: 600px; margin: 0 auto;">
                     <tr>
                         <td class="ftr-pad" style="padding: 32px 40px 0 40px; text-align: center;">
                             <p style="font-size: 13px; color: #6b7280; margin: 0 0 8px 0;">
                                 <a href="https://www.vimainsurance.com" style="color: #1e40af; text-decoration: none;">www.vimainsurance.com</a>
                             </p>
                             <p style="font-size: 12px; color: #9ca3af; margin: 12px 0 0 0;">
-                                &copy; 2026 VIMA Insurance Brokers Pvt. Ltd &middot; Chennai, India
+                                &copy; <span th:text="${copyrightYear}">2026</span> VIMA Insurance Brokers Pvt. Ltd &middot; Chennai, India
                             </p>
                         </td>
                     </tr>
