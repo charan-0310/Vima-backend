@@ -166,7 +166,23 @@ public class PremiumCalculationServiceImpl implements IPremiumCalculationService
 
         if (model == PricingModel.FLAT) {
             PremiumRateTable row = forPlan.stream().findFirst().orElseThrow();
-            totalPremium = row.getRate().multiply(BigDecimal.valueOf(Math.max(1, coveredMembers.size())));
+            String mt = row.getMemberType() != null ? row.getMemberType().trim().toUpperCase() : "";
+            if ("FAMILY".equals(mt)) {
+                if (row.getFamilySizeMax() != null) {
+                    int familySize = Math.max(1, coveredMembers.size());
+                    if (row.getFamilySizeMin() != null && familySize < row.getFamilySizeMin()) {
+                        throw new IllegalArgumentException(
+                                "Family size " + familySize + " below minimum " + row.getFamilySizeMin());
+                    }
+                    if (familySize > row.getFamilySizeMax()) {
+                        throw new IllegalArgumentException(
+                                "Family size " + familySize + " exceeds maximum " + row.getFamilySizeMax());
+                    }
+                }
+                totalPremium = row.getRate();
+            } else {
+                totalPremium = row.getRate().multiply(BigDecimal.valueOf(Math.max(1, coveredMembers.size())));
+            }
             if (row.getAgeBandMin() != null) {
                 matchedAgeBand = row.getAgeBandMin() + "-" + (row.getAgeBandMax() != null ? row.getAgeBandMax() : "");
             }
