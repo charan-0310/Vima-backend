@@ -17,6 +17,7 @@ import lombok.NoArgsConstructor;
 public class ActivateWindowResponseDto {
 
     private String windowStatus;
+    private int totalEmployees;
     private int sent;
     private int failed;
     private List<FailedInvitationDto> failedDetails;
