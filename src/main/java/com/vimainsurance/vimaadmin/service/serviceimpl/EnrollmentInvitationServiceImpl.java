@@ -178,11 +178,17 @@ public class EnrollmentInvitationServiceImpl implements IEnrollmentInvitation {
                     String employeeName = dealOpt.map(Deals::getFullName).filter(n -> n != null && !n.isBlank()).orElse("Unknown");
                     String employeeNumber = dealOpt.map(Deals::getEmployeeNumber).filter(n -> n != null && !n.isBlank()).orElse(null);
                     try {
-                        if (invitationRepository.existsByEmployee_IndividualIdAndEnrollmentWindow_Id(employeeId, windowId)) {
+                        Optional<EnrollmentInvitation> existingInv = invitationRepository
+                            .findByEmployee_IndividualIdAndEnrollmentWindow_Id(employeeId, windowId);
+                        if (existingInv.isPresent()) {
+                            EnrollmentInvitation inv = existingInv.get();
+                            if (inv.getStatus() == EnrollementStatus.PENDING) {
+                                return retryPendingInvitation(inv, windowId, dealOpt.orElse(null), employeeName, employeeNumber);
+                            }
                             return FailedInvitationDto.builder()
                                 .employeeNumber(employeeNumber)
                                 .employeeName(employeeName)
-                                .error("Invitation already exists for this employee and window")
+                                .error("Invitation already sent for this employee and window")
                                 .build();
                         }
                         ResponseEntity<ResponseDto<EnrollmentInvitationResponseDto>> single = transactionTemplate
@@ -225,6 +231,61 @@ public class EnrollmentInvitationServiceImpl implements IEnrollmentInvitation {
             TransactionUtil.markRollbackOnly();
             logger.error("[correlationId:{}] sendBulkInvitations failed", MDC.get("correlationId"), e);
             return responseObj.render(responseObj.formErrorResponse(e.getMessage()));
+        }
+    }
+
+    /**
+     * Retry sending email for a PENDING invitation (invitation exists but email was never delivered).
+     * Regenerates the deterministic token and attempts to send the email again.
+     * Loads the window separately to avoid LazyInitializationException in async threads.
+     */
+    private FailedInvitationDto retryPendingInvitation(EnrollmentInvitation invitation, UUID windowId,
+                                                       Deals employee, String employeeName, String employeeNumber) {
+        try {
+            if (employee == null || employee.getEmail() == null || employee.getEmail().isBlank()) {
+                return FailedInvitationDto.builder()
+                    .employeeNumber(employeeNumber)
+                    .employeeName(employeeName)
+                    .error("Employee or email not found")
+                    .build();
+            }
+
+            EnrollmentWindows window = enrollmentWindowsRepository.findById(windowId).orElse(null);
+            String rawToken = tokenSecurityService.generateTokenForInvitation(invitation.getId());
+            String magicLink = baseUrl + "/enrollment/" + rawToken;
+
+            boolean emailSent = sendEnrollmentInvitationEmail(
+                employee.getEmail(),
+                employee.getFullName(),
+                magicLink,
+                null,
+                invitation.getExpiresAt(),
+                window != null ? window.getStartDate() : null,
+                window != null ? window.getEndDate() : null
+            );
+
+            if (emailSent) {
+                invitation.setStatus(EnrollementStatus.SENT);
+                invitation.setSentAt(LocalDateTime.now());
+                invitationRepository.save(invitation);
+                logger.info("[correlationId:{}] Retried PENDING invitation {} — email sent to {}",
+                    MDC.get("correlationId"), invitation.getId(), employee.getEmail());
+                return null;
+            } else {
+                return FailedInvitationDto.builder()
+                    .employeeNumber(employeeNumber)
+                    .employeeName(employeeName)
+                    .error("Email sending failed on retry")
+                    .build();
+            }
+        } catch (Exception e) {
+            logger.warn("[correlationId:{}] Retry failed for PENDING invitation {}: {}",
+                MDC.get("correlationId"), invitation.getId(), e.getMessage());
+            return FailedInvitationDto.builder()
+                .employeeNumber(employeeNumber)
+                .employeeName(employeeName)
+                .error(e.getMessage() != null ? e.getMessage() : "Retry failed")
+                .build();
         }
     }
 
