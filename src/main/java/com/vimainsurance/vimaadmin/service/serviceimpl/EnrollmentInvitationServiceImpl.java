@@ -738,9 +738,10 @@ public class EnrollmentInvitationServiceImpl implements IEnrollmentInvitation {
 
                 String enrollmentStatus;
                 if (sub != null) {
-                    // DRAFT + invitation still SENT (not opened) = just invited, not yet in progress; show as "sent" (Invited) until they open the magic link
                     if (sub.getStatus() == EnrollementStatus.DRAFT && inv != null && inv.getStatus() == EnrollementStatus.SENT) {
                         enrollmentStatus = "sent";
+                    } else if (sub.getStatus() == EnrollementStatus.DRAFT && inv != null && inv.getStatus() == EnrollementStatus.PENDING) {
+                        enrollmentStatus = "pending";
                     } else {
                         enrollmentStatus = sub.getStatus().name();
                     }
@@ -779,6 +780,8 @@ public class EnrollmentInvitationServiceImpl implements IEnrollmentInvitation {
                     if (sub != null) {
                         if (sub.getStatus() == EnrollementStatus.DRAFT && invStatus == EnrollementStatus.SENT) {
                             enrollmentStatus = "sent";
+                        } else if (sub.getStatus() == EnrollementStatus.DRAFT && invStatus == EnrollementStatus.PENDING) {
+                            enrollmentStatus = "pending";
                         } else {
                             enrollmentStatus = sub.getStatus().name();
                         }
