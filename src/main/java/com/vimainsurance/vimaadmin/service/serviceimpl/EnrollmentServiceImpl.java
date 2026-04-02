@@ -178,6 +178,7 @@ public class EnrollmentServiceImpl implements IEnrollmentService {
                     pd.setSumInsured(p.getSumInsured());
                     pd.setCoverageAmount(p.getSumInsured());
                     pd.setCoverageType(p.getCoverageType() != null ? p.getCoverageType().name() : null);
+                    pd.setSumInsuredMultiplier(p.getSumInsuredMultiplier());
                     pd.setInsurerName(p.getInsuranceProviderId() != null ? insuranceProviderRepository.findById(p.getInsuranceProviderId()).orElseThrow(() -> new RuntimeException("Insurance provider not found")).getProviderName() : null);
                     policyDtos.add(pd);
                 }
