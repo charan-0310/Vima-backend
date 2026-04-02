@@ -22,6 +22,8 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -545,29 +547,58 @@ public class EnrollmentInvitationServiceImpl implements IEnrollmentInvitation {
             enrollmentWindowsRepository.save(window);
 
             List<Deals> employees = dealsRepository.findByEnrollmentWindow_Id(windowId);
-            if (employees.isEmpty()) {
+            int totalEmployees = employees.size();
+
+            if (totalEmployees == 0) {
                 ActivateWindowResponseDto dto = ActivateWindowResponseDto.builder()
                     .windowStatus(EnrollementStatus.ACTIVE.name())
+                    .totalEmployees(0)
                     .sent(0)
                     .failed(0)
                     .failedDetails(List.of())
                     .build();
-                return responseObj.render(responseObj.formSuccessResponse("Window activated", dto));
+                return responseObj.render(responseObj.formSuccessResponse("Window activated. No employees to invite.", dto));
             }
+
             List<UUID> employeeIds = employees.stream().map(Deals::getIndividualId).toList();
-            ResponseEntity<ResponseDto<IEnrollmentInvitation.BulkInvitationResult>> bulkResp = sendBulkInvitations(employeeIds, windowId);
-            ResponseDto<IEnrollmentInvitation.BulkInvitationResult> body = bulkResp != null ? bulkResp.getBody() : null;
-            if (body == null || body.getErrorCode() != null || body.getPayload() == null) {
-                return responseObj.render(responseObj.formErrorResponse(body != null && body.getMessage() != null ? body.getMessage() : "Bulk send failed"));
-            }
-            IEnrollmentInvitation.BulkInvitationResult result = body.getPayload();
+            String correlationId = MDC.get("correlationId");
+
+            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+                @Override
+                public void afterCommit() {
+                    CompletableFuture.runAsync(() -> {
+                        MDC.put("correlationId", correlationId);
+                        try {
+                            logger.info("[correlationId:{}] Background: sending {} invitations for window {}",
+                                correlationId, totalEmployees, windowId);
+                            ResponseEntity<ResponseDto<IEnrollmentInvitation.BulkInvitationResult>> bulkResp =
+                                sendBulkInvitations(employeeIds, windowId);
+                            ResponseDto<IEnrollmentInvitation.BulkInvitationResult> body =
+                                bulkResp != null ? bulkResp.getBody() : null;
+                            if (body != null && body.getPayload() != null) {
+                                IEnrollmentInvitation.BulkInvitationResult r = body.getPayload();
+                                logger.info("[correlationId:{}] Background: invitations completed for window {} — sent={}, failed={}",
+                                    correlationId, windowId, r.sent(), r.failed());
+                            }
+                        } catch (Exception e) {
+                            logger.error("[correlationId:{}] Background: failed sending invitations for window {}",
+                                correlationId, windowId, e);
+                        } finally {
+                            MDC.remove("correlationId");
+                        }
+                    });
+                }
+            });
+
             ActivateWindowResponseDto dto = ActivateWindowResponseDto.builder()
                 .windowStatus(EnrollementStatus.ACTIVE.name())
-                .sent(result.sent())
-                .failed(result.failed())
-                .failedDetails(result.failedDetails())
+                .totalEmployees(totalEmployees)
+                .sent(0)
+                .failed(0)
+                .failedDetails(List.of())
                 .build();
-            return responseObj.render(responseObj.formSuccessResponse("Window activated", dto));
+            return responseObj.render(responseObj.formSuccessResponse(
+                "Window activated. Sending invitations to " + totalEmployees + " employees in the background.", dto));
         } catch (Exception e) {
             TransactionUtil.markRollbackOnly();
             logger.error("[correlationId:{}] activateWindowAndSendInvites failed", MDC.get("correlationId"), e);
