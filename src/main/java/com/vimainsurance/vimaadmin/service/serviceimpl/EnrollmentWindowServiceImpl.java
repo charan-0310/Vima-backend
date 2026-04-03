@@ -402,6 +402,7 @@ public class EnrollmentWindowServiceImpl implements IEnrollmentWindowService {
             obj.put("dateOfBirth", isoDob != null ? isoDob : rawDob);
             obj.put("gender", row.getGender());
             obj.put("email", row.getEmail());
+            obj.put("prefilledByHr", true);
             list.add(obj);
         }
         try {
