@@ -613,6 +613,8 @@ public class OrganizationServiceImpl implements IOrganizationService {
         dto.setPhone(deal.getPhone());
         dto.setEmployeeNumber(deal.getEmployeeNumber());
         dto.setDesignation(deal.getDesignation());
+        dto.setDepartment(deal.getDepartment());
+        dto.setMaritalStatus(deal.getMaritalStatus());
         dto.setDateOfJoining(deal.getDateOfJoining());
         dto.setStatus(deal.getStatus() != null ? deal.getStatus().name() : null);
         dto.setDateOfBirth(deal.getDateOfBirth());

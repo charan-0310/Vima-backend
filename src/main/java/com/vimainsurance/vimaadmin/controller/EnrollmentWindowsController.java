@@ -7,8 +7,8 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.slf4j.MDC;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.http.ResponseEntity;
 import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.CrossOrigin;
 import org.springframework.web.bind.annotation.DeleteMapping;
@@ -22,6 +22,7 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RequestPart;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.multipart.MultipartFile;
+import org.springframework.web.servlet.mvc.method.annotation.StreamingResponseBody;
 
 import com.vimainsurance.vimaadmin.dto.EnrollmentWindowRequestDto;
 import com.vimainsurance.vimaadmin.dto.EnrollmentWindowResponseDto;
@@ -174,5 +175,15 @@ public class EnrollmentWindowsController {
     public ResponseEntity<ResponseDto<EnrollmentWindowStatsDto>> getStats(@PathVariable UUID id) {
         logger.info("[correlationId:{}] GET /api/admin/enrollment-windows/{}/stats called", MDC.get("correlationId"), id);
         return enrollmentWindowService.getStats(id);
+    }
+
+    /**
+     * Download CSV of all employees and dependents linked to this window (columns aligned with bulk endorsement upload).
+     */
+    @GetMapping(value = "/{id}/employees/export-csv", produces = "text/csv")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'VIMA_ADMIN', 'SALES_MANAGER', 'HR_ADMIN')")
+    public ResponseEntity<StreamingResponseBody> exportEmployeesCsv(@PathVariable UUID id) {
+        logger.info("[correlationId:{}] GET /api/admin/enrollment-windows/{}/employees/export-csv called", MDC.get("correlationId"), id);
+        return enrollmentWindowService.exportEmployeesCsv(id);
     }
 }
