@@ -121,6 +121,7 @@ public class EnrollmentSubmissionServiceImpl implements IEnrollmentSubmissionSer
             return responseObj.render(responseObj.formErrorResponse(Constants.RECORD_NOT_FOUND_MESSAGE));
         }
         EnrollmentSubmission entity = opt.get();
+        EnrollementStatus statusBeforeUpdate = entity.getStatus();
 
         Deals employee = null;
         if (requestDto.getEmployeeId() != null) {
@@ -171,7 +172,9 @@ public class EnrollmentSubmissionServiceImpl implements IEnrollmentSubmissionSer
         EnrollmentSubmissionMapper.updateEntityFromDto(entity, requestDto, employee, enrollmentWindow, invitation, endorsement, reviewedBy);
         enrollmentSubmissionRepository.save(entity);
 
-        if(entity.getStatus() == EnrollementStatus.SUBMITTED) {
+        // Notify employee once when moving into SUBMITTED (not on every resubmit while already submitted)
+        if (entity.getStatus() == EnrollementStatus.SUBMITTED
+                && statusBeforeUpdate != EnrollementStatus.SUBMITTED) {
             sendSubmissionEmail(entity);
         }
 

@@ -17,6 +17,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -26,7 +27,9 @@ import org.springframework.web.bind.annotation.RestController;
 import com.vimainsurance.vimaadmin.dto.ApprovalRequest;
 import com.vimainsurance.vimaadmin.dto.BulkApprovalRequest;
 import com.vimainsurance.vimaadmin.dto.RejectionRequest;
+import com.vimainsurance.vimaadmin.dto.ResendRequest;
 import com.vimainsurance.vimaadmin.dto.ResponseDto;
+import com.vimainsurance.vimaadmin.dto.UpdateEnrollmentEmployeeRequest;
 import com.vimainsurance.vimaadmin.dto.SubmissionDetailDto;
 import com.vimainsurance.vimaadmin.dto.SubmissionListItemDto;
 import com.vimainsurance.vimaadmin.service.IHRApprovalService;
@@ -102,6 +105,15 @@ public class HRApprovalController {
     }
 
     /**
+     * Revoke approval: submission returns to SUBMITTED for re-review.
+     */
+    @PostMapping("/{id}/unapprove")
+    public ResponseEntity<ResponseDto<SubmissionDetailDto>> unapprove(@PathVariable UUID id) {
+        logger.info("[correlationId:{}] POST /api/v1/hr/enrollments/{}/unapprove", MDC.get("correlationId"), id);
+        return hrApprovalService.unapprove(id);
+    }
+
+    /**
      * Reject an enrollment submission.
      */
     @PostMapping("/{id}/reject")
@@ -110,6 +122,28 @@ public class HRApprovalController {
             @Valid @RequestBody RejectionRequest request) {
         logger.info("[correlationId:{}] POST /api/v1/hr/enrollments/{}/reject", MDC.get("correlationId"), id);
         return hrApprovalService.reject(id, request);
+    }
+
+    /**
+     * Resend a submitted enrollment: reset to draft, reopen as invited, reminder email with notes.
+     */
+    @PostMapping("/{id}/resend")
+    public ResponseEntity<ResponseDto<SubmissionDetailDto>> resend(
+            @PathVariable UUID id,
+            @Valid @RequestBody ResendRequest request) {
+        logger.info("[correlationId:{}] POST /api/v1/hr/enrollments/{}/resend", MDC.get("correlationId"), id);
+        return hrApprovalService.resend(id, request);
+    }
+
+    /**
+     * Update primary employee record and sync personal_details on the submission.
+     */
+    @PatchMapping("/{id}/employee")
+    public ResponseEntity<ResponseDto<SubmissionDetailDto>> updateEnrollmentEmployee(
+            @PathVariable UUID id,
+            @Valid @RequestBody UpdateEnrollmentEmployeeRequest request) {
+        logger.info("[correlationId:{}] PATCH /api/v1/hr/enrollments/{}/employee", MDC.get("correlationId"), id);
+        return hrApprovalService.updateEnrollmentEmployee(id, request);
     }
 
     /**

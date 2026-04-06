@@ -11,7 +11,9 @@ import org.springframework.http.ResponseEntity;
 import com.vimainsurance.vimaadmin.dto.ApprovalRequest;
 import com.vimainsurance.vimaadmin.dto.BulkApprovalRequest;
 import com.vimainsurance.vimaadmin.dto.RejectionRequest;
+import com.vimainsurance.vimaadmin.dto.ResendRequest;
 import com.vimainsurance.vimaadmin.dto.ResponseDto;
+import com.vimainsurance.vimaadmin.dto.UpdateEnrollmentEmployeeRequest;
 import com.vimainsurance.vimaadmin.dto.SubmissionDetailDto;
 import com.vimainsurance.vimaadmin.dto.SubmissionListItemDto;
 
@@ -39,9 +41,25 @@ public interface IHRApprovalService {
     ResponseEntity<ResponseDto<SubmissionDetailDto>> approve(UUID id, ApprovalRequest request);
 
     /**
+     * Revoke HR approval: set status back to SUBMITTED, clear review fields, cancel policy maps and payroll rows
+     * created from this submission, reopen invitation. Not allowed if submission is endorsed or linked to an endorsement.
+     */
+    ResponseEntity<ResponseDto<SubmissionDetailDto>> unapprove(UUID id);
+
+    /**
      * Reject a submission: set status=REJECTED, store reason, mark/delete dependents, optionally reopen invitation, send email.
      */
     ResponseEntity<ResponseDto<SubmissionDetailDto>> reject(UUID id, RejectionRequest request);
+
+    /**
+     * Resend a submitted enrollment: reset submission to DRAFT, set invitation to SENT, send reminder email with HR notes.
+     */
+    ResponseEntity<ResponseDto<SubmissionDetailDto>> resend(UUID id, ResendRequest request);
+
+    /**
+     * Update primary employee demographics for an enrollment submission (Deals + personal_details JSON).
+     */
+    ResponseEntity<ResponseDto<SubmissionDetailDto>> updateEnrollmentEmployee(UUID submissionId, UpdateEnrollmentEmployeeRequest request);
 
     /**
      * Bulk approve submissions in a single transaction.

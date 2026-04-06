@@ -25,7 +25,8 @@ public final class EnrollmentWindowEmployeeCsvWriter {
             "mobile",
             "date_of_joining",
             "department",
-            "marital_status");
+            "marital_status",
+            "submission_status");
 
     private EnrollmentWindowEmployeeCsvWriter() {}
 
