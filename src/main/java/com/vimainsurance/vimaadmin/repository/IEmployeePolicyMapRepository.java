@@ -41,6 +41,8 @@ public interface IEmployeePolicyMapRepository
 
     List<EmployeePolicyMap> findByEndorsementIdAndStatus(UUID endorsementId, String status);
 
+    List<EmployeePolicyMap> findByEnrollmentSubmissionIdAndStatus(UUID enrollmentSubmissionId, String status);
+
     @Modifying
     @Query("""
         UPDATE EmployeePolicyMap m

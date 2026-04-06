@@ -6,6 +6,7 @@ import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -16,17 +17,22 @@ import java.util.UUID;
 
 import org.slf4j.MDC;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
 import org.springframework.http.ResponseEntity;
+import org.springframework.orm.ObjectOptimisticLockingFailureException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ArrayNode;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.vimainsurance.vimaadmin.audit.AuditedOperation;
 import com.vimainsurance.vimaadmin.dto.ApprovalRequest;
 import com.vimainsurance.vimaadmin.dto.BaseResponse;
@@ -34,12 +40,16 @@ import com.vimainsurance.vimaadmin.dto.BulkApprovalRequest;
 import com.vimainsurance.vimaadmin.dto.EmailRequest;
 import com.vimainsurance.vimaadmin.dto.EnrollmentOrganizationPolicyDto;
 import com.vimainsurance.vimaadmin.dto.RejectionRequest;
+import com.vimainsurance.vimaadmin.dto.ResendRequest;
 import com.vimainsurance.vimaadmin.dto.ResponseDto;
+import com.vimainsurance.vimaadmin.dto.DependentEnrollmentUpdateDto;
+import com.vimainsurance.vimaadmin.dto.UpdateEnrollmentEmployeeRequest;
 import com.vimainsurance.vimaadmin.dto.SubmissionDetailDto;
 import com.vimainsurance.vimaadmin.dto.SubmissionListItemDto;
 import com.vimainsurance.vimaadmin.entity.AdminUser;
 import com.vimainsurance.vimaadmin.entity.DealEndorsement;
 import com.vimainsurance.vimaadmin.entity.Deals;
+import com.vimainsurance.vimaadmin.entity.EmployeePolicyMap;
 import com.vimainsurance.vimaadmin.entity.Endorsement;
 import com.vimainsurance.vimaadmin.entity.EnrollmentInvitation;
 import com.vimainsurance.vimaadmin.entity.EnrollmentSubmission;
@@ -57,19 +67,23 @@ import com.vimainsurance.vimaadmin.enums.ProductType;
 import com.vimainsurance.vimaadmin.repository.IAdminUserRepository;
 import com.vimainsurance.vimaadmin.repository.IDealEndorsementRepository;
 import com.vimainsurance.vimaadmin.repository.IDealsRepository;
+import com.vimainsurance.vimaadmin.repository.IEmployeePolicyMapRepository;
 import com.vimainsurance.vimaadmin.repository.IEndorsementRepository;
 import com.vimainsurance.vimaadmin.repository.IEnrollmentInvitationRepository;
 import com.vimainsurance.vimaadmin.repository.IEnrollmentSubmissionRepository;
 import com.vimainsurance.vimaadmin.repository.IInsuranceProviderRepository;
 import com.vimainsurance.vimaadmin.repository.INomineeRepository;
+import com.vimainsurance.vimaadmin.repository.IPayrollDeductionScheduleRepository;
 import com.vimainsurance.vimaadmin.repository.IPolicyRepository;
 import com.vimainsurance.vimaadmin.service.IDocumentService;
 import com.vimainsurance.vimaadmin.service.IEmailService;
 import com.vimainsurance.vimaadmin.service.IEmployeePolicyMapService;
 import com.vimainsurance.vimaadmin.service.IHRApprovalService;
 import com.vimainsurance.vimaadmin.service.IPayrollSchedulePopulationService;
+import com.vimainsurance.vimaadmin.service.TokenSecurityService;
 import com.vimainsurance.vimaadmin.specification.EnrollmentSubmissionSpecification;
 import com.vimainsurance.vimaadmin.audit.AuditContextSupplier;
+import com.vimainsurance.vimaadmin.exception.OrganizationAccessDeniedException;
 import com.vimainsurance.vimaadmin.util.JwtUserExtractor;
 import com.vimainsurance.vimaadmin.util.OrganizationAccessHelper;
 import com.vimainsurance.vimaadmin.util.TenantContext;
@@ -83,6 +97,7 @@ public class HRApprovalServiceImpl implements IHRApprovalService {
 
     private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
     private static final DateTimeFormatter DATE_FORMAT = DateTimeFormatter.ISO_LOCAL_DATE;
+    private static final DateTimeFormatter INVITATION_EXPIRY_FORMAT = DateTimeFormatter.ofPattern("d MMM uuuu, h:mm a");
     private static final int BATCH_SIZE = 500;
 
     @Autowired
@@ -115,6 +130,14 @@ public class HRApprovalServiceImpl implements IHRApprovalService {
     private IEmployeePolicyMapService employeePolicyMapService;
     @Autowired(required = false)
     private IPayrollSchedulePopulationService payrollSchedulePopulationService;
+    @Autowired
+    private IEmployeePolicyMapRepository employeePolicyMapRepository;
+    @Autowired
+    private IPayrollDeductionScheduleRepository payrollDeductionScheduleRepository;
+    @Autowired
+    private TokenSecurityService tokenSecurityService;
+    @Value("${app.base-url:http://localhost:8080}")
+    private String baseUrl;
 
     @Override
     public ResponseEntity<ResponseDto<Page<SubmissionListItemDto>>> getEnrollments(
@@ -234,6 +257,85 @@ public class HRApprovalServiceImpl implements IHRApprovalService {
     @Override
     @Transactional(rollbackFor = Exception.class)
     @AuditedOperation(schemaName = "cpc", tableName = "enrollment_submissions", entityType = "ENROLLMENT_SUBMISSION", action = "UPDATE")
+    public ResponseEntity<ResponseDto<SubmissionDetailDto>> unapprove(UUID id) {
+        BaseResponse<SubmissionDetailDto> responseObj = new BaseResponse<>();
+        try {
+            EnrollmentSubmission sub = enrollmentSubmissionRepository.findById(id).orElse(null);
+            if (sub == null) {
+                return responseObj.render(responseObj.formErrorResponse(404, "Enrollment submission not found"));
+            }
+            UUID orgId = sub.getEmployee() != null && sub.getEmployee().getOrganization() != null
+                    ? sub.getEmployee().getOrganization().getOrganizationId()
+                    : null;
+            if (orgId == null) {
+                return responseObj.render(responseObj.formErrorResponse(403, "Submission has no organization"));
+            }
+            if (organizationAccessHelper != null) {
+                organizationAccessHelper.validateAndSetContext(orgId);
+            } else if (jwtUserExtractor != null) {
+                jwtUserExtractor.validateOrganizationAccess(orgId);
+                AuditContextSupplier.setOrganizationId(orgId);
+            }
+            if (sub.getStatus() != EnrollementStatus.APPROVED) {
+                return responseObj.render(responseObj.formErrorResponse(400,
+                        "Only approved enrollments can be unapproved; current status: " + sub.getStatus()));
+            }
+            if (sub.getEndorsement() != null) {
+                return responseObj.render(responseObj.formErrorResponse(400,
+                        "Cannot unapprove: submission is linked to an endorsement"));
+            }
+
+            sub.setStatus(EnrollementStatus.SUBMITTED);
+            sub.setReviewedBy(null);
+            sub.setReviewedAt(null);
+            enrollmentSubmissionRepository.save(sub);
+
+            updateDealEnrollmentStatusForSubmission(id, EnrollementStatus.SUBMITTED);
+
+            LocalDate today = LocalDate.now();
+            List<EmployeePolicyMap> maps = employeePolicyMapRepository.findByEnrollmentSubmissionIdAndStatus(id, "ACTIVE");
+            for (EmployeePolicyMap m : maps) {
+                m.setStatus("CANCELLED");
+                m.setEffectiveTo(today);
+                m.setCancellationReason("Enrollment approval revoked");
+                m.setCancelledAt(LocalDateTime.now());
+            }
+            if (!maps.isEmpty()) {
+                employeePolicyMapRepository.saveAll(maps);
+            }
+
+            payrollDeductionScheduleRepository.deleteByEnrollmentSubmissionId(id);
+
+            EnrollmentInvitation inv = sub.getInvitation();
+            if (inv == null && sub.getEmployee() != null && sub.getEnrollmentWindow() != null) {
+                inv = enrollmentInvitationRepository
+                        .findByEmployee_IndividualIdAndEnrollmentWindow_Id(
+                                sub.getEmployee().getIndividualId(),
+                                sub.getEnrollmentWindow().getId())
+                        .orElse(null);
+            }
+            if (inv != null) {
+                if (sub.getInvitation() == null) {
+                    sub.setInvitation(inv);
+                }
+                inv.setStatus(EnrollementStatus.OPENED);
+                inv.setCompletedAt(null);
+                enrollmentInvitationRepository.save(inv);
+            }
+
+            SubmissionDetailDto dto = toDetailDto(enrollmentSubmissionRepository.findById(id).orElse(sub));
+            return responseObj.render(responseObj.formSuccessResponse(
+                    "Approval revoked; enrollment is submitted again for review", dto));
+        } catch (Exception e) {
+            TransactionUtil.markRollbackOnly();
+            log.error("[correlationId:{}] unapprove error: {}", MDC.get("correlationId"), e.getMessage(), e);
+            return responseObj.render(responseObj.formErrorResponse("Unapprove failed"));
+        }
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    @AuditedOperation(schemaName = "cpc", tableName = "enrollment_submissions", entityType = "ENROLLMENT_SUBMISSION", action = "UPDATE")
     public ResponseEntity<ResponseDto<SubmissionDetailDto>> reject(UUID id, RejectionRequest request) {
         BaseResponse<SubmissionDetailDto> responseObj = new BaseResponse<>();
         try {
@@ -277,6 +379,405 @@ public class HRApprovalServiceImpl implements IHRApprovalService {
         } catch (Exception e) {
             log.error("[correlationId:{}] reject error: {}", MDC.get("correlationId"), e.getMessage(), e);
             return responseObj.render(responseObj.formErrorResponse("Rejection failed"));
+        }
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    @AuditedOperation(schemaName = "cpc", tableName = "enrollment_submissions", entityType = "ENROLLMENT_SUBMISSION", action = "UPDATE")
+    public ResponseEntity<ResponseDto<SubmissionDetailDto>> resend(UUID id, ResendRequest request) {
+        BaseResponse<SubmissionDetailDto> responseObj = new BaseResponse<>();
+        try {
+            EnrollmentSubmission sub = enrollmentSubmissionRepository.findById(id).orElse(null);
+            if (sub == null) {
+                return responseObj.render(responseObj.formErrorResponse(404, "Enrollment submission not found"));
+            }
+            UUID orgId = sub.getEmployee() != null && sub.getEmployee().getOrganization() != null
+                    ? sub.getEmployee().getOrganization().getOrganizationId()
+                    : null;
+            if (orgId == null) {
+                return responseObj.render(responseObj.formErrorResponse(403, "Submission has no organization"));
+            }
+            if (organizationAccessHelper != null) {
+                organizationAccessHelper.validateAndSetContext(orgId);
+            } else if (jwtUserExtractor != null) {
+                jwtUserExtractor.validateOrganizationAccess(orgId);
+                AuditContextSupplier.setOrganizationId(orgId);
+            }
+            if (sub.getStatus() != EnrollementStatus.SUBMITTED) {
+                return responseObj.render(responseObj.formErrorResponse(400,
+                        "Only submitted enrollments can be resent; current status: " + sub.getStatus()));
+            }
+
+            EnrollmentInvitation inv = sub.getInvitation();
+            if (inv == null && sub.getEmployee() != null && sub.getEnrollmentWindow() != null) {
+                inv = enrollmentInvitationRepository
+                        .findByEmployee_IndividualIdAndEnrollmentWindow_Id(
+                                sub.getEmployee().getIndividualId(),
+                                sub.getEnrollmentWindow().getId())
+                        .orElse(null);
+            }
+            if (inv == null) {
+                return responseObj.render(responseObj.formErrorResponse(400,
+                        "No invitation found for this employee and enrollment window"));
+            }
+            if (inv.getExpiresAt() != null && inv.getExpiresAt().toLocalDate().isBefore(LocalDate.now())) {
+                return responseObj.render(responseObj.formErrorResponse(400, "Invitation has expired; extend the deadline before resending"));
+            }
+
+            String notes = request.getNotes() != null ? request.getNotes().trim() : "";
+            if (notes.isEmpty()) {
+                return responseObj.render(responseObj.formErrorResponse(400, "Notes are required"));
+            }
+
+            if (sub.getInvitation() == null) {
+                sub.setInvitation(inv);
+            }
+
+            sub.setStatus(EnrollementStatus.DRAFT);
+            // Keep prior enrollment wizard data (dependents, nominees, plans, premiums) so the magic link
+            // reopens with the same pre-filled submission; employee re-confirms on the final step.
+            sub.setSubmittedAt(null);
+            sub.setReviewedBy(null);
+            sub.setReviewedAt(null);
+            sub.setRejectionReason(null);
+            sub.setDeclarationAccepted(false);
+            sub.setDeclarationTimestamp(null);
+            sub.setDeclarationIpAddress(null);
+            sub.setConsentTimestamp(null);
+            sub.setConsentTextSnapshot(null);
+
+            enrollmentSubmissionRepository.save(sub);
+
+            Deals emp = sub.getEmployee();
+            if (emp != null) {
+                emp.setEnrollmentStatus(EnrollementStatus.DRAFT);
+                dealsRepository.save(emp);
+            }
+
+            String rawToken = Boolean.TRUE.equals(inv.getTokenDeterministic())
+                    ? tokenSecurityService.generateTokenForInvitation(inv.getId())
+                    : tokenSecurityService.generateToken();
+            if (!Boolean.TRUE.equals(inv.getTokenDeterministic())) {
+                inv.setTokenHash(tokenSecurityService.hashToken(rawToken));
+            }
+            inv.setStatus(EnrollementStatus.SENT);
+            inv.setOpenedAt(null);
+            inv.setCompletedAt(null);
+            enrollmentInvitationRepository.save(inv);
+
+            String magicLink = baseUrl.replaceAll("/$", "") + "/enrollment/" + rawToken;
+            String companyName = emp != null && emp.getOrganization() != null
+                    ? emp.getOrganization().getOrganizationName() : null;
+            boolean emailSent = sendEnrollmentResendReminderEmail(
+                    emp != null ? emp.getEmail() : null,
+                    emp != null ? emp.getFullName() : null,
+                    magicLink,
+                    companyName,
+                    inv.getExpiresAt(),
+                    notes);
+            if (!emailSent) {
+                TransactionUtil.markRollbackOnly();
+                return responseObj.render(responseObj.formErrorResponse(502, "Failed to send reminder email; no changes were saved"));
+            }
+
+            inv.setReminderCount(inv.getReminderCount() == null ? 1 : inv.getReminderCount() + 1);
+            inv.setLastReminderAt(LocalDateTime.now());
+            enrollmentInvitationRepository.save(inv);
+
+            SubmissionDetailDto dto = toDetailDto(enrollmentSubmissionRepository.findById(id).orElse(sub));
+            return responseObj.render(responseObj.formSuccessResponse("Enrollment resent; employee can complete enrollment again", dto));
+        } catch (Exception e) {
+            TransactionUtil.markRollbackOnly();
+            log.error("[correlationId:{}] resend error: {}", MDC.get("correlationId"), e.getMessage(), e);
+            return responseObj.render(responseObj.formErrorResponse("Resend failed"));
+        }
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    @AuditedOperation(schemaName = "cpc", tableName = "enrollment_submissions", entityType = "ENROLLMENT_SUBMISSION", action = "UPDATE")
+    public ResponseEntity<ResponseDto<SubmissionDetailDto>> updateEnrollmentEmployee(UUID id, UpdateEnrollmentEmployeeRequest request) {
+        BaseResponse<SubmissionDetailDto> responseObj = new BaseResponse<>();
+        try {
+            EnrollmentSubmission sub = enrollmentSubmissionRepository.findById(id).orElse(null);
+            if (sub == null) {
+                return responseObj.render(responseObj.formErrorResponse(404, "Enrollment submission not found"));
+            }
+            Deals emp = sub.getEmployee();
+            if (emp == null) {
+                return responseObj.render(responseObj.formErrorResponse(400, "Submission has no employee"));
+            }
+            UUID orgId = emp.getOrganization() != null ? emp.getOrganization().getOrganizationId() : null;
+            if (orgId == null) {
+                return responseObj.render(responseObj.formErrorResponse(403, "Employee has no organization"));
+            }
+            if (organizationAccessHelper != null) {
+                organizationAccessHelper.validateAndSetContext(orgId);
+            } else if (jwtUserExtractor != null) {
+                jwtUserExtractor.validateOrganizationAccess(orgId);
+                AuditContextSupplier.setOrganizationId(orgId);
+            }
+
+            EnrollementStatus st = sub.getStatus();
+            if (st != EnrollementStatus.SUBMITTED && st != EnrollementStatus.DRAFT) {
+                return responseObj.render(responseObj.formErrorResponse(400,
+                        "Employee details can only be edited for draft or submitted enrollments; current status: " + st));
+            }
+
+            String emailNorm = request.getEmail().trim();
+            Optional<Deals> emailDup = dealsRepository.findByEmailAndOrganizationIdAndRelationship(emailNorm, orgId, "SELF");
+            if (emailDup.isPresent() && !emailDup.get().getIndividualId().equals(emp.getIndividualId())) {
+                return responseObj.render(responseObj.formErrorResponse(400,
+                        "Another employee in this organization already uses this email"));
+            }
+
+            LocalDate dob;
+            try {
+                dob = LocalDate.parse(request.getDateOfBirth().trim(), DATE_FORMAT);
+            } catch (DateTimeParseException e) {
+                return responseObj.render(responseObj.formErrorResponse(400, "Invalid dateOfBirth; use yyyy-MM-dd"));
+            }
+            LocalDate doj = null;
+            if (request.getDateOfJoining() != null && !request.getDateOfJoining().isBlank()) {
+                try {
+                    doj = LocalDate.parse(request.getDateOfJoining().trim(), DATE_FORMAT);
+                } catch (DateTimeParseException e) {
+                    return responseObj.render(responseObj.formErrorResponse(400, "Invalid dateOfJoining; use yyyy-MM-dd"));
+                }
+            }
+
+            applyFullNameToDeals(emp, request.getFullName().trim());
+            emp.setEmail(emailNorm);
+            emp.setPhone(request.getPhone().trim());
+            emp.setEmployeeNumber(request.getEmployeeNumber().trim());
+            emp.setDateOfBirth(dob);
+            if (request.getGender() != null && !request.getGender().isBlank()) {
+                emp.setGender(request.getGender().trim());
+            }
+            emp.setDepartment(request.getDepartment() != null ? request.getDepartment().trim() : null);
+            emp.setMaritalStatus(request.getMaritalStatus() != null ? request.getMaritalStatus().trim() : null);
+            emp.setDesignation(request.getDesignation() != null ? request.getDesignation().trim() : null);
+            emp.setDateOfJoining(doj);
+            emp.setUpdatedAt(LocalDateTime.now());
+            dealsRepository.save(emp);
+
+            try {
+                sub.setPersonalDetails(mergePersonalDetailsJson(sub.getPersonalDetails(), request));
+            } catch (Exception e) {
+                log.warn("[correlationId:{}] mergePersonalDetailsJson: {}", MDC.get("correlationId"), e.getMessage());
+                return responseObj.render(responseObj.formErrorResponse(400, "Could not update personal details payload"));
+            }
+            if (request.getDependents() != null) {
+                try {
+                    validateDependentEnrollmentUpdates(request.getDependents());
+                    sub.setDependents(buildDependentsJsonFromDtos(request.getDependents()));
+                } catch (IllegalArgumentException e) {
+                    return responseObj.render(responseObj.formErrorResponse(400, e.getMessage()));
+                } catch (Exception e) {
+                    log.warn("[correlationId:{}] dependents update: {}", MDC.get("correlationId"), e.getMessage());
+                    return responseObj.render(responseObj.formErrorResponse(400, "Could not update dependents payload"));
+                }
+            }
+            enrollmentSubmissionRepository.save(sub);
+
+            SubmissionDetailDto dto = toDetailDto(enrollmentSubmissionRepository.findById(id).orElse(sub));
+            return responseObj.render(responseObj.formSuccessResponse("Enrollment updated", dto));
+        } catch (OrganizationAccessDeniedException e) {
+            log.warn("[correlationId:{}] updateEnrollmentEmployee org access: {}", MDC.get("correlationId"), e.getMessage());
+            return responseObj.render(responseObj.formErrorResponse(403, e.getMessage()));
+        } catch (DataIntegrityViolationException e) {
+            String root = Optional.ofNullable(e.getMostSpecificCause()).map(Throwable::getMessage).orElse("");
+            log.warn("[correlationId:{}] updateEnrollmentEmployee data integrity: {}", MDC.get("correlationId"), root);
+            return responseObj.render(responseObj.formErrorResponse(400, dataIntegrityUserMessage(root)));
+        } catch (ObjectOptimisticLockingFailureException e) {
+            log.warn("[correlationId:{}] updateEnrollmentEmployee optimistic lock: {}", MDC.get("correlationId"), e.getMessage());
+            return responseObj.render(responseObj.formErrorResponse(409,
+                    "This enrollment was updated elsewhere. Refresh the page and try again."));
+        } catch (IllegalArgumentException e) {
+            log.warn("[correlationId:{}] updateEnrollmentEmployee: {}", MDC.get("correlationId"), e.getMessage());
+            return responseObj.render(responseObj.formErrorResponse(400, e.getMessage()));
+        } catch (Exception e) {
+            log.error("[correlationId:{}] updateEnrollmentEmployee error: {}", MDC.get("correlationId"), e.getMessage(), e);
+            return responseObj.render(responseObj.formErrorResponse("Update failed"));
+        }
+    }
+
+    /** User-safe hint when DB rejects the update (unique constraint, FK, etc.). */
+    private static String dataIntegrityUserMessage(String rootMessage) {
+        if (rootMessage == null) {
+            return "Update conflict with existing data. Check for duplicate email, name, or employee number.";
+        }
+        String m = rootMessage.toLowerCase();
+        if (m.contains("email") || m.contains("_email_")) {
+            return "This email is already used by another record. Each person needs a unique email.";
+        }
+        if (m.contains("full_name") || m.contains("full name")) {
+            return "This full name conflicts with another record (unique name constraint).";
+        }
+        if (m.contains("username")) {
+            return "Username conflicts with another record.";
+        }
+        if (m.contains("employee_number") || m.contains("employee number")) {
+            return "Employee number conflicts with another record in the database.";
+        }
+        return "Update conflict with existing data (database constraint). If this persists, contact support with the time of the request.";
+    }
+
+    private static void applyFullNameToDeals(Deals emp, String fullName) {
+        emp.setFullName(fullName);
+        int sp = fullName.indexOf(' ');
+        if (sp > 0) {
+            emp.setFirstName(fullName.substring(0, sp).trim());
+            emp.setLastName(fullName.substring(sp + 1).trim());
+        } else {
+            emp.setFirstName(fullName);
+            emp.setLastName("");
+        }
+    }
+
+    private String mergePersonalDetailsJson(String existingJson, UpdateEnrollmentEmployeeRequest req) throws Exception {
+        ObjectNode node;
+        if (existingJson != null && !existingJson.isBlank() && !"{}".equals(existingJson.trim())) {
+            JsonNode parsed = OBJECT_MAPPER.readTree(existingJson);
+            node = parsed.isObject() ? (ObjectNode) parsed : OBJECT_MAPPER.createObjectNode();
+        } else {
+            node = OBJECT_MAPPER.createObjectNode();
+        }
+        node.put("fullName", req.getFullName().trim());
+        node.put("email", req.getEmail().trim());
+        node.put("phone", req.getPhone().trim());
+        node.put("dateOfBirth", req.getDateOfBirth().trim());
+        if (req.getGender() != null && !req.getGender().isBlank()) {
+            node.put("gender", req.getGender().trim());
+        } else {
+            node.remove("gender");
+        }
+        if (req.getDepartment() != null) {
+            node.put("department", req.getDepartment().trim());
+        } else {
+            node.remove("department");
+        }
+        if (req.getMaritalStatus() != null) {
+            node.put("maritalStatus", req.getMaritalStatus().trim());
+        } else {
+            node.remove("maritalStatus");
+        }
+        if (req.getDesignation() != null) {
+            node.put("grade", req.getDesignation().trim());
+        } else {
+            node.remove("grade");
+        }
+        if (req.getDateOfJoining() != null && !req.getDateOfJoining().isBlank()) {
+            node.put("dateOfJoining", req.getDateOfJoining().trim());
+        } else {
+            node.remove("dateOfJoining");
+        }
+        return OBJECT_MAPPER.writeValueAsString(node);
+    }
+
+    private void validateDependentEnrollmentUpdates(List<DependentEnrollmentUpdateDto> list) {
+        for (int i = 0; i < list.size(); i++) {
+            DependentEnrollmentUpdateDto d = list.get(i);
+            String prefix = "Dependent " + (i + 1) + ": ";
+            boolean hasName = (d.getFullName() != null && !d.getFullName().isBlank())
+                    || (d.getFirstName() != null && !d.getFirstName().isBlank())
+                    || (d.getLastName() != null && !d.getLastName().isBlank());
+            if (!hasName) {
+                throw new IllegalArgumentException(prefix + "name is required (fullName or first/last)");
+            }
+            if (d.getRelationship() == null || d.getRelationship().isBlank()) {
+                throw new IllegalArgumentException(prefix + "relationship is required");
+            }
+            if (d.getDateOfBirth() == null || d.getDateOfBirth().isBlank()) {
+                throw new IllegalArgumentException(prefix + "dateOfBirth is required");
+            }
+            try {
+                LocalDate.parse(d.getDateOfBirth().trim(), DATE_FORMAT);
+            } catch (DateTimeParseException e) {
+                throw new IllegalArgumentException(prefix + "invalid dateOfBirth; use yyyy-MM-dd");
+            }
+            if (d.getDateOfJoining() != null && !d.getDateOfJoining().isBlank()) {
+                try {
+                    LocalDate.parse(d.getDateOfJoining().trim(), DATE_FORMAT);
+                } catch (DateTimeParseException e) {
+                    throw new IllegalArgumentException(prefix + "invalid dateOfJoining; use yyyy-MM-dd");
+                }
+            }
+        }
+    }
+
+    private String buildDependentsJsonFromDtos(List<DependentEnrollmentUpdateDto> items) throws Exception {
+        ArrayNode arr = OBJECT_MAPPER.createArrayNode();
+        for (DependentEnrollmentUpdateDto d : items) {
+            ObjectNode n = OBJECT_MAPPER.createObjectNode();
+            String fn = d.getFirstName() != null ? d.getFirstName().trim() : null;
+            String ln = d.getLastName() != null ? d.getLastName().trim() : null;
+            String full = d.getFullName() != null ? d.getFullName().trim() : null;
+            if (full == null || full.isEmpty()) {
+                full = ((fn != null ? fn : "") + " " + (ln != null ? ln : "")).trim();
+            }
+            if ((fn == null || fn.isEmpty()) && full != null && !full.isEmpty()) {
+                String[] parts = full.split("\\s+", 2);
+                fn = parts[0];
+                ln = parts.length > 1 ? parts[1] : "";
+            }
+            if (full != null && !full.isEmpty()) {
+                n.put("fullName", full);
+            }
+            if (fn != null && !fn.isEmpty()) {
+                n.put("firstName", fn);
+            }
+            if (ln != null && !ln.isEmpty()) {
+                n.put("lastName", ln);
+            }
+            n.put("relationship", d.getRelationship().trim());
+            if (d.getActualRelationship() != null && !d.getActualRelationship().isBlank()) {
+                n.put("actualRelationship", d.getActualRelationship().trim());
+            }
+            n.put("dateOfBirth", d.getDateOfBirth().trim());
+            if (d.getGender() != null && !d.getGender().isBlank()) {
+                n.put("gender", d.getGender().trim());
+            }
+            if (d.getDateOfJoining() != null && !d.getDateOfJoining().isBlank()) {
+                n.put("dateOfJoining", d.getDateOfJoining().trim());
+            }
+            if (Boolean.TRUE.equals(d.getPrefilledByHr())) {
+                n.put("prefilledByHr", true);
+            }
+            if (Boolean.TRUE.equals(d.getAlreadyCoveredElsewhere())) {
+                n.put("alreadyCoveredElsewhere", true);
+            }
+            arr.add(n);
+        }
+        return OBJECT_MAPPER.writeValueAsString(arr);
+    }
+
+    private boolean sendEnrollmentResendReminderEmail(String to, String employeeName, String magicLink,
+            String companyName, LocalDateTime expiresAt, String hrNotes) {
+        if (to == null || to.isBlank()) {
+            log.warn("[correlationId:{}] Resend skipped: employee has no email", MDC.get("correlationId"));
+            return false;
+        }
+        try {
+            String linkExpiry = expiresAt != null ? expiresAt.format(INVITATION_EXPIRY_FORMAT) : "the enrollment window end time";
+            String cn = (companyName != null && !companyName.isBlank()) ? companyName : "Vima Insurance";
+            Map<String, Object> vars = new HashMap<>();
+            vars.put("employeeName", employeeName != null ? employeeName : "Employee");
+            vars.put("magicLink", magicLink);
+            vars.put("companyName", cn);
+            vars.put("linkExpiry", linkExpiry);
+            vars.put("hrNotes", hrNotes != null ? hrNotes : "");
+            EmailRequest req = EmailRequest.builder()
+                    .to(to)
+                    .subject("Action required: complete your benefits enrollment - Vima Insurance")
+                    .templateName("enrollment-reminder")
+                    .templateVariables(vars)
+                    .build();
+            return emailService.sendTemplateEmail(req).isSuccess();
+        } catch (Exception e) {
+            log.warn("Enrollment resend reminder email failed for {}: {}", to, e.getMessage());
+            return false;
         }
     }
 
@@ -646,6 +1147,9 @@ public class HRApprovalServiceImpl implements IHRApprovalService {
                 .employeeDepartment(emp != null ? emp.getDepartment() : null)
                 .employeeMaritalStatus(emp != null ? emp.getMaritalStatus() : null)
                 .employeeDesignation(emp != null ? emp.getDesignation() : null)
+                .employeeDateOfBirth(emp != null && emp.getDateOfBirth() != null
+                        ? emp.getDateOfBirth().toString() : null)
+                .employeeGender(emp != null ? emp.getGender() : null)
                 .enrollmentWindowId(window != null ? window.getId() : null)
                 .windowName(window != null ? window.getName() : null)
                 .organizationId(org != null ? org.getOrganizationId() : null)
