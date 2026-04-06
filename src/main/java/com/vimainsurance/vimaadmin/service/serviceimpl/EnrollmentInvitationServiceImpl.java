@@ -69,12 +69,10 @@ public class EnrollmentInvitationServiceImpl implements IEnrollmentInvitation {
     private static final DateTimeFormatter INVITATION_EXPIRY_FORMAT = DateTimeFormatter.ofPattern("d MMM uuuu, h:mm a");
     private static final DateTimeFormatter ENROLLMENT_WINDOW_DATE_EMAIL = DateTimeFormatter.ofPattern("dd-MMM-uuuu", Locale.ENGLISH);
 
-    /** Invitations we never schedule reminders for (submission gating still applies). */
-    private static final List<EnrollementStatus> SCHEDULED_REMINDER_EXCLUDED_INVITATION_STATUSES = List.of(
-            EnrollementStatus.PENDING,
-            EnrollementStatus.COMPLETED,
-            EnrollementStatus.EXPIRED,
-            EnrollementStatus.REJECTED);
+    /** Scheduled job only: submission row must be one of these statuses on {@code enrollment_submissions}. */
+    private static final List<EnrollementStatus> SCHEDULED_REMINDER_SUBMISSION_STATUSES = List.of(
+            EnrollementStatus.SENT,
+            EnrollementStatus.DRAFT);
 
     /**
      * Send invitation reminders only while enrollment is not filed past draft: no submission row yet, or submission still DRAFT.
@@ -108,6 +106,28 @@ public class EnrollmentInvitationServiceImpl implements IEnrollmentInvitation {
             return false;
         }
         return true;
+    }
+
+    /**
+     * Scheduled reminders only: require a submission row with status {@code SENT} or {@code DRAFT} (same employee+window
+     * or linked invitation). No row or any other status → skip.
+     */
+    private boolean freshSubmissionAllowsScheduledReminder(EnrollmentInvitation inv) {
+        Deals emp = inv.getEmployee();
+        EnrollmentWindows win = inv.getEnrollmentWindow();
+        if (emp == null || win == null) {
+            return false;
+        }
+        Optional<EnrollmentSubmission> sub = submissionRepository.findByEmployee_IndividualIdAndEnrollmentWindow_Id(
+                emp.getIndividualId(), win.getId());
+        if (sub.isEmpty()) {
+            sub = submissionRepository.findByInvitation_Id(inv.getId());
+        }
+        if (sub.isEmpty()) {
+            return false;
+        }
+        EnrollementStatus st = sub.get().getStatus();
+        return st == EnrollementStatus.DRAFT || st == EnrollementStatus.SENT;
     }
 
     @Autowired
@@ -398,7 +418,7 @@ public class EnrollmentInvitationServiceImpl implements IEnrollmentInvitation {
     @AuditedOperation(schemaName = "cpc", tableName = "enrollment_invitations", entityType = "ENROLLMENT_REMINDER_JOB", action = "SYSTEM")
     public void runScheduledReminders() {
         List<EnrollmentInvitation> eligible = invitationRepository.findEligibleForScheduledReminder(
-            SCHEDULED_REMINDER_EXCLUDED_INVITATION_STATUSES, EnrollementStatus.DRAFT, LocalDateTime.now());
+            SCHEDULED_REMINDER_SUBMISSION_STATUSES, LocalDateTime.now());
         LocalDate today = LocalDate.now();
         LocalDate tomorrow = today.plusDays(1);
         int sent = 0;
@@ -436,8 +456,8 @@ public class EnrollmentInvitationServiceImpl implements IEnrollmentInvitation {
                     skipped++;
                     continue;
                 }
-                if (!freshSubmissionAllowsInvitationReminder(inv)) {
-                    logger.debug("[correlationId:{}] Skipping scheduled reminder: submission no longer draft for invitation {}",
+                if (!freshSubmissionAllowsScheduledReminder(inv)) {
+                    logger.debug("[correlationId:{}] Skipping scheduled reminder: submission not SENT/DRAFT for invitation {}",
                         MDC.get("correlationId"), inv.getId());
                     skipped++;
                     continue;
