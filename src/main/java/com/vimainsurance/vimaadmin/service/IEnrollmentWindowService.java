@@ -5,6 +5,7 @@ import java.util.UUID;
 
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.multipart.MultipartFile;
+import org.springframework.web.servlet.mvc.method.annotation.StreamingResponseBody;
 
 import com.vimainsurance.vimaadmin.dto.EnrollmentWindowRequestDto;
 import com.vimainsurance.vimaadmin.dto.EnrollmentWindowResponseDto;
@@ -52,4 +53,9 @@ public interface IEnrollmentWindowService {
     ResponseEntity<ResponseDto<String>> delete(UUID id);
 
     ResponseEntity<ResponseDto<EnrollmentWindowStatsDto>> getStats(UUID id);
+
+    /**
+     * Full employee + dependent rows for the window as CSV (DB-backed), streamed response.
+     */
+    ResponseEntity<StreamingResponseBody> exportEmployeesCsv(UUID windowId);
 }

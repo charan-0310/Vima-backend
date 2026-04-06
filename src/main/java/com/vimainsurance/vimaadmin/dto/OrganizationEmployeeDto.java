@@ -24,6 +24,8 @@ public class OrganizationEmployeeDto {
     private String employeeNumber;
     private String sumInsured;
     private String designation;
+    private String department;
+    private String maritalStatus;
     private LocalDate dateOfJoining;
     private String status; // AccountStatus as string
     private LocalDate dateOfBirth;

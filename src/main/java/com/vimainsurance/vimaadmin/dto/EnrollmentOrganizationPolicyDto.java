@@ -30,4 +30,10 @@ public class EnrollmentOrganizationPolicyDto {
     private Integer sumInsuredMultiplier;
 
     private String insurerName;
+
+    /** yyyy-MM-dd — policy effective_from, or start_date when effective_from is null (same basis as dependent DOJ default). */
+    private String effectiveFrom;
+
+    /** Policy lifecycle status, e.g. ACTIVE (for filtering GMC default-DOJ sources). */
+    private String policyStatus;
 }

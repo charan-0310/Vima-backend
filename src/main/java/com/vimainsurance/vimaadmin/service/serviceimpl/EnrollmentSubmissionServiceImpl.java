@@ -148,6 +148,11 @@ public class EnrollmentSubmissionServiceImpl implements IEnrollmentSubmissionSer
         } else {
             invitation = entity.getInvitation();
         }
+        if (invitation == null && employee != null && enrollmentWindow != null) {
+            invitation = enrollmentInvitationRepository
+                .findByEmployee_IndividualIdAndEnrollmentWindow_Id(employee.getIndividualId(), enrollmentWindow.getId())
+                .orElse(null);
+        }
 
         Endorsement endorsement = null;
         if (requestDto.getEndorsementId() != null) {
@@ -203,6 +208,11 @@ public class EnrollmentSubmissionServiceImpl implements IEnrollmentSubmissionSer
         EnrollmentInvitation invitation = null;
         if (requestDto.getInvitationId() != null) {
             invitation = enrollmentInvitationRepository.findById(requestDto.getInvitationId()).orElse(null);
+        }
+        if (invitation == null) {
+            invitation = enrollmentInvitationRepository
+                .findByEmployee_IndividualIdAndEnrollmentWindow_Id(requestDto.getEmployeeId(), requestDto.getEnrollmentWindowId())
+                .orElse(null);
         }
 
         Endorsement endorsement = null;

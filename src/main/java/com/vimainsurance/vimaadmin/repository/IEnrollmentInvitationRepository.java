@@ -41,10 +41,17 @@ public interface IEnrollmentInvitationRepository extends JpaRepository<Enrollmen
     boolean existsByEmployee_IndividualIdAndEnrollmentWindow_Id(UUID employeeId, UUID enrollmentWindowId);
 
     /**
-     * Find invitations eligible for reminder: status IN (SENT, OPENED, IN_PROGRESS) and expires_at > now.
+     * Scheduled reminder job: not expired; no non-draft submission for employee+window; invitation not in
+     * {@code excludedInvitationStatuses} (e.g. pending / completed / expired / rejected). Eligibility is driven by
+     * submission state, not by requiring SENT/OPENED/IN_PROGRESS on the invitation.
      */
-    @Query("SELECT i FROM EnrollmentInvitation i WHERE i.status IN :statuses AND i.expiresAt > :now")
-    List<EnrollmentInvitation> findEligibleForReminder(
-            @Param("statuses") List<EnrollementStatus> statuses,
+    @Query("SELECT i FROM EnrollmentInvitation i WHERE i.expiresAt > :now "
+            + "AND i.status NOT IN :excludedInvitationStatuses "
+            + "AND NOT EXISTS (SELECT s FROM EnrollmentSubmission s WHERE s.status <> :draftStatus "
+            + "AND ((s.employee.individualId = i.employee.individualId "
+            + "AND s.enrollmentWindow.id = i.enrollmentWindow.id) OR s.invitation.id = i.id))")
+    List<EnrollmentInvitation> findEligibleForScheduledReminder(
+            @Param("excludedInvitationStatuses") List<EnrollementStatus> excludedInvitationStatuses,
+            @Param("draftStatus") EnrollementStatus draftStatus,
             @Param("now") LocalDateTime now);
 }
