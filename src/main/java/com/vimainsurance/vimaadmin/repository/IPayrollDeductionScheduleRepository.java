@@ -30,6 +30,8 @@ public interface IPayrollDeductionScheduleRepository extends JpaRepository<Payro
 
     List<PayrollDeductionSchedule> findByEnrollmentSubmissionId(UUID enrollmentSubmissionId);
 
+    void deleteByEnrollmentSubmissionId(UUID enrollmentSubmissionId);
+
     List<PayrollDeductionSchedule> findByOrganizationIdAndEnrollmentSubmissionIdIn(
             UUID organizationId, List<UUID> enrollmentSubmissionIds);
 }

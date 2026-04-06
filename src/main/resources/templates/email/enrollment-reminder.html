@@ -71,6 +71,10 @@
                             <p style="font-size: 16px; color: #525252; margin: 0 0 32px 0;">
                                 Hi <strong th:text="${employeeName}">Employee</strong>, your <strong th:text="${#strings.isEmpty(companyName) ? 'VIMA Insurance Brokers Pvt. Ltd' : companyName}">employer</strong> benefits enrollment link is still active. Click the button below to continue where you left off.
                             </p>
+                            <div th:if="${hrNotes != null and !#strings.isEmpty(hrNotes)}" style="margin: 0 0 24px 0; padding: 16px; background-color: #f0f9ff; border-left: 4px solid #1e40af; border-radius: 4px;">
+                                <p style="font-size: 13px; font-weight: 600; color: #1e3a8a; margin: 0 0 8px 0;">Message from HR</p>
+                                <p style="font-size: 14px; color: #334155; margin: 0; white-space: pre-wrap;" th:text="${hrNotes}">Notes</p>
+                            </div>
                         </td>
                     </tr>
 
