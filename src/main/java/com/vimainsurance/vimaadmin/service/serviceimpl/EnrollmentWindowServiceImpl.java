@@ -781,14 +781,17 @@ public class EnrollmentWindowServiceImpl implements IEnrollmentWindowService {
             String exportEmail = firstNonEmpty(primary.getEmail(), emailFromPersonalDetailsJson(pdJson));
             String exportMobile = firstNonEmpty(primary.getPhone(), phoneFromPersonalDetailsJson(pdJson));
 
-            out.add(csvDataRow(empNo, formatRelationshipForCsv(primary), nullToEmpty(primary.getFullName()),
+            String primaryDisplayName = csvExportDisplayNameFromDeal(primary);
+            String submissionStatus = csvExportSubmissionStatusLabel(sub);
+            out.add(csvDataRow(empNo, formatRelationshipForCsv(primary), nullToEmpty(primaryDisplayName),
                     nullToEmpty(primary.getGender()), formatDobForCsv(primary.getDateOfBirth()), sums,
                     nullToEmpty(exportEmail), nullToEmpty(exportMobile),
                     formatDobForCsv(primary.getDateOfJoining()),
-                    nullToEmpty(primary.getDepartment()), nullToEmpty(primary.getMaritalStatus())));
+                    nullToEmpty(primary.getDepartment()), nullToEmpty(primary.getMaritalStatus()),
+                    submissionStatus));
 
             Set<String> seenDepKeys = new HashSet<>();
-            seenDepKeys.add(depDedupeKey(formatRelationshipForCsv(primary), primary.getFullName()));
+            seenDepKeys.add(depDedupeKey(formatRelationshipForCsv(primary), primaryDisplayName));
 
             List<Deals> depDeals = dealsRepository.findByPrimaryIndividualId(primary.getIndividualId());
             for (Deals dep : depDeals) {
@@ -799,18 +802,20 @@ public class EnrollmentWindowServiceImpl implements IEnrollmentWindowService {
                     continue;
                 }
                 String rel = formatRelationshipForCsv(dep);
-                String dk = depDedupeKey(rel, dep.getFullName());
+                String depDisplayName = csvExportDisplayNameFromDeal(dep);
+                String dk = depDedupeKey(rel, depDisplayName);
                 if (seenDepKeys.add(dk)) {
-                    out.add(csvDataRow(empNo, rel, nullToEmpty(dep.getFullName()), nullToEmpty(dep.getGender()),
+                    out.add(csvDataRow(empNo, rel, nullToEmpty(depDisplayName), nullToEmpty(dep.getGender()),
                             formatDobForCsv(dep.getDateOfBirth()), sums,
                             nullToEmpty(dep.getEmail()), nullToEmpty(dep.getPhone()),
                             formatDobForCsv(dep.getDateOfJoining()),
-                            nullToEmpty(dep.getDepartment()), nullToEmpty(dep.getMaritalStatus())));
+                            nullToEmpty(dep.getDepartment()), nullToEmpty(dep.getMaritalStatus()),
+                            submissionStatus));
                 }
             }
 
             if (sub != null) {
-                appendDependentsFromSubmissionJson(out, empNo, sums, sub.getDependents(), seenDepKeys);
+                appendDependentsFromSubmissionJson(out, empNo, sums, sub.getDependents(), seenDepKeys, submissionStatus);
             }
         }
         return dedupeCsvRowsByLogicalPerson(out);
@@ -827,6 +832,8 @@ public class EnrollmentWindowServiceImpl implements IEnrollmentWindowService {
     /**
      * Drop rows that describe the same person twice (e.g. same dependent from Deals + JSON with
      * different relationship labels like Child vs Son). Keeps the first occurrence.
+     * When the exported name is empty, uses the display relationship in the key so distinct
+     * dependents (e.g. Son vs Daughter with blank names) are not merged.
      */
     private List<List<String>> dedupeCsvRowsByLogicalPerson(List<List<String>> rows) {
         if (rows.isEmpty()) {
@@ -849,11 +856,15 @@ public class EnrollmentWindowServiceImpl implements IEnrollmentWindowService {
 
     private String csvExportLogicalPersonKey(String employeeId, String relationship, String employeeName,
             String gender, String dateOfBirth) {
+        String normName = normalizeCsvExportCell(employeeName);
+        String relKey = normName.isEmpty()
+                ? normalizeCsvExportCell(relationship)
+                : canonicalRelationshipForExportDedupe(relationship);
         return normalizeCsvExportCell(employeeId)
                 + '\u001f'
-                + canonicalRelationshipForExportDedupe(relationship)
+                + relKey
                 + '\u001f'
-                + normalizeCsvExportCell(employeeName)
+                + normName
                 + '\u001f'
                 + normalizeCsvExportCell(gender)
                 + '\u001f'
@@ -905,14 +916,23 @@ public class EnrollmentWindowServiceImpl implements IEnrollmentWindowService {
 
     private List<String> csvDataRow(String employeeId, String relationship, String employeeName, String gender,
             String dateOfBirth, PlanSumsCsv sums,
-            String email, String mobile, String dateOfJoining, String department, String maritalStatus) {
+            String email, String mobile, String dateOfJoining, String department, String maritalStatus,
+            String submissionStatus) {
         return List.of(employeeId, relationship, employeeName, gender, dateOfBirth,
                 sums.sumInsured, sums.topupSumInsured, sums.superTopupSumInsured,
-                email, mobile, dateOfJoining, department, maritalStatus);
+                email, mobile, dateOfJoining, department, maritalStatus, submissionStatus);
+    }
+
+    /** Value from {@link EnrollmentSubmission#getStatus()}; {@code NO_SUBMISSION} if no row exists for this employee. */
+    private String csvExportSubmissionStatusLabel(EnrollmentSubmission sub) {
+        if (sub != null && sub.getStatus() != null) {
+            return sub.getStatus().getValue();
+        }
+        return "NO_SUBMISSION";
     }
 
     private void appendDependentsFromSubmissionJson(List<List<String>> out, String empNo, PlanSumsCsv sums,
-            String dependentsJson, Set<String> seenDepKeys) {
+            String dependentsJson, Set<String> seenDepKeys, String submissionStatus) {
         if (dependentsJson == null || dependentsJson.isBlank()) {
             return;
         }
@@ -933,7 +953,7 @@ public class EnrollmentWindowServiceImpl implements IEnrollmentWindowService {
                 if (n == null || !n.isObject()) {
                     continue;
                 }
-                String name = firstNonEmpty(jsonText(n, "fullName"), jsonText(n, "name"));
+                String name = dependentDisplayNameFromSubmissionJson(n);
                 String relRaw = firstNonEmpty(jsonText(n, "relationship"), "Dependent");
                 String actualRelJson = jsonText(n, "actualRelationship");
                 String dob = formatDobJsonValue(firstNonEmpty(jsonText(n, "dateOfBirth"), jsonText(n, "date_of_birth")));
@@ -945,7 +965,7 @@ public class EnrollmentWindowServiceImpl implements IEnrollmentWindowService {
                 if (!seenDepKeys.add(dk)) {
                     continue;
                 }
-                out.add(csvDataRow(empNo, rel, name, gender, dob, sums, email, mobile, "", "", ""));
+                out.add(csvDataRow(empNo, rel, name, gender, dob, sums, email, mobile, "", "", "", submissionStatus));
             }
         } catch (Exception e) {
             logger.warn("[correlationId:{}] export CSV: dependents JSON skipped: {}", MDC.get("correlationId"), e.getMessage());
@@ -1090,6 +1110,47 @@ public class EnrollmentWindowServiceImpl implements IEnrollmentWindowService {
             return b.trim();
         }
         return "";
+    }
+
+    /** Prefer full_name; else join first + last (self-service and HR rows may split names). */
+    private String csvExportDisplayNameFromDeal(Deals d) {
+        if (d == null) {
+            return "";
+        }
+        return firstNonEmpty(
+                d.getFullName() != null ? d.getFullName().trim() : "",
+                joinGivenAndFamilyName(d.getFirstName(), d.getLastName()));
+    }
+
+    private String joinGivenAndFamilyName(String firstName, String lastName) {
+        String f = firstName != null ? firstName.trim() : "";
+        String l = lastName != null ? lastName.trim() : "";
+        if (f.isEmpty() && l.isEmpty()) {
+            return "";
+        }
+        if (l.isEmpty()) {
+            return f;
+        }
+        if (f.isEmpty()) {
+            return l;
+        }
+        return f + " " + l;
+    }
+
+    /**
+     * Self-service submissions store firstName/lastName; HR bulk upload may set fullName/name.
+     */
+    private String dependentDisplayNameFromSubmissionJson(JsonNode n) {
+        if (n == null || !n.isObject()) {
+            return "";
+        }
+        String direct = firstNonEmpty(jsonText(n, "fullName"), jsonText(n, "name"));
+        if (!direct.isBlank()) {
+            return direct.trim();
+        }
+        String first = firstNonEmpty(jsonText(n, "firstName"), jsonText(n, "first_name"));
+        String last = firstNonEmpty(jsonText(n, "lastName"), jsonText(n, "last_name"));
+        return joinGivenAndFamilyName(first, last);
     }
 
     private String jsonText(JsonNode n, String field) {
