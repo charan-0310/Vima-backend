@@ -1,16 +1,26 @@
 package com.vimainsurance.vimaadmin.service.serviceimpl;
 
+import java.io.IOException;
+import java.io.UncheckedIOException;
+import java.io.Writer;
+import java.math.BigDecimal;
+import java.nio.charset.StandardCharsets;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
 import com.vimainsurance.vimaadmin.repository.WindowProgressProjection;
@@ -23,8 +33,11 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
 import org.springframework.data.jpa.domain.Specification;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.multipart.MultipartFile;
+import org.springframework.web.servlet.mvc.method.annotation.StreamingResponseBody;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -61,7 +74,9 @@ import com.vimainsurance.vimaadmin.repository.IPolicyRepository;
 import com.vimainsurance.vimaadmin.service.IEnrollmentWindowService;
 import com.vimainsurance.vimaadmin.service.IHRApprovalService;
 import com.vimainsurance.vimaadmin.specification.EnrollmentWindowSpecification;
+import com.fasterxml.jackson.databind.JsonNode;
 import com.vimainsurance.vimaadmin.util.Constants;
+import com.vimainsurance.vimaadmin.util.EnrollmentWindowEmployeeCsvWriter;
 import com.vimainsurance.vimaadmin.util.EnrollmentUploadParserUtil;
 import com.vimainsurance.vimaadmin.util.GmcCoverageUploadValidationUtil;
 import com.vimainsurance.vimaadmin.util.JwtUserExtractor;
@@ -75,6 +90,8 @@ import com.vimainsurance.vimaadmin.enums.AccountType;
 
 @Service
 public class EnrollmentWindowServiceImpl implements IEnrollmentWindowService {
+
+    private static final Pattern CHILD_NUMBER_LABEL = Pattern.compile("(?i)^Child\\s*([1-4])\\s*$");
 
     private static final Logger logger = LoggerFactory.getLogger(EnrollmentWindowServiceImpl.class);
 
@@ -396,6 +413,9 @@ public class EnrollmentWindowServiceImpl implements IEnrollmentWindowService {
             obj.put("fullName", name);
             obj.put("name", name);
             obj.put("relationship", row.getRelationship());
+            if (row.getActualRelationship() != null && !row.getActualRelationship().isBlank()) {
+                obj.put("actualRelationship", row.getActualRelationship().trim());
+            }
             String rawDob = row.getDateOfBirth();
             String isoDob = (rawDob != null && !rawDob.isBlank())
                 ? EnrollmentUploadParserUtil.normalizeDateToIsoString(rawDob) : null;
@@ -692,6 +712,543 @@ public class EnrollmentWindowServiceImpl implements IEnrollmentWindowService {
             logger.error("[correlationId:{}] Exception in EnrollmentWindow getStats: {}", MDC.get("correlationId"), e.getMessage(), e);
             return responseObj.render(responseObj.formErrorResponse(Constants.RECORD_NOT_FOUND_MESSAGE));
         }
+    }
+
+    private static final DateTimeFormatter EXPORT_DOB = DateTimeFormatter.ofPattern("dd/MM/yy");
+
+    @Override
+    @Transactional(readOnly = true)
+    public ResponseEntity<StreamingResponseBody> exportEmployeesCsv(UUID windowId) {
+        Optional<EnrollmentWindows> opt = enrollmentWindowsRepository.findById(windowId);
+        if (opt.isEmpty()) {
+            return ResponseEntity.notFound().build();
+        }
+        EnrollmentWindows window = opt.get();
+        validateAndSetOrganizationContext(window.getOrganization().getOrganizationId());
+
+        List<List<String>> rows = buildEnrollmentWindowExportRows(windowId);
+        String filename = sanitizeCsvFilename(window.getName()) + "_employees_export.csv";
+
+        StreamingResponseBody body = outputStream -> {
+            try {
+                EnrollmentWindowEmployeeCsvWriter.writeBom(outputStream);
+                Writer w = EnrollmentWindowEmployeeCsvWriter.newUtf8Writer(outputStream);
+                EnrollmentWindowEmployeeCsvWriter.writeRow(w, EnrollmentWindowEmployeeCsvWriter.HEADERS);
+                for (List<String> cells : rows) {
+                    EnrollmentWindowEmployeeCsvWriter.writeRow(w, cells);
+                }
+                w.flush();
+            } catch (IOException e) {
+                throw new UncheckedIOException(e);
+            }
+        };
+
+        return ResponseEntity.ok()
+                .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=\"" + filename + "\"")
+                .contentType(new MediaType("text", "csv", StandardCharsets.UTF_8))
+                .body(body);
+    }
+
+    private List<List<String>> buildEnrollmentWindowExportRows(UUID windowId) {
+        List<Deals> linked = dealsRepository.findByEnrollmentWindow_Id(windowId);
+        // One primary row per employee number (avoids duplicate blocks if DB has repeats)
+        List<Deals> primaries = linked.stream()
+                .filter(this::isEnrollmentPrimaryDealRow)
+                .collect(Collectors.toMap(
+                        this::primaryExportDedupeKey,
+                        d -> d,
+                        (existing, duplicate) -> existing,
+                        LinkedHashMap::new))
+                .values()
+                .stream()
+                .toList();
+
+        List<EnrollmentSubmission> subs = enrollmentSubmissionRepository.findAllByEnrollmentWindow_Id(windowId);
+        Map<UUID, EnrollmentSubmission> submissionByEmployeeId = new HashMap<>();
+        for (EnrollmentSubmission s : subs) {
+            if (s.getEmployee() != null && s.getEmployee().getIndividualId() != null) {
+                submissionByEmployeeId.put(s.getEmployee().getIndividualId(), s);
+            }
+        }
+
+        List<List<String>> out = new ArrayList<>();
+        for (Deals primary : primaries) {
+            String empNo = primary.getEmployeeNumber() != null ? primary.getEmployeeNumber().trim() : "";
+            EnrollmentSubmission sub = submissionByEmployeeId.get(primary.getIndividualId());
+            PlanSumsCsv sums = sub != null ? parsePlanSelectionsForCsv(sub.getPlanSelections()) : PlanSumsCsv.empty();
+
+            String pdJson = sub != null ? sub.getPersonalDetails() : null;
+            String exportEmail = firstNonEmpty(primary.getEmail(), emailFromPersonalDetailsJson(pdJson));
+            String exportMobile = firstNonEmpty(primary.getPhone(), phoneFromPersonalDetailsJson(pdJson));
+
+            out.add(csvDataRow(empNo, formatRelationshipForCsv(primary), nullToEmpty(primary.getFullName()),
+                    nullToEmpty(primary.getGender()), formatDobForCsv(primary.getDateOfBirth()), sums,
+                    nullToEmpty(exportEmail), nullToEmpty(exportMobile),
+                    formatDobForCsv(primary.getDateOfJoining()),
+                    nullToEmpty(primary.getDepartment()), nullToEmpty(primary.getMaritalStatus())));
+
+            Set<String> seenDepKeys = new HashSet<>();
+            seenDepKeys.add(depDedupeKey(formatRelationshipForCsv(primary), primary.getFullName()));
+
+            List<Deals> depDeals = dealsRepository.findByPrimaryIndividualId(primary.getIndividualId());
+            for (Deals dep : depDeals) {
+                if (dep.getIndividualId().equals(primary.getIndividualId())) {
+                    continue;
+                }
+                if (dep.getRelationship() != null && "SELF".equalsIgnoreCase(dep.getRelationship().trim())) {
+                    continue;
+                }
+                String rel = formatRelationshipForCsv(dep);
+                String dk = depDedupeKey(rel, dep.getFullName());
+                if (seenDepKeys.add(dk)) {
+                    out.add(csvDataRow(empNo, rel, nullToEmpty(dep.getFullName()), nullToEmpty(dep.getGender()),
+                            formatDobForCsv(dep.getDateOfBirth()), sums,
+                            nullToEmpty(dep.getEmail()), nullToEmpty(dep.getPhone()),
+                            formatDobForCsv(dep.getDateOfJoining()),
+                            nullToEmpty(dep.getDepartment()), nullToEmpty(dep.getMaritalStatus())));
+                }
+            }
+
+            if (sub != null) {
+                appendDependentsFromSubmissionJson(out, empNo, sums, sub.getDependents(), seenDepKeys);
+            }
+        }
+        return dedupeCsvRowsByLogicalPerson(out);
+    }
+
+    /** Stable key: prefer employee number, else individual id (one export block per employee). */
+    private String primaryExportDedupeKey(Deals p) {
+        if (p.getEmployeeNumber() != null && !p.getEmployeeNumber().isBlank()) {
+            return p.getEmployeeNumber().trim().toLowerCase(Locale.ROOT);
+        }
+        return p.getIndividualId().toString();
+    }
+
+    /**
+     * Drop rows that describe the same person twice (e.g. same dependent from Deals + JSON with
+     * different relationship labels like Child vs Son). Keeps the first occurrence.
+     */
+    private List<List<String>> dedupeCsvRowsByLogicalPerson(List<List<String>> rows) {
+        if (rows.isEmpty()) {
+            return rows;
+        }
+        List<List<String>> result = new ArrayList<>(rows.size());
+        Set<String> seen = new HashSet<>();
+        for (List<String> row : rows) {
+            if (row == null || row.size() < 5) {
+                result.add(row);
+                continue;
+            }
+            String key = csvExportLogicalPersonKey(row.get(0), row.get(1), row.get(2), row.get(3), row.get(4));
+            if (seen.add(key)) {
+                result.add(row);
+            }
+        }
+        return result;
+    }
+
+    private String csvExportLogicalPersonKey(String employeeId, String relationship, String employeeName,
+            String gender, String dateOfBirth) {
+        return normalizeCsvExportCell(employeeId)
+                + '\u001f'
+                + canonicalRelationshipForExportDedupe(relationship)
+                + '\u001f'
+                + normalizeCsvExportCell(employeeName)
+                + '\u001f'
+                + normalizeCsvExportCell(gender)
+                + '\u001f'
+                + normalizeCsvExportCell(dateOfBirth);
+    }
+
+    private String normalizeCsvExportCell(String s) {
+        if (s == null) {
+            return "";
+        }
+        return s.trim().replaceAll("\\s+", " ").toLowerCase(Locale.ROOT);
+    }
+
+    /** Map display relationships that refer to the same dependent class to one bucket for deduplication. */
+    private String canonicalRelationshipForExportDedupe(String displayRel) {
+        if (displayRel == null || displayRel.isBlank()) {
+            return "";
+        }
+        String t = displayRel.trim().toLowerCase(Locale.ROOT);
+        if ("self".equals(t)) {
+            return "self";
+        }
+        if ("spouse".equals(t) || "wife".equals(t) || "husband".equals(t)) {
+            return "spouse";
+        }
+        if (t.contains("child") || "son".equals(t) || "daughter".equals(t) || "kid".equals(t)) {
+            return "child_dependent";
+        }
+        if (t.contains("father") || t.contains("mother") || t.contains("parent")) {
+            return "parent_dependent";
+        }
+        if (t.contains("in-law") || t.contains("in_law") || t.contains("inlaw")) {
+            return "inlaw_dependent";
+        }
+        return t;
+    }
+
+    private boolean isEnrollmentPrimaryDealRow(Deals d) {
+        if (d == null) {
+            return false;
+        }
+        if (Boolean.FALSE.equals(d.getIsPrimaryMember())) {
+            return false;
+        }
+        String r = d.getRelationship();
+        String selfVal = NomineeRelationship.SELF.getValue();
+        return r == null || r.isBlank() || "SELF".equalsIgnoreCase(r.trim()) || selfVal.equalsIgnoreCase(r.trim());
+    }
+
+    private List<String> csvDataRow(String employeeId, String relationship, String employeeName, String gender,
+            String dateOfBirth, PlanSumsCsv sums,
+            String email, String mobile, String dateOfJoining, String department, String maritalStatus) {
+        return List.of(employeeId, relationship, employeeName, gender, dateOfBirth,
+                sums.sumInsured, sums.topupSumInsured, sums.superTopupSumInsured,
+                email, mobile, dateOfJoining, department, maritalStatus);
+    }
+
+    private void appendDependentsFromSubmissionJson(List<List<String>> out, String empNo, PlanSumsCsv sums,
+            String dependentsJson, Set<String> seenDepKeys) {
+        if (dependentsJson == null || dependentsJson.isBlank()) {
+            return;
+        }
+        String trimmed = dependentsJson.trim();
+        if ("{}".equals(trimmed) || "[]".equals(trimmed)) {
+            return;
+        }
+        try {
+            JsonNode root = objectMapper.readTree(dependentsJson);
+            JsonNode arr = root.isArray() ? root : null;
+            if (arr == null && root.isObject() && root.has("dependents") && root.get("dependents").isArray()) {
+                arr = root.get("dependents");
+            }
+            if (arr == null || !arr.isArray()) {
+                return;
+            }
+            for (JsonNode n : arr) {
+                if (n == null || !n.isObject()) {
+                    continue;
+                }
+                String name = firstNonEmpty(jsonText(n, "fullName"), jsonText(n, "name"));
+                String relRaw = firstNonEmpty(jsonText(n, "relationship"), "Dependent");
+                String actualRelJson = jsonText(n, "actualRelationship");
+                String dob = formatDobJsonValue(firstNonEmpty(jsonText(n, "dateOfBirth"), jsonText(n, "date_of_birth")));
+                String gender = firstNonEmpty(jsonText(n, "gender"), "");
+                String rel = formatDependentRelationshipFromSubmissionJson(relRaw, actualRelJson, gender);
+                String email = firstNonEmpty(jsonText(n, "email"), "");
+                String mobile = firstNonEmpty(jsonText(n, "phone"), jsonText(n, "mobile"));
+                String dk = depDedupeKey(rel, name);
+                if (!seenDepKeys.add(dk)) {
+                    continue;
+                }
+                out.add(csvDataRow(empNo, rel, name, gender, dob, sums, email, mobile, "", "", ""));
+            }
+        } catch (Exception e) {
+            logger.warn("[correlationId:{}] export CSV: dependents JSON skipped: {}", MDC.get("correlationId"), e.getMessage());
+        }
+    }
+
+    private String depDedupeKey(String relationship, String name) {
+        String r = relationship != null ? relationship.trim().toLowerCase(Locale.ROOT) : "";
+        String n = name != null ? name.trim().toLowerCase(Locale.ROOT) : "";
+        return r + "|" + n;
+    }
+
+    /**
+     * Maps submission dependents JSON relationship + optional actualRelationship + gender to CSV/display labels
+     * (Son/Daughter instead of CHILD1 or "Child 1").
+     */
+    private String formatDependentRelationshipFromSubmissionJson(String relationshipRaw, String actualRelationshipJson,
+            String genderRaw) {
+        String raw = relationshipRaw != null ? relationshipRaw.trim() : "";
+        if (raw.isEmpty()) {
+            return "Dependent";
+        }
+        String compact = raw.toUpperCase(Locale.ROOT).replaceAll("\\s+", "");
+        if (!compact.matches("CHILD[1-4]")) {
+            Matcher m = CHILD_NUMBER_LABEL.matcher(raw);
+            if (m.find()) {
+                compact = "CHILD" + m.group(1);
+            }
+        }
+        boolean isChildCode = compact.matches("CHILD[1-4]");
+        boolean isSonDaughterWord = "SON".equalsIgnoreCase(raw) || "DAUGHTER".equalsIgnoreCase(raw);
+        if (isChildCode || isSonDaughterWord) {
+            String ar = actualRelationshipJson != null ? actualRelationshipJson.trim() : "";
+            if (!ar.isEmpty()) {
+                return titleCaseRelationship(ar);
+            }
+            String g = genderRaw != null ? genderRaw.trim().toLowerCase(Locale.ROOT) : "";
+            if ("male".equals(g)) {
+                return "Son";
+            }
+            if ("female".equals(g)) {
+                return "Daughter";
+            }
+            return "Child";
+        }
+        if ("SPOUSE".equalsIgnoreCase(raw)) {
+            return "Spouse";
+        }
+        if ("SELF".equalsIgnoreCase(raw)) {
+            return "Self";
+        }
+        if ("FATHER".equalsIgnoreCase(raw) || "MOTHER".equalsIgnoreCase(raw)) {
+            return raw.substring(0, 1).toUpperCase(Locale.ROOT) + raw.substring(1).toLowerCase(Locale.ROOT);
+        }
+        return titleCaseRelationship(raw.replace('_', ' ').trim());
+    }
+
+    private String formatRelationshipForCsv(Deals d) {
+        if (d == null) {
+            return "";
+        }
+        String r = d.getRelationship();
+        if (r == null || r.isBlank()) {
+            return "Self";
+        }
+        if ("SELF".equalsIgnoreCase(r.trim()) || NomineeRelationship.SELF.getValue().equalsIgnoreCase(r.trim())) {
+            return "Self";
+        }
+        if ("SPOUSE".equalsIgnoreCase(r.trim())) {
+            return "Spouse";
+        }
+        if (r.toUpperCase(Locale.ROOT).startsWith("CHILD")
+                || "SON".equalsIgnoreCase(r.trim())
+                || "DAUGHTER".equalsIgnoreCase(r.trim())) {
+            if (d.getActualRelationship() != null && !d.getActualRelationship().isBlank()) {
+                return titleCaseRelationship(d.getActualRelationship().trim());
+            }
+            String g = d.getGender() != null ? d.getGender().trim().toLowerCase(Locale.ROOT) : "";
+            if ("male".equals(g)) {
+                return "Son";
+            }
+            if ("female".equals(g)) {
+                return "Daughter";
+            }
+            return "Child";
+        }
+        if ("FATHER".equalsIgnoreCase(r.trim()) || "MOTHER".equalsIgnoreCase(r.trim())) {
+            return r.substring(0, 1).toUpperCase(Locale.ROOT) + r.substring(1).toLowerCase(Locale.ROOT);
+        }
+        return titleCaseRelationship(r.replace('_', ' ').trim());
+    }
+
+    private String titleCaseRelationship(String s) {
+        if (s == null || s.isBlank()) {
+            return "";
+        }
+        String[] parts = s.trim().split("\\s+");
+        StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < parts.length; i++) {
+            if (i > 0) {
+                sb.append(' ');
+            }
+            String p = parts[i];
+            if (p.isEmpty()) {
+                continue;
+            }
+            sb.append(Character.toUpperCase(p.charAt(0)));
+            if (p.length() > 1) {
+                sb.append(p.substring(1).toLowerCase(Locale.ROOT));
+            }
+        }
+        return sb.toString();
+    }
+
+    private String formatDobForCsv(LocalDate dob) {
+        return dob == null ? "" : EXPORT_DOB.format(dob);
+    }
+
+    private String formatDobJsonValue(String raw) {
+        if (raw == null || raw.isBlank()) {
+            return "";
+        }
+        String t = raw.trim();
+        try {
+            LocalDate d = LocalDate.parse(t, DateTimeFormatter.ISO_LOCAL_DATE);
+            return EXPORT_DOB.format(d);
+        } catch (Exception ignored) {
+            // keep as provided (e.g. already dd/MM/yy)
+        }
+        return t;
+    }
+
+    private String nullToEmpty(String s) {
+        return s != null ? s : "";
+    }
+
+    private String firstNonEmpty(String a, String b) {
+        if (a != null && !a.isBlank()) {
+            return a.trim();
+        }
+        if (b != null && !b.isBlank()) {
+            return b.trim();
+        }
+        return "";
+    }
+
+    private String jsonText(JsonNode n, String field) {
+        if (n == null || !n.has(field) || n.get(field).isNull()) {
+            return "";
+        }
+        JsonNode v = n.get(field);
+        if (v.isTextual()) {
+            return v.asText();
+        }
+        if (v.isNumber()) {
+            return v.asText();
+        }
+        return "";
+    }
+
+    /** Enrollment self-service saves verified phone in submission personalDetails; Deals.phone may still be empty. */
+    private String phoneFromPersonalDetailsJson(String personalDetailsJson) {
+        if (personalDetailsJson == null || personalDetailsJson.isBlank()) {
+            return "";
+        }
+        String trimmed = personalDetailsJson.trim();
+        if ("{}".equals(trimmed)) {
+            return "";
+        }
+        try {
+            JsonNode root = objectMapper.readTree(personalDetailsJson);
+            if (root == null || !root.isObject()) {
+                return "";
+            }
+            return firstNonEmpty(jsonText(root, "phone"), jsonText(root, "mobile"));
+        } catch (Exception e) {
+            logger.debug("[correlationId:{}] export CSV: personalDetails phone parse skipped: {}",
+                    MDC.get("correlationId"), e.getMessage());
+            return "";
+        }
+    }
+
+    private String emailFromPersonalDetailsJson(String personalDetailsJson) {
+        if (personalDetailsJson == null || personalDetailsJson.isBlank()) {
+            return "";
+        }
+        String trimmed = personalDetailsJson.trim();
+        if ("{}".equals(trimmed)) {
+            return "";
+        }
+        try {
+            JsonNode root = objectMapper.readTree(personalDetailsJson);
+            if (root == null || !root.isObject()) {
+                return "";
+            }
+            return jsonText(root, "email");
+        } catch (Exception e) {
+            logger.debug("[correlationId:{}] export CSV: personalDetails email parse skipped: {}",
+                    MDC.get("correlationId"), e.getMessage());
+            return "";
+        }
+    }
+
+    private String sanitizeCsvFilename(String name) {
+        if (name == null || name.isBlank()) {
+            return "enrollment_window";
+        }
+        String s = name.replaceAll("[^a-zA-Z0-9._-]+", "_").replaceAll("^_+|_+$", "");
+        return s.isBlank() ? "enrollment_window" : s.substring(0, Math.min(80, s.length()));
+    }
+
+    private static final class PlanSumsCsv {
+        final String sumInsured;
+        final String topupSumInsured;
+        final String superTopupSumInsured;
+
+        PlanSumsCsv(String sumInsured, String topupSumInsured, String superTopupSumInsured) {
+            this.sumInsured = sumInsured;
+            this.topupSumInsured = topupSumInsured;
+            this.superTopupSumInsured = superTopupSumInsured;
+        }
+
+        static PlanSumsCsv empty() {
+            return new PlanSumsCsv("", "", "");
+        }
+    }
+
+    private PlanSumsCsv parsePlanSelectionsForCsv(String json) {
+        if (json == null || json.isBlank()) {
+            return PlanSumsCsv.empty();
+        }
+        try {
+            JsonNode arr = objectMapper.readTree(json);
+            if (!arr.isArray()) {
+                return PlanSumsCsv.empty();
+            }
+            BigDecimal gmc = null;
+            BigDecimal top = null;
+            BigDecimal sup = null;
+            for (JsonNode n : arr) {
+                if (n == null || !n.isObject()) {
+                    continue;
+                }
+                if (n.has("opted") && !n.get("opted").asBoolean(true)) {
+                    continue;
+                }
+                String pt = firstNonEmpty(jsonText(n, "planType"), jsonText(n, "productType"));
+                if (pt.isBlank()) {
+                    pt = jsonText(n, "plan_type");
+                }
+                if (pt.isBlank()) {
+                    continue;
+                }
+                String upt = pt.trim().toUpperCase(Locale.ROOT).replace(' ', '_');
+                BigDecimal cov = readCoverageAmount(n);
+                if (cov == null) {
+                    continue;
+                }
+                if (upt.contains("SUPER_TOP") || "SUPER_TOP_UP".equals(upt)) {
+                    sup = cov;
+                } else if (upt.contains("TOP_UP") || "TOPUP".equals(upt)) {
+                    top = cov;
+                } else if (upt.contains("GMC") || upt.contains("GHI") || upt.contains("PARENT")) {
+                    gmc = cov;
+                }
+            }
+            return new PlanSumsCsv(formatAmount(gmc), formatAmount(top), formatAmount(sup));
+        } catch (Exception e) {
+            logger.warn("[correlationId:{}] export CSV: planSelections parse failed: {}", MDC.get("correlationId"), e.getMessage());
+            return PlanSumsCsv.empty();
+        }
+    }
+
+    private BigDecimal readCoverageAmount(JsonNode n) {
+        BigDecimal v = decimalFromJson(n, "coverageAmount", "coverage_amount", "sumInsured", "sum_insured");
+        return v;
+    }
+
+    private BigDecimal decimalFromJson(JsonNode n, String... keys) {
+        for (String key : keys) {
+            if (!n.has(key) || n.get(key).isNull()) {
+                continue;
+            }
+            JsonNode v = n.get(key);
+            if (v.isNumber()) {
+                return v.decimalValue();
+            }
+            if (v.isTextual()) {
+                try {
+                    return new BigDecimal(v.asText().trim().replace(",", ""));
+                } catch (Exception ignored) {
+                    // next key
+                }
+            }
+        }
+        return null;
+    }
+
+    private String formatAmount(BigDecimal d) {
+        if (d == null) {
+            return "";
+        }
+        return d.stripTrailingZeros().toPlainString();
     }
 
     private Sort createSort(String sortBy, String sortDirection) {

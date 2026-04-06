@@ -137,7 +137,7 @@ public final class EnrollmentUploadParserUtil {
     private static void parseRow(Map<String, Integer> headerMap, String[] row, int rowNumber, EnrollmentParseResult result) {
         String employeeId = getVal(row, headerMap, "employee_id", "employeeid", "employee id");
         String relationship = getVal(row, headerMap, "relationship");
-        String name = getVal(row, headerMap, "name", "employee name");
+        String name = getVal(row, headerMap, "name", "employee name", "fullname", "full name");
         String email = getVal(row, headerMap, "email", "email address");
         String dateOfBirth = getVal(row, headerMap, "date_of_birth", "dateofbirth", "dob", "date of birth");
         String gender = getVal(row, headerMap, "gender");
@@ -230,6 +230,15 @@ public final class EnrollmentUploadParserUtil {
             for (DependentRow row : rows) {
                 String rel = row.getRelationship();
                 if (rel != null && CHILD_KEYWORDS.contains(rel.trim().toLowerCase(Locale.ROOT))) {
+                    String raw = rel.trim();
+                    String lower = raw.toLowerCase(Locale.ROOT);
+                    if ("son".equals(lower)) {
+                        row.setActualRelationship("Son");
+                    } else if ("daughter".equals(lower)) {
+                        row.setActualRelationship("Daughter");
+                    } else {
+                        row.setActualRelationship("Child");
+                    }
                     if (childIndex < CHILD_RELATIONSHIPS.length) {
                         row.setRelationship(CHILD_RELATIONSHIPS[childIndex]);
                     } else {
@@ -289,7 +298,13 @@ public final class EnrollmentUploadParserUtil {
 
     private static String normalizeHeader(String h) {
         if (h == null) return "";
-        return h.toLowerCase(Locale.ROOT).replaceAll("[\\s_-]+", "");
+        String t = h.trim();
+        // UTF-8 BOM (U+FEFF) on the first cell is common for Excel/Notepad exports; without this,
+        // the key becomes "\uFEFFname" and does not match "name", so Name column is ignored.
+        while (!t.isEmpty() && t.charAt(0) == '\uFEFF') {
+            t = t.substring(1).trim();
+        }
+        return t.toLowerCase(Locale.ROOT).replaceAll("[\\s_-]+", "");
     }
 
     private static Map<String, Integer> buildHeaderMap(String[] headerRow) {
@@ -385,6 +400,8 @@ public final class EnrollmentUploadParserUtil {
         private String dateOfBirth;
         private String gender;
         private String email;
+        /** Original label (Son, Daughter, Child) when relationship is normalized to CHILD1–CHILD4 */
+        private String actualRelationship;
     }
 
     @Data

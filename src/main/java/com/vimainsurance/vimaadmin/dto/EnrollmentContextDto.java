@@ -32,4 +32,6 @@ public class EnrollmentContextDto {
     private List<EnrollmentOrganizationPolicyDto> organizationPolicies;
     /** Company enrollment config (parent coverage etc.); derived from company_enrollment_config or PARENT_GMC policy. */
     private CompanyEnrollmentConfigResponseDto companyEnrollmentConfig;
+    /** Workflow status, wizard step, and derived lifecycle for this window's submission (same as {@link #submissionId}). */
+    private EnrollmentSubmissionSummaryDto submissionSummary;
 }

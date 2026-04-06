@@ -52,6 +52,7 @@ import com.vimainsurance.vimaadmin.enums.AccountType;
 import com.vimainsurance.vimaadmin.enums.EndorsementSource;
 import com.vimainsurance.vimaadmin.enums.EndorsementType;
 import com.vimainsurance.vimaadmin.enums.EnrollementStatus;
+import com.vimainsurance.vimaadmin.enums.PolicyStatus;
 import com.vimainsurance.vimaadmin.enums.ProductType;
 import com.vimainsurance.vimaadmin.repository.IAdminUserRepository;
 import com.vimainsurance.vimaadmin.repository.IDealEndorsementRepository;
@@ -601,6 +602,9 @@ public class HRApprovalServiceImpl implements IHRApprovalService {
                 pd.setInsurerName(p.getInsuranceProviderId() != null
                         ? insuranceProviderRepository.findById(p.getInsuranceProviderId()).map(provider -> provider.getProviderName()).orElse(null)
                         : null);
+                LocalDate effStart = p.getEffectiveFrom() != null ? p.getEffectiveFrom() : p.getStartDate();
+                pd.setEffectiveFrom(effStart != null ? effStart.toString() : null);
+                pd.setPolicyStatus(p.getStatus() != null ? p.getStatus().name() : null);
                 organizationPolicies.add(pd);
             }
         }
@@ -637,6 +641,11 @@ public class HRApprovalServiceImpl implements IHRApprovalService {
                 .employeeEmail(emp != null ? emp.getEmail() : null)
                 .employeePhone(emp != null ? emp.getPhone() : null)
                 .employeeNumber(emp != null ? emp.getEmployeeNumber() : null)
+                .employeeDateOfJoining(emp != null && emp.getDateOfJoining() != null
+                        ? emp.getDateOfJoining().toString() : null)
+                .employeeDepartment(emp != null ? emp.getDepartment() : null)
+                .employeeMaritalStatus(emp != null ? emp.getMaritalStatus() : null)
+                .employeeDesignation(emp != null ? emp.getDesignation() : null)
                 .enrollmentWindowId(window != null ? window.getId() : null)
                 .windowName(window != null ? window.getName() : null)
                 .organizationId(org != null ? org.getOrganizationId() : null)
@@ -931,6 +940,34 @@ public class HRApprovalServiceImpl implements IHRApprovalService {
     }
 
     /**
+     * When dependent DOJ is omitted, use active GMC or GHI policy effective_from (or start_date if effective_from is null).
+     * If several such policies exist, the earliest candidate date is used.
+     */
+    private LocalDate resolveDefaultDependentDateOfJoining(Organization org) {
+        if (org == null || org.getOrganizationId() == null) {
+            return null;
+        }
+        LocalDate best = null;
+        for (ProductType pt : new ProductType[] { ProductType.GMC, ProductType.GHI }) {
+            List<Policy> policies = policyRepository.findByOrganizationIdAndProductTypeAndStatus(
+                    org.getOrganizationId(), pt, PolicyStatus.ACTIVE);
+            if (policies == null || policies.isEmpty()) {
+                continue;
+            }
+            for (Policy p : policies) {
+                LocalDate candidate = p.getEffectiveFrom() != null ? p.getEffectiveFrom() : p.getStartDate();
+                if (candidate == null) {
+                    continue;
+                }
+                if (best == null || candidate.isBefore(best)) {
+                    best = candidate;
+                }
+            }
+        }
+        return best;
+    }
+
+    /**
      * Creates Deals (dependents) from dependents JSON array. Each object may have name/firstName/lastName, relationship, dateOfBirth, gender, etc.
      */
     private List<Deals> createDependentsFromJson(EnrollmentSubmission sub, Deals primaryEmployee, String dependentsJson) {
@@ -944,6 +981,7 @@ public class HRApprovalServiceImpl implements IHRApprovalService {
                 return list;
             }
             Organization org = primaryEmployee.getOrganization();
+            LocalDate defaultDependentDoj = resolveDefaultDependentDateOfJoining(org);
             for (JsonNode node : root) {
                 if (!node.isObject()) {
                     continue;
@@ -985,6 +1023,21 @@ public class HRApprovalServiceImpl implements IHRApprovalService {
                 d.setPhone(text(node.get("phone")));
                 if (d.getPhone() == null) {
                     d.setPhone(text(node.get("mobile")));
+                }
+                LocalDate dependentDoj = null;
+                if (node.has("dateOfJoining")) {
+                    dependentDoj = parseDate(text(node.get("dateOfJoining")));
+                }
+                if (dependentDoj == null && node.has("date_of_joining")) {
+                    dependentDoj = parseDate(text(node.get("date_of_joining")));
+                }
+                if (dependentDoj == null && node.has("doj")) {
+                    dependentDoj = parseDate(text(node.get("doj")));
+                }
+                if (dependentDoj != null) {
+                    d.setDateOfJoining(dependentDoj);
+                } else if (defaultDependentDoj != null) {
+                    d.setDateOfJoining(defaultDependentDoj);
                 }
                 d.setCreatedAt(LocalDateTime.now());
                 d.setUpdatedAt(LocalDateTime.now());
