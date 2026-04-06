@@ -49,6 +49,9 @@ public class SubmissionDetailDto {
     private String employeeDepartment;
     private String employeeMaritalStatus;
     private String employeeDesignation;
+    /** yyyy-MM-dd from Deals when present */
+    private String employeeDateOfBirth;
+    private String employeeGender;
 
     // Window & org
     private UUID enrollmentWindowId;

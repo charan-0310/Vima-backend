@@ -933,16 +933,17 @@ public class EnrollmentInvitationServiceImpl implements IEnrollmentInvitation {
 
     private boolean sendEnrollmentReminderEmail(String to, String employeeName, String magicLink, String companyName, LocalDateTime expiresAt) {
         try {
+            Map<String, Object> reminderVars = new HashMap<>();
+            reminderVars.put("employeeName", employeeName != null ? employeeName : "Employee");
+            reminderVars.put("magicLink", magicLink);
+            reminderVars.put("companyName", (companyName != null && !companyName.isBlank()) ? companyName : "Vima Insurance");
+            reminderVars.put("linkExpiry", formatInvitationExpiry(expiresAt));
+            reminderVars.put("hrNotes", "");
             EmailRequest req = EmailRequest.builder()
                 .to(to)
                 .subject("Reminder: Complete your enrollment - Vima Insurance")
                 .templateName("enrollment-reminder")
-                .templateVariables(java.util.Map.of(
-                    "employeeName", employeeName != null ? employeeName : "Employee",
-                    "magicLink", magicLink,
-                    "companyName", (companyName != null && !companyName.isBlank()) ? companyName : "Vima Insurance",
-                    "linkExpiry", formatInvitationExpiry(expiresAt)
-                ))
+                .templateVariables(reminderVars)
                 .build();
             return emailService.sendTemplateEmail(req).isSuccess();
         } catch (Exception e) {
