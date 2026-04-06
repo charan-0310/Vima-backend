@@ -18,11 +18,13 @@ import java.util.UUID;
 import org.slf4j.MDC;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
 import org.springframework.http.ResponseEntity;
+import org.springframework.orm.ObjectOptimisticLockingFailureException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
@@ -81,6 +83,7 @@ import com.vimainsurance.vimaadmin.service.IPayrollSchedulePopulationService;
 import com.vimainsurance.vimaadmin.service.TokenSecurityService;
 import com.vimainsurance.vimaadmin.specification.EnrollmentSubmissionSpecification;
 import com.vimainsurance.vimaadmin.audit.AuditContextSupplier;
+import com.vimainsurance.vimaadmin.exception.OrganizationAccessDeniedException;
 import com.vimainsurance.vimaadmin.util.JwtUserExtractor;
 import com.vimainsurance.vimaadmin.util.OrganizationAccessHelper;
 import com.vimainsurance.vimaadmin.util.TenantContext;
@@ -580,6 +583,17 @@ public class HRApprovalServiceImpl implements IHRApprovalService {
 
             SubmissionDetailDto dto = toDetailDto(enrollmentSubmissionRepository.findById(id).orElse(sub));
             return responseObj.render(responseObj.formSuccessResponse("Enrollment updated", dto));
+        } catch (OrganizationAccessDeniedException e) {
+            log.warn("[correlationId:{}] updateEnrollmentEmployee org access: {}", MDC.get("correlationId"), e.getMessage());
+            return responseObj.render(responseObj.formErrorResponse(403, e.getMessage()));
+        } catch (DataIntegrityViolationException e) {
+            String root = Optional.ofNullable(e.getMostSpecificCause()).map(Throwable::getMessage).orElse("");
+            log.warn("[correlationId:{}] updateEnrollmentEmployee data integrity: {}", MDC.get("correlationId"), root);
+            return responseObj.render(responseObj.formErrorResponse(400, dataIntegrityUserMessage(root)));
+        } catch (ObjectOptimisticLockingFailureException e) {
+            log.warn("[correlationId:{}] updateEnrollmentEmployee optimistic lock: {}", MDC.get("correlationId"), e.getMessage());
+            return responseObj.render(responseObj.formErrorResponse(409,
+                    "This enrollment was updated elsewhere. Refresh the page and try again."));
         } catch (IllegalArgumentException e) {
             log.warn("[correlationId:{}] updateEnrollmentEmployee: {}", MDC.get("correlationId"), e.getMessage());
             return responseObj.render(responseObj.formErrorResponse(400, e.getMessage()));
@@ -587,6 +601,27 @@ public class HRApprovalServiceImpl implements IHRApprovalService {
             log.error("[correlationId:{}] updateEnrollmentEmployee error: {}", MDC.get("correlationId"), e.getMessage(), e);
             return responseObj.render(responseObj.formErrorResponse("Update failed"));
         }
+    }
+
+    /** User-safe hint when DB rejects the update (unique constraint, FK, etc.). */
+    private static String dataIntegrityUserMessage(String rootMessage) {
+        if (rootMessage == null) {
+            return "Update conflict with existing data. Check for duplicate email, name, or employee number.";
+        }
+        String m = rootMessage.toLowerCase();
+        if (m.contains("email") || m.contains("_email_")) {
+            return "This email is already used by another record. Each person needs a unique email.";
+        }
+        if (m.contains("full_name") || m.contains("full name")) {
+            return "This full name conflicts with another record (unique name constraint).";
+        }
+        if (m.contains("username")) {
+            return "Username conflicts with another record.";
+        }
+        if (m.contains("employee_number") || m.contains("employee number")) {
+            return "Employee number conflicts with another record in the database.";
+        }
+        return "Update conflict with existing data (database constraint). If this persists, contact support with the time of the request.";
     }
 
     private static void applyFullNameToDeals(Deals emp, String fullName) {
