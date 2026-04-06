@@ -12,6 +12,7 @@ import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executor;
+import java.util.stream.Collectors;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -67,6 +68,47 @@ public class EnrollmentInvitationServiceImpl implements IEnrollmentInvitation {
     private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
     private static final DateTimeFormatter INVITATION_EXPIRY_FORMAT = DateTimeFormatter.ofPattern("d MMM uuuu, h:mm a");
     private static final DateTimeFormatter ENROLLMENT_WINDOW_DATE_EMAIL = DateTimeFormatter.ofPattern("dd-MMM-uuuu", Locale.ENGLISH);
+
+    /** Invitations we never schedule reminders for (submission gating still applies). */
+    private static final List<EnrollementStatus> SCHEDULED_REMINDER_EXCLUDED_INVITATION_STATUSES = List.of(
+            EnrollementStatus.PENDING,
+            EnrollementStatus.COMPLETED,
+            EnrollementStatus.EXPIRED,
+            EnrollementStatus.REJECTED);
+
+    /**
+     * Send invitation reminders only while enrollment is not filed past draft: no submission row yet, or submission still DRAFT.
+     * Skips when submission is submitted, approved, rejected, completed, expired, etc. (any non-DRAFT).
+     */
+    private static boolean submissionAllowsInvitationReminder(EnrollmentSubmission submission) {
+        if (submission == null) {
+            return true;
+        }
+        return submission.getStatus() == EnrollementStatus.DRAFT;
+    }
+
+    /**
+     * Re-load from DB before send: avoids stale JPQL results and blocks if submission is linked by invitation only
+     * or was filed (non-DRAFT) after the eligible list was built.
+     */
+    private boolean freshSubmissionAllowsInvitationReminder(EnrollmentInvitation inv) {
+        Deals emp = inv.getEmployee();
+        EnrollmentWindows win = inv.getEnrollmentWindow();
+        if (emp == null || win == null) {
+            return true;
+        }
+        UUID empId = emp.getIndividualId();
+        UUID windowId = win.getId();
+        Optional<EnrollmentSubmission> byEmpWindow = submissionRepository.findByEmployee_IndividualIdAndEnrollmentWindow_Id(empId, windowId);
+        if (byEmpWindow.isPresent() && byEmpWindow.get().getStatus() != EnrollementStatus.DRAFT) {
+            return false;
+        }
+        Optional<EnrollmentSubmission> byInvitation = submissionRepository.findByInvitation_Id(inv.getId());
+        if (byInvitation.isPresent() && byInvitation.get().getStatus() != EnrollementStatus.DRAFT) {
+            return false;
+        }
+        return true;
+    }
 
     @Autowired
     private IEnrollmentInvitationRepository invitationRepository;
@@ -296,9 +338,12 @@ public class EnrollmentInvitationServiceImpl implements IEnrollmentInvitation {
         BaseResponse<IEnrollmentInvitation.ReminderResult> responseObj = new BaseResponse<>();
         try {
             List<EnrollmentInvitation> all = invitationRepository.findAllByEnrollmentWindow_Id(windowId);
+            Map<UUID, EnrollmentSubmission> submissionByEmployee = submissionRepository.findAllByEnrollmentWindow_Id(windowId).stream()
+                .collect(Collectors.toMap(s -> s.getEmployee().getIndividualId(), s -> s, (a, b) -> a));
             List<EnrollementStatus> reminderStatuses = List.of(EnrollementStatus.SENT, EnrollementStatus.OPENED, EnrollementStatus.IN_PROGRESS, EnrollementStatus.REJECTED);
             List<EnrollmentInvitation> invitations = all.stream()
                 .filter(inv -> reminderStatuses.contains(inv.getStatus()))
+                .filter(inv -> submissionAllowsInvitationReminder(submissionByEmployee.get(inv.getEmployee().getIndividualId())))
                 .filter(inv -> employeeIds == null || employeeIds.isEmpty() || employeeIds.contains(inv.getEmployee().getIndividualId()))
                 .toList();
             int processed = invitations.size();
@@ -306,6 +351,11 @@ public class EnrollmentInvitationServiceImpl implements IEnrollmentInvitation {
             int failed = 0;
             for (EnrollmentInvitation inv : invitations) {
                 if (inv.getExpiresAt() != null && inv.getExpiresAt().toLocalDate().isBefore(LocalDate.now())) {
+                    continue;
+                }
+                if (!freshSubmissionAllowsInvitationReminder(inv)) {
+                    logger.debug("[correlationId:{}] Skipping reminder: submission no longer draft for invitation {}",
+                        MDC.get("correlationId"), inv.getId());
                     continue;
                 }
                 // Deterministic token: resend same link. Legacy: generate new token and update hash.
@@ -347,8 +397,8 @@ public class EnrollmentInvitationServiceImpl implements IEnrollmentInvitation {
     @Transactional
     @AuditedOperation(schemaName = "cpc", tableName = "enrollment_invitations", entityType = "ENROLLMENT_REMINDER_JOB", action = "SYSTEM")
     public void runScheduledReminders() {
-        List<EnrollementStatus> reminderStatuses = List.of(EnrollementStatus.SENT, EnrollementStatus.OPENED, EnrollementStatus.IN_PROGRESS);
-        List<EnrollmentInvitation> eligible = invitationRepository.findEligibleForReminder(reminderStatuses, LocalDateTime.now());
+        List<EnrollmentInvitation> eligible = invitationRepository.findEligibleForScheduledReminder(
+            SCHEDULED_REMINDER_EXCLUDED_INVITATION_STATUSES, EnrollementStatus.DRAFT, LocalDateTime.now());
         LocalDate today = LocalDate.now();
         LocalDate tomorrow = today.plusDays(1);
         int sent = 0;
@@ -383,6 +433,12 @@ public class EnrollmentInvitationServiceImpl implements IEnrollmentInvitation {
                         || !lastReminderAt.toLocalDate().plusDays(reminderFrequencyDays).isAfter(today);
                 boolean finalReminderDue = expiresDate != null && expiresDate.equals(tomorrow);
                 if (!dueByFrequency && !finalReminderDue) {
+                    skipped++;
+                    continue;
+                }
+                if (!freshSubmissionAllowsInvitationReminder(inv)) {
+                    logger.debug("[correlationId:{}] Skipping scheduled reminder: submission no longer draft for invitation {}",
+                        MDC.get("correlationId"), inv.getId());
                     skipped++;
                     continue;
                 }

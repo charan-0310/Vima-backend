@@ -72,7 +72,7 @@ class GmcCoverageUploadValidationUtilTest {
     void enrollmentUpload_returnsRowLevelErrorForInvalidTierRelationship() {
         Policy gmcEsc = policy(ProductType.GMC, CoverageType.ESC, PolicyStatus.ACTIVE);
         EnrollmentUploadParserUtil.DependentRow row = new EnrollmentUploadParserUtil.DependentRow(
-                7, "E005", "Father", "Parent Name", "1980-01-01", "Male", "p@example.com");
+                7, "E005", "Father", "Parent Name", "1980-01-01", "Male", "p@example.com", null);
         EnrollmentUploadParserUtil.EnrollmentParseResult parseResult = new EnrollmentUploadParserUtil.EnrollmentParseResult();
         parseResult.setDependentRowsByEmployeeId(Map.of("E005", List.of(row)));
 
@@ -109,8 +109,8 @@ class GmcCoverageUploadValidationUtilTest {
         parseResult.setDependentRowsByEmployeeId(Map.of(
                 "E007",
                 List.of(
-                        new EnrollmentUploadParserUtil.DependentRow(10, "E007", "CHILD1", "C1", "2018-01-01", "M", null),
-                        new EnrollmentUploadParserUtil.DependentRow(11, "E007", "CHILD2", "C2", "2019-01-01", "F", null)
+                        new EnrollmentUploadParserUtil.DependentRow(10, "E007", "CHILD1", "C1", "2018-01-01", "M", null, null),
+                        new EnrollmentUploadParserUtil.DependentRow(11, "E007", "CHILD2", "C2", "2019-01-01", "F", null, null)
                 )));
 
         List<String> errors = GmcCoverageUploadValidationUtil.validateEnrollmentUploadRows(parseResult, List.of(gmcEscp));

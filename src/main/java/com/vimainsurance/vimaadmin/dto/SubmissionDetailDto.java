@@ -44,6 +44,11 @@ public class SubmissionDetailDto {
     private String employeeEmail;
     private String employeePhone;
     private String employeeNumber;
+    /** ISO date yyyy-MM-dd from Deals when present */
+    private String employeeDateOfJoining;
+    private String employeeDepartment;
+    private String employeeMaritalStatus;
+    private String employeeDesignation;
 
     // Window & org
     private UUID enrollmentWindowId;

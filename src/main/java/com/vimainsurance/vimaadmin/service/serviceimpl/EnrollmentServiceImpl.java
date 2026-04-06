@@ -20,6 +20,7 @@ import com.vimainsurance.vimaadmin.dto.CompanyEnrollmentConfigResponseDto;
 import com.vimainsurance.vimaadmin.dto.EnrollmentContextDto;
 import com.vimainsurance.vimaadmin.dto.EnrollmentOrganizationPolicyDto;
 import com.vimainsurance.vimaadmin.dto.EnrollmentSubmissionResponseDto;
+import com.vimainsurance.vimaadmin.dto.EnrollmentSubmissionSummaryDto;
 import com.vimainsurance.vimaadmin.dto.EnrollmentWindowResponseDto;
 import com.vimainsurance.vimaadmin.dto.ResponseDto;
 import com.vimainsurance.vimaadmin.entity.Deals;
@@ -165,6 +166,7 @@ public class EnrollmentServiceImpl implements IEnrollmentService {
             dto.setInvitationId(invitation.getId());
             dto.setEnrollmentWindow(enrollmentWindowDto);
             dto.setEmployee(employeeDto);
+            dto.setSubmissionSummary(toSubmissionSummary(submission));
             // Fetch organization policies internally (no separate public API) for Nominees/Plans steps
             if (enrollmentWindow.getOrganization() != null) {
                 UUID orgId = enrollmentWindow.getOrganization().getOrganizationId();
@@ -180,6 +182,9 @@ public class EnrollmentServiceImpl implements IEnrollmentService {
                     pd.setCoverageType(p.getCoverageType() != null ? p.getCoverageType().name() : null);
                     pd.setSumInsuredMultiplier(p.getSumInsuredMultiplier());
                     pd.setInsurerName(p.getInsuranceProviderId() != null ? insuranceProviderRepository.findById(p.getInsuranceProviderId()).orElseThrow(() -> new RuntimeException("Insurance provider not found")).getProviderName() : null);
+                    LocalDate effStart = p.getEffectiveFrom() != null ? p.getEffectiveFrom() : p.getStartDate();
+                    pd.setEffectiveFrom(effStart != null ? effStart.toString() : null);
+                    pd.setPolicyStatus(p.getStatus() != null ? p.getStatus().name() : null);
                     policyDtos.add(pd);
                 }
                 dto.setOrganizationPolicies(policyDtos);
@@ -301,5 +306,45 @@ public class EnrollmentServiceImpl implements IEnrollmentService {
             dto.setAccountStatus(deal.getStatus().getValue());
         }
         return dto;
+    }
+
+    private static EnrollmentSubmissionSummaryDto toSubmissionSummary(EnrollmentSubmission submission) {
+        EnrollmentSubmissionSummaryDto summary = new EnrollmentSubmissionSummaryDto();
+        summary.setSubmissionId(submission.getId());
+        EnrollementStatus st = submission.getStatus();
+        summary.setWorkflowStatus(st != null ? st.getValue() : null);
+        String stage = submission.getStage();
+        summary.setCurrentStep(stage != null ? stage : "");
+        summary.setSubmittedAt(submission.getSubmittedAt());
+        summary.setDerivedLifecycle(deriveEnrollmentLifecycle(submission));
+        return summary;
+    }
+
+    /**
+     * Draft + empty {@code personalDetails} → NOT_STARTED (same heuristic as employee portal guard).
+     */
+    private static String deriveEnrollmentLifecycle(EnrollmentSubmission submission) {
+        EnrollementStatus st = submission.getStatus();
+        if (st == null) {
+            return "UNKNOWN";
+        }
+        String pd = submission.getPersonalDetails();
+        boolean started = pd != null && !pd.isBlank() && !"{}".equals(pd.trim());
+        switch (st) {
+            case APPROVED:
+                return "APPROVED";
+            case REJECTED:
+                return "REJECTED";
+            case ENDORSED:
+                return "ENDORSED";
+            case SUBMITTED:
+                return "SUBMITTED";
+            case PENDING_APPROVAL:
+                return "PENDING_APPROVAL";
+            case DRAFT:
+                return started ? "IN_PROGRESS" : "NOT_STARTED";
+            default:
+                return st.getValue();
+        }
     }
 }
