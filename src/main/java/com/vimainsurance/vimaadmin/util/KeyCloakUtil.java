@@ -32,6 +32,7 @@ import com.vimainsurance.vimaadmin.dto.OrganizationDto;
 import com.vimainsurance.vimaadmin.dto.RoleDto;
 
 import jakarta.ws.rs.core.Response;
+import jakarta.ws.rs.NotFoundException;
 
 /**
  * Keycloak Admin API utility. Provides getRoles() and getOrganizations() compatible
@@ -565,5 +566,68 @@ public class KeyCloakUtil {
         return authServerUrl != null && !authServerUrl.isBlank()
                 && realm != null && !realm.isBlank()
                 && serviceClientId != null && !serviceClientId.isBlank();
+    }
+
+    /**
+     * Adds a realm role to an existing Keycloak user identified by email.
+     * Also ensures user joins the provided organization groups when supplied.
+     *
+     * @return true when user exists and role assignment flow completes; false when user not found/config missing.
+     */
+    public boolean addRoleToExistingUserByEmail(String email, String role, List<String> organizations) {
+        if (email == null || email.isBlank()) return false;
+        if (!isConfigPresent()) {
+            logger.warn("Keycloak config missing; cannot add role to existing user");
+            return false;
+        }
+        Keycloak keycloak = null;
+        try {
+            keycloak = getKeycloakClient();
+            var realmResource = keycloak.realm(realm);
+            List<UserRepresentation> users = realmResource.users().search(email.trim(), true, 0, 20);
+            if (users == null || users.isEmpty()) return false;
+
+            UserRepresentation existing = users.stream()
+                    .filter(u -> u != null && u.getEmail() != null && email.trim().equalsIgnoreCase(u.getEmail().trim()))
+                    .findFirst()
+                    .orElse(null);
+            if (existing == null || existing.getId() == null || existing.getId().isBlank()) return false;
+
+            UserResource userResource = realmResource.users().get(existing.getId());
+            String roleName = role != null ? role.trim() : "";
+            if (!roleName.isEmpty()) {
+                List<RoleRepresentation> currentRoles = userResource.roles().realmLevel().listAll();
+                boolean alreadyHasRole = currentRoles != null && currentRoles.stream()
+                        .filter(r -> r != null && r.getName() != null)
+                        .anyMatch(r -> r.getName().equals(roleName));
+                if (!alreadyHasRole) {
+                    RoleRepresentation realmRole = realmResource.roles().get(roleName).toRepresentation();
+                    if (realmRole != null) {
+                        userResource.roles().realmLevel().add(Collections.singletonList(realmRole));
+                    }
+                }
+            }
+
+            if (organizations != null && !organizations.isEmpty()) {
+                for (String org : organizations) {
+                    if (org == null || org.isBlank()) continue;
+                    String orgName = org.trim();
+                    if (!orgName.startsWith(ORG_PREFIX)) orgName = ORG_PREFIX + orgName;
+                    String groupId = getGroupIdByName(keycloak, orgName);
+                    if (groupId == null || groupId.isBlank()) continue;
+                    try {
+                        userResource.joinGroup(groupId);
+                    } catch (NotFoundException ignored) {
+                        // Ignore if group is missing between lookup and join.
+                    }
+                }
+            }
+            return true;
+        } catch (Exception e) {
+            logger.error("Failed to add role {} to existing user {} in Keycloak", role, email, e);
+            return false;
+        } finally {
+            if (keycloak != null) keycloak.close();
+        }
     }
 }

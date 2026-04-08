@@ -1074,7 +1074,7 @@ public class EndorsementServiceImpl implements IEndorsementService {
             List<String> successUsers, List<String> failedUsers) {
         deals.stream().forEach(deal -> {
             try {
-                if(deal.getRelationship().equals("SELF")) {
+                if("SELF".equalsIgnoreCase(deal.getRelationship())) {
                     String password = PasswordGenerator.generateRandomPassword();
                     keycloakUtil.createUser(deal.getFullName(), deal.getEmail().toLowerCase(), deal.getEmail().toLowerCase(), 
                         "ROLE_EMPLOYEE", Arrays.asList(orgName), true, password, deal.getIndividualId().toString());
@@ -1083,6 +1083,19 @@ public class EndorsementServiceImpl implements IEndorsementService {
                     successUsers.add(deal.getEmail());
                 } 
             } catch (Exception e) {
+                // Existing HR users can already have this email; in that case add EMPLOYEE role instead of failing.
+                String email = deal.getEmail() != null ? deal.getEmail().toLowerCase() : null;
+                boolean updatedExistingUser = keycloakUtil.addRoleToExistingUserByEmail(
+                        email,
+                        "ROLE_EMPLOYEE",
+                        Arrays.asList(orgName)
+                );
+                if (updatedExistingUser) {
+                    logger.info("[correlationId:{}] Added ROLE_EMPLOYEE to existing user for email: {}", MDC.get("correlationId"), email);
+                    successCount.incrementAndGet();
+                    successUsers.add(deal.getEmail());
+                    return;
+                }
                 failedCount.incrementAndGet();
                 logger.error("[correlationId:{}] Error creating user for deal: {}", MDC.get("correlationId"), e.getMessage());
                 failedUsers.add(deal.getEmail() != null ? deal.getEmail() : deal.getFullName() != null ? deal.getFullName() : "Unknown");
