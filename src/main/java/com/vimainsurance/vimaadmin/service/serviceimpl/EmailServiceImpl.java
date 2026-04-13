@@ -13,8 +13,21 @@ import org.springframework.mail.javamail.MimeMessageHelper;
 import org.springframework.stereotype.Service;
 import org.thymeleaf.context.Context;
 import org.thymeleaf.spring6.SpringTemplateEngine;
+import software.amazon.awssdk.core.SdkBytes;
+import software.amazon.awssdk.services.sesv2.SesV2Client;
+import software.amazon.awssdk.services.sesv2.model.Body;
+import software.amazon.awssdk.services.sesv2.model.Content;
+import software.amazon.awssdk.services.sesv2.model.Destination;
+import software.amazon.awssdk.services.sesv2.model.EmailContent;
+import software.amazon.awssdk.services.sesv2.model.Message;
+import software.amazon.awssdk.services.sesv2.model.RawMessage;
+import software.amazon.awssdk.services.sesv2.model.SendEmailRequest;
 
+import java.io.ByteArrayOutputStream;
+import java.util.Arrays;
 import java.util.List;
+import java.util.Objects;
+import java.util.stream.Collectors;
 
 @Slf4j
 @Service
@@ -24,12 +37,17 @@ public class EmailServiceImpl implements IEmailService {
     private static final String UTF_8 = "UTF-8";
     private static final String COMPANY_NAME = "Vima Insurance";
     private static final String COMPANY_NAME_KEY = "companyName";
+    private static final String MAIL_PROVIDER_SES = "ses";
 
     private final JavaMailSender mailSender;
     private final SpringTemplateEngine templateEngine;
+    private final SesV2Client sesV2Client;
 
     @Value("${spring.mail.username}")
     private String fromEmail;
+
+    @Value("${aws.ses.from-email:}")
+    private String sesFromEmail;
 
     @Value("${app.email.from-name:Vima Insurance}")
     private String fromName;
@@ -37,26 +55,13 @@ public class EmailServiceImpl implements IEmailService {
     @Value("${app.base-url:http://localhost:7219}")
     private String baseUrl;
 
+    @Value("${mail.provider:gmail}")
+    private String mailProvider;
+
     @Override
     public EmailResponse sendSimpleEmail(EmailRequest emailRequest) {
         try {
-            MimeMessage message = mailSender.createMimeMessage();
-            MimeMessageHelper helper = new MimeMessageHelper(message, true, UTF_8);
-            
-            helper.setFrom(fromEmail, fromName);
-            helper.setTo(emailRequest.getTo());
-            helper.setSubject(emailRequest.getSubject());
-            helper.setText(emailRequest.getBody(), false);
-            
-            if (emailRequest.getCc() != null && !emailRequest.getCc().isEmpty()) {
-                helper.setCc(emailRequest.getCc());
-            }
-            
-            if (emailRequest.getBcc() != null && !emailRequest.getBcc().isEmpty()) {
-                helper.setBcc(emailRequest.getBcc());
-            }
-            
-            mailSender.send(message);
+            sendEmail(emailRequest, false, false);
             
             log.info("Simple email sent successfully to: {}", emailRequest.getTo());
             return EmailResponse.builder()
@@ -64,7 +69,7 @@ public class EmailServiceImpl implements IEmailService {
                     .message("Email sent successfully")
                     .build();
                     
-        } catch (jakarta.mail.MessagingException | java.io.UnsupportedEncodingException e) {
+        } catch (Exception e) {
             log.error("Failed to send simple email to: {}", emailRequest.getTo(), e);
             return EmailResponse.builder()
                     .success(false)
@@ -77,23 +82,7 @@ public class EmailServiceImpl implements IEmailService {
     @Override
     public EmailResponse sendHtmlEmail(EmailRequest emailRequest) {
         try {
-            MimeMessage message = mailSender.createMimeMessage();
-            MimeMessageHelper helper = new MimeMessageHelper(message, true, UTF_8);
-            
-            helper.setFrom(fromEmail, fromName);
-            helper.setTo(emailRequest.getTo());
-            helper.setSubject(emailRequest.getSubject());
-            helper.setText(emailRequest.getBody(), true);
-            
-            if (emailRequest.getCc() != null && !emailRequest.getCc().isEmpty()) {
-                helper.setCc(emailRequest.getCc());
-            }
-            
-            if (emailRequest.getBcc() != null && !emailRequest.getBcc().isEmpty()) {
-                helper.setBcc(emailRequest.getBcc());
-            }
-            
-            mailSender.send(message);
+            sendEmail(emailRequest, true, false);
             
             log.info("HTML email sent successfully to: {}", emailRequest.getTo());
             return EmailResponse.builder()
@@ -101,7 +90,7 @@ public class EmailServiceImpl implements IEmailService {
                     .message("HTML email sent successfully")
                     .build();
                     
-        } catch (jakarta.mail.MessagingException | java.io.UnsupportedEncodingException e) {
+        } catch (Exception e) {
             log.error("Failed to send HTML email to: {}", emailRequest.getTo(), e);
             return EmailResponse.builder()
                     .success(false)
@@ -114,31 +103,24 @@ public class EmailServiceImpl implements IEmailService {
     @Override
     public EmailResponse sendTemplateEmail(EmailRequest emailRequest) {
         try {
-            MimeMessage message = mailSender.createMimeMessage();
-            MimeMessageHelper helper = new MimeMessageHelper(message, true, UTF_8);
-            
-            helper.setFrom(fromEmail, fromName);
-            helper.setTo(emailRequest.getTo());
-            helper.setSubject(emailRequest.getSubject());
-            
-            // Process template
             Context context = new Context();
             if (emailRequest.getTemplateVariables() != null) {
                 context.setVariables(emailRequest.getTemplateVariables());
             }
             
             String htmlContent = templateEngine.process(emailRequest.getTemplateName(), context);
-            helper.setText(htmlContent, true);
-            
-            if (emailRequest.getCc() != null && !emailRequest.getCc().isEmpty()) {
-                helper.setCc(emailRequest.getCc());
-            }
-            
-            if (emailRequest.getBcc() != null && !emailRequest.getBcc().isEmpty()) {
-                helper.setBcc(emailRequest.getBcc());
-            }
-            
-            mailSender.send(message);
+            EmailRequest templateEmailRequest = EmailRequest.builder()
+                    .to(emailRequest.getTo())
+                    .toList(emailRequest.getToList())
+                    .cc(emailRequest.getCc())
+                    .ccList(emailRequest.getCcList())
+                    .bcc(emailRequest.getBcc())
+                    .bccList(emailRequest.getBccList())
+                    .subject(emailRequest.getSubject())
+                    .body(htmlContent)
+                    .isHtml(true)
+                    .build();
+            sendEmail(templateEmailRequest, true, false);
             
             log.info("Template email sent successfully to: {} using template: {}", 
                     emailRequest.getTo(), emailRequest.getTemplateName());
@@ -147,7 +129,7 @@ public class EmailServiceImpl implements IEmailService {
                     .message("Template email sent successfully")
                     .build();
                     
-        } catch (jakarta.mail.MessagingException | org.thymeleaf.exceptions.TemplateEngineException | java.io.UnsupportedEncodingException e) {
+        } catch (Exception e) {
             log.error("Failed to send template email to: {} using template: {}", 
                     emailRequest.getTo(), emailRequest.getTemplateName(), e);
             return EmailResponse.builder()
@@ -161,45 +143,7 @@ public class EmailServiceImpl implements IEmailService {
     @Override
     public EmailResponse sendEmailWithAttachments(EmailRequest emailRequest) {
         try {
-            MimeMessage message = mailSender.createMimeMessage();
-            MimeMessageHelper helper = new MimeMessageHelper(message, true, UTF_8);
-            
-            helper.setFrom(fromEmail, fromName);
-            if (emailRequest.getToList() != null && !emailRequest.getToList().isEmpty()) {
-                helper.setTo(emailRequest.getToList().toArray(new String[0]));
-            } else if (emailRequest.getTo() != null && !emailRequest.getTo().isBlank()) {
-                helper.setTo(emailRequest.getTo());
-            }
-            helper.setSubject(emailRequest.getSubject());
-            String body = emailRequest.getBody();
-            if (emailRequest.getTemplateName() != null && !emailRequest.getTemplateName().isBlank()) {
-                Context context = new Context();
-                if (emailRequest.getTemplateVariables() != null) {
-                    context.setVariables(emailRequest.getTemplateVariables());
-                }
-                body = templateEngine.process(emailRequest.getTemplateName(), context);
-            }
-            helper.setText(body != null ? body : "", body != null && (emailRequest.isHtml() || emailRequest.getTemplateName() != null));
-            
-            // Add attachments
-            if (emailRequest.getAttachments() != null && !emailRequest.getAttachments().isEmpty()) {
-                for (EmailAttachment attachment : emailRequest.getAttachments()) {
-                    helper.addAttachment(attachment.getFileName(), 
-                            new jakarta.mail.util.ByteArrayDataSource(
-                                    attachment.getContent(), 
-                                    attachment.getContentType()));
-                }
-            }
-            
-            if (emailRequest.getCc() != null && !emailRequest.getCc().isEmpty()) {
-                helper.setCc(emailRequest.getCc());
-            }
-            
-            if (emailRequest.getBcc() != null && !emailRequest.getBcc().isEmpty()) {
-                helper.setBcc(emailRequest.getBcc());
-            }
-            
-            mailSender.send(message);
+            sendEmail(emailRequest, emailRequest.isHtml(), true);
             
             log.info("Email with attachments sent successfully to: {}", emailRequest.getTo());
             return EmailResponse.builder()
@@ -215,6 +159,196 @@ public class EmailServiceImpl implements IEmailService {
                     .error(e.getMessage())
                     .build();
         }
+    }
+
+    private void sendEmail(EmailRequest emailRequest, boolean html, boolean withAttachments)
+            throws jakarta.mail.MessagingException, java.io.UnsupportedEncodingException {
+        if (useSesProvider()) {
+            if (withAttachments) {
+                sendRawEmailViaSes(emailRequest, html);
+            } else {
+                sendSimpleEmailViaSes(emailRequest, html);
+            }
+            return;
+        }
+
+        sendViaSmtp(emailRequest, html, withAttachments);
+    }
+
+    private boolean useSesProvider() {
+        return MAIL_PROVIDER_SES.equalsIgnoreCase(mailProvider);
+    }
+
+    private void sendSimpleEmailViaSes(EmailRequest emailRequest, boolean html) {
+        String body = resolveBody(emailRequest);
+        String senderEmail = resolveFromEmail();
+        List<String> toAddresses = sanitizeAddresses(resolveToAddresses(emailRequest));
+        List<String> ccAddresses = resolveOptionalAddresses(emailRequest.getCc(), emailRequest.getCcList());
+        List<String> bccAddresses = resolveOptionalAddresses(emailRequest.getBcc(), emailRequest.getBccList());
+
+        if (toAddresses.isEmpty()) {
+            throw new IllegalArgumentException("At least one valid recipient email is required.");
+        }
+
+        Destination destination = Destination.builder()
+                .toAddresses(toAddresses)
+                .ccAddresses(ccAddresses)
+                .bccAddresses(bccAddresses)
+                .build();
+
+        Content subject = Content.builder().data(emailRequest.getSubject()).charset(UTF_8).build();
+        Body messageBody = Body.builder()
+                .text(!html ? Content.builder().data(body).charset(UTF_8).build() : null)
+                .html(html ? Content.builder().data(body).charset(UTF_8).build() : null)
+                .build();
+
+        Message message = Message.builder()
+                .subject(subject)
+                .body(messageBody)
+                .build();
+
+        SendEmailRequest request = SendEmailRequest.builder()
+                .fromEmailAddress(senderEmail)
+                .destination(destination)
+                .content(EmailContent.builder().simple(message).build())
+                .build();
+
+        sesV2Client.sendEmail(request);
+    }
+
+    private void sendRawEmailViaSes(EmailRequest emailRequest, boolean html)
+            throws jakarta.mail.MessagingException, java.io.UnsupportedEncodingException {
+        String senderEmail = resolveFromEmail();
+        List<String> toAddresses = sanitizeAddresses(resolveToAddresses(emailRequest));
+        if (toAddresses.isEmpty()) {
+            throw new IllegalArgumentException("At least one valid recipient email is required.");
+        }
+        MimeMessage mimeMessage = buildMimeMessage(emailRequest, html, true);
+        try {
+            ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
+            mimeMessage.writeTo(outputStream);
+
+            SendEmailRequest request = SendEmailRequest.builder()
+                    .fromEmailAddress(senderEmail)
+                    .destination(Destination.builder().toAddresses(toAddresses).build())
+                    .content(EmailContent.builder()
+                            .raw(RawMessage.builder()
+                                    .data(SdkBytes.fromByteArray(outputStream.toByteArray()))
+                                    .build())
+                            .build())
+                    .build();
+
+            sesV2Client.sendEmail(request);
+        } catch (java.io.IOException | jakarta.mail.MessagingException e) {
+            throw new RuntimeException("Failed to build raw SES email payload", e);
+        }
+    }
+
+    private void sendViaSmtp(EmailRequest emailRequest, boolean html, boolean withAttachments)
+            throws jakarta.mail.MessagingException, java.io.UnsupportedEncodingException {
+        MimeMessage message = buildMimeMessage(emailRequest, html, withAttachments);
+        mailSender.send(message);
+    }
+
+    private MimeMessage buildMimeMessage(EmailRequest emailRequest, boolean html, boolean withAttachments)
+            throws jakarta.mail.MessagingException, java.io.UnsupportedEncodingException {
+        MimeMessage message = mailSender.createMimeMessage();
+        MimeMessageHelper helper = new MimeMessageHelper(message, true, UTF_8);
+
+        String senderEmail = resolveFromEmail();
+        String senderName = Objects.requireNonNullElse(fromName, "");
+        String[] toAddresses = resolveToAddresses(emailRequest);
+        String subject = Objects.requireNonNullElse(emailRequest.getSubject(), "");
+
+        helper.setFrom(senderEmail, senderName);
+        helper.setTo(toAddresses);
+        helper.setSubject(subject);
+
+        String body = resolveBody(emailRequest);
+        helper.setText(body != null ? body : "", html || emailRequest.getTemplateName() != null);
+
+        if (emailRequest.getCc() != null && !emailRequest.getCc().isEmpty()) {
+            helper.setCc(emailRequest.getCc());
+        }
+        if (emailRequest.getBcc() != null && !emailRequest.getBcc().isEmpty()) {
+            helper.setBcc(emailRequest.getBcc());
+        }
+
+        if (withAttachments && emailRequest.getAttachments() != null && !emailRequest.getAttachments().isEmpty()) {
+            for (EmailAttachment attachment : emailRequest.getAttachments()) {
+                helper.addAttachment(attachment.getFileName(),
+                        new jakarta.mail.util.ByteArrayDataSource(
+                                attachment.getContent(),
+                                attachment.getContentType()));
+            }
+        }
+        return message;
+    }
+
+    private String[] resolveToAddresses(EmailRequest emailRequest) {
+        if (emailRequest.getToList() != null && !emailRequest.getToList().isEmpty()) {
+            return sanitizeAddresses(emailRequest.getToList()).toArray(new String[0]);
+        }
+        if (emailRequest.getTo() != null && !emailRequest.getTo().isBlank()) {
+            return new String[]{emailRequest.getTo()};
+        }
+        return new String[0];
+    }
+
+    private String resolveBody(EmailRequest emailRequest) {
+        String body = emailRequest.getBody();
+        if (emailRequest.getTemplateName() != null && !emailRequest.getTemplateName().isBlank()) {
+            Context context = new Context();
+            if (emailRequest.getTemplateVariables() != null) {
+                context.setVariables(emailRequest.getTemplateVariables());
+            }
+            body = templateEngine.process(emailRequest.getTemplateName(), context);
+        }
+        return body != null ? body : "";
+    }
+
+    private String resolveFromEmail() {
+        if (sesFromEmail != null && !sesFromEmail.isBlank()) {
+            return sesFromEmail;
+        }
+        if (fromEmail != null && !fromEmail.isBlank()) {
+            return fromEmail;
+        }
+        throw new IllegalStateException("Sender email is not configured. Set spring.mail.username or aws.ses.from-email.");
+    }
+
+    private List<String> sanitizeAddresses(List<String> addresses) {
+        if (addresses == null || addresses.isEmpty()) {
+            return List.of();
+        }
+        return addresses.stream()
+                .filter(Objects::nonNull)
+                .map(String::trim)
+                .filter(s -> !s.isEmpty())
+                .collect(Collectors.toList());
+    }
+
+    private List<String> sanitizeAddresses(String[] addresses) {
+        if (addresses == null || addresses.length == 0) {
+            return List.of();
+        }
+        return Arrays.stream(addresses)
+                .filter(Objects::nonNull)
+                .map(String::trim)
+                .filter(s -> !s.isEmpty())
+                .collect(Collectors.toList());
+    }
+
+    private List<String> resolveOptionalAddresses(String singleAddress, List<String> addressList) {
+        List<String> fromList = sanitizeAddresses(addressList);
+        if (!fromList.isEmpty()) {
+            return fromList;
+        }
+        if (singleAddress == null || singleAddress.isBlank()) {
+            return List.of();
+        }
+        // Supports single address and comma-separated addresses.
+        return sanitizeAddresses(singleAddress.split(","));
     }
 
     @Override

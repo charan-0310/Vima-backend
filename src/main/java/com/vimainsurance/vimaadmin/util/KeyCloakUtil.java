@@ -6,8 +6,16 @@ import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 
 import org.keycloak.OAuth2Constants;
@@ -56,6 +64,10 @@ public class KeyCloakUtil {
     private static final String ROLE_PREFIX = "ROLE_";
     private static final String ORG_PREFIX = "ORG_";
     private static final int MAX_GROUPS = 500;
+    /** Max distinct emails per preview call (guardrail for Keycloak Admin API load). */
+    private static final int EMAIL_PREVIEW_MAX_UNIQUE = 25_000;
+    /** Parallel workers for batched email existence checks (each uses its own short-lived Keycloak client). */
+    private static final int EMAIL_PREVIEW_PARALLEL_WORKERS = 12;
 
     @Value("${keycloak.auth-server-url:}")
     private String authServerUrl;
@@ -401,7 +413,6 @@ public class KeyCloakUtil {
         if (!isConfigPresent()) {
             throw new RuntimeException("Keycloak config missing; cannot create user");
         }
-        // Keycloak requires a non-blank username; if "Email as username" is enabled, username often equals email
         String u = username != null ? username.trim() : "";
         String e = email != null ? email.trim() : "";
         if (u.isBlank() && e.isBlank()) {
@@ -410,94 +421,9 @@ public class KeyCloakUtil {
         if (u.isBlank()) u = e;
         if (e.isBlank()) e = u;
 
-        Keycloak keycloak = null;
-        try {
-            keycloak = getKeycloakClient();
-            var realmResource = keycloak.realm(realm);
-
-            UserRepresentation user = new UserRepresentation();
-            user.setUsername(u);
-            user.setEmail(e);
-            user.setEnabled(isActive != null ? isActive : true);
-            if (name != null && !name.isBlank()) {
-                user.setFirstName(name.trim());
-                user.setLastName("");
-            }
-            if (individualId != null && !individualId.isBlank()) {
-                user.setAttributes(Map.of("user_id", List.of(individualId.trim())));
-            }
-            // Require user to update password on first login only
-            user.setRequiredActions(List.of("UPDATE_PASSWORD"));
-
-            // Create password and attach to user so user is created with password in one request
-            String passwordToSet = (temporaryPassword != null && !temporaryPassword.isBlank())
-                    ? temporaryPassword
-                    : PasswordGenerator.generateRandomPassword(12);
-            CredentialRepresentation cred = new CredentialRepresentation();
-            cred.setType(CredentialRepresentation.PASSWORD);
-            cred.setValue(passwordToSet);
-            cred.setTemporary(true);
-            user.setCredentials(Collections.singletonList(cred));
-
-            try (Response response = realmResource.users().create(user)) {
-                int status = response.getStatus();
-                String body = response.readEntity(String.class);
-                if (status == 400) {
-                    logger.error("Keycloak create user 400: {}", body);
-                    throw new HttpClientErrorException(HttpStatus.BAD_REQUEST, "Bad Request",
-                            body != null ? body.getBytes(StandardCharsets.UTF_8) : null, StandardCharsets.UTF_8);
-                }
-                if (status == 409) {
-                    logger.error("Keycloak create user 409: {}", body);
-                    throw new HttpClientErrorException(HttpStatus.CONFLICT, "Conflict",
-                            body != null ? body.getBytes(StandardCharsets.UTF_8) : null, StandardCharsets.UTF_8);
-                }
-                if (status != 201) {
-                    throw new RuntimeException("Keycloak create user failed: status=" + status + ", body=" + body);
-                }
-                String userId = CreatedResponseUtil.getCreatedId(response);
-                if (userId == null || userId.isBlank()) {
-                    throw new RuntimeException("Failed to get created user id from Keycloak");
-                }
-
-                // Override required actions after create (realm default actions may have been applied)
-                UserResource userResource = realmResource.users().get(userId);
-                UserRepresentation createdUser = userResource.toRepresentation();
-                createdUser.setRequiredActions(List.of("UPDATE_PASSWORD"));
-                userResource.update(createdUser);
-
-                // Assign realm role (Keycloak realm role name: VIMA_ADMIN; we accept ROLE_VIMA_ADMIN or VIMA_ADMIN)
-                if (role != null && !role.trim().isEmpty()) {
-                    String roleName = role.trim();
-                    try {
-                        RoleRepresentation realmRole = realmResource.roles().get(roleName).toRepresentation();
-                        if (realmRole != null) {
-                            realmResource.users().get(userId).roles().realmLevel().add(Collections.singletonList(realmRole));
-                        }
-                    } catch (Exception ex) {
-                        logger.warn("Could not assign realm role {} to user {}: {}", roleName, username, ex.getMessage());
-                    }
-                }
-
-                // Assign organization groups (by name ORG_*)
-                if (organizations != null && !organizations.isEmpty()) {
-                    for (String org : organizations) {
-                        if (org == null || org.isBlank()) continue;
-                        String orgName = org.trim();
-                        if (!orgName.startsWith(ORG_PREFIX)) orgName = ORG_PREFIX + orgName;
-                        String groupId = getGroupIdByName(keycloak, orgName);
-                        if (groupId != null) {
-                            try {
-                                realmResource.users().get(userId).joinGroup(groupId);
-                            } catch (Exception ex) {
-                                logger.warn("Could not add user {} to group {}: {}", username, orgName, ex.getMessage());
-                            }
-                        }
-                    }
-                }
-
-                return passwordToSet;
-            }
+        try (Keycloak keycloak = getKeycloakClient()) {
+            Map<String, String> groupNameToId = loadTopLevelGroupNameToIdMap(keycloak);
+            return createUserInternal(keycloak, groupNameToId, null, name, u, e, role, organizations, isActive, temporaryPassword, individualId);
         } catch (jakarta.ws.rs.BadRequestException ex) {
             String hint = " (Common causes: duplicate username or email, or realm requires email as username.)";
             try {
@@ -507,28 +433,177 @@ public class KeyCloakUtil {
             } catch (Exception readEx) {
                 throw new RuntimeException("Keycloak user creation failed: 400 Bad Request." + hint + " " + ex.getMessage(), ex);
             }
+        } catch (RuntimeException ex) {
+            throw ex;
         } catch (Exception ex) {
             logger.error("Failed to create user in Keycloak", ex);
             throw new RuntimeException("Failed to create user in Keycloak: " + ex.getMessage(), ex);
-        } finally {
-            if (keycloak != null) keycloak.close();
         }
     }
 
-    /** Resolve group id by name using an existing Keycloak instance (avoids creating a new client per call). */
-    private String getGroupIdByName(Keycloak keycloak, String groupName) {
-        if (groupName == null || groupName.isBlank() || keycloak == null) return null;
+    /**
+     * Same as {@link #createUser(String, String, String, String, List, Boolean, String, String)} but reuses an open
+     * Admin client and preloaded top-level group map / realm role (from {@link #loadTopLevelGroupNameToIdMap} /
+     * {@link #getRealmRoleOrNull}) for bulk onboarding.
+     */
+    public String createUser(Keycloak keycloak, Map<String, String> groupNameToId, RoleRepresentation prefetchedRealmRole,
+            String name, String username, String email, String role, List<String> organizations, Boolean isActive,
+            String temporaryPassword, String individualId) {
+        if (!isConfigPresent()) {
+            throw new RuntimeException("Keycloak config missing; cannot create user");
+        }
+        String u = username != null ? username.trim() : "";
+        String e = email != null ? email.trim() : "";
+        if (u.isBlank() && e.isBlank()) {
+            throw new RuntimeException("Keycloak user creation requires username or email");
+        }
+        if (u.isBlank()) u = e;
+        if (e.isBlank()) e = u;
+        try {
+            return createUserInternal(keycloak, groupNameToId, prefetchedRealmRole, name, u, e, role, organizations, isActive, temporaryPassword, individualId);
+        } catch (jakarta.ws.rs.BadRequestException ex) {
+            String hint = " (Common causes: duplicate username or email, or realm requires email as username.)";
+            try {
+                String body = ex.getResponse().readEntity(String.class);
+                logger.error("Keycloak create user 400 Bad Request: {}", body);
+                throw new RuntimeException("Keycloak user creation failed: " + body + hint, ex);
+            } catch (Exception readEx) {
+                throw new RuntimeException("Keycloak user creation failed: 400 Bad Request." + hint + " " + ex.getMessage(), ex);
+            }
+        }
+    }
+
+    /**
+     * One fetch of top-level groups (up to {@link #MAX_GROUPS}) for the realm — reuse across many user creates/joins in a batch.
+     */
+    public Map<String, String> loadTopLevelGroupNameToIdMap(Keycloak keycloak) {
+        Map<String, String> map = new HashMap<>();
+        if (keycloak == null) {
+            return map;
+        }
         try {
             List<GroupRepresentation> groups = keycloak.realm(realm).groups().groups(0, MAX_GROUPS);
             if (groups != null) {
                 for (GroupRepresentation g : groups) {
-                    if (g != null && groupName.equals(g.getName())) return g.getId();
+                    if (g != null && g.getName() != null && g.getId() != null) {
+                        map.put(g.getName(), g.getId());
+                    }
                 }
             }
         } catch (Exception ex) {
-            logger.warn("Failed to get group id by name: {}", ex.getMessage());
+            logger.warn("Failed to list Keycloak groups for batch map: {}", ex.getMessage());
         }
-        return null;
+        return map;
+    }
+
+    /**
+     * Realm role by exact name, or null if missing.
+     */
+    public RoleRepresentation getRealmRoleOrNull(Keycloak keycloak, String roleName) {
+        if (keycloak == null || roleName == null || roleName.isBlank()) {
+            return null;
+        }
+        try {
+            return keycloak.realm(realm).roles().get(roleName.trim()).toRepresentation();
+        } catch (NotFoundException e) {
+            return null;
+        } catch (Exception e) {
+            logger.warn("Could not load realm role {}: {}", roleName, e.getMessage());
+            return null;
+        }
+    }
+
+    private String createUserInternal(Keycloak keycloak, Map<String, String> groupNameToId,
+            RoleRepresentation prefetchedRealmRole,
+            String name, String u, String e, String role, List<String> organizations, Boolean isActive,
+            String temporaryPassword, String individualId) {
+        var realmResource = keycloak.realm(realm);
+
+        UserRepresentation user = new UserRepresentation();
+        user.setUsername(u);
+        user.setEmail(e);
+        user.setEnabled(isActive != null ? isActive : true);
+        if (name != null && !name.isBlank()) {
+            user.setFirstName(name.trim());
+            user.setLastName("");
+        }
+        if (individualId != null && !individualId.isBlank()) {
+            user.setAttributes(Map.of("user_id", List.of(individualId.trim())));
+        }
+        user.setRequiredActions(List.of("UPDATE_PASSWORD"));
+
+        String passwordToSet = (temporaryPassword != null && !temporaryPassword.isBlank())
+                ? temporaryPassword
+                : PasswordGenerator.generateRandomPassword(12);
+        CredentialRepresentation cred = new CredentialRepresentation();
+        cred.setType(CredentialRepresentation.PASSWORD);
+        cred.setValue(passwordToSet);
+        cred.setTemporary(true);
+        user.setCredentials(Collections.singletonList(cred));
+
+        try (Response response = realmResource.users().create(user)) {
+            int status = response.getStatus();
+            String body = response.readEntity(String.class);
+            if (status == 400) {
+                logger.error("Keycloak create user 400: {}", body);
+                throw new HttpClientErrorException(HttpStatus.BAD_REQUEST, "Bad Request",
+                        body != null ? body.getBytes(StandardCharsets.UTF_8) : null, StandardCharsets.UTF_8);
+            }
+            if (status == 409) {
+                logger.error("Keycloak create user 409: {}", body);
+                throw new HttpClientErrorException(HttpStatus.CONFLICT, "Conflict",
+                        body != null ? body.getBytes(StandardCharsets.UTF_8) : null, StandardCharsets.UTF_8);
+            }
+            if (status != 201) {
+                throw new RuntimeException("Keycloak create user failed: status=" + status + ", body=" + body);
+            }
+            String userId = CreatedResponseUtil.getCreatedId(response);
+            if (userId == null || userId.isBlank()) {
+                throw new RuntimeException("Failed to get created user id from Keycloak");
+            }
+
+            UserResource userResource = realmResource.users().get(userId);
+            UserRepresentation createdUser = userResource.toRepresentation();
+            createdUser.setRequiredActions(List.of("UPDATE_PASSWORD"));
+            userResource.update(createdUser);
+
+            if (role != null && !role.trim().isEmpty()) {
+                String roleName = role.trim();
+                RoleRepresentation realmRoleToAssign = prefetchedRealmRole;
+                if (realmRoleToAssign == null || !roleName.equals(realmRoleToAssign.getName())) {
+                    try {
+                        realmRoleToAssign = realmResource.roles().get(roleName).toRepresentation();
+                    } catch (Exception ex) {
+                        realmRoleToAssign = null;
+                    }
+                }
+                if (realmRoleToAssign != null) {
+                    try {
+                        realmResource.users().get(userId).roles().realmLevel().add(Collections.singletonList(realmRoleToAssign));
+                    } catch (Exception ex) {
+                        logger.warn("Could not assign realm role {} to user {}: {}", roleName, u, ex.getMessage());
+                    }
+                }
+            }
+
+            if (organizations != null && !organizations.isEmpty() && groupNameToId != null) {
+                for (String org : organizations) {
+                    if (org == null || org.isBlank()) continue;
+                    String orgName = org.trim();
+                    if (!orgName.startsWith(ORG_PREFIX)) orgName = ORG_PREFIX + orgName;
+                    String groupId = groupNameToId.get(orgName);
+                    if (groupId != null) {
+                        try {
+                            realmResource.users().get(userId).joinGroup(groupId);
+                        } catch (Exception ex) {
+                            logger.warn("Could not add user {} to group {}: {}", u, orgName, ex.getMessage());
+                        }
+                    }
+                }
+            }
+
+            return passwordToSet;
+        }
     }
 
     /**
@@ -569,6 +644,118 @@ public class KeyCloakUtil {
     }
 
     /**
+     * Returns whether a Keycloak user exists with this exact email (case-insensitive match on email field).
+     * Uses the Admin API search with exact=true. Intended for login preview and idempotency checks.
+     */
+    public boolean emailExistsInRealm(String email) {
+        if (email == null || email.isBlank() || !isConfigPresent()) {
+            return false;
+        }
+        Keycloak keycloak = null;
+        try {
+            keycloak = getKeycloakClient();
+            return emailExistsInRealm(keycloak, email.trim());
+        } finally {
+            if (keycloak != null) {
+                keycloak.close();
+            }
+        }
+    }
+
+    /**
+     * Batch lookup for many distinct normalized emails. Splits work across parallel workers
+     * (each worker holds one Keycloak client and processes a slice) to handle large lists
+     * without serializing thousands of Admin API calls on one connection.
+     *
+     * @param normalizedUniqueEmails lowercased/trimmed emails, no duplicates
+     * @return map email -> exists in realm
+     */
+    public Map<String, Boolean> checkEmailsExistInRealmBatched(List<String> normalizedUniqueEmails) {
+        if (!isConfigPresent()) {
+            throw new IllegalStateException("Keycloak config missing; cannot check emails");
+        }
+        if (normalizedUniqueEmails == null || normalizedUniqueEmails.isEmpty()) {
+            return Map.of();
+        }
+        if (normalizedUniqueEmails.size() > EMAIL_PREVIEW_MAX_UNIQUE) {
+            throw new IllegalArgumentException(
+                    "Too many distinct emails (" + normalizedUniqueEmails.size() + "); max " + EMAIL_PREVIEW_MAX_UNIQUE);
+        }
+        Map<String, Boolean> result = new ConcurrentHashMap<>();
+        int n = normalizedUniqueEmails.size();
+        int workers = Math.min(EMAIL_PREVIEW_PARALLEL_WORKERS, Math.max(1, (n + 199) / 200));
+        List<List<String>> slices = splitIntoSlices(normalizedUniqueEmails, workers);
+        ExecutorService pool = Executors.newFixedThreadPool(slices.size());
+        try {
+            List<Future<?>> futures = new ArrayList<>();
+            for (List<String> slice : slices) {
+                futures.add(pool.submit(() -> {
+                    try (Keycloak kc = getKeycloakClient()) {
+                        for (String email : slice) {
+                            if (email == null || email.isBlank()) {
+                                continue;
+                            }
+                            result.put(email.trim(), emailExistsInRealm(kc, email.trim()));
+                        }
+                    }
+                }));
+            }
+            for (Future<?> f : futures) {
+                f.get();
+            }
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new RuntimeException("Email preview interrupted", e);
+        } catch (ExecutionException e) {
+            Throwable c = e.getCause() != null ? e.getCause() : e;
+            throw new RuntimeException("Keycloak email batch check failed: " + c.getMessage(), c);
+        } finally {
+            pool.shutdown();
+            try {
+                if (!pool.awaitTermination(30, TimeUnit.MINUTES)) {
+                    pool.shutdownNow();
+                }
+            } catch (InterruptedException e) {
+                pool.shutdownNow();
+                Thread.currentThread().interrupt();
+            }
+        }
+        return result;
+    }
+
+    private static List<List<String>> splitIntoSlices(List<String> list, int numSlices) {
+        if (list.isEmpty()) {
+            return List.of();
+        }
+        int slices = Math.min(numSlices, list.size());
+        List<List<String>> out = new ArrayList<>(slices);
+        int chunk = (list.size() + slices - 1) / slices;
+        for (int i = 0; i < list.size(); i += chunk) {
+            out.add(list.subList(i, Math.min(i + chunk, list.size())));
+        }
+        return out;
+    }
+
+    private boolean emailExistsInRealm(Keycloak keycloak, String email) {
+        if (email == null || email.isBlank() || keycloak == null) {
+            return false;
+        }
+        try {
+            List<UserRepresentation> users = keycloak.realm(realm).users().search(email.trim(), true, 0, 20);
+            if (users == null || users.isEmpty()) {
+                return false;
+            }
+            return users.stream()
+                    .filter(Objects::nonNull)
+                    .anyMatch(u -> u.getEmail() != null
+                            && email.trim().equalsIgnoreCase(u.getEmail().trim()));
+        } catch (Exception e) {
+            logger.warn("Keycloak user search failed for {}: {}", email, e.getMessage());
+            return false;
+        }
+    }
+
+    /**
      * Adds a realm role to an existing Keycloak user identified by email.
      * Also ensures user joins the provided organization groups when supplied.
      *
@@ -580,54 +767,91 @@ public class KeyCloakUtil {
             logger.warn("Keycloak config missing; cannot add role to existing user");
             return false;
         }
-        Keycloak keycloak = null;
-        try {
-            keycloak = getKeycloakClient();
-            var realmResource = keycloak.realm(realm);
-            List<UserRepresentation> users = realmResource.users().search(email.trim(), true, 0, 20);
-            if (users == null || users.isEmpty()) return false;
-
-            UserRepresentation existing = users.stream()
-                    .filter(u -> u != null && u.getEmail() != null && email.trim().equalsIgnoreCase(u.getEmail().trim()))
-                    .findFirst()
-                    .orElse(null);
-            if (existing == null || existing.getId() == null || existing.getId().isBlank()) return false;
-
-            UserResource userResource = realmResource.users().get(existing.getId());
-            String roleName = role != null ? role.trim() : "";
-            if (!roleName.isEmpty()) {
-                List<RoleRepresentation> currentRoles = userResource.roles().realmLevel().listAll();
-                boolean alreadyHasRole = currentRoles != null && currentRoles.stream()
-                        .filter(r -> r != null && r.getName() != null)
-                        .anyMatch(r -> r.getName().equals(roleName));
-                if (!alreadyHasRole) {
-                    RoleRepresentation realmRole = realmResource.roles().get(roleName).toRepresentation();
-                    if (realmRole != null) {
-                        userResource.roles().realmLevel().add(Collections.singletonList(realmRole));
-                    }
-                }
-            }
-
-            if (organizations != null && !organizations.isEmpty()) {
-                for (String org : organizations) {
-                    if (org == null || org.isBlank()) continue;
-                    String orgName = org.trim();
-                    if (!orgName.startsWith(ORG_PREFIX)) orgName = ORG_PREFIX + orgName;
-                    String groupId = getGroupIdByName(keycloak, orgName);
-                    if (groupId == null || groupId.isBlank()) continue;
-                    try {
-                        userResource.joinGroup(groupId);
-                    } catch (NotFoundException ignored) {
-                        // Ignore if group is missing between lookup and join.
-                    }
-                }
-            }
-            return true;
+        try (Keycloak keycloak = getKeycloakClient()) {
+            Map<String, String> map = loadTopLevelGroupNameToIdMap(keycloak);
+            return addRoleToExistingUserInternal(keycloak, map, null, email, role, organizations);
         } catch (Exception e) {
             logger.error("Failed to add role {} to existing user {} in Keycloak", role, email, e);
             return false;
-        } finally {
-            if (keycloak != null) keycloak.close();
         }
+    }
+
+    /**
+     * Bulk-friendly overload: reuses an open Admin client and preloaded group map / realm role.
+     */
+    public boolean addRoleToExistingUserByEmail(Keycloak keycloak, Map<String, String> groupNameToId,
+            RoleRepresentation prefetchedRealmRole, String email, String role, List<String> organizations) {
+        if (email == null || email.isBlank()) return false;
+        if (!isConfigPresent()) {
+            logger.warn("Keycloak config missing; cannot add role to existing user");
+            return false;
+        }
+        try {
+            return addRoleToExistingUserInternal(keycloak, groupNameToId, prefetchedRealmRole, email, role, organizations);
+        } catch (Exception e) {
+            logger.error("Failed to add role {} to existing user {} in Keycloak", role, email, e);
+            return false;
+        }
+    }
+
+    private boolean addRoleToExistingUserInternal(Keycloak keycloak, Map<String, String> groupNameToId,
+            RoleRepresentation prefetchedRealmRole, String email, String role, List<String> organizations) {
+        var realmResource = keycloak.realm(realm);
+        List<UserRepresentation> users = realmResource.users().search(email.trim(), true, 0, 20);
+        if (users == null || users.isEmpty()) return false;
+
+        UserRepresentation existing = users.stream()
+                .filter(u -> u != null && u.getEmail() != null && email.trim().equalsIgnoreCase(u.getEmail().trim()))
+                .findFirst()
+                .orElse(null);
+        if (existing == null || existing.getId() == null || existing.getId().isBlank()) return false;
+
+        UserResource userResource = realmResource.users().get(existing.getId());
+        boolean roleAssignmentOk = true;
+        String roleName = role != null ? role.trim() : "";
+        if (!roleName.isEmpty()) {
+            List<RoleRepresentation> currentRoles = userResource.roles().realmLevel().listAll();
+            boolean alreadyHasRole = currentRoles != null && currentRoles.stream()
+                    .filter(r -> r != null && r.getName() != null)
+                    .anyMatch(r -> r.getName().equals(roleName));
+            if (!alreadyHasRole) {
+                RoleRepresentation realmRole = prefetchedRealmRole;
+                if (realmRole == null || !roleName.equals(realmRole.getName())) {
+                    try {
+                        realmRole = realmResource.roles().get(roleName).toRepresentation();
+                    } catch (Exception ex) {
+                        realmRole = null;
+                    }
+                }
+                if (realmRole != null) {
+                    userResource.roles().realmLevel().add(Collections.singletonList(realmRole));
+                } else {
+                    logger.warn("Role {} not found in realm {} while onboarding {}", roleName, realm, email);
+                    roleAssignmentOk = false;
+                }
+            }
+        }
+
+        boolean orgAssignmentOk = true;
+        if (organizations != null && !organizations.isEmpty() && groupNameToId != null) {
+            for (String org : organizations) {
+                if (org == null || org.isBlank()) continue;
+                String orgName = org.trim();
+                if (!orgName.startsWith(ORG_PREFIX)) orgName = ORG_PREFIX + orgName;
+                String groupId = groupNameToId.get(orgName);
+                if (groupId == null || groupId.isBlank()) {
+                    logger.warn("Organization group {} not found in realm {} for {}", orgName, realm, email);
+                    orgAssignmentOk = false;
+                    continue;
+                }
+                try {
+                    userResource.joinGroup(groupId);
+                } catch (NotFoundException ignored) {
+                    logger.warn("Organization group {} disappeared before join for {}", orgName, email);
+                    orgAssignmentOk = false;
+                }
+            }
+        }
+        return roleAssignmentOk && orgAssignmentOk;
     }
 }
