@@ -33,7 +33,7 @@ public interface IEnrollmentWindowsRepository extends JpaRepository<EnrollmentWi
           (SELECT COUNT(*) FROM cpc.customers c WHERE c.enrollment_window_id = ew.id) AS "employeeCount",
           (SELECT COUNT(*) FROM cpc.enrollment_invitations i WHERE i.enrollment_window_id = ew.id) AS "invitationCount",
           (SELECT COUNT(*) FROM cpc.enrollment_submissions s WHERE s.enrollment_window_id = ew.id
-             AND s.status IN ('SUBMITTED','APPROVED','COMPLETED','ENDORSED')) AS "submittedCount"
+             AND s.status IN ('SUBMITTED','APPROVED','COMPLETED','ENDORSED','REJECTED')) AS "submittedCount"
         FROM cpc.enrollment_windows ew
         WHERE ew.id IN (:windowIds)
         """, nativeQuery = true)

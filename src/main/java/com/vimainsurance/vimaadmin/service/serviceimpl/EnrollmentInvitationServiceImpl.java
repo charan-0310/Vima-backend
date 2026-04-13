@@ -794,7 +794,7 @@ public class EnrollmentInvitationServiceImpl implements IEnrollmentInvitation {
             long invitedCount = invitations.stream().filter(inv -> inv.getStatus() != null && inv.getStatus() != EnrollementStatus.PENDING).count();
             long openedCount = invitations.stream().filter(inv -> inv.getStatus() == EnrollementStatus.OPENED || inv.getStatus() == EnrollementStatus.IN_PROGRESS || inv.getStatus() == EnrollementStatus.COMPLETED).count();
             // Include COMPLETED/ENDORSED so finalized windows show correct counts (finalize sets submission to COMPLETED)
-            long submittedCount = submissions.stream().filter(s -> s.getStatus() == EnrollementStatus.SUBMITTED || s.getStatus() == EnrollementStatus.APPROVED || s.getStatus() == EnrollementStatus.COMPLETED || s.getStatus() == EnrollementStatus.ENDORSED).count();
+            long submittedCount = submissions.stream().filter(s -> s.getStatus() == EnrollementStatus.SUBMITTED || s.getStatus() == EnrollementStatus.APPROVED || s.getStatus() == EnrollementStatus.COMPLETED || s.getStatus() == EnrollementStatus.ENDORSED || s.getStatus() == EnrollementStatus.REJECTED).count();
             long approvedCount = submissions.stream().filter(s -> s.getStatus() == EnrollementStatus.APPROVED || s.getStatus() == EnrollementStatus.ENDORSED || s.getStatus() == EnrollementStatus.COMPLETED).count();
             long reviewedCount = submissions.stream().filter(s -> s.getStatus() == EnrollementStatus.APPROVED || s.getStatus() == EnrollementStatus.REJECTED || s.getStatus() == EnrollementStatus.ENDORSED || s.getStatus() == EnrollementStatus.COMPLETED).count();
 
