@@ -188,6 +188,11 @@
 			<version>${aws.sdk.version}</version>
 		</dependency>
 		<dependency>
+			<groupId>software.amazon.awssdk</groupId>
+			<artifactId>sesv2</artifactId>
+			<version>${aws.sdk.version}</version>
+		</dependency>
+		<dependency>
 			<groupId>net.sourceforge.tess4j</groupId>
 			<artifactId>tess4j</artifactId>
 			<version>5.10.0</version>
