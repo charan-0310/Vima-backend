@@ -353,6 +353,12 @@ public interface IDealsRepository extends JpaRepository<Deals, UUID> , JpaSpecif
         """)
     List<Deals> findByEndorsementId(@Param("endorsementId") UUID endorsementId);
 
+    @Query("""
+        SELECT d FROM Deals d
+        WHERE d.endorsementId IN :endorsementIds
+        """)
+    List<Deals> findByEndorsementIdIn(@Param("endorsementIds") List<UUID> endorsementIds);
+
     /**
      * Find deals by endorsementId with Pagination
      */
