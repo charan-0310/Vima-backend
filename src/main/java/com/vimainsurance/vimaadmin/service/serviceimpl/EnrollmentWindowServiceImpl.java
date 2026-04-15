@@ -263,9 +263,11 @@ public class EnrollmentWindowServiceImpl implements IEnrollmentWindowService {
                 return responseObj.render(new ResponseDto<>(400, "Validation failed", errors));
             }
 
-            List<String> renewalErrors = validateExistingEmployeesForRenewal(organizationId, selfRows);
-            if (!renewalErrors.isEmpty()) {
-                return responseObj.render(new ResponseDto<>(400, "Validation failed", renewalErrors));
+            if (!isDependentsOnlyUpload(parseResult)) {
+                List<String> renewalErrors = validateExistingEmployeesForRenewal(organizationId, selfRows);
+                if (!renewalErrors.isEmpty()) {
+                    return responseObj.render(new ResponseDto<>(400, "Validation failed", renewalErrors));
+                }
             }
 
             return responseObj.render(responseObj.formSuccessResponse(Constants.SUCCESS, Collections.emptyList()));
@@ -336,11 +338,13 @@ public class EnrollmentWindowServiceImpl implements IEnrollmentWindowService {
                 return responseObj.render(errorDto);
             }
 
-            List<String> renewalErrors = validateExistingEmployeesForRenewal(organization.getOrganizationId(), selfRowsToUse);
-            if (!renewalErrors.isEmpty()) {
-                @SuppressWarnings("unchecked")
-                ResponseDto<EnrollmentWindowResponseDto> errorDto = (ResponseDto<EnrollmentWindowResponseDto>) (ResponseDto<?>) responseObj.formErrorResponse("Validation failed", renewalErrors);
-                return responseObj.render(errorDto);
+            if (!isDependentsOnlyUpload(parseResult)) {
+                List<String> renewalErrors = validateExistingEmployeesForRenewal(organization.getOrganizationId(), selfRowsToUse);
+                if (!renewalErrors.isEmpty()) {
+                    @SuppressWarnings("unchecked")
+                    ResponseDto<EnrollmentWindowResponseDto> errorDto = (ResponseDto<EnrollmentWindowResponseDto>) (ResponseDto<?>) responseObj.formErrorResponse("Validation failed", renewalErrors);
+                    return responseObj.render(errorDto);
+                }
             }
 
             createSelfEmployee(selfRowsToUse, organization, window);
@@ -1373,6 +1377,27 @@ public class EnrollmentWindowServiceImpl implements IEnrollmentWindowService {
             }
         }
         return errors;
+    }
+
+    /**
+     * Detect "dependent-only" uploads where SELF rows are present only as anchors for dependent additions.
+     * In that case, skip renewal overlap checks intended for new/renewal employee uploads.
+     */
+    private boolean isDependentsOnlyUpload(EnrollmentUploadParserUtil.EnrollmentParseResult parseResult) {
+        if (parseResult == null || parseResult.getDependentRowsByEmployeeId().isEmpty()) {
+            return false;
+        }
+
+        List<SelfEmployeeEnrollmentRequestDto> selfRows = parseResult.getSelfRows();
+        if (selfRows == null || selfRows.isEmpty()) {
+            return false;
+        }
+
+        Set<String> dependentEmployeeIds = parseResult.getDependentRowsByEmployeeId().keySet();
+        return selfRows.stream()
+                .map(SelfEmployeeEnrollmentRequestDto::getEmployeeId)
+                .filter(id -> id != null && !id.isBlank())
+                .allMatch(dependentEmployeeIds::contains);
     }
 
     /**
