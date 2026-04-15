@@ -6,6 +6,7 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -42,6 +43,7 @@ import com.vimainsurance.vimaadmin.dto.BulkEmployeeDeletionRequestDto;
 import com.vimainsurance.vimaadmin.dto.CsvValidationResponseDto;
 import com.vimainsurance.vimaadmin.dto.DocumentRequestDto;
 import com.vimainsurance.vimaadmin.dto.DocumentResponseDto;
+import com.vimainsurance.vimaadmin.dto.EndorsementPolicyCoverDto;
 import com.vimainsurance.vimaadmin.dto.ManualAddEmployeesRequestDto;
 import com.vimainsurance.vimaadmin.dto.ManualDeleteEmployeesRequestDto;
 import com.vimainsurance.vimaadmin.dto.EmployeeUploadDto;
@@ -56,7 +58,10 @@ import com.vimainsurance.vimaadmin.entity.DealEndorsement;
 import com.vimainsurance.vimaadmin.entity.CostSharingRule;
 import com.vimainsurance.vimaadmin.entity.Deals;
 import com.vimainsurance.vimaadmin.entity.Document;
+import com.vimainsurance.vimaadmin.entity.EmployeePolicyMap;
+import com.vimainsurance.vimaadmin.entity.Endorsement;
 import com.vimainsurance.vimaadmin.entity.Organization;
+import com.vimainsurance.vimaadmin.entity.Policy;
 import com.vimainsurance.vimaadmin.enums.AccountStatus;
 import com.vimainsurance.vimaadmin.enums.CoverageCategory;
 import com.vimainsurance.vimaadmin.enums.DocumentCategory;
@@ -69,6 +74,8 @@ import com.vimainsurance.vimaadmin.repository.IAdminUserRepository;
 import com.vimainsurance.vimaadmin.repository.IDealEndorsementRepository;
 import com.vimainsurance.vimaadmin.repository.IDealsRepository;
 import com.vimainsurance.vimaadmin.repository.IDocumentRepository;
+import com.vimainsurance.vimaadmin.repository.IEmployeePolicyMapRepository;
+import com.vimainsurance.vimaadmin.repository.IEndorsementRepository;
 import com.vimainsurance.vimaadmin.repository.ICostSharingRuleRepository;
 import com.vimainsurance.vimaadmin.repository.IOrganizationRepository;
 import com.vimainsurance.vimaadmin.repository.IPolicyRepository;
@@ -125,6 +132,12 @@ public class OrganizationServiceImpl implements IOrganizationService {
 
     @Autowired
     private IPolicyRepository policyRepository;
+
+    @Autowired
+    private IEmployeePolicyMapRepository employeePolicyMapRepository;
+
+    @Autowired
+    private IEndorsementRepository endorsementRepository;
 
     @Autowired
     private KeyCloakUtil keycloakUtil;
@@ -622,10 +635,21 @@ public class OrganizationServiceImpl implements IOrganizationService {
         dto.setIsPrimaryMember(deal.getIsPrimaryMember());
         dto.setRelationship(deal.getRelationship());
         dto.setActualRelationship(deal.getActualRelationship());
-        dto.setOrganizationName(deal.getOrganization().getOrganizationName());
+        dto.setOrganizationName(deal.getOrganization() != null ? deal.getOrganization().getOrganizationName() : null);
         dto.setFullName(deal.getFullName());
         dto.setSumInsured(deal.getSumInsured());
         dto.setHealthId(deal.getHealthId());
+        dto.setPrimaryIndividualId(deal.getPrimaryIndividual() != null ? deal.getPrimaryIndividual().getIndividualId() : null);
+        dto.setDateOfExit(deal.getDateOfExit());
+        dto.setReasonForExit(deal.getReasonForExit());
+        dto.setAccountType(deal.getAccountType() != null ? deal.getAccountType().name() : null);
+        dto.setCustId(deal.getCustId());
+        dto.setCustomerCreatedAt(deal.getCreatedAt());
+        dto.setCustomerUpdatedAt(deal.getUpdatedAt());
+        dto.setUsername(deal.getUsername());
+        dto.setEnrollmentWindowId(deal.getEnrollmentWindow() != null ? deal.getEnrollmentWindow().getId() : null);
+        dto.setEnrollmentSubmissionId(deal.getEnrollmentSubmission() != null ? deal.getEnrollmentSubmission().getId() : null);
+        dto.setExportSchemaVersion(1);
         // Self-enrollment: expose actual enrollment status (ACTIVE, APPROVED, PENDING, etc.); admin-enrolled: null
         if (deal.getEnrollmentWindow() != null && deal.getEnrollmentStatus() != null) {
             dto.setEnrollementStatus(deal.getEnrollmentStatus().name());
@@ -633,6 +657,185 @@ public class OrganizationServiceImpl implements IOrganizationService {
             dto.setEnrollementStatus(deal.getEnrollmentWindow() != null ? "PENDING" : null);
         }
         return dto;
+    }
+
+    private List<OrganizationEmployeeDto> buildEndorsementEmployeeDtos(UUID endorsementId, Endorsement endorsement, List<Deals> employees) {
+        if (employees == null || employees.isEmpty()) {
+            return Collections.emptyList();
+        }
+
+        Map<UUID, Integer> dependentCountMap = buildDependentCountMap(employees);
+        PolicyCoverIndex policyCoverIndex = buildPolicyCoverIndex(endorsementId);
+        Map<UUID, List<EndorsementPolicyCoverDto>> policyCoverMap = policyCoverIndex.byIndividualId();
+        Map<UUID, List<EndorsementPolicyCoverDto>> policyCoverByPrimaryMap = policyCoverIndex.byPrimaryEmployeeId();
+
+        return employees.stream().map(deal -> {
+            OrganizationEmployeeDto dto = mapToOrganizationEmployeeDto(deal);
+            if (Boolean.TRUE.equals(deal.getIsPrimaryMember()) && deal.getIndividualId() != null) {
+                dto.setDependentCount(dependentCountMap.getOrDefault(deal.getIndividualId(), 0));
+            }
+            List<EndorsementPolicyCoverDto> covers = policyCoverMap.getOrDefault(deal.getIndividualId(), Collections.emptyList());
+            if (covers.isEmpty() && deal.getIndividualId() != null) {
+                covers = policyCoverByPrimaryMap.getOrDefault(deal.getIndividualId(), Collections.emptyList());
+            }
+            dto.setPolicyCovers(covers);
+            applyEndorsementDerivedFallbacks(dto, endorsement, covers);
+            stampEndorsementMeta(dto, endorsementId, endorsement);
+            return dto;
+        }).collect(Collectors.toList());
+    }
+
+    private Map<UUID, Integer> buildDependentCountMap(List<Deals> employees) {
+        List<UUID> primaryIds = employees.stream()
+            .filter(deal -> Boolean.TRUE.equals(deal.getIsPrimaryMember()) && deal.getIndividualId() != null)
+            .map(Deals::getIndividualId)
+            .collect(Collectors.toList());
+
+        if (primaryIds.isEmpty()) {
+            return Collections.emptyMap();
+        }
+
+        return dealsRepository.findByPrimaryIndividualIdIn(primaryIds).stream()
+            .filter(dependent -> dependent.getPrimaryIndividual() != null)
+            .collect(Collectors.groupingBy(
+                dependent -> dependent.getPrimaryIndividual().getIndividualId(),
+                Collectors.collectingAndThen(Collectors.counting(), Long::intValue)
+            ));
+    }
+
+    private PolicyCoverIndex buildPolicyCoverIndex(UUID endorsementId) {
+        List<EmployeePolicyMap> policyMaps = employeePolicyMapRepository.findByEndorsementIdAndStatus(endorsementId, "ACTIVE");
+        if (policyMaps.isEmpty()) {
+            return new PolicyCoverIndex(Collections.emptyMap(), Collections.emptyMap());
+        }
+
+        Map<Long, Policy> policyById = policyRepository.findAllById(
+            policyMaps.stream()
+                .map(EmployeePolicyMap::getPolicyId)
+                .filter(id -> id != null)
+                .distinct()
+                .collect(Collectors.toList())
+        ).stream().collect(Collectors.toMap(Policy::getPolicyId, policy -> policy));
+
+        Map<UUID, List<EndorsementPolicyCoverDto>> byIndividual = policyMaps.stream()
+            .filter(map -> map.getIndividualId() != null)
+            .collect(Collectors.groupingBy(
+                EmployeePolicyMap::getIndividualId,
+                Collectors.mapping(map -> {
+                    Policy policy = policyById.get(map.getPolicyId());
+                    return new EndorsementPolicyCoverDto(
+                        map.getPolicyId(),
+                        policy != null ? policy.getPolicyNumber() : null,
+                        policy != null && policy.getProductType() != null ? policy.getProductType().name() : null,
+                        policy != null ? policy.getInsurerName() : null,
+                        map.getSumInsured(),
+                        map.getCoverageTier(),
+                        map.getIsVoluntary(),
+                        map.getStatus(),
+                        map.getEffectiveFrom(),
+                        map.getEffectiveTo(),
+                        map.getSource(),
+                        map.getCancellationReason(),
+                        map.getCancelledAt()
+                    );
+                }, Collectors.toList())
+            ));
+
+        Map<UUID, List<EndorsementPolicyCoverDto>> byPrimary = policyMaps.stream()
+            .filter(map -> map.getPrimaryEmployeeId() != null)
+            .collect(Collectors.groupingBy(
+                EmployeePolicyMap::getPrimaryEmployeeId,
+                Collectors.mapping(map -> {
+                    Policy policy = policyById.get(map.getPolicyId());
+                    return new EndorsementPolicyCoverDto(
+                        map.getPolicyId(),
+                        policy != null ? policy.getPolicyNumber() : null,
+                        policy != null && policy.getProductType() != null ? policy.getProductType().name() : null,
+                        policy != null ? policy.getInsurerName() : null,
+                        map.getSumInsured(),
+                        map.getCoverageTier(),
+                        map.getIsVoluntary(),
+                        map.getStatus(),
+                        map.getEffectiveFrom(),
+                        map.getEffectiveTo(),
+                        map.getSource(),
+                        map.getCancellationReason(),
+                        map.getCancelledAt()
+                    );
+                }, Collectors.toList())
+            ));
+
+        return new PolicyCoverIndex(byIndividual, byPrimary);
+    }
+
+    private void applyEndorsementDerivedFallbacks(
+            OrganizationEmployeeDto dto,
+            Endorsement endorsement,
+            List<EndorsementPolicyCoverDto> covers) {
+        if (dto == null) {
+            return;
+        }
+        List<EndorsementPolicyCoverDto> safeCovers = covers != null ? covers : Collections.emptyList();
+
+        if (dto.getDateOfJoining() == null) {
+            LocalDate fallbackDoj = safeCovers.stream()
+                .map(EndorsementPolicyCoverDto::getEffectiveFrom)
+                .filter(eff -> eff != null)
+                .sorted()
+                .findFirst()
+                .orElse(null);
+            if (fallbackDoj == null && endorsement != null && endorsement.getPolicy() != null) {
+                fallbackDoj = endorsement.getPolicy().getStartDate();
+            }
+            dto.setDateOfJoining(fallbackDoj);
+        }
+
+        if (dto.getSumInsured() == null || dto.getSumInsured().trim().isEmpty()) {
+            BigDecimal gmcOrGhi = safeCovers.stream()
+                .filter(c -> c != null && c.getProductType() != null)
+                .filter(c -> {
+                    String pt = c.getProductType().toUpperCase();
+                    return pt.contains("GMC") || pt.contains("GHI");
+                })
+                .map(EndorsementPolicyCoverDto::getSumInsured)
+                .filter(si -> si != null)
+                .findFirst()
+                .orElse(null);
+
+            BigDecimal anyCoverSi = safeCovers.stream()
+                .map(EndorsementPolicyCoverDto::getSumInsured)
+                .filter(si -> si != null)
+                .findFirst()
+                .orElse(null);
+
+            BigDecimal resolvedSi = gmcOrGhi != null ? gmcOrGhi : anyCoverSi;
+            if (resolvedSi == null && endorsement != null && endorsement.getPolicy() != null) {
+                resolvedSi = endorsement.getPolicy().getSumInsured();
+            }
+            if (resolvedSi != null) {
+                dto.setSumInsured(resolvedSi.stripTrailingZeros().toPlainString());
+            }
+        }
+    }
+
+    private record PolicyCoverIndex(
+            Map<UUID, List<EndorsementPolicyCoverDto>> byIndividualId,
+            Map<UUID, List<EndorsementPolicyCoverDto>> byPrimaryEmployeeId) {}
+
+    private void stampEndorsementMeta(OrganizationEmployeeDto dto, UUID endorsementId, Endorsement endorsement) {
+        dto.setEndorsementId(endorsementId);
+        if (endorsement == null) {
+            return;
+        }
+        dto.setEndorsementType(endorsement.getEndorsementType() != null ? endorsement.getEndorsementType().name() : null);
+        dto.setEndorsementStatus(endorsement.getStatus() != null ? endorsement.getStatus().name() : null);
+        dto.setEndorsementSource(endorsement.getSource() != null ? endorsement.getSource().name() : null);
+        dto.setEndorsementPolicyId(endorsement.getPolicy() != null ? endorsement.getPolicy().getPolicyId() : null);
+        dto.setEndorsementPolicyNumber(endorsement.getPolicy() != null ? endorsement.getPolicy().getPolicyNumber() : null);
+        dto.setSplitGroupId(endorsement.getSplitGroupId());
+        dto.setInsurerRefNumber(endorsement.getInsurerRefNumber());
+        dto.setApprovedAt(endorsement.getApprovedAt());
+        dto.setApprovedBy(endorsement.getApprovedBy());
     }
 
     private Sort createSort(String sortBy, String sortDirection) {
@@ -1679,23 +1882,20 @@ public class OrganizationServiceImpl implements IOrganizationService {
             MDC.get("correlationId"), endorsementId, page, rec);
         BaseResponse<List<OrganizationEmployeeDto>> responseObj = new BaseResponse<>();
         try {
+            Endorsement endorsement = endorsementRepository.findByEndorsementId(endorsementId).orElse(null);
             if(page == -1 && rec == -1) {
                 List<DealEndorsement> dealEndorsements = dealEndorsementRepository.findByEndorsement_EndorsementId(endorsementId);
                 List<Deals> employees = dealEndorsements.stream()
                     .map(DealEndorsement::getDeal)
                     .collect(Collectors.toList());
-                List<OrganizationEmployeeDto> employeeDtos = employees.stream()
-                    .map(this::mapToOrganizationEmployeeDto)
-                    .collect(Collectors.toList());
+                List<OrganizationEmployeeDto> employeeDtos = buildEndorsementEmployeeDtos(endorsementId, endorsement, employees);
                 return responseObj.render(responseObj.formSuccessResponse(Constants.SUCCESS, employeeDtos, employees.size()));
             }
             Page<DealEndorsement> dealEndorsementsPage = dealEndorsementRepository.findByEndorsement_EndorsementId(endorsementId, PageRequest.of(page, rec));
             List<Deals> employees = dealEndorsementsPage.getContent().stream()
                 .map(DealEndorsement::getDeal)
                 .collect(Collectors.toList());
-            List<OrganizationEmployeeDto> employeeDtos = employees.stream()
-                .map(this::mapToOrganizationEmployeeDto)
-                .collect(Collectors.toList());
+            List<OrganizationEmployeeDto> employeeDtos = buildEndorsementEmployeeDtos(endorsementId, endorsement, employees);
             return responseObj.render(responseObj.formSuccessResponse(Constants.SUCCESS, employeeDtos, dealEndorsementsPage.getTotalElements()));
         }
         catch (Exception e) {

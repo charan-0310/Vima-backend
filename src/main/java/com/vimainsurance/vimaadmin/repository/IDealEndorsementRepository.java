@@ -30,6 +30,14 @@ public interface IDealEndorsementRepository extends JpaRepository<DealEndorsemen
      */
     List<DealEndorsement> findByEndorsement_EndorsementId(UUID endorsementId);
 
+    @Query("""
+        SELECT de FROM DealEndorsement de
+        JOIN FETCH de.deal d
+        JOIN FETCH de.endorsement e
+        WHERE e.endorsementId IN :endorsementIds
+        """)
+    List<DealEndorsement> findByEndorsement_EndorsementIdIn(@Param("endorsementIds") List<UUID> endorsementIds);
+
     /**
      * Find all DealEndorsement records by endorsement ID with pagination
      */
