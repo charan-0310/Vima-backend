@@ -211,9 +211,11 @@ public class EnrollmentWindowServiceImpl implements IEnrollmentWindowService {
             if (!errors.isEmpty()) {
                 return responseObj.render(new ResponseDto<>(400, "Validation failed", errors));
             }
-            List<String> renewalErrors = validateExistingEmployeesForRenewal(organizationId, selfEmployeeEnrollmentRequestDtos);
-            if (!renewalErrors.isEmpty()) {
-                return responseObj.render(new ResponseDto<>(400, "Validation failed", renewalErrors));
+            if (!isDependentsOnlyRequestPayload(selfEmployeeEnrollmentRequestDtos)) {
+                List<String> renewalErrors = validateExistingEmployeesForRenewal(organizationId, selfEmployeeEnrollmentRequestDtos);
+                if (!renewalErrors.isEmpty()) {
+                    return responseObj.render(new ResponseDto<>(400, "Validation failed", renewalErrors));
+                }
             }
             return responseObj.render(responseObj.formSuccessResponse(Constants.SUCCESS, Collections.emptyList()));
         } catch (Exception e) {
@@ -1398,6 +1400,30 @@ public class EnrollmentWindowServiceImpl implements IEnrollmentWindowService {
                 .map(SelfEmployeeEnrollmentRequestDto::getEmployeeId)
                 .filter(id -> id != null && !id.isBlank())
                 .allMatch(dependentEmployeeIds::contains);
+    }
+
+    /**
+     * API payload fallback for dependent additions where the client sends only
+     * selfEmployeeEnrollmentRequestDtos (without relationship column).
+     * Heuristic: duplicate employee IDs with at least one "anchor" row having email.
+     */
+    private boolean isDependentsOnlyRequestPayload(List<SelfEmployeeEnrollmentRequestDto> requestDtos) {
+        if (requestDtos == null || requestDtos.isEmpty()) {
+            return false;
+        }
+
+        Map<String, Long> countsByEmployeeId = requestDtos.stream()
+                .map(SelfEmployeeEnrollmentRequestDto::getEmployeeId)
+                .filter(id -> id != null && !id.isBlank())
+                .collect(Collectors.groupingBy(id -> id, Collectors.counting()));
+
+        boolean hasDuplicateEmployeeIds = countsByEmployeeId.values().stream().anyMatch(count -> count > 1);
+        if (!hasDuplicateEmployeeIds) {
+            return false;
+        }
+
+        // Expect at least one anchor (self) row to carry a non-empty email.
+        return requestDtos.stream().anyMatch(dto -> dto.getEmail() != null && !dto.getEmail().isBlank());
     }
 
     /**
