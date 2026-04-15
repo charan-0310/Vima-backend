@@ -692,7 +692,7 @@ public class EnrollmentWindowServiceImpl implements IEnrollmentWindowService {
             List<com.vimainsurance.vimaadmin.entity.EnrollmentSubmission> submissions =
                     enrollmentSubmissionRepository.findAllByEnrollmentWindow_Id(id);
             long draft = submissions.stream().filter(s -> s.getStatus() == EnrollementStatus.DRAFT).count();
-            long submitted = submissions.stream().filter(s -> s.getStatus() == EnrollementStatus.SUBMITTED || s.getStatus() == EnrollementStatus.APPROVED || s.getStatus() == EnrollementStatus.COMPLETED || s.getStatus() == EnrollementStatus.ENDORSED).count();
+            long submitted = submissions.stream().filter(s -> s.getStatus() == EnrollementStatus.SUBMITTED || s.getStatus() == EnrollementStatus.APPROVED || s.getStatus() == EnrollementStatus.COMPLETED || s.getStatus() == EnrollementStatus.ENDORSED || s.getStatus() == EnrollementStatus.REJECTED).count();
             long approved = submissions.stream().filter(s -> s.getStatus() == EnrollementStatus.APPROVED || s.getStatus() == EnrollementStatus.ENDORSED || s.getStatus() == EnrollementStatus.COMPLETED).count();
             long rejected = submissions.stream().filter(s -> s.getStatus() == EnrollementStatus.REJECTED).count();
 
@@ -780,11 +780,14 @@ public class EnrollmentWindowServiceImpl implements IEnrollmentWindowService {
             String pdJson = sub != null ? sub.getPersonalDetails() : null;
             String exportEmail = firstNonEmpty(primary.getEmail(), emailFromPersonalDetailsJson(pdJson));
             String exportMobile = firstNonEmpty(primary.getPhone(), phoneFromPersonalDetailsJson(pdJson));
+            String exportDob = primary.getDateOfBirth() != null
+                    ? formatDobForCsv(primary.getDateOfBirth())
+                    : formatDobJsonValue(dobFromPersonalDetailsJson(pdJson));
 
             String primaryDisplayName = csvExportDisplayNameFromDeal(primary);
             String submissionStatus = csvExportSubmissionStatusLabel(sub);
             out.add(csvDataRow(empNo, formatRelationshipForCsv(primary), nullToEmpty(primaryDisplayName),
-                    nullToEmpty(primary.getGender()), formatDobForCsv(primary.getDateOfBirth()), sums,
+                    nullToEmpty(primary.getGender()), exportDob, sums,
                     nullToEmpty(exportEmail), nullToEmpty(exportMobile),
                     formatDobForCsv(primary.getDateOfJoining()),
                     nullToEmpty(primary.getDepartment()), nullToEmpty(primary.getMaritalStatus()),
@@ -1184,6 +1187,28 @@ public class EnrollmentWindowServiceImpl implements IEnrollmentWindowService {
             return firstNonEmpty(jsonText(root, "phone"), jsonText(root, "mobile"));
         } catch (Exception e) {
             logger.debug("[correlationId:{}] export CSV: personalDetails phone parse skipped: {}",
+                    MDC.get("correlationId"), e.getMessage());
+            return "";
+        }
+    }
+
+    /** Self-service enrollment saves DOB in submission personalDetails; Deals.dateOfBirth may still be null. */
+    private String dobFromPersonalDetailsJson(String personalDetailsJson) {
+        if (personalDetailsJson == null || personalDetailsJson.isBlank()) {
+            return "";
+        }
+        String trimmed = personalDetailsJson.trim();
+        if ("{}".equals(trimmed)) {
+            return "";
+        }
+        try {
+            JsonNode root = objectMapper.readTree(personalDetailsJson);
+            if (root == null || !root.isObject()) {
+                return "";
+            }
+            return firstNonEmpty(jsonText(root, "dateOfBirth"), jsonText(root, "date_of_birth"));
+        } catch (Exception e) {
+            logger.debug("[correlationId:{}] export CSV: personalDetails DOB parse skipped: {}",
                     MDC.get("correlationId"), e.getMessage());
             return "";
         }

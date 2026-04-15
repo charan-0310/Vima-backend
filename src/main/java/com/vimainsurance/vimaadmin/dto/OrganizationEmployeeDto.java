@@ -1,6 +1,8 @@
 package com.vimainsurance.vimaadmin.dto;
 
 import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.util.List;
 import java.util.UUID;
 
 import lombok.AllArgsConstructor;
@@ -37,5 +39,27 @@ public class OrganizationEmployeeDto {
     private Integer dependentCount; // Number of dependents for this employee
     private String healthId;
     private String enrollementStatus;
+    private UUID primaryIndividualId;
+    private LocalDate dateOfExit;
+    private String reasonForExit;
+    private String accountType;
+    private String custId;
+    private LocalDateTime customerCreatedAt;
+    private LocalDateTime customerUpdatedAt;
+    private String username;
+    private UUID enrollmentWindowId;
+    private UUID enrollmentSubmissionId;
+    private Integer exportSchemaVersion;
+    private UUID endorsementId;
+    private String endorsementType;
+    private String endorsementStatus;
+    private String endorsementSource;
+    private Long endorsementPolicyId;
+    private String endorsementPolicyNumber;
+    private UUID splitGroupId;
+    private String insurerRefNumber;
+    private LocalDateTime approvedAt;
+    private String approvedBy;
+    private List<EndorsementPolicyCoverDto> policyCovers;
 }
 

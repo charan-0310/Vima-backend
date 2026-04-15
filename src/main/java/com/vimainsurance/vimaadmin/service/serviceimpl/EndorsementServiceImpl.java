@@ -6,7 +6,10 @@ import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.HashMap;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -39,6 +42,8 @@ import com.vimainsurance.vimaadmin.audit.AuditContextSupplier;
 import com.vimainsurance.vimaadmin.audit.AuditedOperation;
 import com.vimainsurance.vimaadmin.dto.BaseResponse;
 import com.vimainsurance.vimaadmin.dto.DocumentResponseDto;
+import com.vimainsurance.vimaadmin.dto.EmailLoginPreviewItemDto;
+import com.vimainsurance.vimaadmin.dto.EmployeeOnboardingEmailPreviewDto;
 import com.vimainsurance.vimaadmin.dto.EmployeeOnboardingRequestDto;
 import com.vimainsurance.vimaadmin.dto.EmployeeOnboardingResponseDto;
 import com.vimainsurance.vimaadmin.dto.EndorsementRequestDto;
@@ -81,6 +86,9 @@ import com.vimainsurance.vimaadmin.util.PasswordGenerator;
 import com.vimainsurance.vimaadmin.util.TenantContext;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+
+import org.keycloak.admin.client.Keycloak;
+import org.keycloak.representations.idm.RoleRepresentation;
 
 @Service
 public class EndorsementServiceImpl implements IEndorsementService {
@@ -975,13 +983,75 @@ public class EndorsementServiceImpl implements IEndorsementService {
             AtomicInteger failedCount = new AtomicInteger(0);
             List<String> successUsers = new ArrayList<>();
             List<String> failedUsers = new ArrayList<>();
+            List<String> existingKeycloakSuccessUsers = new ArrayList<>();
             
             List<Deals> deals;
             Organization organization;
-            
-            // Handle endorsementId case
-            if (requestDto.getEndorsementId() != null) {
-                Optional<Endorsement> opt = endorsementRepository.findById(requestDto.getEndorsementId());
+
+            boolean hasIndividualIds = requestDto.getIndividualIds() != null && !requestDto.getIndividualIds().isEmpty();
+            UUID endorsementIdParam = requestDto.getEndorsementId();
+
+            if (hasIndividualIds) {
+                deals = dealsRepository.findByIndividualIdIn(requestDto.getIndividualIds());
+                if (deals.isEmpty()) {
+                    return responseObj.render(responseObj.formErrorResponse(200, "No deals found for provided individualIds"));
+                }
+                if (endorsementIdParam != null) {
+                    Optional<Endorsement> opt = endorsementRepository.findById(endorsementIdParam);
+                    if (opt.isEmpty()) {
+                        return responseObj.render(responseObj.formErrorResponse(Constants.RECORD_NOT_FOUND_MESSAGE));
+                    }
+                    if (!opt.get().getStatus().equals(AccountStatus.COMPLETED)) {
+                        return responseObj.render(responseObj.formErrorResponse(200, "Endorsement not completed yet"));
+                    }
+                    UUID endorsementOrgId = opt.get().getOrganization().getOrganizationId();
+                    if (organizationAccessHelper != null) {
+                        organizationAccessHelper.validateAndSetContext(endorsementOrgId);
+                    } else if (jwtUserExtractor != null) {
+                        jwtUserExtractor.validateOrganizationAccess(endorsementOrgId);
+                        AuditContextSupplier.setOrganizationId(endorsementOrgId);
+                    }
+                    Optional<Organization> orgOpt = organizationRepository.findById(endorsementOrgId);
+                    if (orgOpt.isEmpty()) {
+                        return responseObj.render(responseObj.formErrorResponse("Organization not found"));
+                    }
+                    organization = orgOpt.get();
+                    Set<UUID> allowedForEndorsement = listDealsLinkedToEndorsement(endorsementIdParam).stream()
+                            .map(Deals::getIndividualId)
+                            .collect(Collectors.toSet());
+                    deals = deals.stream()
+                            .filter(d -> allowedForEndorsement.contains(d.getIndividualId()))
+                            .collect(Collectors.toList());
+                    if (deals.isEmpty()) {
+                        return responseObj.render(responseObj.formErrorResponse(200, "No deals found for this endorsement"));
+                    }
+                } else {
+                    UUID organizationId = deals.get(0).getOrganization() != null
+                            ? deals.get(0).getOrganization().getOrganizationId()
+                            : null;
+                    if (organizationId == null) {
+                        return responseObj.render(responseObj.formErrorResponse("Deals must belong to an organization"));
+                    }
+                    if (organizationAccessHelper != null) {
+                        organizationAccessHelper.validateAndSetContext(organizationId);
+                    } else if (jwtUserExtractor != null) {
+                        jwtUserExtractor.validateOrganizationAccess(organizationId);
+                        AuditContextSupplier.setOrganizationId(organizationId);
+                    }
+                    Optional<Organization> orgOpt = organizationRepository.findById(organizationId);
+                    if (orgOpt.isEmpty()) {
+                        return responseObj.render(responseObj.formErrorResponse("Organization not found"));
+                    }
+                    organization = orgOpt.get();
+                    boolean allSameOrg = deals.stream()
+                            .allMatch(deal -> deal.getOrganization() != null
+                                    && deal.getOrganization().getOrganizationId().equals(organizationId));
+                    if (!allSameOrg) {
+                        return responseObj.render(responseObj.formErrorResponse("All deals must belong to the same organization"));
+                    }
+                }
+            } else if (endorsementIdParam != null) {
+                Optional<Endorsement> opt = endorsementRepository.findById(endorsementIdParam);
                 if (opt.isEmpty()) {
                     return responseObj.render(responseObj.formErrorResponse(Constants.RECORD_NOT_FOUND_MESSAGE));
                 }
@@ -993,46 +1063,16 @@ public class EndorsementServiceImpl implements IEndorsementService {
                     organizationAccessHelper.validateAndSetContext(endorsementOrgId);
                 } else if (jwtUserExtractor != null) {
                     jwtUserExtractor.validateOrganizationAccess(endorsementOrgId);
-                    com.vimainsurance.vimaadmin.audit.AuditContextSupplier.setOrganizationId(endorsementOrgId);
+                    AuditContextSupplier.setOrganizationId(endorsementOrgId);
                 }
                 Optional<Organization> orgOpt = organizationRepository.findById(endorsementOrgId);
                 if (orgOpt.isEmpty()) {
                     return responseObj.render(responseObj.formErrorResponse("Organization not found"));
                 }
                 organization = orgOpt.get();
-                deals = dealsRepository.findByEndorsementId(requestDto.getEndorsementId());
+                deals = listDealsLinkedToEndorsement(endorsementIdParam);
             } else {
-                // Handle individualIds case
-                deals = dealsRepository.findByIndividualIdIn(requestDto.getIndividualIds());
-                if (deals.isEmpty()) {
-                    return responseObj.render(responseObj.formErrorResponse(200, "No deals found for provided individualIds"));
-                }
-                // Get organization from the first deal (assuming all deals belong to same organization)
-                UUID organizationId = deals.get(0).getOrganization() != null 
-                    ? deals.get(0).getOrganization().getOrganizationId() 
-                    : null;
-                if (organizationId == null) {
-                    return responseObj.render(responseObj.formErrorResponse("Deals must belong to an organization"));
-                }
-                if (organizationAccessHelper != null) {
-                    organizationAccessHelper.validateAndSetContext(organizationId);
-                } else if (jwtUserExtractor != null) {
-                    jwtUserExtractor.validateOrganizationAccess(organizationId);
-                    com.vimainsurance.vimaadmin.audit.AuditContextSupplier.setOrganizationId(organizationId);
-                }
-                Optional<Organization> orgOpt = organizationRepository.findById(organizationId);
-                if (orgOpt.isEmpty()) {
-                    return responseObj.render(responseObj.formErrorResponse("Organization not found"));
-                }
-                organization = orgOpt.get();
-                
-                // Validate all deals belong to the same organization
-                boolean allSameOrg = deals.stream()
-                    .allMatch(deal -> deal.getOrganization() != null && 
-                        deal.getOrganization().getOrganizationId().equals(organizationId));
-                if (!allSameOrg) {
-                    return responseObj.render(responseObj.formErrorResponse("All deals must belong to the same organization"));
-                }
+                return responseObj.render(responseObj.formErrorResponse("Either endorsementId or individualIds must be provided"));
             }
             
             if(!deals.stream().anyMatch(deal -> deal.getStatus().equals(AccountStatus.ACTIVE))) {
@@ -1049,7 +1089,8 @@ public class EndorsementServiceImpl implements IEndorsementService {
             }
             
             // Process deals for onboarding
-            processDealsForOnboarding(deals, orgGroupName, successCount, failedCount, successUsers, failedUsers);
+            processDealsForOnboarding(deals, orgGroupName, successCount, failedCount, successUsers, failedUsers,
+                    existingKeycloakSuccessUsers);
             
             if(failedCount.get() > 0) {
                 return responseObj.render(responseObj.formErrorResponse("Employee onboarding failed for some users. Failed: " + failedCount.get() + ", Failed users: " + failedUsers.toString()));
@@ -1059,6 +1100,7 @@ public class EndorsementServiceImpl implements IEndorsementService {
             employeeOnboardingResponseDto.setFailedUsers(failedUsers);
             employeeOnboardingResponseDto.setSuccessCount(successCount.get());
             employeeOnboardingResponseDto.setFailedCount(failedCount.get());
+            employeeOnboardingResponseDto.setExistingKeycloakUserEmails(existingKeycloakSuccessUsers);
             return responseObj.render(responseObj.formSuccessResponse(Constants.SUCCESS, employeeOnboardingResponseDto));
         } catch (Exception e) {
             logger.error("[correlationId:{}] Exception in Endorsement employeeOnboarding: {}", MDC.get("correlationId"), e.getMessage(), e);
@@ -1066,28 +1108,262 @@ public class EndorsementServiceImpl implements IEndorsementService {
         }
     }
 
-    /**
-     * Helper method to process deals for onboarding
-     */
-    private void processDealsForOnboarding(List<Deals> deals, String orgName, 
-            AtomicInteger successCount, AtomicInteger failedCount, 
-            List<String> successUsers, List<String> failedUsers) {
-        deals.stream().forEach(deal -> {
-            try {
-                if(deal.getRelationship().equals("SELF")) {
-                    String password = PasswordGenerator.generateRandomPassword();
-                    keycloakUtil.createUser(deal.getFullName(), deal.getEmail().toLowerCase(), deal.getEmail().toLowerCase(), 
-                        "ROLE_EMPLOYEE", Arrays.asList(orgName), true, password, deal.getIndividualId().toString());
-                    emailService.sendWelcomeEmail(deal.getEmail().toLowerCase(), deal.getFullName(), deal.getEmail().toLowerCase(), password);
-                    successCount.incrementAndGet();
-                    successUsers.add(deal.getEmail());
-                } 
-            } catch (Exception e) {
-                failedCount.incrementAndGet();
-                logger.error("[correlationId:{}] Error creating user for deal: {}", MDC.get("correlationId"), e.getMessage());
-                failedUsers.add(deal.getEmail() != null ? deal.getEmail() : deal.getFullName() != null ? deal.getFullName() : "Unknown");
+    @Override
+    public ResponseEntity<ResponseDto<EmployeeOnboardingEmailPreviewDto>> previewEmployeeOnboardingEmails(UUID endorsementId) {
+        logger.info("[correlationId:{}] previewEmployeeOnboardingEmails for endorsementId: {}",
+                MDC.get("correlationId"), endorsementId);
+        BaseResponse<EmployeeOnboardingEmailPreviewDto> responseObj = new BaseResponse<>();
+        try {
+            Optional<Endorsement> opt = endorsementRepository.findById(endorsementId);
+            if (opt.isEmpty()) {
+                return responseObj.render(responseObj.formErrorResponse(Constants.RECORD_NOT_FOUND_MESSAGE));
             }
-        });
+            if (!opt.get().getStatus().equals(AccountStatus.COMPLETED)) {
+                return responseObj.render(responseObj.formErrorResponse(200, "Endorsement not completed yet"));
+            }
+            UUID endorsementOrgId = opt.get().getOrganization().getOrganizationId();
+            if (organizationAccessHelper != null) {
+                organizationAccessHelper.validateAndSetContext(endorsementOrgId);
+            } else if (jwtUserExtractor != null) {
+                jwtUserExtractor.validateOrganizationAccess(endorsementOrgId);
+                AuditContextSupplier.setOrganizationId(endorsementOrgId);
+            }
+            Optional<Organization> orgOpt = organizationRepository.findById(endorsementOrgId);
+            if (orgOpt.isEmpty()) {
+                return responseObj.render(responseObj.formErrorResponse("Organization not found"));
+            }
+            Organization organization = orgOpt.get();
+            // Customers may be linked via cpc.customers.endorsement_id and/or cpc.deal_endorsements (e.g. split
+            // endorsements: column often holds the primary id while join rows point at split ids). Merge both.
+            List<Deals> fromColumn = dealsRepository.findByEndorsementId(endorsementId);
+            List<Deals> fromJoin = dealEndorsementRepository.findByEndorsement_EndorsementId(endorsementId).stream()
+                    .map(DealEndorsement::getDeal)
+                    .collect(Collectors.toList());
+            Map<UUID, Deals> dealsByIndividual = new LinkedHashMap<>();
+            for (Deals d : fromColumn) {
+                dealsByIndividual.put(d.getIndividualId(), d);
+            }
+            for (Deals d : fromJoin) {
+                dealsByIndividual.putIfAbsent(d.getIndividualId(), d);
+            }
+            List<Deals> deals = new ArrayList<>(dealsByIndividual.values());
+            if (deals.isEmpty()) {
+                return responseObj.render(responseObj.formErrorResponse(200, "No deals found for this endorsement"));
+            }
+            if (!deals.stream().anyMatch(deal -> deal.getStatus().equals(AccountStatus.ACTIVE))) {
+                return responseObj.render(responseObj.formErrorResponse(200, "No active deals found to onboard"));
+            }
+
+            String orgGroupName = "ORG_" + organization.getOrganizationName().trim().toUpperCase().replaceAll("[^A-Z0-9]", "_");
+            String groupId = keycloakUtil.getGroupIdByName(orgGroupName);
+            if (groupId == null || groupId.isEmpty()) {
+                return responseObj.render(responseObj.formErrorResponse("No groups found"));
+            }
+
+            List<EmailLoginPreviewItemDto> items = new ArrayList<>();
+            Set<String> seenEmails = new HashSet<>();
+            List<String> uniqueForKeycloak = new ArrayList<>();
+
+            for (Deals deal : deals) {
+                if (!deal.getStatus().equals(AccountStatus.ACTIVE)) {
+                    continue;
+                }
+                if (!"SELF".equalsIgnoreCase(deal.getRelationship())) {
+                    continue;
+                }
+                EmailLoginPreviewItemDto row = new EmailLoginPreviewItemDto();
+                row.setFullName(deal.getFullName());
+                row.setIndividualId(deal.getIndividualId() != null ? deal.getIndividualId().toString() : null);
+                String rawEmail = deal.getEmail();
+                if (rawEmail == null || rawEmail.isBlank()) {
+                    row.setStatus("INVALID_EMAIL");
+                    row.setDetail("Email is required to create a login");
+                    items.add(row);
+                    continue;
+                }
+                String norm = rawEmail.trim().toLowerCase();
+                row.setEmail(norm);
+                if (seenEmails.contains(norm)) {
+                    row.setStatus("DUPLICATE_IN_BATCH");
+                    row.setDetail("This email appears more than once for primary (SELF) employees in this endorsement");
+                    items.add(row);
+                    continue;
+                }
+                seenEmails.add(norm);
+                uniqueForKeycloak.add(norm);
+                items.add(row);
+            }
+
+            Map<String, Boolean> existsMap;
+            try {
+                existsMap = keycloakUtil.checkEmailsExistInRealmBatched(uniqueForKeycloak);
+            } catch (IllegalStateException e) {
+                logger.warn("Keycloak unavailable for email preview: {}", e.getMessage());
+                return responseObj.render(responseObj.formErrorResponse("Keycloak is not configured; cannot preview logins"));
+            } catch (IllegalArgumentException e) {
+                return responseObj.render(responseObj.formErrorResponse(e.getMessage()));
+            } catch (RuntimeException e) {
+                logger.error("Keycloak email preview failed", e);
+                return responseObj.render(responseObj.formErrorResponse("Failed to check emails in Keycloak: " + e.getMessage()));
+            }
+
+            int newUser = 0;
+            int existing = 0;
+            int invalid = 0;
+            int dup = 0;
+            for (EmailLoginPreviewItemDto row : items) {
+                if ("INVALID_EMAIL".equals(row.getStatus())) {
+                    invalid++;
+                    continue;
+                }
+                if ("DUPLICATE_IN_BATCH".equals(row.getStatus())) {
+                    dup++;
+                    continue;
+                }
+                if (row.getEmail() == null) {
+                    continue;
+                }
+                boolean inKc = Boolean.TRUE.equals(existsMap.get(row.getEmail()));
+                if (inKc) {
+                    row.setStatus("EXISTING_KEYCLOAK_USER");
+                    row.setDetail(
+                            "Account already exists in Keycloak; onboarding adds ROLE_EMPLOYEE and org group membership (same user may already have HR_ADMIN or other roles).");
+                    existing++;
+                } else {
+                    row.setStatus("NEW_USER");
+                    row.setDetail("A new Keycloak user will be created for this email.");
+                    newUser++;
+                }
+            }
+
+            EmployeeOnboardingEmailPreviewDto dto = new EmployeeOnboardingEmailPreviewDto();
+            dto.setItems(items);
+            dto.setTotalListed(items.size());
+            dto.setNewUserCount(newUser);
+            dto.setExistingKeycloakUserCount(existing);
+            dto.setInvalidEmailCount(invalid);
+            dto.setDuplicateInBatchCount(dup);
+            return responseObj.render(responseObj.formSuccessResponse(Constants.SUCCESS, dto));
+        } catch (Exception e) {
+            logger.error("[correlationId:{}] previewEmployeeOnboardingEmails failed: {}",
+                    MDC.get("correlationId"), e.getMessage(), e);
+            return responseObj.render(responseObj.formErrorResponse("Failed to preview employee logins"));
+        }
+    }
+
+    /**
+     * Deals linked to an endorsement via {@code customers.endorsement_id} and/or {@code deal_endorsements}.
+     */
+    private List<Deals> listDealsLinkedToEndorsement(UUID endorsementId) {
+        List<Deals> fromColumn = dealsRepository.findByEndorsementId(endorsementId);
+        List<Deals> fromJoin = dealEndorsementRepository.findByEndorsement_EndorsementId(endorsementId).stream()
+                .map(DealEndorsement::getDeal)
+                .collect(Collectors.toList());
+        Map<UUID, Deals> merged = new LinkedHashMap<>();
+        for (Deals d : fromColumn) {
+            merged.put(d.getIndividualId(), d);
+        }
+        for (Deals d : fromJoin) {
+            merged.putIfAbsent(d.getIndividualId(), d);
+        }
+        return new ArrayList<>(merged.values());
+    }
+
+    /**
+     * Creates Keycloak users for SELF deals or, if the email already exists (including HR admins and other roles),
+     * adds {@code ROLE_EMPLOYEE} and the org group without creating a duplicate account.
+     */
+    private void processDealsForOnboarding(List<Deals> deals, String orgName,
+            AtomicInteger successCount, AtomicInteger failedCount,
+            List<String> successUsers, List<String> failedUsers,
+            List<String> existingKeycloakSuccessUsers) {
+        List<Deals> selfDeals = deals.stream()
+                .filter(d -> "SELF".equalsIgnoreCase(d.getRelationship()))
+                .collect(Collectors.toList());
+
+        LinkedHashSet<String> uniqueEmails = new LinkedHashSet<>();
+        for (Deals d : selfDeals) {
+            if (d.getEmail() != null && !d.getEmail().isBlank()) {
+                uniqueEmails.add(d.getEmail().toLowerCase().trim());
+            }
+        }
+
+        Map<String, Boolean> existsMap = new HashMap<>();
+        if (!uniqueEmails.isEmpty()) {
+            try {
+                existsMap = new HashMap<>(keycloakUtil.checkEmailsExistInRealmBatched(new ArrayList<>(uniqueEmails)));
+            } catch (Exception e) {
+                logger.warn("[correlationId:{}] Batch Keycloak email lookup failed; falling back per email: {}",
+                        MDC.get("correlationId"), e.getMessage());
+                for (String em : uniqueEmails) {
+                    try {
+                        existsMap.put(em, keycloakUtil.emailExistsInRealm(em));
+                    } catch (Exception ex) {
+                        logger.warn("[correlationId:{}] emailExistsInRealm failed for {}: {}", MDC.get("correlationId"), em, ex.getMessage());
+                        existsMap.put(em, false);
+                    }
+                }
+            }
+        }
+
+        try (Keycloak kc = keycloakUtil.getKeycloakClient()) {
+            Map<String, String> groupNameToId = keycloakUtil.loadTopLevelGroupNameToIdMap(kc);
+            RoleRepresentation employeeRealmRole = keycloakUtil.getRealmRoleOrNull(kc, "ROLE_EMPLOYEE");
+            List<String> orgAsList = Arrays.asList(orgName);
+
+            for (Deals deal : selfDeals) {
+                try {
+                    if (deal.getEmail() == null || deal.getEmail().isBlank()) {
+                        failedCount.incrementAndGet();
+                        failedUsers.add(deal.getFullName() != null ? deal.getFullName().trim() : "Unknown");
+                        continue;
+                    }
+                    String emailLower = deal.getEmail().toLowerCase().trim();
+                    boolean alreadyInRealm = Boolean.TRUE.equals(existsMap.get(emailLower));
+
+                    if (alreadyInRealm) {
+                        boolean ok = keycloakUtil.addRoleToExistingUserByEmail(kc, groupNameToId, employeeRealmRole,
+                                emailLower, "ROLE_EMPLOYEE", orgAsList);
+                        if (ok) {
+                            successCount.incrementAndGet();
+                            successUsers.add(emailLower);
+                            existingKeycloakSuccessUsers.add(emailLower);
+                            logger.info("[correlationId:{}] Employee onboarding: existing Keycloak user {} — ROLE_EMPLOYEE and org group applied (coexists with HR_ADMIN or other realm roles)",
+                                    MDC.get("correlationId"), emailLower);
+                        } else {
+                            failedCount.incrementAndGet();
+                            failedUsers.add(emailLower);
+                            logger.error("[correlationId:{}] Existing Keycloak user {} but could not assign employee role/group",
+                                    MDC.get("correlationId"), emailLower);
+                        }
+                    } else {
+                        String password = PasswordGenerator.generateRandomPassword();
+                        keycloakUtil.createUser(kc, groupNameToId, employeeRealmRole, deal.getFullName(), emailLower, emailLower,
+                                "ROLE_EMPLOYEE", orgAsList, true, password, deal.getIndividualId().toString());
+                        emailService.sendWelcomeEmail(emailLower, deal.getFullName(), emailLower, password);
+                        successCount.incrementAndGet();
+                        successUsers.add(emailLower);
+                    }
+                } catch (Exception e) {
+                    String email = deal.getEmail() != null ? deal.getEmail().toLowerCase().trim() : null;
+                    boolean recovered = keycloakUtil.addRoleToExistingUserByEmail(kc, groupNameToId, employeeRealmRole,
+                            email, "ROLE_EMPLOYEE", orgAsList);
+                    if (recovered) {
+                        logger.info("[correlationId:{}] Employee onboarding recovered via existing-user path for {}", MDC.get("correlationId"), email);
+                        successCount.incrementAndGet();
+                        if (email != null) {
+                            successUsers.add(email);
+                            existingKeycloakSuccessUsers.add(email);
+                        }
+                        continue;
+                    }
+                    failedCount.incrementAndGet();
+                    logger.error("[correlationId:{}] Error creating user for deal: {}", MDC.get("correlationId"), e.getMessage(), e);
+                    failedUsers.add(deal.getEmail() != null ? deal.getEmail().toLowerCase().trim()
+                            : deal.getFullName() != null ? deal.getFullName() : "Unknown");
+                }
+            }
+        }
     }
 
     
