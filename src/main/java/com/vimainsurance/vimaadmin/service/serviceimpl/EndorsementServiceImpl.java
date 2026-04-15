@@ -478,11 +478,18 @@ public class EndorsementServiceImpl implements IEndorsementService {
             // Execute query using specification
             Page<Endorsement> endorsementPage = endorsementRepository.findAll(spec, pageRequest);
 
+            Map<UUID, MemberCounts> memberCountsByEndorsementId = calculateMemberCountsForEndorsements(endorsementPage.getContent());
+
             // Map to DTOs
             List<EndorsementResponseDto> out = new ArrayList<>();
             for (Endorsement endorsement : endorsementPage.getContent()) {
                 EndorsementResponseDto dto = EndorsementMapper.mapToResponseDto(endorsement);
-                applyDynamicMemberCounts(dto, endorsement);
+                MemberCounts counts = memberCountsByEndorsementId.get(endorsement.getEndorsementId());
+                if (counts == null) {
+                    counts = new MemberCounts(0, 0);
+                }
+                dto.setTotalEmployees(counts.employeeCount());
+                dto.setTotalDependents(counts.dependentCount());
                 out.add(dto);
             }
 
@@ -1387,6 +1394,87 @@ public class EndorsementServiceImpl implements IEndorsementService {
 
         Sort.Direction direction = sortDirection.equalsIgnoreCase("ASC") ? Sort.Direction.ASC : Sort.Direction.DESC;
         return Sort.by(direction, sortBy);
+    }
+
+    private Map<UUID, MemberCounts> calculateMemberCountsForEndorsements(List<Endorsement> endorsements) {
+        if (endorsements == null || endorsements.isEmpty()) {
+            return Map.of();
+        }
+
+        List<UUID> endorsementIds = endorsements.stream()
+                .map(Endorsement::getEndorsementId)
+                .filter(Objects::nonNull)
+                .toList();
+        if (endorsementIds.isEmpty()) {
+            return Map.of();
+        }
+
+        Map<UUID, Endorsement> endorsementById = endorsements.stream()
+                .filter(Objects::nonNull)
+                .filter(e -> e.getEndorsementId() != null)
+                .collect(Collectors.toMap(Endorsement::getEndorsementId, e -> e, (left, right) -> left));
+
+        Map<UUID, Map<UUID, Deals>> uniqueMembersByEndorsement = new HashMap<>();
+        for (UUID endorsementId : endorsementIds) {
+            uniqueMembersByEndorsement.put(endorsementId, new LinkedHashMap<>());
+        }
+
+        dealsRepository.findByEndorsementIdIn(endorsementIds).forEach(deal -> {
+            if (deal == null || deal.getIndividualId() == null || deal.getEndorsementId() == null) {
+                return;
+            }
+            Map<UUID, Deals> uniqueMembers = uniqueMembersByEndorsement.get(deal.getEndorsementId());
+            if (uniqueMembers != null) {
+                uniqueMembers.put(deal.getIndividualId(), deal);
+            }
+        });
+
+        dealEndorsementRepository.findByEndorsement_EndorsementIdIn(endorsementIds).forEach(link -> {
+            if (link == null || link.getDeal() == null || link.getEndorsement() == null || link.getDeal().getIndividualId() == null
+                    || link.getEndorsement().getEndorsementId() == null) {
+                return;
+            }
+            Map<UUID, Deals> uniqueMembers = uniqueMembersByEndorsement.get(link.getEndorsement().getEndorsementId());
+            if (uniqueMembers != null) {
+                uniqueMembers.put(link.getDeal().getIndividualId(), link.getDeal());
+            }
+        });
+
+        Map<UUID, MemberCounts> countsByEndorsementId = new HashMap<>();
+        for (UUID endorsementId : endorsementIds) {
+            Map<UUID, Deals> uniqueMembers = uniqueMembersByEndorsement.getOrDefault(endorsementId, Map.of());
+            Endorsement endorsement = endorsementById.get(endorsementId);
+            ProductType pt = resolveProductTypeForMemberCounts(endorsement, null);
+            if (pt == ProductType.GPA || pt == ProductType.GTL || pt == ProductType.TOP_UP || pt == ProductType.SUPER_TOP_UP) {
+                int self = (int) uniqueMembers.values().stream()
+                        .filter(d -> d != null && d.getRelationship() != null && "SELF".equalsIgnoreCase(d.getRelationship()))
+                        .count();
+                countsByEndorsementId.put(endorsementId, new MemberCounts(self, 0));
+                continue;
+            }
+            if (pt == ProductType.PARENT_GMC) {
+                int self = (int) uniqueMembers.values().stream()
+                        .filter(d -> d != null && d.getRelationship() != null && "SELF".equalsIgnoreCase(d.getRelationship()))
+                        .count();
+                int parents = (int) uniqueMembers.values().stream()
+                        .filter(d -> d != null && isParentRelationshipForEndorsementCounts(d.getRelationship()))
+                        .count();
+                countsByEndorsementId.put(endorsementId, new MemberCounts(self, parents));
+                continue;
+            }
+
+            int employeeCount = 0;
+            int dependentCount = 0;
+            for (Deals deal : uniqueMembers.values()) {
+                if (isEmployeeRelationship(deal != null ? deal.getRelationship() : null)) {
+                    employeeCount++;
+                } else {
+                    dependentCount++;
+                }
+            }
+            countsByEndorsementId.put(endorsementId, new MemberCounts(employeeCount, dependentCount));
+        }
+        return countsByEndorsementId;
     }
 
     private void applyDynamicMemberCounts(EndorsementResponseDto dto, Endorsement endorsement) {
