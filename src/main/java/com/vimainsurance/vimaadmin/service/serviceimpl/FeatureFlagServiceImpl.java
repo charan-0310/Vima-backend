@@ -98,9 +98,19 @@ public class FeatureFlagServiceImpl implements FeatureFlagService {
                 .filter(r -> r != null && !r.isBlank())
                 .map(String::toUpperCase)
                 .collect(Collectors.toCollection(LinkedHashSet::new));
-        final String primaryRole = adminUser.get().getRole() != null
+        String resolvedPrimaryRole = adminUser.get().getRole() != null
                 ? ("ROLE_" + adminUser.get().getRole().toUpperCase())
                 : (normalizedRoles.isEmpty() ? null : normalizedRoles.iterator().next());
+
+        // SUPER_ADMIN has no feature_flag_roles entries; resolve using ROLE_VIMA_ADMIN
+        // so feature flag DB state is respected instead of force-enabling everything.
+        final boolean isSuperAdmin = normalizedRoles.stream().anyMatch(r ->
+                r.equalsIgnoreCase("ROLE_SUPER_ADMIN") || r.equalsIgnoreCase("SUPER_ADMIN"));
+        if (isSuperAdmin && ("ROLE_SUPER_ADMIN".equalsIgnoreCase(resolvedPrimaryRole)
+                || "ROLE_ADMIN".equalsIgnoreCase(resolvedPrimaryRole))) {
+            resolvedPrimaryRole = "ROLE_VIMA_ADMIN";
+        }
+        final String primaryRole = resolvedPrimaryRole;
 
         final List<String> organizationIds = (currentTenant != null) ? currentTenant.getOrDefault("organizationIds", List.of()) : List.of();
         final Set<String> orgIdSet = organizationIds.stream().filter(id -> id != null && !id.isBlank()).collect(Collectors.toCollection(LinkedHashSet::new));
@@ -138,8 +148,6 @@ public class FeatureFlagServiceImpl implements FeatureFlagService {
                 }
             }
 
-            // Decide inclusion: include if any matched role or company OR user is SUPER_ADMIN
-            boolean isSuperAdmin = normalizedRoles.stream().anyMatch(r -> r.equalsIgnoreCase("ROLE_SUPER_ADMIN") || r.equalsIgnoreCase("SUPER_ADMIN"));
             FeatureFlagResponseDto dto = createDto(flag, matchedRoles, matchedCompanies, isSuperAdmin);
             responseDtos.add(dto);
         }
@@ -390,9 +398,6 @@ public class FeatureFlagServiceImpl implements FeatureFlagService {
         if (hasOrgOverride) {
             isEnabled = companyActive;
         }
-        if (isSuperAdmin) {
-            isEnabled = true;
-        }
         dto.setIsActive(isEnabled);
         dto.setIsEnabled(isEnabled);
 
@@ -411,15 +416,10 @@ public class FeatureFlagServiceImpl implements FeatureFlagService {
                 }
             }
         }
-        if (isSuperAdmin && actionsSet.isEmpty()) {
-            for (FeatureFlagRole r : flag.getRoles()) {
-                if (r.getActions() != null) actionsSet.addAll(List.of(r.getActions()));
-            }
-            for (FeatureFlagCompany c : flag.getCompanies()) {
-                if (c.getActions() != null) {
-                    actionsSet.addAll(Arrays.asList(c.getActions()));
-                }
-            }
+        // SUPER_ADMIN with no matched actions: grant all standard actions so
+        // endpoint-level access isn't accidentally blocked.
+        if (isSuperAdmin && actionsSet.isEmpty() && isEnabled) {
+            actionsSet.addAll(List.of("READ", "WRITE", "APPROVE"));
         }
         dto.setActions(new ArrayList<>(actionsSet));
 
