@@ -3,7 +3,6 @@ package com.vimainsurance.vimaadmin.dto;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.NotBlank;
-import jakarta.validation.constraints.Pattern;
 import lombok.AllArgsConstructor;
 import lombok.Data;
 import lombok.NoArgsConstructor;
@@ -27,7 +26,6 @@ public class EmployeeUploadDto {
     @NotBlank(message = "Email is required")
     @Email(message = "Invalid email address")
     public String email;
-    @Pattern(regexp = "^[0-9]{10}$", message = "Invalid mobile number")
     public String mobile;
     public String dateOfJoining;
     public String designation;

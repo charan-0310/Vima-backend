@@ -428,6 +428,7 @@ public class EmployeeService {
 
 
     public EmployeeUploadResponse validateEmployee(List<EmployeeUploadDto> employeeUploadDtoList, Organization organization) {
+        normalizeEmployeeUploadMobilePlaceholders(employeeUploadDtoList);
         List<String> errors = new ArrayList<>();
         Map<String, List<EmployeeUploadDto>> groupedEmployeeByEmployeeId = groupByEmployeeId(employeeUploadDtoList);
         for (Map.Entry<String, List<EmployeeUploadDto>> entry : groupedEmployeeByEmployeeId.entrySet()) {
@@ -708,6 +709,34 @@ public class EmployeeService {
         response.setMessage(errors.isEmpty() ? "No Validation errors!" : "Validation errors");
 
         return response;
+    }
+
+    /**
+     * CSV / UI often sends "-" or "NA" for missing mobile. Treat as absent so Bean Validation
+     * (including legacy 10-digit mobile Pattern constraints on some deployments) does not reject the upload.
+     */
+    private void normalizeEmployeeUploadMobilePlaceholders(List<EmployeeUploadDto> employeeUploadDtoList) {
+        if (employeeUploadDtoList == null) {
+            return;
+        }
+        for (EmployeeUploadDto dto : employeeUploadDtoList) {
+            if (dto == null) {
+                continue;
+            }
+            String m = dto.getMobile();
+            if (m == null) {
+                continue;
+            }
+            String t = m.trim();
+            if (t.isEmpty()
+                    || "-".equals(t)
+                    || "\u2014".equals(t)
+                    || "--".equals(t)
+                    || "NA".equalsIgnoreCase(t)
+                    || "N/A".equalsIgnoreCase(t)) {
+                dto.setMobile(null);
+            }
+        }
     }
 
     /**
