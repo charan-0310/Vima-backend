@@ -390,9 +390,7 @@ public class CsvDealsReaderUtil {
             errors.add("Employee " + employeeId + " (Self): Invalid email format");
         }
         
-        if (row.mobile == null || row.mobile.trim().isEmpty()) {
-            errors.add("Employee " + employeeId + " (Self): Mobile is required");
-        } else if (!isValidMobile(row.mobile)) {
+        if (!isMobileAbsentOrPlaceholder(row.mobile) && !isValidMobile(row.mobile)) {
             errors.add("Employee " + employeeId + " (Self): Invalid mobile number format. Expected 10-digit Indian mobile number (e.g., 9876543210)");
         }
         
@@ -402,9 +400,7 @@ public class CsvDealsReaderUtil {
             errors.add("Employee " + employeeId + " (Self): Invalid date format for date_of_joining. Expected YYYY-MM-DD");
         }
         
-        if (row.sumInsured == null || row.sumInsured.trim().isEmpty()) {
-            errors.add("Employee " + employeeId + " (Self): Sum insured is required");
-        }
+        // Sum insured optional for bulk CSV (resolved from policy / defaults downstream)
         
         return errors;
     }
@@ -473,10 +469,8 @@ public class CsvDealsReaderUtil {
             }
             
             // Validate mobile format if provided (optional for dependents)
-            if (row.mobile != null && !row.mobile.trim().isEmpty()) {
-                if (!isValidMobile(row.mobile)) {
-                    errors.add("Employee " + employeeId + " (Row " + row.rowNumber + ", " + relationship + "): Invalid mobile number format. Expected 10-digit Indian mobile number (e.g., 9876543210)");
-                }
+            if (!isMobileAbsentOrPlaceholder(row.mobile) && !isValidMobile(row.mobile)) {
+                errors.add("Employee " + employeeId + " (Row " + row.rowNumber + ", " + relationship + "): Invalid mobile number format. Expected 10-digit Indian mobile number (e.g., 9876543210)");
             }
             
             // Validate dependent fields should be empty
@@ -531,7 +525,7 @@ public class CsvDealsReaderUtil {
         deal.setDateOfBirth(parseDate(row.dateOfBirth));
         deal.setGender(row.gender.trim());
         deal.setEmail(row.email.trim());
-        deal.setPhone(row.mobile.trim());
+        deal.setPhone(normalizePhoneForStorage(row.mobile));
         deal.setDateOfJoining(parseDate(row.dateOfJoining));
         deal.setDesignation(row.designation != null ? row.designation.trim() : null);
         deal.setRelationship("Self");
@@ -728,6 +722,29 @@ public class CsvDealsReaderUtil {
      * Optional prefixes: +91 or 0
      * Examples: 9876543210, +919876543210, 09876543210
      */
+    private static boolean isMobileAbsentOrPlaceholder(String mobile) {
+        if (mobile == null || mobile.trim().isEmpty()) {
+            return true;
+        }
+        String t = mobile.trim();
+        return "-".equals(t)
+                || "\u2014".equals(t)
+                || "--".equals(t)
+                || "NA".equalsIgnoreCase(t)
+                || "N/A".equalsIgnoreCase(t);
+    }
+
+    /** Store empty string when CSV used "-" / NA instead of a real number. */
+    private static String normalizePhoneForStorage(String mobile) {
+        if (mobile == null || mobile.trim().isEmpty()) {
+            return "";
+        }
+        if (isMobileAbsentOrPlaceholder(mobile)) {
+            return "";
+        }
+        return mobile.trim();
+    }
+
     private static boolean isValidMobile(String mobile) {
         if (mobile == null || mobile.trim().isEmpty()) {
             return false;
