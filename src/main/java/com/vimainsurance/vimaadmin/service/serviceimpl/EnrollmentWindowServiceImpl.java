@@ -16,6 +16,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
@@ -60,6 +61,8 @@ import com.vimainsurance.vimaadmin.enums.DocumentCategory;
 import com.vimainsurance.vimaadmin.enums.EnrollementStatus;
 import com.vimainsurance.vimaadmin.enums.NomineeRelationship;
 import com.vimainsurance.vimaadmin.enums.PolicyStatus;
+import com.vimainsurance.vimaadmin.enums.CoverageType;
+import com.vimainsurance.vimaadmin.enums.ProductType;
 import com.vimainsurance.vimaadmin.audit.AuditContextSupplier;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.vimainsurance.vimaadmin.mapper.EnrollmentWindowMapper;
@@ -212,7 +215,10 @@ public class EnrollmentWindowServiceImpl implements IEnrollmentWindowService {
                 return responseObj.render(new ResponseDto<>(400, "Validation failed", errors));
             }
             if (!isDependentsOnlyRequestPayload(selfEmployeeEnrollmentRequestDtos)) {
-                List<String> renewalErrors = validateExistingEmployeesForRenewal(organizationId, selfEmployeeEnrollmentRequestDtos);
+                List<String> renewalErrors = validateExistingEmployeesForRenewal(
+                        organizationId,
+                        selfEmployeeEnrollmentRequestDtos,
+                        Collections.emptySet());
                 if (!renewalErrors.isEmpty()) {
                     return responseObj.render(new ResponseDto<>(400, "Validation failed", renewalErrors));
                 }
@@ -240,13 +246,10 @@ public class EnrollmentWindowServiceImpl implements IEnrollmentWindowService {
             }
 
             EnrollmentUploadParserUtil.EnrollmentParseResult parseResult = EnrollmentUploadParserUtil.parse(file);
-            if (!parseResult.hasSelfRows()) {
-                return responseObj.render(new ResponseDto<>(400, "Validation failed",
-                        List.of("No employee SELF rows found in upload file")));
-            }
-
             EnrollmentUploadParserUtil.normalizeChildRelationships(parseResult);
-            EnrollmentUploadParserUtil.validateSelfRows(parseResult);
+            if (parseResult.hasSelfRows()) {
+                EnrollmentUploadParserUtil.validateSelfRows(parseResult);
+            }
 
             List<Policy> activePolicies = policyRepository.findByOrganizationIdAndStatus(
                     organizationId, PolicyStatus.ACTIVE);
@@ -258,18 +261,37 @@ public class EnrollmentWindowServiceImpl implements IEnrollmentWindowService {
             if (parseResult.hasFatalErrors()) {
                 return responseObj.render(new ResponseDto<>(400, "Validation failed", parseResult.getErrors()));
             }
-
-            List<SelfEmployeeEnrollmentRequestDto> selfRows = parseResult.getSelfRows();
-            List<String> errors = validateSelfEmployeeEnrollmentRequest(selfRows, organizationId);
-            if (!errors.isEmpty()) {
-                return responseObj.render(new ResponseDto<>(400, "Validation failed", errors));
+            boolean allowParentOnlyDependentUpload =
+                    isParentOnlyDependentUpload(organizationId, parseResult, activePolicies);
+            if (!parseResult.hasSelfRows() && !allowParentOnlyDependentUpload) {
+                return responseObj.render(new ResponseDto<>(400, "Validation failed",
+                        List.of("No employee SELF rows found in upload file")));
             }
 
             if (!isDependentsOnlyUpload(parseResult)) {
-                List<String> renewalErrors = validateExistingEmployeesForRenewal(organizationId, selfRows);
+            List<SelfEmployeeEnrollmentRequestDto> selfRows = parseResult.getSelfRows();
+            if (!selfRows.isEmpty()) {
+                List<String> errors = validateSelfEmployeeEnrollmentRequest(selfRows, organizationId);
+                if (!errors.isEmpty()) {
+                    return responseObj.render(new ResponseDto<>(400, "Validation failed", errors));
+                }
+
+                Set<String> overlapBypassEmployeeIds = getParentCoverageEmployeeIdsForOverlapBypass(
+                        organizationId, parseResult, activePolicies);
+                List<String> renewalErrors = validateExistingEmployeesForRenewal(
+                        organizationId,
+                        selfRows,
+                        overlapBypassEmployeeIds);
                 if (!renewalErrors.isEmpty()) {
                     return responseObj.render(new ResponseDto<>(400, "Validation failed", renewalErrors));
                 }
+            } else if (allowParentOnlyDependentUpload) {
+                List<String> parentOnlyErrors = validateParentOnlyDependentUploadEmployees(
+                        organizationId, parseResult, activePolicies);
+                if (!parentOnlyErrors.isEmpty()) {
+                    return responseObj.render(new ResponseDto<>(400, "Validation failed", parentOnlyErrors));
+                }
+            }
             }
 
             return responseObj.render(responseObj.formSuccessResponse(Constants.SUCCESS, Collections.emptyList()));
@@ -299,25 +321,31 @@ public class EnrollmentWindowServiceImpl implements IEnrollmentWindowService {
 
             List<SelfEmployeeEnrollmentRequestDto> selfRowsToUse;
             EnrollmentUploadParserUtil.EnrollmentParseResult parseResult = null;
+            List<Policy> activePolicies = policyRepository.findByOrganizationIdAndStatus(
+                    organization.getOrganizationId(), PolicyStatus.ACTIVE);
+            boolean allowParentOnlyDependentUpload = false;
             if (file != null && !file.isEmpty()) {
                 parseResult = EnrollmentUploadParserUtil.parse(file);
+                EnrollmentUploadParserUtil.normalizeChildRelationships(parseResult);
                 if (parseResult.hasSelfRows()) {
-                    EnrollmentUploadParserUtil.normalizeChildRelationships(parseResult);
                     EnrollmentUploadParserUtil.validateSelfRows(parseResult);
-                    List<Policy> activePolicies = policyRepository.findByOrganizationIdAndStatus(
-                            organization.getOrganizationId(), PolicyStatus.ACTIVE);
-                    List<String> coverageErrors = GmcCoverageUploadValidationUtil
-                            .validateEnrollmentUploadRows(parseResult, activePolicies);
-                    if (!coverageErrors.isEmpty()) {
-                        parseResult.getErrors().addAll(coverageErrors);
-                    }
-                    if (!parseResult.hasFatalErrors()) {
-                        selfRowsToUse = parseResult.getSelfRows();
-                    } else {
-                        @SuppressWarnings("unchecked")
-                        ResponseDto<EnrollmentWindowResponseDto> errorDto = (ResponseDto<EnrollmentWindowResponseDto>) (ResponseDto<?>) responseObj.formErrorResponse("Validation failed", parseResult.getErrors());
-                        return responseObj.render(errorDto);
-                    }
+                }
+                List<String> coverageErrors = GmcCoverageUploadValidationUtil
+                        .validateEnrollmentUploadRows(parseResult, activePolicies);
+                if (!coverageErrors.isEmpty()) {
+                    parseResult.getErrors().addAll(coverageErrors);
+                }
+                if (parseResult.hasFatalErrors()) {
+                    @SuppressWarnings("unchecked")
+                    ResponseDto<EnrollmentWindowResponseDto> errorDto = (ResponseDto<EnrollmentWindowResponseDto>) (ResponseDto<?>) responseObj.formErrorResponse("Validation failed", parseResult.getErrors());
+                    return responseObj.render(errorDto);
+                }
+                allowParentOnlyDependentUpload = isParentOnlyDependentUpload(
+                        organization.getOrganizationId(), parseResult, activePolicies);
+                if (parseResult.hasSelfRows()) {
+                    selfRowsToUse = parseResult.getSelfRows();
+                } else if (allowParentOnlyDependentUpload) {
+                    selfRowsToUse = new ArrayList<>();
                 } else {
                     selfRowsToUse = (selfEmployeeEnrollmentRequestDtos != null && !selfEmployeeEnrollmentRequestDtos.isEmpty())
                             ? selfEmployeeEnrollmentRequestDtos
@@ -329,19 +357,27 @@ public class EnrollmentWindowServiceImpl implements IEnrollmentWindowService {
                         : new ArrayList<>();
             }
 
-            if (selfRowsToUse.isEmpty()) {
+            if (selfRowsToUse.isEmpty() && !(allowParentOnlyDependentUpload
+                    && parseResult != null
+                    && !parseResult.getDependentRowsByEmployeeId().isEmpty())) {
                 return responseObj.render(responseObj.formErrorResponse("No employee data provided. Upload a file with employee rows or provide employee list."));
             }
 
-            List<String> errors = validateSelfEmployeeEnrollmentRequest(selfRowsToUse, organization.getOrganizationId());
-            if (!errors.isEmpty()) {
-                @SuppressWarnings("unchecked")
-                ResponseDto<EnrollmentWindowResponseDto> errorDto = (ResponseDto<EnrollmentWindowResponseDto>) (ResponseDto<?>) responseObj.formErrorResponse("Validation failed", errors);
-                return responseObj.render(errorDto);
-            }
+            if (!selfRowsToUse.isEmpty()) {
+                List<String> errors = validateSelfEmployeeEnrollmentRequest(selfRowsToUse, organization.getOrganizationId());
+                if (!errors.isEmpty()) {
+                    @SuppressWarnings("unchecked")
+                    ResponseDto<EnrollmentWindowResponseDto> errorDto = (ResponseDto<EnrollmentWindowResponseDto>) (ResponseDto<?>) responseObj.formErrorResponse("Validation failed", errors);
+                    return responseObj.render(errorDto);
+                }
 
             if (!isDependentsOnlyUpload(parseResult)) {
-                List<String> renewalErrors = validateExistingEmployeesForRenewal(organization.getOrganizationId(), selfRowsToUse);
+                Set<String> overlapBypassEmployeeIds = getParentCoverageEmployeeIdsForOverlapBypass(
+                        organization.getOrganizationId(), parseResult, activePolicies);
+                List<String> renewalErrors = validateExistingEmployeesForRenewal(
+                        organization.getOrganizationId(),
+                        selfRowsToUse,
+                        overlapBypassEmployeeIds);
                 if (!renewalErrors.isEmpty()) {
                     @SuppressWarnings("unchecked")
                     ResponseDto<EnrollmentWindowResponseDto> errorDto = (ResponseDto<EnrollmentWindowResponseDto>) (ResponseDto<?>) responseObj.formErrorResponse("Validation failed", renewalErrors);
@@ -349,8 +385,17 @@ public class EnrollmentWindowServiceImpl implements IEnrollmentWindowService {
                 }
             }
 
-            createSelfEmployee(selfRowsToUse, organization, window);
-            logger.info("[correlationId:{}] Self employees created successfully for window {}", MDC.get("correlationId"), windowId);
+                createSelfEmployee(selfRowsToUse, organization, window);
+                logger.info("[correlationId:{}] Self employees created successfully for window {}", MDC.get("correlationId"), windowId);
+            } else if (allowParentOnlyDependentUpload && parseResult != null) {
+                List<String> parentOnlyErrors = validateParentOnlyDependentUploadEmployees(
+                        organization.getOrganizationId(), parseResult, activePolicies);
+                if (!parentOnlyErrors.isEmpty()) {
+                    @SuppressWarnings("unchecked")
+                    ResponseDto<EnrollmentWindowResponseDto> errorDto = (ResponseDto<EnrollmentWindowResponseDto>) (ResponseDto<?>) responseObj.formErrorResponse("Validation failed", parentOnlyErrors);
+                    return responseObj.render(errorDto);
+                }
+            }
 
             if (parseResult != null && !parseResult.getDependentRowsByEmployeeId().isEmpty()) {
                 persistDependentsFromParseResult(parseResult, organization, window);
@@ -1448,7 +1493,10 @@ public class EnrollmentWindowServiceImpl implements IEnrollmentWindowService {
      * For employees who already exist in customers: if there is no new policy for the company, reject with "Employee already exists.";
      * if there is a new policy, allow only when new policy start date is after the employee's current policy end date (renewal).
      */
-    private List<String> validateExistingEmployeesForRenewal(UUID organizationId, List<SelfEmployeeEnrollmentRequestDto> requestDtos) {
+    private List<String> validateExistingEmployeesForRenewal(
+            UUID organizationId,
+            List<SelfEmployeeEnrollmentRequestDto> requestDtos,
+            Set<String> overlapBypassEmployeeIds) {
         List<String> errors = new ArrayList<>();
         if (requestDtos == null || requestDtos.isEmpty()) {
             return errors;
@@ -1468,6 +1516,9 @@ public class EnrollmentWindowServiceImpl implements IEnrollmentWindowService {
         for (String employeeId : distinctEmployeeIds) {
             Optional<Deals> existingOpt = dealsRepository.findByEmployeeNumberAndOrganizationIdAndRelationship(employeeId, organizationId, relationship);
             if (existingOpt.isEmpty()) {
+                continue;
+            }
+            if (overlapBypassEmployeeIds != null && overlapBypassEmployeeIds.contains(employeeId)) {
                 continue;
             }
             Deals existing = existingOpt.get();
@@ -1496,6 +1547,152 @@ public class EnrollmentWindowServiceImpl implements IEnrollmentWindowService {
             }
         }
         return errors;
+    }
+
+    private boolean isParentOnlyDependentUpload(
+            UUID organizationId,
+            EnrollmentUploadParserUtil.EnrollmentParseResult parseResult,
+            List<Policy> activePolicies) {
+        if (parseResult == null || parseResult.hasSelfRows()) return false;
+        if (parseResult.getDependentRowsByEmployeeId() == null || parseResult.getDependentRowsByEmployeeId().isEmpty()) {
+            return false;
+        }
+        boolean hasActiveParentGmc = activePolicies != null && activePolicies.stream()
+                .anyMatch(this::isParentCoveragePolicy);
+        if (!hasActiveParentGmc) return false;
+        return parseResult.getDependentRowsByEmployeeId().values().stream()
+                .filter(Objects::nonNull)
+                .flatMap(List::stream)
+                .map(EnrollmentUploadParserUtil.DependentRow::getRelationship)
+                .allMatch(this::isParentCoverageRelationship);
+    }
+
+    private List<String> validateParentOnlyDependentUploadEmployees(
+            UUID organizationId,
+            EnrollmentUploadParserUtil.EnrollmentParseResult parseResult,
+            List<Policy> activePolicies) {
+        List<String> errors = new ArrayList<>();
+        if (parseResult == null || parseResult.getDependentRowsByEmployeeId() == null) {
+            return errors;
+        }
+        List<Long> activeParentPolicyIds = activePolicies.stream()
+                .filter(this::isParentCoveragePolicy)
+                .map(Policy::getPolicyId)
+                .filter(Objects::nonNull)
+                .toList();
+        String selfRelationship = NomineeRelationship.SELF.getValue();
+        for (String employeeId : parseResult.getDependentRowsByEmployeeId().keySet()) {
+            if (employeeId == null || employeeId.isBlank()) continue;
+            Optional<Deals> selfDealOpt = dealsRepository.findByEmployeeNumberAndOrganizationIdAndRelationship(
+                    employeeId, organizationId, selfRelationship);
+            if (selfDealOpt.isEmpty()) {
+                errors.add("Employee " + employeeId + " not found. Cannot add parent dependents without primary employee (Self).");
+                continue;
+            }
+            Deals selfDeal = selfDealOpt.get();
+            if (selfDeal.getIndividualId() == null || activeParentPolicyIds.isEmpty()) {
+                continue;
+            }
+            boolean alreadyHasParentCoverage =
+                    hasExistingParentDependent(selfDeal.getIndividualId())
+                    || !employeePolicyMapRepository.findByIndividualIdAndPolicyIdInAndStatus(
+                            selfDeal.getIndividualId(),
+                            activeParentPolicyIds,
+                            POLICY_MAP_STATUS_ACTIVE).isEmpty();
+            if (alreadyHasParentCoverage) {
+                errors.add("Employee " + employeeId + " cannot be in two policies; new policy start must be after current policy end.");
+            }
+        }
+        return errors;
+    }
+
+    private Set<String> getParentCoverageEmployeeIdsForOverlapBypass(
+            UUID organizationId,
+            EnrollmentUploadParserUtil.EnrollmentParseResult parseResult,
+            List<Policy> activePolicies) {
+        if (parseResult == null || parseResult.getDependentRowsByEmployeeId() == null
+                || parseResult.getDependentRowsByEmployeeId().isEmpty()) {
+            return Collections.emptySet();
+        }
+
+        List<Long> activeParentPolicyIds = activePolicies.stream()
+                .filter(this::isParentCoveragePolicy)
+                .map(Policy::getPolicyId)
+                .filter(Objects::nonNull)
+                .toList();
+        if (activeParentPolicyIds.isEmpty()) {
+            return Collections.emptySet();
+        }
+
+        Set<String> employeeIds = new HashSet<>();
+        parseResult.getDependentRowsByEmployeeId().forEach((employeeId, dependentRows) -> {
+            if (employeeId == null || employeeId.isBlank() || dependentRows == null || dependentRows.isEmpty()) {
+                return;
+            }
+            boolean hasParentRow = dependentRows.stream()
+                    .map(EnrollmentUploadParserUtil.DependentRow::getRelationship)
+                    .anyMatch(this::isParentCoverageRelationship);
+            if (!hasParentRow) {
+                return;
+            }
+
+            Optional<Deals> existingSelfDeal = dealsRepository
+                    .findByEmployeeNumberAndOrganizationIdAndRelationship(
+                            employeeId,
+                            organizationId,
+                            NomineeRelationship.SELF.getValue());
+            if (existingSelfDeal.isEmpty()) {
+                employeeIds.add(employeeId);
+                return;
+            }
+            UUID individualId = existingSelfDeal.get().getIndividualId();
+            if (individualId == null) {
+                employeeIds.add(employeeId);
+                return;
+            }
+
+            boolean alreadyInActiveParentPolicy = hasExistingParentDependent(individualId) || !employeePolicyMapRepository
+                    .findByIndividualIdAndPolicyIdInAndStatus(
+                            individualId,
+                            activeParentPolicyIds,
+                            POLICY_MAP_STATUS_ACTIVE)
+                    .isEmpty();
+            if (!alreadyInActiveParentPolicy) {
+                employeeIds.add(employeeId);
+            }
+        });
+        return employeeIds;
+    }
+
+    private boolean isParentCoverageRelationship(String relationship) {
+        if (relationship == null || relationship.isBlank()) {
+            return false;
+        }
+        String normalized = relationship.trim().toUpperCase(Locale.ROOT)
+                .replace('-', '_')
+                .replace(' ', '_');
+        return "PARENT".equals(normalized)
+                || "FATHER".equals(normalized)
+                || "MOTHER".equals(normalized)
+                || "PARENT_IN_LAW".equals(normalized)
+                || "FATHER_IN_LAW".equals(normalized)
+                || "MOTHER_IN_LAW".equals(normalized);
+    }
+
+    private boolean isParentCoveragePolicy(Policy policy) {
+        if (policy == null) return false;
+        return policy.getProductType() == ProductType.PARENT_GMC
+                || policy.getCoverageType() == CoverageType.PARENT;
+    }
+
+    private boolean hasExistingParentDependent(UUID primaryIndividualId) {
+        if (primaryIndividualId == null) return false;
+        return dealsRepository.findByPrimaryIndividualId(primaryIndividualId).stream()
+                .filter(Objects::nonNull)
+                .filter(d -> d.getRelationship() != null)
+                .filter(d -> d.getStatus() != AccountStatus.INACTIVE)
+                .map(Deals::getRelationship)
+                .anyMatch(this::isParentCoverageRelationship);
     }
 
     /** Batch size for bulk self-employee save (e.g. 1000 records in batches of 500). */
