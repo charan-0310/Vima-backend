@@ -59,6 +59,7 @@ import com.vimainsurance.vimaadmin.entity.Organization;
 import com.vimainsurance.vimaadmin.entity.Policy;
 import com.vimainsurance.vimaadmin.enums.AccountStatus;
 import com.vimainsurance.vimaadmin.enums.AccountType;
+import com.vimainsurance.vimaadmin.enums.CoverageType;
 import com.vimainsurance.vimaadmin.enums.EndorsementSource;
 import com.vimainsurance.vimaadmin.enums.EndorsementType;
 import com.vimainsurance.vimaadmin.enums.EnrollementStatus;
@@ -86,6 +87,7 @@ import com.vimainsurance.vimaadmin.audit.AuditContextSupplier;
 import com.vimainsurance.vimaadmin.exception.OrganizationAccessDeniedException;
 import com.vimainsurance.vimaadmin.util.JwtUserExtractor;
 import com.vimainsurance.vimaadmin.util.OrganizationAccessHelper;
+import com.vimainsurance.vimaadmin.util.EnrollmentUploadParserUtil;
 import com.vimainsurance.vimaadmin.util.TenantContext;
 import com.vimainsurance.vimaadmin.util.TransactionUtil;
 
@@ -692,17 +694,19 @@ public class HRApprovalServiceImpl implements IHRApprovalService {
             if (d.getDateOfBirth() == null || d.getDateOfBirth().isBlank()) {
                 throw new IllegalArgumentException(prefix + "dateOfBirth is required");
             }
-            try {
-                LocalDate.parse(d.getDateOfBirth().trim(), DATE_FORMAT);
-            } catch (DateTimeParseException e) {
+            String normalisedDob = EnrollmentUploadParserUtil.normalizeDateToIsoString(d.getDateOfBirth().trim());
+            if (normalisedDob == null) {
                 throw new IllegalArgumentException(prefix + "invalid dateOfBirth; use yyyy-MM-dd");
             }
+            d.setDateOfBirth(normalisedDob);
+            LocalDate.parse(normalisedDob, DATE_FORMAT);
             if (d.getDateOfJoining() != null && !d.getDateOfJoining().isBlank()) {
-                try {
-                    LocalDate.parse(d.getDateOfJoining().trim(), DATE_FORMAT);
-                } catch (DateTimeParseException e) {
+                String normalisedDoj = EnrollmentUploadParserUtil.normalizeDateToIsoString(d.getDateOfJoining().trim());
+                if (normalisedDoj == null) {
                     throw new IllegalArgumentException(prefix + "invalid dateOfJoining; use yyyy-MM-dd");
                 }
+                d.setDateOfJoining(normalisedDoj);
+                LocalDate.parse(normalisedDoj, DATE_FORMAT);
             }
         }
     }
@@ -882,7 +886,7 @@ public class HRApprovalServiceImpl implements IHRApprovalService {
                 windowOrg = org;
             }
 
-            Set<Long> policyIds = extractPolicyIdsFromPlanSelections(sub.getPlanSelections(), org);
+            Set<Long> policyIds = extractPolicyIdsFromPlanSelections(sub.getPlanSelections(), org, sub.getId());
             if (policyIds.isEmpty()) {
                 throw new IllegalStateException(
                         "Cannot finalize: no policies resolved for submission " + sub.getId()
@@ -936,10 +940,19 @@ public class HRApprovalServiceImpl implements IHRApprovalService {
                 endorsement.setTotalEmployees(employees);
                 endorsement.setTotalDependents(parents);
             } else {
-                int depCount = (int) allDeals.stream()
-                        .filter(d -> d.getRelationship() != null && !"SELF".equalsIgnoreCase(d.getRelationship()) && !"EMPLOYEE".equalsIgnoreCase(d.getRelationship()))
-                        .filter(d -> !isParentDealRelationship(d.getRelationship()))
-                        .count();
+                int depCount;
+                if (baseGmcGhiFloaterIncludesParents(policy)) {
+                    depCount = (int) allDeals.stream()
+                            .filter(d -> d.getRelationship() != null
+                                    && !"SELF".equalsIgnoreCase(d.getRelationship())
+                                    && !"EMPLOYEE".equalsIgnoreCase(d.getRelationship()))
+                            .count();
+                } else {
+                    depCount = (int) allDeals.stream()
+                            .filter(d -> d.getRelationship() != null && !"SELF".equalsIgnoreCase(d.getRelationship()) && !"EMPLOYEE".equalsIgnoreCase(d.getRelationship()))
+                            .filter(d -> !isParentDealRelationship(d.getRelationship()))
+                            .count();
+                }
                 endorsement.setTotalEmployees(employees);
                 endorsement.setTotalDependents(depCount);
             }
@@ -952,7 +965,7 @@ public class HRApprovalServiceImpl implements IHRApprovalService {
                 primaryEndorsement = savedEndorsement;
             }
 
-            List<Deals> eligibleDeals = filterDealsForPolicyType(allDeals, pt);
+            List<Deals> eligibleDeals = filterDealsForPolicyType(allDeals, pt, policy);
             List<DealEndorsement> deToSave = new ArrayList<>();
             for (Deals d : eligibleDeals) {
                 if (d.getIndividualId() != null && !dealEndorsementRepository.existsByDeal_IndividualIdAndEndorsement_EndorsementId(
@@ -1231,12 +1244,41 @@ public class HRApprovalServiceImpl implements IHRApprovalService {
 
 
     /**
+     * GMC/GHI with ESCP: parents are on the base floater (same endorsement as spouse/children), not only on PARENT_GMC.
+     */
+    private boolean baseGmcGhiFloaterIncludesParents(Policy policy) {
+        if (policy == null) {
+            return false;
+        }
+        ProductType pt = policy.getProductType();
+        if (pt != ProductType.GMC && pt != ProductType.GHI) {
+            return false;
+        }
+        return policy.getCoverageType() == CoverageType.ESCP;
+    }
+
+    /** True when this submission's resolved policy set already includes a GMC/GHI ESCP base floater (parents go there). */
+    private boolean submissionResolvesToEscpFloater(Set<Long> policyIds) {
+        if (policyIds == null || policyIds.isEmpty()) {
+            return false;
+        }
+        for (Long pid : policyIds) {
+            Policy p = policyRepository.findById(pid).orElse(null);
+            if (baseGmcGhiFloaterIncludesParents(p)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
      * Filters deals eligible for a given policy type:
      * - GPA/GTL/TOP_UP/SUPER_TOP_UP: employees only (SELF/EMPLOYEE)
      * - PARENT_GMC: employees + parent relationships
-     * - GMC/GHI and others: employees + all non-parent dependents
+     * - GMC/GHI with ESCP: employees + all dependents including parents (base floater)
+     * - GMC/GHI otherwise: employees + non-parent dependents only
      */
-    private List<Deals> filterDealsForPolicyType(List<Deals> allDeals, ProductType pt) {
+    private List<Deals> filterDealsForPolicyType(List<Deals> allDeals, ProductType pt, Policy policy) {
         if (pt == ProductType.GPA || pt == ProductType.GTL || pt == ProductType.TOP_UP || pt == ProductType.SUPER_TOP_UP) {
             return allDeals.stream()
                     .filter(d -> d.getRelationship() == null
@@ -1252,15 +1294,19 @@ public class HRApprovalServiceImpl implements IHRApprovalService {
                             || isParentDealRelationship(d.getRelationship()))
                     .toList();
         }
+        if (baseGmcGhiFloaterIncludesParents(policy)) {
+            return List.copyOf(allDeals);
+        }
         // GMC/GHI/default: employees + all non-parent dependents
         return allDeals.stream()
                 .filter(d -> !isParentDealRelationship(d.getRelationship()))
                 .toList();
     }
 
-    private Set<Long> extractPolicyIdsFromPlanSelections(String planSelectionsJson, Organization org) {
+    private Set<Long> extractPolicyIdsFromPlanSelections(String planSelectionsJson, Organization org, UUID submissionId) {
         Set<Long> policyIds = new HashSet<>();
         if (planSelectionsJson == null || planSelectionsJson.isBlank()) {
+            addParentGmcPolicyIdsIfSubmissionHasParents(submissionId, org, policyIds);
             return policyIds;
         }
         Set<String> unresolvedPlanTypes = new HashSet<>();
@@ -1303,6 +1349,8 @@ public class HRApprovalServiceImpl implements IHRApprovalService {
                     }
                 }
             }
+            addParentGmcPolicyIdsIfSubmissionHasParents(submissionId, org, policyIds);
+
             // Last resort: planSelections missing policyId/planType but window has approved submissions — use all org policies
             if (policyIds.isEmpty()) {
                 for (Policy p : organizationPolicies) {
@@ -1322,6 +1370,40 @@ public class HRApprovalServiceImpl implements IHRApprovalService {
                     e.getMessage());
         }
         return policyIds;
+    }
+
+    /**
+     * Parents are linked to PARENT_GMC endorsements when the base plan is not GMC/GHI ESCP (parents on ESCP floater
+     * go with that policy's endorsement via {@link #filterDealsForPolicyType}). If plan selections only named
+     * GMC/GHI without parent add-on, still include active PARENT_GMC policies when needed.
+     */
+    private void addParentGmcPolicyIdsIfSubmissionHasParents(UUID submissionId, Organization org, Set<Long> policyIds) {
+        if (submissionId == null || org == null || org.getOrganizationId() == null) {
+            return;
+        }
+        List<Deals> deals = dealsRepository.findByEnrollmentSubmission_Id(submissionId);
+        boolean hasParents = deals.stream().anyMatch(d -> isParentDealRelationship(d.getRelationship()));
+        if (!hasParents) {
+            return;
+        }
+        if (submissionResolvesToEscpFloater(policyIds)) {
+            return;
+        }
+        List<Policy> organizationPolicies = policyRepository.findByOrganizationId(org.getOrganizationId());
+        int added = 0;
+        for (Policy p : organizationPolicies) {
+            if (p.getPolicyId() != null
+                    && p.getProductType() == ProductType.PARENT_GMC
+                    && p.getStatus() == PolicyStatus.ACTIVE) {
+                if (policyIds.add(p.getPolicyId())) {
+                    added++;
+                }
+            }
+        }
+        if (added > 0) {
+            log.info("[correlationId:{}] Included {} PARENT_GMC policy id(s) for submission {} (parent dependents present)",
+                    MDC.get("correlationId"), added, submissionId);
+        }
     }
 
     private Long parsePolicyIdNode(JsonNode pidNode) {
@@ -1353,8 +1435,9 @@ public class HRApprovalServiceImpl implements IHRApprovalService {
         if ("GMC".equals(normalizedPlanType) || "GHI".equals(normalizedPlanType)) {
             return "GMC".equals(normalizedProductType) || "GHI".equals(normalizedProductType);
         }
-        if ("PARENT_GMC".equals(normalizedPlanType)) {
-            return "PARENT_GMC".equals(normalizedProductType);
+        if ("PARENT_GMC".equals(normalizedProductType)) {
+            String compactPlan = normalizedPlanType.replaceAll("[\\s_\\-]+", "");
+            return "PARENTGMC".equals(compactPlan) || "PARENT_GMC".equals(normalizedPlanType);
         }
         return normalizedPlanType.equals(normalizedProductType);
     }

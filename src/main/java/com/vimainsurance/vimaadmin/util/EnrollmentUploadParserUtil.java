@@ -11,6 +11,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
+import java.util.HashMap;
 import java.util.HashSet;
 
 import org.apache.poi.ss.usermodel.Row;
@@ -43,6 +44,38 @@ public final class EnrollmentUploadParserUtil {
     private static final DateTimeFormatter DATE_FORMAT = DateTimeFormatter.ISO_LOCAL_DATE;
     private static final Set<String> CHILD_KEYWORDS = Set.of("son", "daughter", "child");
     private static final String[] CHILD_RELATIONSHIPS = { "CHILD1", "CHILD2", "CHILD3", "CHILD4" };
+
+    /** Lowercase English month name / abbreviation → month number (1–12). */
+    private static final Map<String, Integer> MONTH_NAME_TO_INDEX = buildMonthNameIndexMap();
+
+    private static Map<String, Integer> buildMonthNameIndexMap() {
+        Map<String, Integer> m = new HashMap<>();
+        m.put("jan", 1);
+        m.put("january", 1);
+        m.put("feb", 2);
+        m.put("february", 2);
+        m.put("mar", 3);
+        m.put("march", 3);
+        m.put("apr", 4);
+        m.put("april", 4);
+        m.put("may", 5);
+        m.put("jun", 6);
+        m.put("june", 6);
+        m.put("jul", 7);
+        m.put("july", 7);
+        m.put("aug", 8);
+        m.put("august", 8);
+        m.put("sep", 9);
+        m.put("sept", 9);
+        m.put("september", 9);
+        m.put("oct", 10);
+        m.put("october", 10);
+        m.put("nov", 11);
+        m.put("november", 11);
+        m.put("dec", 12);
+        m.put("december", 12);
+        return m;
+    }
 
     private EnrollmentUploadParserUtil() {}
 
@@ -349,6 +382,7 @@ public final class EnrollmentUploadParserUtil {
      * - Already ISO (yyyy-MM-dd)
      * - dd/MM/yyyy, dd-MM-yyyy, dd.MM.yyyy
      * - dd/MM/yy, dd-MM-yy (2-digit year: 00-29 → 2000-2029, 30-99 → 1930-1999)
+     * - dd-MMM-yyyy, dd MMM yyyy, etc. (English month names, case-insensitive; 2- or 4-digit year)
      * Used so enrollment submission JSON (personalDetails, dependents) always stores DOB in a format
      * the frontend can parse (e.g. magic link displays correctly).
      */
@@ -357,7 +391,14 @@ public final class EnrollmentUploadParserUtil {
         s = s.trim();
         if (s.matches("\\d{4}-\\d{2}-\\d{2}")) return s;
         String normalized = normalizeDateString(s);
-        return normalized != null ? normalized : normalizeDateStringTwoDigitYear(s);
+        if (normalized != null) {
+            return normalized;
+        }
+        normalized = normalizeDateStringTwoDigitYear(s);
+        if (normalized != null) {
+            return normalized;
+        }
+        return normalizeDateStringMonthName(s);
     }
 
     private static String normalizeDateString(String s) {
@@ -387,6 +428,39 @@ public final class EnrollmentUploadParserUtil {
         int yy = Integer.parseInt(m.group(3));
         int yyyy = yy <= 29 ? 2000 + yy : 1900 + yy;
         return yyyy + "-" + String.format("%02d", mo) + "-" + String.format("%02d", d);
+    }
+
+    /**
+     * e.g. 15-JAN-1980, 15 Jan 1980, 15/Jan/80 — common in insurer CSV exports where month is alphabetic.
+     */
+    private static String normalizeDateStringMonthName(String s) {
+        if (s == null) {
+            return null;
+        }
+        java.util.regex.Pattern p = java.util.regex.Pattern.compile(
+                "^(\\d{1,2})[\\s./\\-]+([A-Za-z]+)[\\s./\\-]+(\\d{2}|\\d{4})$");
+        java.util.regex.Matcher m = p.matcher(s.trim());
+        if (!m.matches()) {
+            return null;
+        }
+        Integer mo = MONTH_NAME_TO_INDEX.get(m.group(2).toLowerCase(Locale.ROOT));
+        if (mo == null) {
+            return null;
+        }
+        int day = Integer.parseInt(m.group(1));
+        String yRaw = m.group(3);
+        int year = yRaw.length() == 2
+                ? (Integer.parseInt(yRaw) <= 29 ? 2000 + Integer.parseInt(yRaw) : 1900 + Integer.parseInt(yRaw))
+                : Integer.parseInt(yRaw);
+        if (day < 1 || day > 31) {
+            return null;
+        }
+        try {
+            LocalDate ld = LocalDate.of(year, mo, day);
+            return ld.format(DATE_FORMAT);
+        } catch (Exception e) {
+            return null;
+        }
     }
 
     @Data
