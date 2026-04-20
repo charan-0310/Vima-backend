@@ -1,7 +1,8 @@
 -- ============================================================
 -- Wellness feature flag + role mappings
 -- Ticket: VIMA-432
--- NOTE: V58 is already used in repository history; using V64.
+-- NOTE: Originally numbered as V64, but shifted to V68 because
+-- V65 was already introduced/applied in this branch history.
 -- ============================================================
 
 INSERT INTO admin.feature_flags (flag_id, flag_key, description, is_active)

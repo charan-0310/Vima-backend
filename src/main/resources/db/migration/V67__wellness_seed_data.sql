@@ -1,8 +1,8 @@
 -- ============================================================
 -- Wellness partners seed data
 -- Ticket: VIMA-432
--- NOTE: V57b is already consumed by existing repository versions;
--- using V63b to avoid Flyway version conflict.
+-- NOTE: Originally numbered as V63b, but shifted to V67 because
+-- V65 was already introduced/applied in this branch history.
 -- ============================================================
 
 INSERT INTO admin.wellness_partners (

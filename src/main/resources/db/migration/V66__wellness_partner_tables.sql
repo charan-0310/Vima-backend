@@ -1,8 +1,8 @@
 -- ============================================================
 -- Wellness partners foundation tables
 -- Ticket: VIMA-432 (Wellness Partner Integration)
--- NOTE: V57/V58 are already used in this repository, so this
--- migration is created as V63 to avoid Flyway version conflicts.
+-- NOTE: Originally numbered as V63, but shifted to V66 because
+-- V65 was already introduced/applied in this branch history.
 -- ============================================================
 
 -- ============================================================
