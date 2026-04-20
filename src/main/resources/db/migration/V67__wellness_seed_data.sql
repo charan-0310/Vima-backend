@@ -1,8 +1,6 @@
 -- ============================================================
 -- Wellness partners seed data
 -- Ticket: VIMA-432
--- NOTE: Originally numbered as V63b, but shifted to V67 because
--- V65 was already introduced/applied in this branch history.
 -- ============================================================
 
 INSERT INTO admin.wellness_partners (
