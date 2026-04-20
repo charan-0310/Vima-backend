@@ -12,6 +12,7 @@ import com.vimainsurance.vimaadmin.dto.WellnessPartnerOrgResponseDto;
 import com.vimainsurance.vimaadmin.dto.WellnessPartnerReorderRequestDto;
 import com.vimainsurance.vimaadmin.dto.WellnessPartnerRequestDto;
 import com.vimainsurance.vimaadmin.dto.WellnessPartnerResponseDto;
+import com.vimainsurance.vimaadmin.dto.WellnessRedirectResponseDto;
 
 public interface IWellnessPartnerService {
 
@@ -38,4 +39,8 @@ public interface IWellnessPartnerService {
     ResponseEntity<ResponseDto<List<WellnessPartnerOrgResponseDto>>> reorderPartnersForOrg(WellnessPartnerReorderRequestDto requestDto);
 
     ResponseEntity<ResponseDto<String>> removePartnerFromOrg(UUID id);
+
+    ResponseEntity<ResponseDto<List<WellnessPartnerResponseDto>>> getEmployeePartners(String category);
+
+    ResponseEntity<ResponseDto<WellnessRedirectResponseDto>> getEmployeeRedirectUrl(String partnerSlug);
 }

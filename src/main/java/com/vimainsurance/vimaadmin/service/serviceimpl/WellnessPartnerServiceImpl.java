@@ -23,6 +23,7 @@ import com.vimainsurance.vimaadmin.dto.WellnessPartnerOrgResponseDto;
 import com.vimainsurance.vimaadmin.dto.WellnessPartnerReorderRequestDto;
 import com.vimainsurance.vimaadmin.dto.WellnessPartnerRequestDto;
 import com.vimainsurance.vimaadmin.dto.WellnessPartnerResponseDto;
+import com.vimainsurance.vimaadmin.dto.WellnessRedirectResponseDto;
 import com.vimainsurance.vimaadmin.entity.Organization;
 import com.vimainsurance.vimaadmin.entity.WellnessPartner;
 import com.vimainsurance.vimaadmin.entity.WellnessPartnerOrganization;
@@ -33,6 +34,8 @@ import com.vimainsurance.vimaadmin.repository.IOrganizationRepository;
 import com.vimainsurance.vimaadmin.repository.IWellnessPartnerRepository;
 import com.vimainsurance.vimaadmin.repository.IWellnessPartnerOrganizationRepository;
 import com.vimainsurance.vimaadmin.service.IWellnessPartnerService;
+import com.vimainsurance.vimaadmin.util.JwtUserExtractor;
+import com.vimainsurance.vimaadmin.util.TenantContext;
 
 import lombok.RequiredArgsConstructor;
 
@@ -46,6 +49,7 @@ public class WellnessPartnerServiceImpl implements IWellnessPartnerService {
     private final IWellnessPartnerRepository wellnessPartnerRepository;
     private final IWellnessPartnerOrganizationRepository wellnessPartnerOrganizationRepository;
     private final IOrganizationRepository organizationRepository;
+    private final JwtUserExtractor jwtUserExtractor;
 
     @Override
     public ResponseEntity<ResponseDto<List<WellnessPartnerResponseDto>>> getAllPartners() {
@@ -392,6 +396,77 @@ public class WellnessPartnerServiceImpl implements IWellnessPartnerService {
         }
     }
 
+    @Override
+    public ResponseEntity<ResponseDto<List<WellnessPartnerResponseDto>>> getEmployeePartners(String category) {
+        BaseResponse<List<WellnessPartnerResponseDto>> responseObj = new BaseResponse<>();
+        logger.info("[correlationId:{}] getEmployeePartners called for category {}", MDC.get("correlationId"), category);
+        try {
+            UUID organizationId = resolveCurrentOrganizationId();
+            if (organizationId == null) {
+                return responseObj.render(responseObj.formErrorResponse(400, "Organization context not found"));
+            }
+
+            List<WellnessPartnerResponseDto> partners = wellnessPartnerOrganizationRepository
+                    .findActivePartnersByOrganization(organizationId)
+                    .stream()
+                    .map(WellnessPartnerOrganization::getPartner)
+                    .filter(Objects::nonNull)
+                    .filter(partner -> category == null || category.isBlank() || partner.getCategory().equalsIgnoreCase(category))
+                    .map(this::toResponseDtoWithOrganizationCount)
+                    .toList();
+
+            return responseObj.render(responseObj.formSuccessResponse("Employee wellness partners fetched successfully", partners));
+        } catch (Exception e) {
+            logger.error("[correlationId:{}] getEmployeePartners failed: {}", MDC.get("correlationId"), e.getMessage(), e);
+            return responseObj.render(responseObj.formErrorResponse(500, "Failed to fetch employee wellness partners"));
+        }
+    }
+
+    @Override
+    public ResponseEntity<ResponseDto<WellnessRedirectResponseDto>> getEmployeeRedirectUrl(String partnerSlug) {
+        BaseResponse<WellnessRedirectResponseDto> responseObj = new BaseResponse<>();
+        logger.info("[correlationId:{}] getEmployeeRedirectUrl called for slug {}", MDC.get("correlationId"), partnerSlug);
+        try {
+            if (partnerSlug == null || partnerSlug.isBlank()) {
+                return responseObj.render(responseObj.formErrorResponse(400, "partnerSlug is required"));
+            }
+
+            UUID organizationId = resolveCurrentOrganizationId();
+            if (organizationId == null) {
+                return responseObj.render(responseObj.formErrorResponse(400, "Organization context not found"));
+            }
+
+            Optional<WellnessPartnerOrganization> mappingOpt = wellnessPartnerOrganizationRepository
+                    .findByPartner_SlugAndOrganizationId(partnerSlug.trim().toLowerCase(), organizationId);
+            if (mappingOpt.isEmpty()) {
+                return responseObj.render(responseObj.formErrorResponse(404, "Wellness partner not assigned for this organization"));
+            }
+
+            WellnessPartnerOrganization mapping = mappingOpt.get();
+            WellnessPartner partner = mapping.getPartner();
+            if (Boolean.FALSE.equals(mapping.getIsActive()) || partner == null || Boolean.FALSE.equals(partner.getIsActive())) {
+                return responseObj.render(responseObj.formErrorResponse(404, "Wellness partner is not active"));
+            }
+
+            String redirectUrl = mapping.getCustomRedirectUrl();
+            if (redirectUrl == null || redirectUrl.isBlank()) {
+                redirectUrl = partner.getRedirectUrl();
+            }
+            if (redirectUrl == null || redirectUrl.isBlank()) {
+                return responseObj.render(responseObj.formErrorResponse(400, "Redirect URL not configured for this partner"));
+            }
+
+            WellnessRedirectResponseDto payload = WellnessRedirectResponseDto.builder()
+                    .redirectUrl(redirectUrl)
+                    .opensIn("new_tab")
+                    .build();
+            return responseObj.render(responseObj.formSuccessResponse("Wellness redirect generated successfully", payload));
+        } catch (Exception e) {
+            logger.error("[correlationId:{}] getEmployeeRedirectUrl failed: {}", MDC.get("correlationId"), e.getMessage(), e);
+            return responseObj.render(responseObj.formErrorResponse(500, "Failed to generate wellness redirect URL"));
+        }
+    }
+
     private ResponseEntity<ResponseDto<WellnessPartnerResponseDto>> setPartnerActiveState(UUID id, boolean isActive) {
         BaseResponse<WellnessPartnerResponseDto> responseObj = new BaseResponse<>();
         try {
@@ -489,5 +564,31 @@ public class WellnessPartnerServiceImpl implements IWellnessPartnerService {
                     partner.getSlug(),
                     organizationId);
         }
+    }
+
+    private UUID resolveCurrentOrganizationId() {
+        List<String> orgIds = jwtUserExtractor.getCurrentOrganizations();
+        if (orgIds != null) {
+            for (String orgId : orgIds) {
+                try {
+                    return UUID.fromString(orgId);
+                } catch (IllegalArgumentException ignored) {
+                    // Continue searching valid UUID in claim list.
+                }
+            }
+        }
+
+        java.util.Map<String, List<String>> tenantMap = TenantContext.getCurrentTenant();
+        List<String> tenantOrgIds = tenantMap != null ? tenantMap.get("organizationIds") : null;
+        if (tenantOrgIds != null) {
+            for (String orgId : tenantOrgIds) {
+                try {
+                    return UUID.fromString(orgId);
+                } catch (IllegalArgumentException ignored) {
+                    // Continue searching valid UUID in tenant context list.
+                }
+            }
+        }
+        return null;
     }
 }
