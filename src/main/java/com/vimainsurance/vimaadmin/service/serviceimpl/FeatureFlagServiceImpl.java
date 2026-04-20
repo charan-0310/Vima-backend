@@ -26,7 +26,6 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import com.vimainsurance.vimaadmin.util.JwtUserExtractor;
-import com.vimainsurance.vimaadmin.repository.IAdminUserRepository;
 import com.vimainsurance.vimaadmin.entity.AdminUser;
 import java.util.Optional;
 import com.vimainsurance.vimaadmin.exception.OrganizationAccessDeniedException;
@@ -34,6 +33,18 @@ import com.vimainsurance.vimaadmin.exception.OrganizationAccessDeniedException;
 @Slf4j
 @Service
 public class FeatureFlagServiceImpl implements FeatureFlagService {
+
+    /**
+     * When JWT roles and {@code admin_users.role} disagree (Keycloak role sync to DB is optional),
+     * pick the highest applicable role so feature flags match actual authorization — not a stale DB row.
+     */
+    private static final List<String> FEATURE_FLAG_ROLE_PRECEDENCE = List.of(
+            "ROLE_SUPER_ADMIN",
+            "ROLE_ADMIN",
+            "ROLE_VIMA_ADMIN",
+            "ROLE_SALES_MANAGER",
+            "ROLE_SALES_AGENT",
+            "ROLE_HR_ADMIN");
 
     @Autowired
     private JwtUserExtractor jwtUserExtractor;
@@ -49,10 +60,6 @@ public class FeatureFlagServiceImpl implements FeatureFlagService {
 
     @Autowired
     private IOrganizationRepository iOrganizationRepository;
-
-    @Autowired
-    private IAdminUserRepository adminUserRepository;
-
 
     @Override
     @Transactional(readOnly = true)
@@ -70,16 +77,18 @@ public class FeatureFlagServiceImpl implements FeatureFlagService {
     public List<FeatureFlagResponseDto> findAllMatchedFeatureFlags() {
 
 
-        String username = jwtUserExtractor.getCurrentUsername();
-        if (username == null) {
-            log.warn("No username found in JWT token");
-            return List.of();
-        }
-
-        Optional<AdminUser> adminUser = adminUserRepository.findByUsername(username);
+        Optional<AdminUser> adminUser = jwtUserExtractor.resolveCurrentAdminUser();
         if (adminUser.isEmpty()) {
-            log.warn("No admin user found for username: {}", username);
-            throw new OrganizationAccessDeniedException("No admin user found for username: " + username);
+            log.warn("No admin user found for JWT (username={}, email={})",
+                    jwtUserExtractor.getCurrentUsername(), jwtUserExtractor.getCurrentEmail());
+            String hint = jwtUserExtractor.getCurrentPreferredUsername();
+            if (hint == null || hint.isBlank()) {
+                hint = jwtUserExtractor.getCurrentEmail();
+            }
+            if (hint == null || hint.isBlank()) {
+                hint = "unknown";
+            }
+            throw new OrganizationAccessDeniedException("No admin user found for username: " + hint);
         }
 
 
@@ -98,9 +107,7 @@ public class FeatureFlagServiceImpl implements FeatureFlagService {
                 .filter(r -> r != null && !r.isBlank())
                 .map(String::toUpperCase)
                 .collect(Collectors.toCollection(LinkedHashSet::new));
-        String resolvedPrimaryRole = adminUser.get().getRole() != null
-                ? ("ROLE_" + adminUser.get().getRole().toUpperCase())
-                : (normalizedRoles.isEmpty() ? null : normalizedRoles.iterator().next());
+        String resolvedPrimaryRole = resolvePrimaryRoleForFeatureFlags(adminUser.get(), normalizedRoles);
 
         // SUPER_ADMIN has no feature_flag_roles entries; resolve using ROLE_VIMA_ADMIN
         // so feature flag DB state is respected instead of force-enabling everything.
@@ -121,7 +128,7 @@ public class FeatureFlagServiceImpl implements FeatureFlagService {
         for (FeatureFlag flag : featureFlags) {
             if (flag == null) continue;
 
-            // Match only primary role; organization rows can override per feature in createDto().
+            // Match only primary role; organization rows narrow role grants in createDto() when present.
             List<FeatureFlagRole> matchedRoles = new ArrayList<>();
             List<FeatureFlagRole> flagRoles = flag.getRoles();
             if (flagRoles != null && primaryRole != null) {
@@ -153,6 +160,38 @@ public class FeatureFlagServiceImpl implements FeatureFlagService {
         }
 
         return responseDtos;
+    }
+
+    private static String normalizeRoleKey(String r) {
+        if (r == null || r.isBlank()) {
+            return null;
+        }
+        String u = r.trim().toUpperCase();
+        return u.startsWith("ROLE_") ? u : "ROLE_" + u;
+    }
+
+    /**
+     * Merge JWT / {@link TenantContext} roles with {@code admin_users.role}, then choose by
+     * {@link #FEATURE_FLAG_ROLE_PRECEDENCE} so e.g. {@code ROLE_VIMA_ADMIN} in the token wins over
+     * an outdated {@code HR_ADMIN} value in the database.
+     */
+    private String resolvePrimaryRoleForFeatureFlags(AdminUser adminUser, Set<String> normalizedRoles) {
+        LinkedHashSet<String> candidates = new LinkedHashSet<>();
+        for (String r : normalizedRoles) {
+            String k = normalizeRoleKey(r);
+            if (k != null) {
+                candidates.add(k);
+            }
+        }
+        if (adminUser.getRole() != null && !adminUser.getRole().isBlank()) {
+            candidates.add("ROLE_" + adminUser.getRole().toUpperCase());
+        }
+        for (String preferred : FEATURE_FLAG_ROLE_PRECEDENCE) {
+            if (candidates.contains(preferred)) {
+                return preferred;
+            }
+        }
+        return candidates.isEmpty() ? null : candidates.iterator().next();
     }
 
     @Override
@@ -386,7 +425,8 @@ public class FeatureFlagServiceImpl implements FeatureFlagService {
         dto.setFlagId(flag.getFlagId() != null ? flag.getFlagId().toString() : null);
         dto.setFlagKey(flag.getFlagKey());
         dto.setDescription(flag.getDescription());
-        // Start with role-specific settings, then override with organization-specific settings when present.
+        // Role is always the baseline. Organization rows (when present) can only narrow what the role already allows —
+        // they must not enable a flag the role has disabled, or grant actions the role does not have.
         List<FeatureFlagCompany> safeMatchedCompanies = matchedCompanies != null ? matchedCompanies : List.of();
         boolean hasOrgOverride = !safeMatchedCompanies.isEmpty();
         boolean roleActive = matchedRoles.stream().anyMatch(r -> Boolean.TRUE.equals(r.getIsActive()));
@@ -394,14 +434,11 @@ public class FeatureFlagServiceImpl implements FeatureFlagService {
                 .filter(Objects::nonNull)
                 .map(FeatureFlagCompany::getIsActive)
                 .anyMatch(Boolean.TRUE::equals);
-        boolean isEnabled = roleActive;
-        if (hasOrgOverride) {
-            isEnabled = companyActive;
-        }
+        boolean isEnabled = roleActive && (!hasOrgOverride || companyActive);
         dto.setIsActive(isEnabled);
         dto.setIsEnabled(isEnabled);
 
-        // Collect actions without duplicates (preserve order). Org overrides role when present.
+        // Actions: start from role; if org has rows, intersect with org-granted actions (org cannot expand beyond role).
         Set<String> actionsSet = new LinkedHashSet<>();
         for (FeatureFlagRole r : matchedRoles) {
             if (r.getActions() != null) {
@@ -409,11 +446,14 @@ public class FeatureFlagServiceImpl implements FeatureFlagService {
             }
         }
         if (hasOrgOverride) {
-            actionsSet.clear();
+            Set<String> orgActionsUnion = new LinkedHashSet<>();
             for (FeatureFlagCompany c : safeMatchedCompanies) {
                 if (c.getActions() != null) {
-                    actionsSet.addAll(Arrays.asList(c.getActions()));
+                    orgActionsUnion.addAll(Arrays.asList(c.getActions()));
                 }
+            }
+            if (!orgActionsUnion.isEmpty()) {
+                actionsSet.retainAll(orgActionsUnion);
             }
         }
         // SUPER_ADMIN with no matched actions: grant all standard actions so

@@ -12,7 +12,6 @@ import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.List;
 import java.util.Map;
-import java.util.Optional;
 import java.util.UUID;
 
 import org.junit.jupiter.api.BeforeEach;
@@ -100,7 +99,7 @@ class OrganizationServiceImplTest {
 
     @Test
     void create_shouldSeedEightDefaultCostSharingRules_whenNoExistingRules() {
-        when(organizationRepository.findByOrganizationName("Acme Ltd")).thenReturn(Optional.empty());
+        when(organizationRepository.findAllByOrganizationName("Acme Ltd")).thenReturn(List.of());
         when(organizationRepository.save(any(Organization.class))).thenReturn(savedOrg);
         when(costSharingRuleRepository.existsByCompanyIdAndPlanTypeAndCoverageCategoryAndEffectiveFrom(
                 eq(savedOrg.getOrganizationId()), any(String.class), any(CoverageCategory.class), any(LocalDate.class)))
@@ -127,7 +126,7 @@ class OrganizationServiceImplTest {
 
     @Test
     void create_shouldNotInsertDuplicateRules_whenDefaultsAlreadyExist() {
-        when(organizationRepository.findByOrganizationName("Acme Ltd")).thenReturn(Optional.empty());
+        when(organizationRepository.findAllByOrganizationName("Acme Ltd")).thenReturn(List.of());
         when(organizationRepository.save(any(Organization.class))).thenReturn(savedOrg);
         when(costSharingRuleRepository.existsByCompanyIdAndPlanTypeAndCoverageCategoryAndEffectiveFrom(
                 eq(savedOrg.getOrganizationId()), any(String.class), any(CoverageCategory.class), any(LocalDate.class)))

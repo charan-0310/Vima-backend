@@ -800,10 +800,17 @@ public class KeyCloakUtil {
         List<UserRepresentation> users = realmResource.users().search(email.trim(), true, 0, 20);
         if (users == null || users.isEmpty()) return false;
 
-        UserRepresentation existing = users.stream()
+        List<UserRepresentation> emailMatches = users.stream()
                 .filter(u -> u != null && u.getEmail() != null && email.trim().equalsIgnoreCase(u.getEmail().trim()))
-                .findFirst()
-                .orElse(null);
+                .collect(Collectors.toList());
+        if (emailMatches.size() > 1) {
+            logger.warn(
+                    "Keycloak: multiple users share email {}; using id={} for role {}. Clean up duplicates in realm.",
+                    email,
+                    emailMatches.get(0).getId(),
+                    role);
+        }
+        UserRepresentation existing = emailMatches.isEmpty() ? null : emailMatches.get(0);
         if (existing == null || existing.getId() == null || existing.getId().isBlank()) return false;
 
         UserResource userResource = realmResource.users().get(existing.getId());
@@ -853,5 +860,97 @@ public class KeyCloakUtil {
             }
         }
         return roleAssignmentOk && orgAssignmentOk;
+    }
+
+    public void setUserAttribute(String email, String attributeName, String attributeValue) {
+        if (!isConfigPresent() || email == null || email.isBlank() || attributeName == null || attributeName.isBlank()) {
+            return;
+        }
+        try (Keycloak keycloak = getKeycloakClient()) {
+            UserRepresentation user = findUserByEmail(keycloak, email);
+            if (user == null || user.getId() == null) {
+                logger.warn("setUserAttribute: user not found for email {}", email);
+                return;
+            }
+            UserResource userResource = keycloak.realm(realm).users().get(user.getId());
+            UserRepresentation fullUser = userResource.toRepresentation();
+            Map<String, List<String>> attrs = fullUser.getAttributes() != null
+                    ? new HashMap<>(fullUser.getAttributes())
+                    : new HashMap<>();
+            attrs.put(attributeName, List.of(attributeValue != null ? attributeValue : ""));
+            fullUser.setAttributes(attrs);
+            userResource.update(fullUser);
+        } catch (Exception e) {
+            logger.error("Failed to set attribute {} for user {}: {}", attributeName, email, e.getMessage(), e);
+        }
+    }
+
+    public void disableUserByEmail(String email) {
+        updateUserEnabledState(email, false);
+    }
+
+    public void enableUserByEmail(String email) {
+        updateUserEnabledState(email, true);
+    }
+
+    public boolean isDemoAccountUserByEmail(String email) {
+        if (!isConfigPresent() || email == null || email.isBlank()) {
+            return false;
+        }
+        try (Keycloak keycloak = getKeycloakClient()) {
+            UserRepresentation user = findUserByEmail(keycloak, email);
+            if (user == null || user.getId() == null) {
+                return false;
+            }
+            UserRepresentation fullUser = keycloak.realm(realm).users().get(user.getId()).toRepresentation();
+            Map<String, List<String>> attributes = fullUser.getAttributes();
+            if (attributes == null || attributes.isEmpty()) {
+                return false;
+            }
+            List<String> accountTypes = attributes.get("account_type");
+            if (accountTypes == null || accountTypes.isEmpty()) {
+                return false;
+            }
+            return accountTypes.stream()
+                    .filter(Objects::nonNull)
+                    .map(String::trim)
+                    .anyMatch(v -> "demo".equalsIgnoreCase(v));
+        } catch (Exception e) {
+            logger.warn("Failed to evaluate demo account flag for {}: {}", email, e.getMessage());
+            return false;
+        }
+    }
+
+    private void updateUserEnabledState(String email, boolean enabled) {
+        if (!isConfigPresent() || email == null || email.isBlank()) {
+            return;
+        }
+        try (Keycloak keycloak = getKeycloakClient()) {
+            UserRepresentation user = findUserByEmail(keycloak, email);
+            if (user == null || user.getId() == null) {
+                logger.warn("updateUserEnabledState: user not found for email {}", email);
+                return;
+            }
+            UserResource userResource = keycloak.realm(realm).users().get(user.getId());
+            UserRepresentation fullUser = userResource.toRepresentation();
+            fullUser.setEnabled(enabled);
+            userResource.update(fullUser);
+        } catch (Exception e) {
+            logger.error("Failed to update enabled={} for user {}: {}", enabled, email, e.getMessage(), e);
+        }
+    }
+
+    private UserRepresentation findUserByEmail(Keycloak keycloak, String email) {
+        if (keycloak == null || email == null || email.isBlank()) {
+            return null;
+        }
+        List<UserRepresentation> users = keycloak.realm(realm).users().search(email.trim(), true, 0, 20);
+        if (users == null || users.isEmpty()) {
+            return null;
+        }
+        return users.stream()
+                .filter(u -> u != null && u.getEmail() != null && email.trim().equalsIgnoreCase(u.getEmail().trim()))
+                .findFirst()
+                .orElse(null);
     }
 }

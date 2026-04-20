@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Demo Access</title>
+</head>
+<body style="font-family: Arial, sans-serif; color: #1f2937; background: #f8fafc; padding: 24px;">
+<table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="max-width: 600px; margin: 0 auto; background: #ffffff; border-radius: 12px;">
+    <tr>
+        <td style="padding: 24px;">
+            <h2 style="margin: 0 0 12px 0;">Welcome to your Vima Demo</h2>
+            <p style="margin: 0 0 16px 0;">Hi <span th:text="${userFullName}">User</span>, your demo environment is ready.</p>
+
+            <p style="margin: 0 0 8px 0;"><strong>Demo Organization:</strong> <span th:text="${orgName}">Acme Corp Demo</span></p>
+            <p style="margin: 0 0 8px 0;"><strong>Username:</strong> <span th:text="${username}">user@example.com</span></p>
+            <p style="margin: 0 0 8px 0;"><strong>Temporary Password:</strong> <span th:text="${temporaryPassword}">password</span></p>
+            <p style="margin: 0 0 16px 0;"><strong>Access Expires:</strong> <span th:text="${expiresAt}">2026-04-30T00:00:00</span></p>
+
+            <a th:href="${baseUrl}" href="https://staging.app.vimainsurance.com"
+               style="display: inline-block; background: #2563eb; color: #ffffff; text-decoration: none; padding: 10px 16px; border-radius: 8px;">
+                Open Demo Portal
+            </a>
+
+            <p style="margin: 16px 0 0 0; font-size: 13px; color: #6b7280;">
+                You can switch between HR Admin and Employee views after login.
+            </p>
+        </td>
+    </tr>
+</table>
+</body>
+</html>

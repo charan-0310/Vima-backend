@@ -159,7 +159,8 @@ public class OrganizationServiceImpl implements IOrganizationService {
         BaseResponse<String> responseObj = new BaseResponse<>();
         try {
             // Optional uniqueness check by name
-            if (requestDto.getOrganizationName() != null && organizationRepository.findByOrganizationName(requestDto.getOrganizationName()).isPresent()) {
+            if (requestDto.getOrganizationName() != null
+                    && !organizationRepository.findAllByOrganizationName(requestDto.getOrganizationName()).isEmpty()) {
                 return responseObj.render(responseObj.formErrorResponse("Organization already exists"));
             }
             Organization org = new Organization();
