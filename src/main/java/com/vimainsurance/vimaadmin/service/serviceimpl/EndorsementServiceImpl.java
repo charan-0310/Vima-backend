@@ -16,6 +16,8 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.Executor;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Collectors;
 
@@ -23,6 +25,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.slf4j.MDC;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.core.env.Environment;
 import org.springframework.core.io.InputStreamResource;
 import org.springframework.core.io.Resource;
@@ -36,8 +39,10 @@ import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionTemplate;
 import org.springframework.web.multipart.MultipartFile;
 
+import com.vimainsurance.vimaadmin.config.AsyncConfig;
 import com.vimainsurance.vimaadmin.audit.AuditContextSupplier;
 import com.vimainsurance.vimaadmin.audit.AuditedOperation;
 import com.vimainsurance.vimaadmin.dto.BaseResponse;
@@ -145,6 +150,13 @@ public class EndorsementServiceImpl implements IEndorsementService {
 
     @Autowired(required = false)
     private ICdBalanceService cdBalanceService;
+
+    @Autowired
+    private TransactionTemplate transactionTemplate;
+
+    @Autowired
+    @Qualifier(AsyncConfig.ENROLLMENT_BULK_EXECUTOR)
+    private Executor enrollmentBulkExecutor;
 
     private record MemberCounts(int employeeCount, int dependentCount) {}
 
@@ -607,7 +619,10 @@ public class EndorsementServiceImpl implements IEndorsementService {
                         "[correlationId:{}] Split-group idempotent approval: endorsement {} has no pending deals (sibling policy likely approved already)",
                         MDC.get("correlationId"),
                         endorsement.getEndorsementId());
-            } else if (cdBalanceService != null && requestDto.getCdBalanceEntries() != null && !requestDto.getCdBalanceEntries().isEmpty()) {
+            }
+            // CD entries must run for every approval that includes them — including the 2nd+ per-policy
+            // endorsement in a split group (deals may already be ACTIVE from a sibling approval).
+            if (cdBalanceService != null && requestDto.getCdBalanceEntries() != null && !requestDto.getCdBalanceEntries().isEmpty()) {
                 String performedBy = requestDto.getApprovedBy() != null && !requestDto.getApprovedBy().isBlank()
                         ? requestDto.getApprovedBy()
                         : jwtUserExtractor.extractCurrentUsername();
@@ -1094,8 +1109,43 @@ public class EndorsementServiceImpl implements IEndorsementService {
             if(groupId == null || groupId.isEmpty()) {
                 return responseObj.render(responseObj.formErrorResponse("No groups found"));
             }
-            
-            // Process deals for onboarding
+
+            boolean backgroundBulk = endorsementIdParam != null
+                    && (requestDto.getIndividualIds() == null || requestDto.getIndividualIds().isEmpty());
+            if (backgroundBulk) {
+                int totalSelfQueued = (int) deals.stream()
+                        .filter(d -> "SELF".equalsIgnoreCase(d.getRelationship()))
+                        .count();
+                if (totalSelfQueued == 0) {
+                    EmployeeOnboardingResponseDto emptyDto = new EmployeeOnboardingResponseDto();
+                    emptyDto.setSuccessUsers(List.of());
+                    emptyDto.setFailedUsers(List.of());
+                    emptyDto.setSuccessCount(0);
+                    emptyDto.setFailedCount(0);
+                    emptyDto.setExistingKeycloakUserEmails(List.of());
+                    emptyDto.setBackgroundProcessing(false);
+                    emptyDto.setTotalEmployees(0);
+                    return responseObj.render(responseObj.formSuccessResponse(
+                            "No primary (SELF) employees to create logins for.", emptyDto));
+                }
+                String correlationId = MDC.get("correlationId");
+                UUID endorsementIdForBg = endorsementIdParam;
+                CompletableFuture.runAsync(() -> runEmployeeOnboardingBackground(endorsementIdForBg, orgGroupName, correlationId),
+                        enrollmentBulkExecutor);
+                EmployeeOnboardingResponseDto queuedDto = new EmployeeOnboardingResponseDto();
+                queuedDto.setSuccessUsers(List.of());
+                queuedDto.setFailedUsers(List.of());
+                queuedDto.setSuccessCount(0);
+                queuedDto.setFailedCount(0);
+                queuedDto.setExistingKeycloakUserEmails(List.of());
+                queuedDto.setBackgroundProcessing(true);
+                queuedDto.setTotalEmployees(totalSelfQueued);
+                return responseObj.render(responseObj.formSuccessResponse(
+                        "Creating employee logins for " + totalSelfQueued + " primary employee(s) in the background.",
+                        queuedDto));
+            }
+
+            // Process deals for onboarding (targeted individualIds — synchronous)
             processDealsForOnboarding(deals, orgGroupName, successCount, failedCount, successUsers, failedUsers,
                     existingKeycloakSuccessUsers);
             
@@ -1108,6 +1158,8 @@ public class EndorsementServiceImpl implements IEndorsementService {
             employeeOnboardingResponseDto.setSuccessCount(successCount.get());
             employeeOnboardingResponseDto.setFailedCount(failedCount.get());
             employeeOnboardingResponseDto.setExistingKeycloakUserEmails(existingKeycloakSuccessUsers);
+            employeeOnboardingResponseDto.setBackgroundProcessing(false);
+            employeeOnboardingResponseDto.setTotalEmployees(0);
             return responseObj.render(responseObj.formSuccessResponse(Constants.SUCCESS, employeeOnboardingResponseDto));
         } catch (Exception e) {
             logger.error("[correlationId:{}] Exception in Endorsement employeeOnboarding: {}", MDC.get("correlationId"), e.getMessage(), e);
@@ -1274,6 +1326,51 @@ public class EndorsementServiceImpl implements IEndorsementService {
             merged.putIfAbsent(d.getIndividualId(), d);
         }
         return new ArrayList<>(merged.values());
+    }
+
+    /**
+     * Runs after HTTP response for full-endorsement onboarding (same pattern as
+     * {@link com.vimainsurance.vimaadmin.service.serviceimpl.EnrollmentInvitationServiceImpl#activateWindowAndSendInvites}).
+     */
+    private void runEmployeeOnboardingBackground(UUID endorsementId, String orgGroupName, String correlationId) {
+        MDC.put("correlationId", correlationId != null ? correlationId : UUID.randomUUID().toString());
+        try {
+            List<Deals> deals = transactionTemplate.execute(status -> {
+                Optional<Endorsement> opt = endorsementRepository.findById(endorsementId);
+                if (opt.isEmpty() || !opt.get().getStatus().equals(AccountStatus.COMPLETED)) {
+                    return null;
+                }
+                List<Deals> merged = listDealsLinkedToEndorsement(endorsementId);
+                return merged.stream()
+                        .filter(d -> d.getStatus().equals(AccountStatus.ACTIVE))
+                        .collect(Collectors.toList());
+            });
+            if (deals == null || deals.isEmpty()) {
+                logger.warn("[correlationId:{}] Background employee onboarding: skipped or no active deals for endorsement {}",
+                        MDC.get("correlationId"), endorsementId);
+                return;
+            }
+            String groupId = keycloakUtil.getGroupIdByName(orgGroupName);
+            if (groupId == null || groupId.isEmpty()) {
+                logger.error("[correlationId:{}] Background employee onboarding: Keycloak org group not found for {}",
+                        MDC.get("correlationId"), orgGroupName);
+                return;
+            }
+            AtomicInteger successCount = new AtomicInteger(0);
+            AtomicInteger failedCount = new AtomicInteger(0);
+            List<String> successUsers = new ArrayList<>();
+            List<String> failedUsers = new ArrayList<>();
+            List<String> existingKeycloakSuccessUsers = new ArrayList<>();
+            processDealsForOnboarding(deals, orgGroupName, successCount, failedCount, successUsers, failedUsers,
+                    existingKeycloakSuccessUsers);
+            logger.info("[correlationId:{}] Background employee onboarding finished for endorsement {} — success={}, failed={}",
+                    MDC.get("correlationId"), endorsementId, successCount.get(), failedCount.get());
+        } catch (Exception e) {
+            logger.error("[correlationId:{}] Background employee onboarding failed for endorsement {}",
+                    MDC.get("correlationId"), endorsementId, e);
+        } finally {
+            MDC.remove("correlationId");
+        }
     }
 
     /**

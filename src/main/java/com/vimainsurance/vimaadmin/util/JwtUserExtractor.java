@@ -315,18 +315,44 @@ public class JwtUserExtractor {
     }
 
     /**
+     * Resolve {@code admin_users} for the current JWT using the same rules as {@code AuthController} {@code /auth/me}:
+     * exact username, case-insensitive username, exact email, then deterministic case-insensitive email
+     * (oldest row when duplicates exist). This must stay in sync with that endpoint so feature flags do not fail
+     * when Keycloak {@code preferred_username} differs from the stored login identifier (e.g. DB row keyed by email).
+     */
+    public Optional<AdminUser> resolveCurrentAdminUser() {
+        String jwtUsername = extractCurrentUsername();
+        String jwtEmail = getCurrentEmail();
+        if ((jwtUsername == null || jwtUsername.isBlank()) && (jwtEmail == null || jwtEmail.isBlank())) {
+            return Optional.empty();
+        }
+        if (jwtUsername != null && !jwtUsername.isBlank()) {
+            Optional<AdminUser> byUsername = adminUserRepository.findByUsername(jwtUsername);
+            if (byUsername.isPresent()) {
+                return byUsername;
+            }
+            Optional<AdminUser> byUsernameIgnoreCase = adminUserRepository.findByUsernameIgnoreCase(jwtUsername);
+            if (byUsernameIgnoreCase.isPresent()) {
+                return byUsernameIgnoreCase;
+            }
+        }
+        if (jwtEmail != null && !jwtEmail.isBlank()) {
+            Optional<AdminUser> byEmail = adminUserRepository.findByEmail(jwtEmail);
+            if (byEmail.isPresent()) {
+                return byEmail;
+            }
+            return adminUserRepository.findFirstByEmailIgnoreCaseOrderByCreatedAtAsc(jwtEmail);
+        }
+        return Optional.empty();
+    }
+
+    /**
      * Get current user's UUID from the database using username from token
      * 
      * @return UUID of current user if found, null otherwise
      */
     public UUID getCurrentUserId() {
-        String username = extractCurrentUsername();
-        if (username == null) {
-            return null;
-        }
-        
-        Optional<AdminUser> adminUser = adminUserRepository.findByUsername(username);
-        return adminUser.map(AdminUser::getId).orElse(null);
+        return resolveCurrentAdminUser().map(AdminUser::getId).orElse(null);
     }
 
     /**
@@ -335,16 +361,10 @@ public class JwtUserExtractor {
      * @return UserRole of current user if found, null otherwise
      */
     public UserRole getCurrentUserRole() {
-        String username = extractCurrentUsername();
-        if (username == null) {
-            return null;
-        }
-        
-        Optional<AdminUser> adminUser = adminUserRepository.findByUsername(username);
+        Optional<AdminUser> adminUser = resolveCurrentAdminUser();
         if (adminUser.isEmpty()) {
             return null;
         }
-        
         try {
             return UserRole.fromValue(adminUser.get().getRole());
         } catch (IllegalArgumentException e) {

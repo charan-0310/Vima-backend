@@ -1,5 +1,7 @@
 package com.vimainsurance.vimaadmin.repository;
 
+import java.time.LocalDateTime;
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -13,13 +15,18 @@ import org.springframework.stereotype.Repository;
 
 import com.vimainsurance.vimaadmin.entity.AdminUser;
 import com.vimainsurance.vimaadmin.entity.Customer;
+import com.vimainsurance.vimaadmin.entity.Organization;
 
 @Repository
 public interface IAdminUserRepository extends JpaRepository<AdminUser, UUID> {
     Optional<AdminUser> findByUsername(String username);
     Optional<AdminUser> findByEmail(String email);
     Optional<AdminUser> findByUsernameIgnoreCase(String username);
-    Optional<AdminUser> findByEmailIgnoreCase(String email);
+    /**
+     * Deterministic single row when duplicate emails exist (otherwise Spring Data {@code findBy…} can throw
+     * {@link org.springframework.dao.IncorrectResultSizeDataAccessException}).
+     */
+    Optional<AdminUser> findFirstByEmailIgnoreCaseOrderByCreatedAtAsc(String email);
     Optional<AdminUser> findByOauthProviderId(String oauthProviderId);
     List<AdminUser> findByIsActiveTrue();
     List<AdminUser> findByRole(String role);
@@ -202,5 +209,24 @@ public interface IAdminUserRepository extends JpaRepository<AdminUser, UUID> {
     List<Object[]> getAgentPolicyCounts(@Param("managerId") UUID managerId,
                                        @Param("startDate") java.time.LocalDate startDate,
                                        @Param("endDate") java.time.LocalDate endDate);
+
+    List<AdminUser> findByOrganizationAndIsDemoUserTrueAndIsActiveTrue(Organization organization);
+    List<AdminUser> findByOrganizationAndIsDemoUserTrue(Organization organization);
+
+    List<AdminUser> findByOrganization_OrganizationId(UUID organizationId);
+    List<AdminUser> findByIsDemoUserTrueAndIsActiveTrueAndDemoExpiresAtBefore(LocalDateTime now);
+    List<AdminUser> findByIsDemoUserTrueAndIsActiveTrueAndDemoExpiresAtBetween(LocalDateTime start, LocalDateTime end);
+
+    /**
+     * Used when deleting demo org admins: {@code enrollment_windows.created_by} must not reference removed rows.
+     */
+    @Query(value = """
+            SELECT id FROM admin.admin_users
+            WHERE role IN ('SUPER_ADMIN', 'ADMIN', 'VIMA_ADMIN')
+              AND id NOT IN (:excludeIds)
+            ORDER BY created_at ASC NULLS LAST
+            LIMIT 1
+            """, nativeQuery = true)
+    Optional<UUID> findFirstPlatformAdminIdExcluding(@Param("excludeIds") Collection<UUID> excludeIds);
 
 }

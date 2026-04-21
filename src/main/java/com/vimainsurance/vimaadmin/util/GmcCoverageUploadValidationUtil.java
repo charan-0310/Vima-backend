@@ -21,6 +21,8 @@ public final class GmcCoverageUploadValidationUtil {
 
     public static List<String> validateBulkUploadRows(List<EmployeeUploadDto> rows, List<Policy> policies) {
         List<String> errors = new ArrayList<>();
+        validateParentGmcRelationships(rows, policies, errors);
+        boolean hasActiveParentGmc = hasActiveParentGmcPolicy(policies);
         CoverageRule rule = resolveCoverageRule(policies, errors);
         if (rule == null || rows == null || rows.isEmpty()) {
             return errors;
@@ -33,6 +35,10 @@ public final class GmcCoverageUploadValidationUtil {
             }
             String relationship = row.getRelationship();
             RelationshipBucket bucket = toBucket(relationship);
+            if (bucket == RelationshipBucket.PARENT && hasActiveParentGmc) {
+                // Parent rows can be covered under active PARENT_GMC.
+                continue;
+            }
             if (!isAllowedByTier(rule.coverageType(), bucket)) {
                 String employeeId = row.getEmployeeId() != null ? row.getEmployeeId().trim() : "";
                 errors.add("employeeId: " + employeeId + " - Relationship '" + relationship
@@ -40,7 +46,7 @@ public final class GmcCoverageUploadValidationUtil {
             }
             if (bucket == RelationshipBucket.CHILD) {
                 String employeeId = row.getEmployeeId() != null ? row.getEmployeeId().trim() : "";
-                childCountByEmployeeId.merge(employeeId, 1, Integer::sum);
+                childCountByEmployeeId.merge(employeeId, 1, (existing, one) -> existing + one);
             }
         }
         childCountByEmployeeId.forEach((employeeId, childCount) -> {
@@ -57,6 +63,8 @@ public final class GmcCoverageUploadValidationUtil {
             EnrollmentUploadParserUtil.EnrollmentParseResult parseResult,
             List<Policy> policies) {
         List<String> errors = new ArrayList<>();
+        validateParentGmcRelationships(parseResult, policies, errors);
+        boolean hasActiveParentGmc = hasActiveParentGmcPolicy(policies);
         CoverageRule rule = resolveCoverageRule(policies, errors);
         if (rule == null || parseResult == null || parseResult.getDependentRowsByEmployeeId() == null) {
             return errors;
@@ -72,6 +80,10 @@ public final class GmcCoverageUploadValidationUtil {
                     continue;
                 }
                 RelationshipBucket bucket = toBucket(row.getRelationship());
+                if (bucket == RelationshipBucket.PARENT && hasActiveParentGmc) {
+                    // Parent rows can be covered under active PARENT_GMC.
+                    continue;
+                }
                 if (!isAllowedByTier(rule.coverageType(), bucket)) {
                     errors.add("Row " + row.getRowNumber() + " (employeeId: " + employeeId + ") - Relationship '"
                             + row.getRelationship() + "' is not allowed for GMC/GHI coverageType " + rule.coverageType().getValue());
@@ -88,6 +100,80 @@ public final class GmcCoverageUploadValidationUtil {
         });
 
         return errors;
+    }
+
+    private static void validateParentGmcRelationships(
+            List<EmployeeUploadDto> rows,
+            List<Policy> policies,
+            List<String> errors) {
+        if (!hasActiveParentGmcPolicy(policies) || hasActiveGmcOrGhiPolicy(policies)
+                || rows == null || rows.isEmpty()) {
+            return;
+        }
+
+        for (EmployeeUploadDto row : rows) {
+            if (row == null) {
+                continue;
+            }
+            String relationship = row.getRelationship();
+            RelationshipBucket bucket = toBucket(relationship);
+            if (bucket == RelationshipBucket.SELF) {
+                continue;
+            }
+            if (bucket != RelationshipBucket.PARENT) {
+                String employeeId = row.getEmployeeId() != null ? row.getEmployeeId().trim() : "";
+                errors.add("employeeId: " + employeeId + " - Relationship '" + relationship
+                        + "' is not allowed for PARENT_GMC. Allowed dependants: Parent, Father, Mother, Father in law, Mother in law.");
+            }
+        }
+    }
+
+    private static void validateParentGmcRelationships(
+            EnrollmentUploadParserUtil.EnrollmentParseResult parseResult,
+            List<Policy> policies,
+            List<String> errors) {
+        if (!hasActiveParentGmcPolicy(policies) || hasActiveGmcOrGhiPolicy(policies)
+                || parseResult == null
+                || parseResult.getDependentRowsByEmployeeId() == null) {
+            return;
+        }
+
+        parseResult.getDependentRowsByEmployeeId().forEach((employeeId, dependentRows) -> {
+            if (dependentRows == null) {
+                return;
+            }
+            for (EnrollmentUploadParserUtil.DependentRow row : dependentRows) {
+                if (row == null) {
+                    continue;
+                }
+                RelationshipBucket bucket = toBucket(row.getRelationship());
+                if (bucket != RelationshipBucket.PARENT) {
+                    errors.add("Row " + row.getRowNumber() + " (employeeId: " + employeeId + ") - Relationship '"
+                            + row.getRelationship()
+                            + "' is not allowed for PARENT_GMC. Allowed dependants: Parent, Father, Mother, Father in law, Mother in law.");
+                }
+            }
+        });
+    }
+
+    private static boolean hasActiveParentGmcPolicy(List<Policy> policies) {
+        if (policies == null || policies.isEmpty()) {
+            return false;
+        }
+        return policies.stream().anyMatch(p -> p != null
+                && p.getStatus() == PolicyStatus.ACTIVE
+                && p.getProductType() == ProductType.PARENT_GMC);
+    }
+
+    private static boolean hasActiveGmcOrGhiPolicy(List<Policy> policies) {
+        if (policies == null || policies.isEmpty()) {
+            return false;
+        }
+        return policies.stream().anyMatch(p -> p != null
+                && p.getStatus() == PolicyStatus.ACTIVE
+                && (p.getProductType() == ProductType.GMC || p.getProductType() == ProductType.GHI)
+                && p.getCoverageType() != null
+                && p.getCoverageType().isGMCCoverageType());
     }
 
     private static CoverageRule resolveCoverageRule(List<Policy> policies, List<String> errors) {
@@ -151,9 +237,9 @@ public final class GmcCoverageUploadValidationUtil {
         if ("spouse".equals(r)) return RelationshipBucket.SPOUSE;
         if (r.startsWith("child") || "son".equals(r) || "daughter".equals(r)) return RelationshipBucket.CHILD;
 
-        if ("father".equals(r) || "mother".equals(r) || "parent".equals(r)
+        if ("father".equals(r) || "mother".equals(r) || "parent".equals(r) || "parents".equals(r)
                 || "father in law".equals(r) || "mother in law".equals(r)
-                || "parent in law".equals(r)) {
+                || "parent in law".equals(r) || "parents in law".equals(r)) {
             return RelationshipBucket.PARENT;
         }
 

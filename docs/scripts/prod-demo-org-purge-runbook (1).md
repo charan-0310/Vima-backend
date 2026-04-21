@@ -138,6 +138,7 @@ This order is based on what exists in your Flyway migrations; key blockers are:
 
 - `cpc.cd_balance_transactions.organization_id` is `ON DELETE RESTRICT` → must be deleted before deleting orgs.
 - `cpc.cd_accounts.organization_id` is `ON DELETE RESTRICT` (added in `V57`) → must be deleted before deleting orgs.
+- `cpc.endorsements.policy_id` → `cpc.policies` (`fk_endorsements_policy`, `V59`, default `NO ACTION`) → **endorsements for the org must be removed before policies** (otherwise Postgres raises `23503` on `DELETE FROM cpc.policies`).
 
 Run this in pgAdmin Query Tool:
 
@@ -269,6 +270,17 @@ WHERE c.organization_id = o.organization_id;
 -- D) Core CPC tables
 -- ============================================================
 
+-- Endorsements reference policies (fk_endorsements_policy) and may reference each other
+-- (parent_endorsement_id). Remove endorsements before policies; clear parent links first.
+UPDATE cpc.endorsements e
+SET parent_endorsement_id = NULL
+FROM target_orgs o
+WHERE e.organization_id = o.organization_id;
+
+DELETE FROM cpc.endorsements e
+USING target_orgs o
+WHERE e.organization_id = o.organization_id;
+
 DELETE FROM cpc.policies p
 USING target_orgs o
 WHERE p.organization_id = o.organization_id;
@@ -276,11 +288,6 @@ WHERE p.organization_id = o.organization_id;
 DELETE FROM cpc.customers c
 USING target_orgs o
 WHERE c.organization_id = o.organization_id;
-
--- Endorsements has FK to org with ON DELETE CASCADE, but explicit delete is OK
-DELETE FROM cpc.endorsements e
-USING target_orgs o
-WHERE e.organization_id = o.organization_id;
 
 -- ============================================================
 -- E) Admin + audit references

@@ -73,6 +73,21 @@ public class Organization implements AuditIdentifiable {
     @Column(name = "updated_at")
     private LocalDateTime updatedAt = LocalDateTime.now();
 
+    @Column(name = "is_demo_org", nullable = false)
+    private Boolean isDemoOrg = false;
+
+    @Column(name = "demo_created_at")
+    private LocalDateTime demoCreatedAt;
+
+    @Column(name = "demo_seed_completed_at")
+    private LocalDateTime demoSeedCompletedAt;
+
+    @Column(name = "demo_last_assigned_email")
+    private String demoLastAssignedEmail;
+
+    @Column(name = "demo_expires_at")
+    private LocalDateTime demoExpiresAt;
+
     @Column(name = "registered_address", length = 250, nullable = false)
     private String registeredAddress;
 

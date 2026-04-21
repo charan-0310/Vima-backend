@@ -48,6 +48,12 @@ public class AdminUser {
     @Column(name = "is_active")
     private Boolean isActive = true;
 
+    @Column(name = "is_demo_user", nullable = false)
+    private Boolean isDemoUser = false;
+
+    @Column(name = "demo_expires_at")
+    private LocalDateTime demoExpiresAt;
+
     @Column(name = "last_login")
     private LocalDateTime lastLogin;
 

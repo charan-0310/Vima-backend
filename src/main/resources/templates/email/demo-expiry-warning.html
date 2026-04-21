@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Demo Access Expiring</title>
+</head>
+<body style="font-family: Arial, sans-serif; color: #1f2937; background: #f8fafc; padding: 24px;">
+<table role="presentation" cellspacing="0" cellpadding="0" border="0" width="100%" style="max-width: 600px; margin: 0 auto; background: #ffffff; border-radius: 12px;">
+    <tr>
+        <td style="padding: 24px;">
+            <h2 style="margin: 0 0 12px 0;">Your demo access expires tomorrow</h2>
+            <p style="margin: 0 0 12px 0;">
+                Hi <span th:text="${userFullName}">User</span>, your Vima demo access expires on
+                <strong th:text="${expiresAt}">2026-04-30T00:00:00</strong>.
+            </p>
+            <p style="margin: 0 0 16px 0;">If you'd like more time, reply to this email and we can extend your access.</p>
+
+            <a th:href="${baseUrl}" href="https://staging.app.vimainsurance.com"
+               style="display: inline-block; background: #2563eb; color: #ffffff; text-decoration: none; padding: 10px 16px; border-radius: 8px;">
+                Open Demo Portal
+            </a>
+        </td>
+    </tr>
+</table>
+</body>
+</html>
