@@ -180,8 +180,13 @@ public class CdBalanceServiceImpl implements ICdBalanceService {
         for (EndorsementCdBalanceEntryDto entry : entries) {
             validateEndorsementCdBalanceEntry(entry);
             Policy policy = null;
-            if (entry.getPolicyId() != null) {
-                policy = policyRepository.findByIdForUpdate(entry.getPolicyId())
+            Long mappedPolicyId = entry.getPolicyId();
+            if (mappedPolicyId == null && endorsement.getPolicy() != null) {
+                // Fallback for endorsement approval flows where policyId is not sent in each CD entry.
+                mappedPolicyId = endorsement.getPolicy().getPolicyId();
+            }
+            if (mappedPolicyId != null) {
+                policy = policyRepository.findByIdForUpdate(mappedPolicyId)
                         .orElseThrow(() -> new RuntimeException("Policy not found"));
                 validatePolicyOrganization(policy, organizationId);
                 if (policy.getCdAccountId() != null && !policy.getCdAccountId().equals(entry.getCdAccountId())) {
@@ -193,16 +198,18 @@ public class CdBalanceServiceImpl implements ICdBalanceService {
             validateCdAccountOrganization(cdAccount, organizationId);
             validateDocumentCount(entry.getDocuments(), null);
 
-            BigDecimal signedAmount = endorsementType == EndorsementType.ADDITION
+            boolean isDebitEndorsement = isDebitEndorsementType(endorsementType);
+
+            BigDecimal signedAmount = isDebitEndorsement
                     ? entry.getAmount().abs().negate()
                     : entry.getAmount().abs();
-            CdTransactionType transactionType = endorsementType == EndorsementType.ADDITION
+            CdTransactionType transactionType = isDebitEndorsement
                     ? CdTransactionType.ENDORSEMENT_DEBIT
                     : CdTransactionType.ENDORSEMENT_CREDIT;
 
             BigDecimal currentBalance = cdAccount.getCdBalance() == null ? BigDecimal.ZERO : cdAccount.getCdBalance();
             BigDecimal runningBalance = currentBalance.add(signedAmount);
-            validateSufficientBalanceForAddition(endorsementType, currentBalance, signedAmount, cdAccount, endorsement);
+            validateSufficientBalanceForDebit(endorsementType, currentBalance, signedAmount, cdAccount, endorsement);
 
             CdBalanceTransaction transaction = new CdBalanceTransaction();
             transaction.setCdAccountId(entry.getCdAccountId());
@@ -302,13 +309,13 @@ public class CdBalanceServiceImpl implements ICdBalanceService {
         }
     }
 
-    private void validateSufficientBalanceForAddition(
+    private void validateSufficientBalanceForDebit(
             EndorsementType endorsementType,
             BigDecimal currentBalance,
             BigDecimal signedAmount,
             CdAccount cdAccount,
             Endorsement endorsement) {
-        if (endorsementType != EndorsementType.ADDITION) {
+        if (!isDebitEndorsementType(endorsementType)) {
             return;
         }
         BigDecimal available = currentBalance == null ? BigDecimal.ZERO : currentBalance;
@@ -329,6 +336,11 @@ public class CdBalanceServiceImpl implements ICdBalanceService {
                             + ". Available: " + available.toPlainString()
                             + ", required debit: " + debitAmount.toPlainString());
         }
+    }
+
+    private boolean isDebitEndorsementType(EndorsementType endorsementType) {
+        return endorsementType == EndorsementType.ADDITION
+                || endorsementType == EndorsementType.BULK_UPLOAD;
     }
 
     private void validateCdAccountOrganization(CdAccount cdAccount, UUID organizationId) {

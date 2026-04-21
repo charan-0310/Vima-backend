@@ -1,0 +1,10 @@
+ALTER TABLE cpc.organizations
+    ADD COLUMN IF NOT EXISTS is_demo_org BOOLEAN NOT NULL DEFAULT FALSE,
+    ADD COLUMN IF NOT EXISTS demo_created_at TIMESTAMP,
+    ADD COLUMN IF NOT EXISTS demo_seed_completed_at TIMESTAMP,
+    ADD COLUMN IF NOT EXISTS demo_last_assigned_email VARCHAR(255),
+    ADD COLUMN IF NOT EXISTS demo_expires_at TIMESTAMP;
+
+ALTER TABLE admin.admin_users
+    ADD COLUMN IF NOT EXISTS is_demo_user BOOLEAN NOT NULL DEFAULT FALSE,
+    ADD COLUMN IF NOT EXISTS demo_expires_at TIMESTAMP;

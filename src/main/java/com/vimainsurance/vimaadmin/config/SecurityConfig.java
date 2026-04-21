@@ -25,9 +25,11 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.oauth2.client.userinfo.OAuth2UserRequest;
 import org.springframework.security.oauth2.client.userinfo.OAuth2UserService;
 import org.springframework.security.oauth2.core.user.OAuth2User;
+import org.springframework.http.HttpHeaders;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.AuthenticationSuccessHandler;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
+import org.springframework.security.oauth2.server.resource.web.authentication.BearerTokenAuthenticationFilter;
 import org.springframework.web.cors.CorsConfiguration;
 import org.springframework.web.cors.CorsConfigurationSource;
 import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
@@ -89,17 +91,29 @@ public class SecurityConfig {
     private String contextPath;
     
     /**
-     * Filter to set up mock authentication when no JWT (dev and test profiles).
-     * Dev: all roles so local development has full access.
-     * Test: single role ROLE_VIMA_ADMIN so auth/me and feature flags match e2e expectations (no JWT in test).
+     * Filter to set up mock authentication when there is no real JWT (dev/local/test).
+     * <p>On {@code local}/{@code dev}, if the client sends {@code Authorization: Bearer ...}, this filter does
+     * <b>nothing</b> so {@link BearerTokenAuthenticationFilter} can populate {@link org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationToken}.
+     * Otherwise {@code /auth/me} and feature flags would always resolve as the seeded {@code dev-user} (full roles)
+     * instead of the Keycloak user.
+     * <p>Test profile: single role ROLE_VIMA_ADMIN for e2e without Bearer.
      */
     private class DevAuthenticationFilter extends OncePerRequestFilter {
         @Override
         protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain filterChain)
                 throws ServletException, IOException {
-            if (SecurityContextHolder.getContext().getAuthentication() == null) {
-                boolean isTestProfile = Arrays.stream(environment.getActiveProfiles()).anyMatch("test"::equalsIgnoreCase);
-                java.util.List<SimpleGrantedAuthority> authorities = isTestProfile
+            if (SecurityContextHolder.getContext().getAuthentication() != null) {
+                filterChain.doFilter(request, response);
+                return;
+            }
+            String authz = request.getHeader(HttpHeaders.AUTHORIZATION);
+            boolean bearerPresent = authz != null && authz.regionMatches(true, 0, "Bearer ", 0, 7);
+            boolean isTestProfile = Arrays.stream(environment.getActiveProfiles()).anyMatch("test"::equalsIgnoreCase);
+            if (bearerPresent && !isTestProfile) {
+                filterChain.doFilter(request, response);
+                return;
+            }
+            java.util.List<SimpleGrantedAuthority> authorities = isTestProfile
                     ? Arrays.asList(new SimpleGrantedAuthority("ROLE_VIMA_ADMIN"))
                     : Arrays.asList(
                         new SimpleGrantedAuthority("ROLE_SUPER_ADMIN"),
@@ -110,13 +124,12 @@ public class SecurityConfig {
                         new SimpleGrantedAuthority("ROLE_HR_ADMIN"),
                         new SimpleGrantedAuthority("ROLE_EMPLOYEE")
                     );
-                UsernamePasswordAuthenticationToken auth = new UsernamePasswordAuthenticationToken(
+            UsernamePasswordAuthenticationToken auth = new UsernamePasswordAuthenticationToken(
                     isTestProfile ? "e2e-vima-admin" : "dev-user",
                     null,
                     authorities
-                );
-                SecurityContextHolder.getContext().setAuthentication(auth);
-            }
+            );
+            SecurityContextHolder.getContext().setAuthentication(auth);
             filterChain.doFilter(request, response);
         }
     }
@@ -149,6 +162,8 @@ public class SecurityConfig {
                         "dev".equalsIgnoreCase(p)
                                 || "local".equalsIgnoreCase(p)
                                 || "test".equalsIgnoreCase(p));
+        boolean isDevOrLocalProfile = Arrays.stream(environment.getActiveProfiles())
+                .anyMatch(p -> "dev".equalsIgnoreCase(p) || "local".equalsIgnoreCase(p));
 
         http
             .cors(cors -> cors.configurationSource(corsConfigurationSource()))
@@ -161,9 +176,15 @@ public class SecurityConfig {
                     .anyRequest().permitAll()
             );
 
-            // DevAuthenticationFilter must run BEFORE TenantFilter so that
-            // TenantFilter can read roles from the mock authentication context.
-            http.addFilterBefore(new DevAuthenticationFilter(), UsernamePasswordAuthenticationFilter.class);
+            if (isDevOrLocalProfile) {
+                // Validate Bearer JWTs so Keycloak logins are not overwritten by mock dev-user (see DevAuthenticationFilter).
+                http.oauth2ResourceServer(oauth2 -> oauth2
+                        .jwt(jwt -> jwt.jwtAuthenticationConverter(jwtAuthenticationConverter)));
+                http.addFilterAfter(new DevAuthenticationFilter(), BearerTokenAuthenticationFilter.class);
+            } else {
+                http.addFilterBefore(new DevAuthenticationFilter(), UsernamePasswordAuthenticationFilter.class);
+            }
+            // TenantFilter must run after DevAuthenticationFilter so it sees JWT or mock authorities.
             http.addFilterAfter(tenantFilter(), DevAuthenticationFilter.class);
         } else {
             // Production mode: normal security

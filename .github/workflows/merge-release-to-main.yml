@@ -1,0 +1,39 @@
+name: 🚀 Promote Release → Main (Production)
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: 'Type "yes" to confirm promotion of release into main (PRODUCTION)'
+        required: true
+        default: 'yes'
+
+jobs:
+  promote-to-main:
+    runs-on: ubuntu-latest
+    if: ${{ github.event.inputs.confirm == 'yes' }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Configure Git
+        run: |
+          git config user.email "ci-bot@vimainsurance.com"
+          git config user.name "Vima CI Bot"
+
+      - name: Merge release into main
+        run: |
+          git checkout main
+          git merge origin/release --no-ff -m "chore: promote release to main [production deploy]"
+          git push origin main
+          echo "✅ release successfully promoted to main"
+
+      - name: Summary
+        run: |
+          echo "## 🚀 Production Promotion Complete" >> $GITHUB_STEP_SUMMARY
+          echo "**release** → **main** merge was successful." >> $GITHUB_STEP_SUMMARY
+          echo "Production deployment pipeline should now be triggered." >> $GITHUB_STEP_SUMMARY

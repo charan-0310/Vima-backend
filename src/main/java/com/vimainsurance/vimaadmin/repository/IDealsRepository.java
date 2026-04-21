@@ -159,7 +159,16 @@ public interface IDealsRepository extends JpaRepository<Deals, UUID> , JpaSpecif
         AND d.relationship = :relationship
         """)
     Optional<Deals> findByEmployeeNumberAndOrganizationIdAndRelationship(@Param("employeeNumber") String employeeNumber, @Param("organizationId") UUID organizationId, @Param("relationship") String relationship);
-    
+
+    /**
+     * When duplicate seed rows exist (failed rollbacks / QA), plain {@code findBy…} Optional queries throw.
+     * Demo provisioning uses this for deterministic recovery.
+     */
+    Optional<Deals> findFirstByEmployeeNumberAndOrganization_OrganizationIdOrderByCreatedAtAsc(
+            String employeeNumber, UUID organizationId);
+
+    Optional<Deals> findFirstByEmployeeNumberAndOrganization_OrganizationIdAndRelationshipOrderByCreatedAtAsc(
+            String employeeNumber, UUID organizationId, String relationship);
 
     @Query("""
         SELECT d FROM Deals d
@@ -194,6 +203,12 @@ public interface IDealsRepository extends JpaRepository<Deals, UUID> , JpaSpecif
      * Find deal by email
      */
     Optional<Deals> findByEmail(String email);
+
+    /**
+     * Same email may exist on multiple {@code cpc.customers} rows across organizations; prefer this for checks
+     * that must not throw {@link org.springframework.dao.IncorrectResultSizeDataAccessException}.
+     */
+    List<Deals> findAllByEmailIgnoreCaseOrderByCreatedAtAsc(String email);
 
     /**
      * Find deals by organization ID

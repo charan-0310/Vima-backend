@@ -1,0 +1,39 @@
+name: 🔀 Merge Develop → Release (Staging)
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: 'Type "yes" to confirm merge of develop into release'
+        required: true
+        default: 'yes'
+
+jobs:
+  merge-to-release:
+    runs-on: ubuntu-latest
+    if: ${{ github.event.inputs.confirm == 'yes' }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Configure Git
+        run: |
+          git config user.email "ci-bot@vimainsurance.com"
+          git config user.name "Vima CI Bot"
+
+      - name: Merge develop into release
+        run: |
+          git checkout release
+          git merge origin/develop --no-ff -m "chore: merge develop into release [auto]"
+          git push origin release
+          echo "✅ develop successfully merged into release"
+
+      - name: Summary
+        run: |
+          echo "## ✅ Merge Complete" >> $GITHUB_STEP_SUMMARY
+          echo "**develop** → **release** merge was successful." >> $GITHUB_STEP_SUMMARY
+          echo "Staging will now deploy automatically via stage-pipeline.yml" >> $GITHUB_STEP_SUMMARY

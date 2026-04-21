@@ -504,6 +504,10 @@ public class PremiumCalculationServiceImpl implements IPremiumCalculationService
         int parentCount = 0;
         int inLawCount = 0;
         Integer ageLimit = config.getParentAgeLimit();
+        // Treat 0/negative as "not configured" to avoid blocking all parent ages.
+        if (ageLimit != null && ageLimit <= 0) {
+            ageLimit = null;
+        }
         int maxParents = config.getMaxParents() != null ? config.getMaxParents() : 0;
         int maxInLaws = config.getMaxInLaws() != null ? config.getMaxInLaws() : 0;
         boolean parentEnabled = Boolean.TRUE.equals(config.getParentCoverageEnabled());
@@ -518,6 +522,9 @@ public class PremiumCalculationServiceImpl implements IPremiumCalculationService
             }
             if (isParent) {
                 if (!parentEnabled) throw new IllegalArgumentException("Parent coverage is not enabled for this company");
+                if (d.getDateOfBirth() == null) {
+                    throw new IllegalArgumentException("Parent date of birth is required for premium calculation");
+                }
                 parentCount++;
                 if (maxParents > 0 && parentCount > maxParents)
                     throw new IllegalArgumentException("Maximum number of parents allowed is " + maxParents);
@@ -528,6 +535,9 @@ public class PremiumCalculationServiceImpl implements IPremiumCalculationService
                 }
             } else if (isParentInLaw) {
                 if (!inLawEnabled) throw new IllegalArgumentException("Parent-in-law coverage is not enabled for this company");
+                if (d.getDateOfBirth() == null) {
+                    throw new IllegalArgumentException("Parent-in-law date of birth is required for premium calculation");
+                }
                 inLawCount++;
                 if (maxInLaws > 0 && inLawCount > maxInLaws)
                     throw new IllegalArgumentException("Maximum number of parents-in-law allowed is " + maxInLaws);
