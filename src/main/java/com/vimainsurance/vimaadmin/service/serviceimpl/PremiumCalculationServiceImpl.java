@@ -518,6 +518,9 @@ public class PremiumCalculationServiceImpl implements IPremiumCalculationService
             }
             if (isParent) {
                 if (!parentEnabled) throw new IllegalArgumentException("Parent coverage is not enabled for this company");
+                if (d.getDateOfBirth() == null) {
+                    throw new IllegalArgumentException("Parent date of birth is required for premium calculation");
+                }
                 parentCount++;
                 if (maxParents > 0 && parentCount > maxParents)
                     throw new IllegalArgumentException("Maximum number of parents allowed is " + maxParents);
@@ -528,6 +531,9 @@ public class PremiumCalculationServiceImpl implements IPremiumCalculationService
                 }
             } else if (isParentInLaw) {
                 if (!inLawEnabled) throw new IllegalArgumentException("Parent-in-law coverage is not enabled for this company");
+                if (d.getDateOfBirth() == null) {
+                    throw new IllegalArgumentException("Parent-in-law date of birth is required for premium calculation");
+                }
                 inLawCount++;
                 if (maxInLaws > 0 && inLawCount > maxInLaws)
                     throw new IllegalArgumentException("Maximum number of parents-in-law allowed is " + maxInLaws);
