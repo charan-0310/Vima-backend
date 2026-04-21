@@ -33,6 +33,7 @@ import com.vimainsurance.vimaadmin.mapper.WellnessPartnerMapper;
 import com.vimainsurance.vimaadmin.repository.IOrganizationRepository;
 import com.vimainsurance.vimaadmin.repository.IWellnessPartnerRepository;
 import com.vimainsurance.vimaadmin.repository.IWellnessPartnerOrganizationRepository;
+import com.vimainsurance.vimaadmin.service.IWellnessAccessService;
 import com.vimainsurance.vimaadmin.service.IWellnessPartnerService;
 import com.vimainsurance.vimaadmin.util.JwtUserExtractor;
 import com.vimainsurance.vimaadmin.util.TenantContext;
@@ -50,6 +51,7 @@ public class WellnessPartnerServiceImpl implements IWellnessPartnerService {
     private final IWellnessPartnerOrganizationRepository wellnessPartnerOrganizationRepository;
     private final IOrganizationRepository organizationRepository;
     private final JwtUserExtractor jwtUserExtractor;
+    private final IWellnessAccessService wellnessAccessService;
 
     @Override
     public ResponseEntity<ResponseDto<List<WellnessPartnerResponseDto>>> getAllPartners() {
@@ -426,25 +428,65 @@ public class WellnessPartnerServiceImpl implements IWellnessPartnerService {
     public ResponseEntity<ResponseDto<WellnessRedirectResponseDto>> getEmployeeRedirectUrl(String partnerSlug) {
         BaseResponse<WellnessRedirectResponseDto> responseObj = new BaseResponse<>();
         logger.info("[correlationId:{}] getEmployeeRedirectUrl called for slug {}", MDC.get("correlationId"), partnerSlug);
+        UUID organizationId = null;
+        UUID employeeId = null;
+        String userIdentifier = jwtUserExtractor.extractCurrentUsername();
+        UUID partnerId = null;
+        String accessType = "LOGIN";
         try {
             if (partnerSlug == null || partnerSlug.isBlank()) {
+                wellnessAccessService.logAccess(
+                        null,
+                        null,
+                        null,
+                        userIdentifier,
+                        accessType,
+                        "FAILED",
+                        "partnerSlug is required");
                 return responseObj.render(responseObj.formErrorResponse(400, "partnerSlug is required"));
             }
 
-            UUID organizationId = resolveCurrentOrganizationId();
+            organizationId = resolveCurrentOrganizationId();
+            employeeId = jwtUserExtractor.getCurrentEmployeeId();
             if (organizationId == null) {
+                wellnessAccessService.logAccess(
+                        null,
+                        null,
+                        employeeId,
+                        userIdentifier,
+                        accessType,
+                        "FAILED",
+                        "Organization context not found");
                 return responseObj.render(responseObj.formErrorResponse(400, "Organization context not found"));
             }
 
             Optional<WellnessPartnerOrganization> mappingOpt = wellnessPartnerOrganizationRepository
                     .findByPartner_SlugAndOrganizationId(partnerSlug.trim().toLowerCase(), organizationId);
             if (mappingOpt.isEmpty()) {
+                wellnessAccessService.logAccess(
+                        organizationId,
+                        null,
+                        employeeId,
+                        userIdentifier,
+                        accessType,
+                        "FAILED",
+                        "Wellness partner not assigned for this organization");
                 return responseObj.render(responseObj.formErrorResponse(404, "Wellness partner not assigned for this organization"));
             }
 
             WellnessPartnerOrganization mapping = mappingOpt.get();
             WellnessPartner partner = mapping.getPartner();
+            partnerId = mapping.getPartnerId();
+            accessType = resolveAccessType(partner, mapping);
             if (Boolean.FALSE.equals(mapping.getIsActive()) || partner == null || Boolean.FALSE.equals(partner.getIsActive())) {
+                wellnessAccessService.logAccess(
+                        organizationId,
+                        partnerId,
+                        employeeId,
+                        userIdentifier,
+                        accessType,
+                        "FAILED",
+                        "Wellness partner is not active");
                 return responseObj.render(responseObj.formErrorResponse(404, "Wellness partner is not active"));
             }
 
@@ -453,6 +495,14 @@ public class WellnessPartnerServiceImpl implements IWellnessPartnerService {
                 redirectUrl = partner.getRedirectUrl();
             }
             if (redirectUrl == null || redirectUrl.isBlank()) {
+                wellnessAccessService.logAccess(
+                        organizationId,
+                        partnerId,
+                        employeeId,
+                        userIdentifier,
+                        accessType,
+                        "FAILED",
+                        "Redirect URL not configured for this partner");
                 return responseObj.render(responseObj.formErrorResponse(400, "Redirect URL not configured for this partner"));
             }
 
@@ -460,9 +510,25 @@ public class WellnessPartnerServiceImpl implements IWellnessPartnerService {
                     .redirectUrl(redirectUrl)
                     .opensIn("new_tab")
                     .build();
+            wellnessAccessService.logAccess(
+                    organizationId,
+                    partnerId,
+                    employeeId,
+                    userIdentifier,
+                    accessType,
+                    "SUCCESS",
+                    null);
             return responseObj.render(responseObj.formSuccessResponse("Wellness redirect generated successfully", payload));
         } catch (Exception e) {
             logger.error("[correlationId:{}] getEmployeeRedirectUrl failed: {}", MDC.get("correlationId"), e.getMessage(), e);
+            wellnessAccessService.logAccess(
+                    organizationId,
+                    partnerId,
+                    employeeId,
+                    userIdentifier,
+                    accessType,
+                    "FAILED",
+                    e.getMessage());
             return responseObj.render(responseObj.formErrorResponse(500, "Failed to generate wellness redirect URL"));
         }
     }
@@ -590,5 +656,29 @@ public class WellnessPartnerServiceImpl implements IWellnessPartnerService {
             }
         }
         return null;
+    }
+
+    private String resolveAccessType(WellnessPartner partner, WellnessPartnerOrganization mapping) {
+        if (partner == null || partner.getRedirectType() == null) {
+            return "LOGIN";
+        }
+        if (WellnessRedirectType.DIRECT.getValue().equalsIgnoreCase(partner.getRedirectType())) {
+            return "LOGIN";
+        }
+        if (WellnessRedirectType.BACKEND_TOKEN.getValue().equalsIgnoreCase(partner.getRedirectType())
+                && mapping != null
+                && mapping.getConfig() != null) {
+            Object mappedAccessType = mapping.getConfig().get("access_type");
+            if (mappedAccessType == null) {
+                mappedAccessType = mapping.getConfig().get("accessType");
+            }
+            if (mappedAccessType != null && !mappedAccessType.toString().isBlank()) {
+                String value = mappedAccessType.toString().trim().toUpperCase();
+                if ("REGISTRATION".equals(value) || "LOGIN".equals(value)) {
+                    return value;
+                }
+            }
+        }
+        return "LOGIN";
     }
 }
