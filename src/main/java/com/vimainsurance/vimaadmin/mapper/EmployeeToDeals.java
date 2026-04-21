@@ -7,6 +7,7 @@ import java.time.format.DateTimeParseException;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
+import java.math.BigDecimal;
 
 import com.vimainsurance.vimaadmin.dto.EmployeeUploadDto;
 import com.vimainsurance.vimaadmin.entity.Deals;
@@ -83,6 +84,7 @@ public class EmployeeToDeals {
         // Sum Insured
         deals.setSumInsured(employeeUploadDto.getSumInsured() != null ? 
             employeeUploadDto.getSumInsured().trim() : null);
+        deals.setCtc(parseCtc(employeeUploadDto.getCtc()));
         
         // Department - Note: Deals entity doesn't have department field, 
         // but we can store it in remarks or another field if needed
@@ -161,6 +163,7 @@ public class EmployeeToDeals {
         // Sum Insured
         existingDeal.setSumInsured(dto.getSumInsured() != null ? 
             dto.getSumInsured().trim() : null);
+        existingDeal.setCtc(parseCtc(dto.getCtc()));
         // Actual relationship (e.g. Son, Daughter)
         if (dto.getActualRelationship() != null && !dto.getActualRelationship().isBlank()) {
             existingDeal.setActualRelationship(dto.getActualRelationship().trim());
@@ -202,5 +205,16 @@ public class EmployeeToDeals {
      */
     public static void updateDealFromDto(Deals existingDeal, EmployeeUploadDto dto, Organization organization) {
         updateDealFromDto(existingDeal, dto, organization, null);
+    }
+
+    private static BigDecimal parseCtc(String ctcRaw) {
+        if (ctcRaw == null || ctcRaw.isBlank()) {
+            return null;
+        }
+        try {
+            return new BigDecimal(ctcRaw.trim().replace(",", ""));
+        } catch (NumberFormatException ex) {
+            return null;
+        }
     }
 }

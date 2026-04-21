@@ -3,6 +3,7 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.UUID;
+import java.math.BigDecimal;
 import lombok.Data;
 import lombok.Getter;
 import lombok.Setter;
@@ -21,6 +22,7 @@ public class DealsResponseDto {
     private String fullName;
     private String maritalStatus;
     private String sumInsured;
+    private BigDecimal ctc;
     private String email;
     private String phone;
     private LocalDate dateOfBirth;

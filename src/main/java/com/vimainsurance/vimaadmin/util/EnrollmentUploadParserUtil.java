@@ -13,6 +13,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.math.BigDecimal;
 
 import org.apache.poi.ss.usermodel.Row;
 import org.apache.poi.ss.usermodel.Sheet;
@@ -178,6 +179,7 @@ public final class EnrollmentUploadParserUtil {
         String dateOfJoining = getVal(row, headerMap, "date_of_joining", "dateofjoining", "doj");
         String designation = getVal(row, headerMap, "designation");
         String department = getVal(row, headerMap, "department");
+        String ctc = getVal(row, headerMap, "ctc", "cost_to_company", "annual_ctc");
 
         if (employeeId == null || employeeId.isBlank()) {
             result.getErrors().add("Row " + rowNumber + ": Employee ID is required");
@@ -205,6 +207,7 @@ public final class EnrollmentUploadParserUtil {
             dto.setGender(gender != null && !gender.isBlank() ? gender.trim() : null);
             dto.setDesignation(designation != null && !designation.isBlank() ? designation.trim() : null);
             dto.setDepartment(department != null && !department.isBlank() ? department.trim() : null);
+            dto.setCtc(parseCtc(ctc));
             if (dateOfJoining != null && !dateOfJoining.isBlank()) {
                 try {
                     dto.setDateOfJoining(LocalDate.parse(dateOfJoining.trim(), DATE_FORMAT));
@@ -229,6 +232,17 @@ public final class EnrollmentUploadParserUtil {
             dep.setGender(gender != null ? gender.trim() : null);
             dep.setEmail(email != null && !email.isBlank() ? email.trim() : null);
             result.getDependentRowsByEmployeeId().computeIfAbsent(employeeId, k -> new ArrayList<>()).add(dep);
+        }
+    }
+
+    private static BigDecimal parseCtc(String raw) {
+        if (raw == null || raw.isBlank()) {
+            return null;
+        }
+        try {
+            return new BigDecimal(raw.trim().replace(",", ""));
+        } catch (NumberFormatException ex) {
+            return null;
         }
     }
 

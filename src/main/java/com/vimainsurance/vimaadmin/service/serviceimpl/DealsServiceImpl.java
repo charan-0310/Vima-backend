@@ -154,6 +154,7 @@ public class DealsServiceImpl implements IDealsService{
             deals.setPreferredLanguage(dealsRequestDto.getPreferredLanguage());
             deals.setLeadId(dealsRequestDto.getLeadId());
             deals.setCustId(dealsRequestDto.getCustId());
+            deals.setCtc(dealsRequestDto.getCtc());
             if(dealsRequestDto.getHealthId() != null && !dealsRequestDto.getHealthId().isEmpty()){
                 deals.setHealthId(dealsRequestDto.getHealthId());
             }
@@ -203,6 +204,7 @@ public class DealsServiceImpl implements IDealsService{
             deals.setCustId(dealsRequestDto.getCustId());
             deals.setMaritalStatus(dealsRequestDto.getMaritalStatus());
             deals.setSumInsured(dealsRequestDto.getSumInsured());
+            deals.setCtc(dealsRequestDto.getCtc());
             if(dealsRequestDto.getHealthId() != null && !dealsRequestDto.getHealthId().isEmpty()){
                 deals.setHealthId(dealsRequestDto.getHealthId());
             }
@@ -253,6 +255,7 @@ public class DealsServiceImpl implements IDealsService{
             dealsResponseDto.setLeadId(deals.getLeadId());
             dealsResponseDto.setMaritalStatus(deals.getMaritalStatus());
             dealsResponseDto.setSumInsured(deals.getSumInsured());
+            dealsResponseDto.setCtc(deals.getCtc());
             dealsResponseDto.setCustId(deals.getCustId());
             dealsResponseDto.setUpdatedAt(deals.getUpdatedAt());
             dealsResponseDto.setHealthId(deals.getHealthId());
@@ -499,6 +502,7 @@ public class DealsServiceImpl implements IDealsService{
         dealsResponseDto.setCustId(deal.getCustId());
         dealsResponseDto.setMaritalStatus(deal.getMaritalStatus());
         dealsResponseDto.setSumInsured(deal.getSumInsured());
+        dealsResponseDto.setCtc(deal.getCtc());
         dealsResponseDto.setCreatedAt(deal.getCreatedAt());
         dealsResponseDto.setUpdatedAt(deal.getUpdatedAt());
         dealsResponseDto.setHealthId(deal.getHealthId());
