@@ -629,6 +629,7 @@ public class OrganizationServiceImpl implements IOrganizationService {
         dto.setDesignation(deal.getDesignation());
         dto.setDepartment(deal.getDepartment());
         dto.setMaritalStatus(deal.getMaritalStatus());
+        dto.setCtc(deal.getCtc());
         dto.setDateOfJoining(deal.getDateOfJoining());
         dto.setStatus(deal.getStatus() != null ? deal.getStatus().name() : null);
         dto.setDateOfBirth(deal.getDateOfBirth());

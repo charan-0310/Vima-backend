@@ -841,7 +841,7 @@ public class EnrollmentWindowServiceImpl implements IEnrollmentWindowService {
                     nullToEmpty(primary.getGender()), exportDob, sums,
                     nullToEmpty(exportEmail), nullToEmpty(exportMobile),
                     formatDobForCsv(primary.getDateOfJoining()),
-                    nullToEmpty(primary.getDepartment()), nullToEmpty(primary.getMaritalStatus()),
+                    nullToEmpty(primary.getDepartment()), formatAmount(primary.getCtc()), nullToEmpty(primary.getMaritalStatus()),
                     submissionStatus));
 
             Set<String> seenDepKeys = new HashSet<>();
@@ -863,7 +863,7 @@ public class EnrollmentWindowServiceImpl implements IEnrollmentWindowService {
                             formatDobForCsv(dep.getDateOfBirth()), sums,
                             nullToEmpty(dep.getEmail()), nullToEmpty(dep.getPhone()),
                             formatDobForCsv(dep.getDateOfJoining()),
-                            nullToEmpty(dep.getDepartment()), nullToEmpty(dep.getMaritalStatus()),
+                            nullToEmpty(dep.getDepartment()), formatAmount(dep.getCtc()), nullToEmpty(dep.getMaritalStatus()),
                             submissionStatus));
                 }
             }
@@ -970,11 +970,11 @@ public class EnrollmentWindowServiceImpl implements IEnrollmentWindowService {
 
     private List<String> csvDataRow(String employeeId, String relationship, String employeeName, String gender,
             String dateOfBirth, PlanSumsCsv sums,
-            String email, String mobile, String dateOfJoining, String department, String maritalStatus,
+            String email, String mobile, String dateOfJoining, String department, String ctc, String maritalStatus,
             String submissionStatus) {
         return List.of(employeeId, relationship, employeeName, gender, dateOfBirth,
                 sums.sumInsured, sums.topupSumInsured, sums.superTopupSumInsured,
-                email, mobile, dateOfJoining, department, maritalStatus, submissionStatus);
+                email, mobile, dateOfJoining, department, ctc, maritalStatus, submissionStatus);
     }
 
     /** Value from {@link EnrollmentSubmission#getStatus()}; {@code NO_SUBMISSION} if no row exists for this employee. */
@@ -1019,7 +1019,7 @@ public class EnrollmentWindowServiceImpl implements IEnrollmentWindowService {
                 if (!seenDepKeys.add(dk)) {
                     continue;
                 }
-                out.add(csvDataRow(empNo, rel, name, gender, dob, sums, email, mobile, "", "", "", submissionStatus));
+                out.add(csvDataRow(empNo, rel, name, gender, dob, sums, email, mobile, "", "", "", "", submissionStatus));
             }
         } catch (Exception e) {
             logger.warn("[correlationId:{}] export CSV: dependents JSON skipped: {}", MDC.get("correlationId"), e.getMessage());
@@ -1734,6 +1734,7 @@ public class EnrollmentWindowServiceImpl implements IEnrollmentWindowService {
                     if (requestDto.getDepartment() != null) {
                         existing.setDepartment(requestDto.getDepartment());
                     }
+                    existing.setCtc(requestDto.getCtc());
                     existing.setEnrollmentWindow(enrollmentWindow);
                     existing.setUpdatedAt(LocalDateTime.now());
                     toSave.add(existing);
@@ -1758,6 +1759,7 @@ public class EnrollmentWindowServiceImpl implements IEnrollmentWindowService {
                     if (requestDto.getDepartment() != null) {
                         employee.setDepartment(requestDto.getDepartment());
                     }
+                    employee.setCtc(requestDto.getCtc());
                     employee.setOrganization(organization);
                     employee.setEnrollmentWindow(enrollmentWindow);
                     employee.setRelationship(relationship);
