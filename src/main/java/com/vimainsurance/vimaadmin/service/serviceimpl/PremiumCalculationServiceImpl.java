@@ -504,6 +504,10 @@ public class PremiumCalculationServiceImpl implements IPremiumCalculationService
         int parentCount = 0;
         int inLawCount = 0;
         Integer ageLimit = config.getParentAgeLimit();
+        // Treat 0/negative as "not configured" to avoid blocking all parent ages.
+        if (ageLimit != null && ageLimit <= 0) {
+            ageLimit = null;
+        }
         int maxParents = config.getMaxParents() != null ? config.getMaxParents() : 0;
         int maxInLaws = config.getMaxInLaws() != null ? config.getMaxInLaws() : 0;
         boolean parentEnabled = Boolean.TRUE.equals(config.getParentCoverageEnabled());
