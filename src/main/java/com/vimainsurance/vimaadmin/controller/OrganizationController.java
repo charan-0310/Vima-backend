@@ -1,8 +1,15 @@
 package com.vimainsurance.vimaadmin.controller;
 
+import java.io.IOException;
+import java.io.InputStream;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
 
+import org.springframework.http.HttpStatus;
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.slf4j.MDC;
@@ -20,9 +27,12 @@ import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
-import org.springframework.web.bind.annotation.RequestPart;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.multipart.MultipartFile;
+
+import jakarta.servlet.ServletException;
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.Part;
 
 import com.vimainsurance.vimaadmin.dto.BulkEmployeeDeletionRequestDto;
 import com.vimainsurance.vimaadmin.dto.CsvValidationResponseDto;
@@ -48,6 +58,9 @@ public class OrganizationController {
 
     @Autowired
     private IOrganizationService organizationService;
+
+    @Autowired
+    private ObjectMapper objectMapper;
 
     @PostMapping("/organization")
     @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'VIMA_ADMIN')")
@@ -244,13 +257,35 @@ public class OrganizationController {
         produces = MediaType.APPLICATION_JSON_VALUE)
     @PreAuthorize("hasAnyRole('VIMA_ADMIN', 'SALES_MANAGER', 'SUPER_ADMIN', 'ADMIN', 'HR_ADMIN')")
     public ResponseEntity<ResponseDto<EmployeeUploadResponse>> uploadEmployees(
+            HttpServletRequest request,
             @CurrentOrganization UUID organizationId,
             @RequestParam("file") MultipartFile file,
-            @RequestParam("uploadType") String uploadType,
-            @RequestParam("policyIds") List<Long> policyIds,
-            @RequestPart("employees") List<EmployeeUploadDto> employeeUploadDtoList) {
-        logger.info("[correlationId:{}] /organization/{}/upload endpoint called with operation: {}", 
-            MDC.get("correlationId"), organizationId);
+            @RequestParam("uploadType") String uploadType) {
+        logger.info("[correlationId:{}] /organization/{}/upload endpoint called", MDC.get("correlationId"), organizationId);
+        List<Long> policyIds = parsePolicyIdsFromRequest(request);
+        final List<EmployeeUploadDto> employeeUploadDtoList;
+        try {
+            Part employees = request.getPart("employees");
+            if (employees == null) {
+                return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                        .body(new ResponseDto<>(400, "Missing multipart part: employees (JSON array)"));
+            }
+            try (InputStream in = employees.getInputStream()) {
+                employeeUploadDtoList = objectMapper.readValue(in, new TypeReference<List<EmployeeUploadDto>>() { });
+            }
+        } catch (JsonProcessingException e) {
+            logger.warn("[correlationId:{}] Invalid employees JSON: {}", MDC.get("correlationId"), e.getMessage());
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                    .body(new ResponseDto<>(400, "Invalid employees JSON: " + e.getMessage()));
+        } catch (IOException e) {
+            logger.warn("[correlationId:{}] Could not read employees part: {}", MDC.get("correlationId"), e.getMessage());
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                    .body(new ResponseDto<>(400, "Could not read employees data"));
+        } catch (ServletException e) {
+            logger.warn("[correlationId:{}] Multipart employees part error: {}", MDC.get("correlationId"), e.getMessage());
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                    .body(new ResponseDto<>(400, "Could not access employees part: " + e.getMessage()));
+        }
         return organizationService.uploadEmployees(employeeUploadDtoList, organizationId, uploadType, file, policyIds);
     }
     
@@ -278,13 +313,38 @@ public class OrganizationController {
         produces = MediaType.APPLICATION_JSON_VALUE)
     @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'VIMA_ADMIN', 'HR_ADMIN')")
     public ResponseEntity<ResponseDto<EmployeeUploadResponse>> delete(
+            HttpServletRequest request,
             @CurrentOrganization UUID organizationId,
             @RequestParam("uploadType") String uploadType,
-            @RequestParam("file") MultipartFile file,
-            @RequestPart("employees") List<BulkEmployeeDeletionRequestDto> bulkEmployeeDeletionRequestDtoList) {
-        logger.info("[correlationId:{}] /organization/{}/delete/csv endpoint called", MDC.get("correlationId"), organizationId);
+            @RequestParam("file") MultipartFile file) {
+        logger.info("[correlationId:{}] /organization/{}/delete (multipart) endpoint called", MDC.get("correlationId"), organizationId);
+        final List<BulkEmployeeDeletionRequestDto> bulkEmployeeDeletionRequestDtoList;
+        try {
+            Part employees = request.getPart("employees");
+            if (employees == null) {
+                return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                        .body(new ResponseDto<>(400, "Missing multipart part: employees (JSON array)"));
+            }
+            try (InputStream in = employees.getInputStream()) {
+                bulkEmployeeDeletionRequestDtoList = objectMapper.readValue(
+                        in,
+                        new TypeReference<List<BulkEmployeeDeletionRequestDto>>() { });
+            }
+        } catch (JsonProcessingException e) {
+            logger.warn("[correlationId:{}] Invalid employees JSON (delete): {}", MDC.get("correlationId"), e.getMessage());
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                    .body(new ResponseDto<>(400, "Invalid employees JSON: " + e.getMessage()));
+        } catch (IOException e) {
+            logger.warn("[correlationId:{}] Could not read employees part (delete): {}", MDC.get("correlationId"), e.getMessage());
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                    .body(new ResponseDto<>(400, "Could not read employees data"));
+        } catch (ServletException e) {
+            logger.warn("[correlationId:{}] Multipart employees part error (delete): {}", MDC.get("correlationId"), e.getMessage());
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                    .body(new ResponseDto<>(400, "Could not access employees part: " + e.getMessage()));
+        }
         return organizationService.delete(bulkEmployeeDeletionRequestDtoList, organizationId, uploadType, file);
-}
+    }
     
     @DeleteMapping("/organization/{organizationId}/employee/{employeeId}")
     @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'VIMA_ADMIN')")
@@ -305,6 +365,30 @@ public class OrganizationController {
             MDC.get("correlationId"), organizationId, 
             requestDto != null && requestDto.getEmployeeId() != null ? 1 : 0);
         return organizationService.bulkDeleteEmployees(requestDto, organizationId);
+    }
+
+    /**
+     * Reads repeated {@code policyIds} form fields (multipart or query) without Spring MVC
+     * {@code List&lt;Long&gt;} binding, which can fail for some clients and fail the whole request
+     * before the controller method runs.
+     */
+    private static List<Long> parsePolicyIdsFromRequest(HttpServletRequest request) {
+        String[] values = request.getParameterValues("policyIds");
+        if (values == null || values.length == 0) {
+            return new ArrayList<>();
+        }
+        List<Long> out = new ArrayList<>();
+        for (String v : values) {
+            if (v == null || v.isBlank()) {
+                continue;
+            }
+            try {
+                out.add(Long.parseLong(v.trim()));
+            } catch (NumberFormatException ex) {
+                // ignore bad segment; service layer will reject if empty
+            }
+        }
+        return out;
     }
 }
 
