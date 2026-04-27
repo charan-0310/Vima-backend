@@ -190,7 +190,7 @@ public class PremiumCalculationServiceImpl implements IPremiumCalculationService
             for (MemberInfo m : coveredMembers) {
                 PremiumRateTable row = forPlan.stream()
                         .filter(r -> r.getAgeBandMin() != null && r.getAgeBandMin() <= m.age())
-                        .filter(r -> r.getAgeBandMax() == null || r.getAgeBandMax() > m.age())
+                        .filter(r -> r.getAgeBandMax() == null || r.getAgeBandMax() >= m.age())
                         .findFirst()
                         .orElseThrow(() -> new IllegalArgumentException("No rate for age " + m.age() + ", plan " + planType));
                 totalPremium = totalPremium.add(row.getRate());
