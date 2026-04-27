@@ -2,6 +2,7 @@ package com.vimainsurance.vimaadmin.dto;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.UUID;
+import java.math.BigDecimal;
 
 import lombok.Data;
 import lombok.Getter;
@@ -43,6 +44,7 @@ private UUID leadId;
 private String custId;
 private String maritalStatus;
 private String sumInsured;
+private BigDecimal ctc;
 private String healthId;
 private LocalDateTime createdAt;
 private LocalDateTime updatedAt;

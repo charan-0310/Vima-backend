@@ -6,6 +6,7 @@ import lombok.NoArgsConstructor;
 import lombok.AllArgsConstructor;
 
 import java.time.LocalDate;
+import java.math.BigDecimal;
 
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Email;
@@ -35,4 +36,5 @@ public class SelfEmployeeEnrollmentRequestDto {
     private LocalDate dateOfJoining;
     private String designation;
     private String department;
+    private BigDecimal ctc;
 }

@@ -629,6 +629,7 @@ public class OrganizationServiceImpl implements IOrganizationService {
         dto.setDesignation(deal.getDesignation());
         dto.setDepartment(deal.getDepartment());
         dto.setMaritalStatus(deal.getMaritalStatus());
+        dto.setCtc(deal.getCtc());
         dto.setDateOfJoining(deal.getDateOfJoining());
         dto.setStatus(deal.getStatus() != null ? deal.getStatus().name() : null);
         dto.setDateOfBirth(deal.getDateOfBirth());
@@ -1783,12 +1784,16 @@ public class OrganizationServiceImpl implements IOrganizationService {
     }
 
     @Override
-    @Transactional(rollbackFor = Exception.class)
+    /** No @Transactional here: {@link com.vimainsurance.vimaadmin.service.serviceimpl.EmployeeService#uploadEmployees} owns the unit of work. Nested @Transactional (REQUIRED) on this method caused UnexpectedRollbackException. */
     public ResponseEntity<ResponseDto<EmployeeUploadResponse>> uploadEmployees(List<EmployeeUploadDto> employeeUploadDtoList, UUID organizationId, String uploadType, MultipartFile file, List<Long> policyIds) {
-    logger.info("[correlationId:{}] uploadEmployees called for {} employees, organizationId: {}", 
-        MDC.get("correlationId"), employeeUploadDtoList.size(), organizationId);
     BaseResponse<EmployeeUploadResponse> responseObj = new BaseResponse<>();
     try {
+        int employeeCount = (employeeUploadDtoList == null) ? 0 : employeeUploadDtoList.size();
+        logger.info("[correlationId:{}] uploadEmployees called for {} employees, organizationId: {}",
+            MDC.get("correlationId"), employeeCount, organizationId);
+        if (employeeUploadDtoList == null || employeeUploadDtoList.isEmpty()) {
+            return responseObj.render(responseObj.formErrorResponse(400, "At least one employee record is required in the request"));
+        }
         if (policyIds == null || policyIds.isEmpty()) {
             return responseObj.render(responseObj.formErrorResponse(400, "At least one policy must be selected"));
         }
@@ -1805,7 +1810,8 @@ public class OrganizationServiceImpl implements IOrganizationService {
         return responseObj.render(responseObj.formSuccessResponse(responseMessage, employeeUploadResponse));
     } catch (Exception e) {
         logger.error("[correlationId:{}] Exception in uploadEmployees: {}", MDC.get("correlationId"), e.getMessage(), e);
-        return responseObj.render(responseObj.formErrorResponse("Error Occured while uploading employees"));
+        String detail = e.getClass().getSimpleName() + (e.getMessage() != null && !e.getMessage().isBlank() ? ": " + e.getMessage() : "");
+        return responseObj.render(responseObj.formErrorResponse(500, "Upload failed: " + detail));
     }
     finally {
         com.vimainsurance.vimaadmin.audit.AuditContextSupplier.clearCurrentUserId();
@@ -1814,7 +1820,6 @@ public class OrganizationServiceImpl implements IOrganizationService {
 }
 
     @Override
-    @Transactional(rollbackFor = Exception.class)
     public ResponseEntity<ResponseDto<EmployeeUploadResponse>> manualAddEmployees(UUID organizationId, ManualAddEmployeesRequestDto requestDto) {
         logger.info("[correlationId:{}] manualAddEmployees called for organizationId: {}", MDC.get("correlationId"), organizationId);
         BaseResponse<EmployeeUploadResponse> responseObj = new BaseResponse<>();
@@ -1843,7 +1848,6 @@ public class OrganizationServiceImpl implements IOrganizationService {
     }
 
     @Override
-    @Transactional(rollbackFor = Exception.class)
     public ResponseEntity<ResponseDto<EmployeeUploadResponse>> validateEmployees(List<EmployeeUploadDto> employeeUploadDtoList, UUID organizationId) {
         logger.info("[correlationId:{}] validateEmployees called for {} employees, organizationId: {}", 
             MDC.get("correlationId"), employeeUploadDtoList.size(), organizationId);
@@ -1860,7 +1864,6 @@ public class OrganizationServiceImpl implements IOrganizationService {
     }
 
     @Override
-    @Transactional(rollbackFor = Exception.class)
     @AuditedOperation(schemaName = "cpc", tableName = "customers", entityType = "EMPLOYEE", action = "BULK_DELETE")
     public ResponseEntity<ResponseDto<EmployeeUploadResponse>> delete(List<BulkEmployeeDeletionRequestDto> bulkEmployeeDeletionRequestDtoList, UUID organizationId, String uploadType, MultipartFile file) {
         logger.info("[correlationId:{}] delete called for {} employees, organizationId: {}",

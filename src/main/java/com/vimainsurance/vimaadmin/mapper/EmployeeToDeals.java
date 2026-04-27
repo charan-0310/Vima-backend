@@ -7,6 +7,7 @@ import java.time.format.DateTimeParseException;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
+import java.math.BigDecimal;
 
 import com.vimainsurance.vimaadmin.dto.EmployeeUploadDto;
 import com.vimainsurance.vimaadmin.entity.Deals;
@@ -62,12 +63,12 @@ public class EmployeeToDeals {
         }
 
         // Account Type - CORPORATE_EMPLOYEE for Self, CORPORATE_DEPENDENT for others
-        String relationship = employeeUploadDto.getRelationship() != null ? 
-            employeeUploadDto.getRelationship().trim() : "";
-        if ("Self".equalsIgnoreCase(relationship)) {
+        String relationship = employeeUploadDto.getRelationship() != null
+            ? employeeUploadDto.getRelationship().trim() : "";
+        if (isPrimaryMemberRelationship(relationship)) {
             deals.setAccountType(AccountType.CORPORATE_EMPLOYEE);
             deals.setIsPrimaryMember(true);
-            // Employee Number only for Self
+            // Employee number only for primary
             deals.setEmployeeNumber(employeeUploadDto.getEmployeeId());
         } else {
             deals.setAccountType(AccountType.CORPORATE_DEPENDENT);
@@ -83,6 +84,7 @@ public class EmployeeToDeals {
         // Sum Insured
         deals.setSumInsured(employeeUploadDto.getSumInsured() != null ? 
             employeeUploadDto.getSumInsured().trim() : null);
+        deals.setCtc(parseCtc(employeeUploadDto.getCtc()));
         
         // Department - Note: Deals entity doesn't have department field, 
         // but we can store it in remarks or another field if needed
@@ -100,15 +102,61 @@ public class EmployeeToDeals {
     }
 
     /**
-     * Helper method to parse date string to LocalDate
-     * Matches the parseDate method in CsvDealsReaderUtil
+     * True for primary member row: UI / CSV "Self", "SELF", and legacy "Employee".
+     */
+    public static boolean isPrimaryMemberRelationship(String relationship) {
+        if (relationship == null || relationship.isEmpty()) {
+            return false;
+        }
+        String r = relationship.trim();
+        return "Self".equalsIgnoreCase(r)
+            || "SELF".equals(r)
+            || "Employee".equalsIgnoreCase(r)
+            || "EMPLOYEE".equals(r);
+    }
+
+    /**
+     * Parse bulk-upload dates: ISO (yyyy-MM-dd) and common CSV/Excel (dd/MM/yyyy, dd-MM-yyy, dd/MM/yy) aligned with the web file parser.
      */
     public static LocalDate parseDate(String dateStr) {
         if (dateStr == null || dateStr.trim().isEmpty()) {
             return LocalDate.now();
         }
+        String s = dateStr.trim();
+        if (s.length() == 10 && s.charAt(4) == '-') {
+            try {
+                return LocalDate.parse(s, DateTimeFormatter.ISO_LOCAL_DATE);
+            } catch (DateTimeParseException e) {
+                return null;
+            }
+        }
+        for (String p : new String[] { "d/M/yyyy", "d-M-yyyy", "d.M.yyyy", "dd/MM/yyyy", "dd-MM-yyyy", "dd.MM.yyyy" }) {
+            try {
+                return LocalDate.parse(s, DateTimeFormatter.ofPattern(p));
+            } catch (DateTimeParseException e) {
+                // try next
+            }
+        }
+        if (s.matches("^(\\d{1,2})/(\\d{1,2})/(\\d{2})$")
+            || s.matches("^(\\d{1,2})-(\\d{1,2})-(\\d{2})$")
+            || s.matches("^(\\d{1,2})\\.(\\d{1,2})\\.(\\d{2})$")) {
+            String[] parts = s.split("[/\\-.]", 3);
+            if (parts.length == 3) {
+                try {
+                    int d = Integer.parseInt(parts[0].trim());
+                    int m = Integer.parseInt(parts[1].trim());
+                    int y2 = Integer.parseInt(parts[2].trim());
+                    if (parts[2].length() == 2) {
+                        int y = y2 < 30 ? 2000 + y2 : 1900 + y2;
+                        return LocalDate.of(y, m, d);
+                    }
+                } catch (Exception e) {
+                    return null;
+                }
+            }
+        }
         try {
-            return LocalDate.parse(dateStr.trim(), DATE_FORMATTER);
+            return LocalDate.parse(s, DATE_FORMATTER);
         } catch (DateTimeParseException e) {
             return null;
         }
@@ -161,6 +209,7 @@ public class EmployeeToDeals {
         // Sum Insured
         existingDeal.setSumInsured(dto.getSumInsured() != null ? 
             dto.getSumInsured().trim() : null);
+        existingDeal.setCtc(parseCtc(dto.getCtc()));
         // Actual relationship (e.g. Son, Daughter)
         if (dto.getActualRelationship() != null && !dto.getActualRelationship().isBlank()) {
             existingDeal.setActualRelationship(dto.getActualRelationship().trim());
@@ -179,10 +228,10 @@ public class EmployeeToDeals {
 
         // Update account type and primary member status based on relationship
         String relationship = dto.getRelationship() != null ? dto.getRelationship().trim() : "";
-        if ("Self".equalsIgnoreCase(relationship)) {
+        if (isPrimaryMemberRelationship(relationship)) {
             existingDeal.setAccountType(AccountType.CORPORATE_EMPLOYEE);
             existingDeal.setIsPrimaryMember(true);
-            // Only update employeeNumber for Self relationship
+            // Only update employeeNumber for primary row
             existingDeal.setEmployeeNumber(dto.getEmployeeId());
         } else {
             existingDeal.setAccountType(AccountType.CORPORATE_DEPENDENT);
@@ -202,5 +251,16 @@ public class EmployeeToDeals {
      */
     public static void updateDealFromDto(Deals existingDeal, EmployeeUploadDto dto, Organization organization) {
         updateDealFromDto(existingDeal, dto, organization, null);
+    }
+
+    private static BigDecimal parseCtc(String ctcRaw) {
+        if (ctcRaw == null || ctcRaw.isBlank()) {
+            return null;
+        }
+        try {
+            return new BigDecimal(ctcRaw.trim().replace(",", ""));
+        } catch (NumberFormatException ex) {
+            return null;
+        }
     }
 }
