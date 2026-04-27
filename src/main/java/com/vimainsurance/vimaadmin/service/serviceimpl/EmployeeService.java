@@ -62,6 +62,7 @@ import org.springframework.web.multipart.MultipartFile;
 import com.vimainsurance.vimaadmin.entity.DealEndorsement;
 import com.vimainsurance.vimaadmin.entity.Document;
 import com.vimainsurance.vimaadmin.enums.DocumentEntityType;
+import com.vimainsurance.vimaadmin.enums.CoverageType;
 import com.vimainsurance.vimaadmin.enums.PolicyStatus;
 import com.vimainsurance.vimaadmin.enums.ProductType;
 import com.vimainsurance.vimaadmin.service.IEmployeePolicyMapService;
@@ -290,6 +291,8 @@ public class EmployeeService {
                 if ("SUPER_TOP_UP".equals(upper) && (self.getSuperTopupSumInsured() == null || self.getSuperTopupSumInsured().trim().isEmpty())) continue;
 
                 String coverageTier = "INDIVIDUAL";
+                boolean isEscpBaseHealth = ("GMC".equals(upper) || "GHI".equals(upper))
+                        && p.getCoverageType() == CoverageType.ESCP;
                 List<IPremiumCalculationService.MemberInfo> membersForParentOnly = members.stream()
                         .filter(m -> {
                             String mt = m.memberType() != null ? m.memberType().toLowerCase() : "";
@@ -304,7 +307,7 @@ public class EmployeeService {
                 } else if ("PARENT_GMC".equals(upper)) {
                     coveredMembers = membersForParentOnly;
                 } else if ("GMC".equals(upper) || "GHI".equals(upper)) {
-                    coveredMembers = membersForGmcFloater;
+                    coveredMembers = isEscpBaseHealth ? membersForBase : membersForGmcFloater;
                 } else if ("GPA".equals(upper) || "GTL".equals(upper)) {
                     coveredMembers = membersEmployeeOnly;
                 } else {
@@ -320,18 +323,7 @@ public class EmployeeService {
                 java.math.BigDecimal gst = b.gstAmount() != null ? b.gstAmount() : java.math.BigDecimal.ZERO;
 
                 // Apply cost sharing
-                String coverageCategory = "FAMILY";
-                if ("PARENT_GMC".equals(upper)) {
-                    boolean hasParent = coveredMembers.stream().anyMatch(m -> "parent".equalsIgnoreCase(m.memberType()));
-                    boolean hasInLaw = coveredMembers.stream().anyMatch(m -> "parent_in_law".equalsIgnoreCase(m.memberType()));
-                    if (hasParent && !hasInLaw) {
-                        coverageCategory = "PARENT";
-                    } else if (!hasParent && hasInLaw) {
-                        coverageCategory = "PARENT_IN_LAW";
-                    } else {
-                        coverageCategory = "PARENT";
-                    }
-                }
+                String coverageCategory = resolveCoverageCategoryForCostSharing(coveredMembers);
                 String costSharingPlanType =
                         ("PARENT_GMC".equals(upper) || "GMC_PARENT".equals(upper)) ? "GMC" : planType;
                 CostShareSplit split = costSharingRuleService.applyCostSharing(
@@ -411,6 +403,20 @@ public class EmployeeService {
         } catch (Exception ignored) {
         }
         return value.stripTrailingZeros().toPlainString();
+    }
+
+    private static String resolveCoverageCategoryForCostSharing(List<IPremiumCalculationService.MemberInfo> members) {
+        if (members == null || members.size() <= 1) return "SELF";
+        boolean hasParent = false;
+        boolean hasParentInLaw = false;
+        for (IPremiumCalculationService.MemberInfo m : members) {
+            String t = m.memberType();
+            if ("parent".equalsIgnoreCase(t)) hasParent = true;
+            if ("parent_in_law".equalsIgnoreCase(t)) hasParentInLaw = true;
+        }
+        if (hasParent) return "PARENT";
+        if (hasParentInLaw) return "PARENT_IN_LAW";
+        return "FAMILY";
     }
 
     private List<java.math.BigDecimal> getTopupSumInsuredOptions(UUID organizationId, ProductType productType) {
