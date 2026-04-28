@@ -4,6 +4,7 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.UUID;
+import java.math.BigDecimal;
 
 import lombok.AllArgsConstructor;
 import lombok.Data;
@@ -28,6 +29,7 @@ public class OrganizationEmployeeDto {
     private String designation;
     private String department;
     private String maritalStatus;
+    private BigDecimal ctc;
     private LocalDate dateOfJoining;
     private String status; // AccountStatus as string
     private LocalDate dateOfBirth;

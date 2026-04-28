@@ -5,6 +5,7 @@ import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
+import java.math.BigDecimal;
 
 import org.hibernate.annotations.JdbcTypeCode;
 import org.hibernate.type.SqlTypes;
@@ -185,6 +186,9 @@ public class Deals {
 
     @Column(name = "sum_insured")
     private String sumInsured;
+
+    @Column(name = "ctc", precision = 15, scale = 2)
+    private BigDecimal ctc;
 
     @Column(name = "endorsement_id")
     private UUID endorsementId;

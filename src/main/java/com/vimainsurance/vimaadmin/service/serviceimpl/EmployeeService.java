@@ -62,6 +62,7 @@ import org.springframework.web.multipart.MultipartFile;
 import com.vimainsurance.vimaadmin.entity.DealEndorsement;
 import com.vimainsurance.vimaadmin.entity.Document;
 import com.vimainsurance.vimaadmin.enums.DocumentEntityType;
+import com.vimainsurance.vimaadmin.enums.CoverageType;
 import com.vimainsurance.vimaadmin.enums.PolicyStatus;
 import com.vimainsurance.vimaadmin.enums.ProductType;
 import com.vimainsurance.vimaadmin.service.IEmployeePolicyMapService;
@@ -163,7 +164,7 @@ public class EmployeeService {
             }
             String memberType = "dependent";
             String relNorm = rel == null ? "" : rel.trim().toLowerCase().replace('_', ' ');
-            if ("Self".equalsIgnoreCase(rel)) {
+            if (EmployeeToDeals.isPrimaryMemberRelationship(rel)) {
                 memberType = "EMPLOYEE";
             } else if ("father".equals(relNorm) || "mother".equals(relNorm)) {
                 memberType = "parent";
@@ -220,7 +221,7 @@ public class EmployeeService {
             // Validate optional cover SI values the same way upload does.
             // (Reuses validateEmployee list-level checks by creating a fake Organization context would be heavy; do minimal here.)
             EmployeeUploadDto self = request.getEmployees().stream()
-                    .filter(e -> e != null && e.getRelationship() != null && "Self".equalsIgnoreCase(e.getRelationship()))
+                    .filter(e -> e != null && EmployeeToDeals.isPrimaryMemberRelationship(e.getRelationship()))
                     .findFirst().orElse(null);
             if (self == null) {
                 return responseObj.render(responseObj.formErrorResponse(400, "Self row is required for premium preview"));
@@ -290,6 +291,8 @@ public class EmployeeService {
                 if ("SUPER_TOP_UP".equals(upper) && (self.getSuperTopupSumInsured() == null || self.getSuperTopupSumInsured().trim().isEmpty())) continue;
 
                 String coverageTier = "INDIVIDUAL";
+                boolean isEscpBaseHealth = ("GMC".equals(upper) || "GHI".equals(upper))
+                        && p.getCoverageType() == CoverageType.ESCP;
                 List<IPremiumCalculationService.MemberInfo> membersForParentOnly = members.stream()
                         .filter(m -> {
                             String mt = m.memberType() != null ? m.memberType().toLowerCase() : "";
@@ -304,7 +307,7 @@ public class EmployeeService {
                 } else if ("PARENT_GMC".equals(upper)) {
                     coveredMembers = membersForParentOnly;
                 } else if ("GMC".equals(upper) || "GHI".equals(upper)) {
-                    coveredMembers = membersForGmcFloater;
+                    coveredMembers = isEscpBaseHealth ? membersForBase : membersForGmcFloater;
                 } else if ("GPA".equals(upper) || "GTL".equals(upper)) {
                     coveredMembers = membersEmployeeOnly;
                 } else {
@@ -312,26 +315,22 @@ public class EmployeeService {
                 }
                 if (coveredMembers == null || coveredMembers.isEmpty()) continue;
 
+                // Determine age reference date for banded rate matching: align with Athena (policy start).
+                LocalDate ageRefDate = p.getStartDate() != null
+                        ? p.getStartDate()
+                        : (p.getEffectiveFrom() != null
+                                ? p.getEffectiveFrom()
+                                : (p.getRenewalDate() != null ? p.getRenewalDate() : LocalDate.now()));
+
                 // Compute plan premium
                 IPremiumCalculationService.PlanPremiumBreakdown b = premiumCalculationService.calculatePlanPremium(
-                        companyId, planType, coverageTier, sumInsured, coveredMembers);
+                        companyId, planType, coverageTier, sumInsured, coveredMembers, ageRefDate);
 
                 java.math.BigDecimal planPremium = b.premium() != null ? b.premium() : java.math.BigDecimal.ZERO;
                 java.math.BigDecimal gst = b.gstAmount() != null ? b.gstAmount() : java.math.BigDecimal.ZERO;
 
                 // Apply cost sharing
-                String coverageCategory = "FAMILY";
-                if ("PARENT_GMC".equals(upper)) {
-                    boolean hasParent = coveredMembers.stream().anyMatch(m -> "parent".equalsIgnoreCase(m.memberType()));
-                    boolean hasInLaw = coveredMembers.stream().anyMatch(m -> "parent_in_law".equalsIgnoreCase(m.memberType()));
-                    if (hasParent && !hasInLaw) {
-                        coverageCategory = "PARENT";
-                    } else if (!hasParent && hasInLaw) {
-                        coverageCategory = "PARENT_IN_LAW";
-                    } else {
-                        coverageCategory = "PARENT";
-                    }
-                }
+                String coverageCategory = resolveCoverageCategoryForCostSharing(coveredMembers);
                 String costSharingPlanType =
                         ("PARENT_GMC".equals(upper) || "GMC_PARENT".equals(upper)) ? "GMC" : planType;
                 CostShareSplit split = costSharingRuleService.applyCostSharing(
@@ -413,6 +412,20 @@ public class EmployeeService {
         return value.stripTrailingZeros().toPlainString();
     }
 
+    private static String resolveCoverageCategoryForCostSharing(List<IPremiumCalculationService.MemberInfo> members) {
+        if (members == null || members.size() <= 1) return "SELF";
+        boolean hasParent = false;
+        boolean hasParentInLaw = false;
+        for (IPremiumCalculationService.MemberInfo m : members) {
+            String t = m.memberType();
+            if ("parent".equalsIgnoreCase(t)) hasParent = true;
+            if ("parent_in_law".equalsIgnoreCase(t)) hasParentInLaw = true;
+        }
+        if (hasParent) return "PARENT";
+        if (hasParentInLaw) return "PARENT_IN_LAW";
+        return "FAMILY";
+    }
+
     private List<java.math.BigDecimal> getTopupSumInsuredOptions(UUID organizationId, ProductType productType) {
         if (organizationId == null || productType == null) return List.of();
         List<com.vimainsurance.vimaadmin.entity.Policy> policies =
@@ -428,6 +441,11 @@ public class EmployeeService {
 
 
     public EmployeeUploadResponse validateEmployee(List<EmployeeUploadDto> employeeUploadDtoList, Organization organization) {
+        employeeUploadDtoList = withoutBlankEmployeeIdRows(employeeUploadDtoList);
+        if (employeeUploadDtoList == null || employeeUploadDtoList.isEmpty()) {
+            return buildValidationFailureResponse(null,
+                List.of("All rows were empty. Provide at least one row with a non-blank employee ID, or remove trailing empty lines from the file."));
+        }
         normalizeEmployeeUploadMobilePlaceholders(employeeUploadDtoList);
         List<String> errors = new ArrayList<>();
         Map<String, List<EmployeeUploadDto>> groupedEmployeeByEmployeeId = groupByEmployeeId(employeeUploadDtoList);
@@ -438,7 +456,7 @@ public class EmployeeService {
 
             //validate counts: 1 Self, 1 Spouse, 1 Father, 1 Mother, 1 Father in law, 1 Mother in law, max 4 Children
             long selfCount = employeeUploadDtoListByEmployeeId.stream()
-                .filter(e -> "Self".equalsIgnoreCase(e.getRelationship()))
+                .filter(e -> e != null && EmployeeToDeals.isPrimaryMemberRelationship(e.getRelationship()))
                 .count();
             long spouseCount = employeeUploadDtoListByEmployeeId.stream()
                 .filter(e -> "Spouse".equalsIgnoreCase(e.getRelationship()))
@@ -520,7 +538,7 @@ public class EmployeeService {
 
             // Optional covers (Top-Up / Super Top-Up): validate SI on Self row only and against configured options
             EmployeeUploadDto selfDtoForCovers = employeeUploadDtoListByEmployeeId.stream()
-                    .filter(e -> e != null && e.getRelationship() != null && "Self".equalsIgnoreCase(e.getRelationship()))
+                    .filter(e -> e != null && EmployeeToDeals.isPrimaryMemberRelationship(e.getRelationship()))
                     .findFirst()
                     .orElse(null);
             if (selfDtoForCovers != null && organization != null && organization.getOrganizationId() != null) {
@@ -592,7 +610,7 @@ public class EmployeeService {
                 }
                 
                 // Validate Self relationship with bean validation
-                if ("Self".equalsIgnoreCase(relationship)) {
+                if (EmployeeToDeals.isPrimaryMemberRelationship(relationship)) {
                     Set<ConstraintViolation<EmployeeUploadDto>> violations = validator.validate(employeeUploadDto);
                     if (!violations.isEmpty()) {
                         errors.add("employeeId: " + employeeId + " - " + violations.stream().map(ConstraintViolation::getMessage).collect(Collectors.joining(", ")));
@@ -611,7 +629,10 @@ public class EmployeeService {
                     } else {
                         // Validate age only if index is valid
                     try {
-                        LocalDate dateOfBirth = LocalDate.parse(employeeUploadDto.getDateOfBirth());
+                        LocalDate dateOfBirth = parseDobToLocalDateForValidation(employeeUploadDto.getDateOfBirth());
+                        if (dateOfBirth == null) {
+                            errors.add("employeeId: " + employeeId + " - Invalid or unparsable date of birth. Use YYYY-MM-DD, DD/MM/YYYY, or DD/MM/YY.");
+                        } else {
                         int age = LocalDate.now().getYear() - dateOfBirth.getYear();
                         
                         // Adjust age if birthday hasn't occurred this year
@@ -624,6 +645,7 @@ public class EmployeeService {
                         if (age >= 25) {
                             errors.add("employeeId: " + employeeId + " - Child age must be less than 25 years old");
                         }
+                        }
                     } catch (Exception e) {
                         errors.add("employeeId: " + employeeId + " - Invalid date of birth format: " + employeeUploadDto.getDateOfBirth());
                     }
@@ -631,19 +653,19 @@ public class EmployeeService {
                 }
                 else if ("Spouse".equalsIgnoreCase(relationship) || 
                         (relationship.toUpperCase().startsWith("SPOUSE"))) {
-                            LocalDate dateOfBirth = LocalDate.parse(employeeUploadDto.getDateOfBirth());
-                            int age = LocalDate.now().getYear() - dateOfBirth.getYear();
-                            
-                            // Adjust age if birthday hasn't occurred this year
-                            LocalDate now = LocalDate.now();
-                            if (dateOfBirth.plusYears(age).isAfter(now)) {
-                                age--;
-                            }
-                            
-                            // Spouse age should be greater than 18 (i.e., must be greater than 18)
-                            if (age < 18) {
-                                errors.add("employeeId: " + employeeId + " - Spouse age must be greater than 18 years old");
-                            }
+                    LocalDate dateOfBirth = parseDobToLocalDateForValidation(employeeUploadDto.getDateOfBirth());
+                    if (dateOfBirth == null) {
+                        errors.add("employeeId: " + employeeId + " - Invalid or unparsable date of birth. Use YYYY-MM-DD, DD/MM/YYYY, or DD/MM/YY.");
+                    } else {
+                        int age = LocalDate.now().getYear() - dateOfBirth.getYear();
+                        LocalDate now = LocalDate.now();
+                        if (dateOfBirth.plusYears(age).isAfter(now)) {
+                            age--;
+                        }
+                        if (age < 18) {
+                            errors.add("employeeId: " + employeeId + " - Spouse age must be greater than 18 years old");
+                        }
+                    }
                 }
                 else if ("Father".equalsIgnoreCase(relationship) ||
                         relationship.toUpperCase().startsWith("FATHER") ||
@@ -651,19 +673,19 @@ public class EmployeeService {
                         "Mother".equalsIgnoreCase(relationship) ||
                         relationship.toUpperCase().startsWith("MOTHER") ||
                         isMotherInLawRelationship(relationship)) {
-                            LocalDate dateOfBirth = LocalDate.parse(employeeUploadDto.getDateOfBirth());
-                            int age = LocalDate.now().getYear() - dateOfBirth.getYear();
-                            
-                            // Adjust age if birthday hasn't occurred this year
-                            LocalDate now = LocalDate.now();
-                            if (dateOfBirth.plusYears(age).isAfter(now)) {
-                                age--;
-                            }
-                            
-                            // Father/Mother/Father in law/Mother in law age should be less than 70 (i.e., must be less than 70)
-                            if (age > 100) {
-                                errors.add("employeeId: " + employeeId + " - Father/Mother/Father in law/Mother in law age must be less than 100 years old");
+                    LocalDate dateOfBirth = parseDobToLocalDateForValidation(employeeUploadDto.getDateOfBirth());
+                    if (dateOfBirth == null) {
+                        errors.add("employeeId: " + employeeId + " - Invalid or unparsable date of birth. Use YYYY-MM-DD, DD/MM/YYYY, or DD/MM/YY.");
+                    } else {
+                        int age = LocalDate.now().getYear() - dateOfBirth.getYear();
+                        LocalDate now = LocalDate.now();
+                        if (dateOfBirth.plusYears(age).isAfter(now)) {
+                            age--;
                         }
+                        if (age > 100) {
+                            errors.add("employeeId: " + employeeId + " - Father/Mother/Father in law/Mother in law age must be less than 100 years old");
+                        }
+                    }
                 }
             }
         }
@@ -677,7 +699,7 @@ public class EmployeeService {
         //     }
         //     if (existingEmployeeIds.size() < getEmployeeIds(employeeUploadDtoList).size()) {
                 List<String> phonesToCheck = employeeUploadDtoList.stream()
-                    .filter(e -> "Self".equalsIgnoreCase(e.getRelationship()))
+                    .filter(e -> e != null && EmployeeToDeals.isPrimaryMemberRelationship(e.getRelationship()))
                     .map(EmployeeUploadDto::getMobile)
                     .filter(Objects::nonNull)
                     .filter(phone -> !phone.trim().isEmpty())
@@ -709,6 +731,28 @@ public class EmployeeService {
         response.setMessage(errors.isEmpty() ? "No Validation errors!" : "Validation errors");
 
         return response;
+    }
+
+    /**
+     * Drops null rows and rows with blank/whitespace employeeId (trailing empty CSV lines, etc.).
+     * They are not validated as a separate error — user asked not to treat them as data rows.
+     */
+    private List<EmployeeUploadDto> withoutBlankEmployeeIdRows(List<EmployeeUploadDto> in) {
+        if (in == null || in.isEmpty()) {
+            return in == null ? List.of() : in;
+        }
+        List<EmployeeUploadDto> out = new ArrayList<>();
+        for (EmployeeUploadDto d : in) {
+            if (d == null) {
+                continue;
+            }
+            if (d.getEmployeeId() == null || d.getEmployeeId().isBlank()) {
+                log.debug("Skipping row with no employeeId (treated as empty line)");
+                continue;
+            }
+            out.add(d);
+        }
+        return out;
     }
 
     /**
@@ -792,11 +836,43 @@ public class EmployeeService {
     }
 
 
-    
+    /**
+     * Corporate roster upload is not enrollment-window-driven. Managed {@link Deals} loaded earlier in
+     * this transaction can still sit in the persistence context with a broken {@code enrollmentWindow}
+     * proxy ({@code ENTITY_INSTANCE_WITH_NULL_ID} on flush). Always clear these associations on the
+     * given row (and optionally on other loaded rows — see callers).
+     */
+    private void stripEnrollmentAssociations(Deals d) {
+        if (d == null) {
+            return;
+        }
+        d.setEnrollmentWindow(null);
+        d.setEnrollmentSubmission(null);
+    }
+
+    /**
+     * Use a reference stub for an already-persisted primary so dependents do not hold a fully-managed
+     * primary graph (which can drag invalid enrollment proxies into flush).
+     */
+    private Deals primaryIndividualRefForBulkSave(Deals primaryEmployee) {
+        if (primaryEmployee == null) {
+            return null;
+        }
+        if (primaryEmployee.getIndividualId() != null) {
+            return dealsRepository.getReferenceById(primaryEmployee.getIndividualId());
+        }
+        return primaryEmployee;
+    }
+
     @AuditedOperation(schemaName = "cpc", tableName = "customers", entityType = "EMPLOYEE_UPLOAD", action = "BULK_UPLOAD")
     @Transactional(rollbackFor = Exception.class)
     public EmployeeUploadResponse uploadEmployees(List<EmployeeUploadDto> employeeUploadDtoList, Organization organization, AdminUser adminUser, MultipartFile file, String uploadType, List<Long> policyIds) {
         try {
+          employeeUploadDtoList = withoutBlankEmployeeIdRows(employeeUploadDtoList);
+          if (employeeUploadDtoList == null || employeeUploadDtoList.isEmpty()) {
+            return buildValidationFailureResponse(employeeUploadDtoList,
+                List.of("All rows were empty. Provide at least one row with a non-blank employee ID, or remove trailing empty lines from the file."));
+          }
           Endorsement endorsement = new Endorsement();
           endorsement.setOrganization(organization);
           endorsement.setStatus(AccountStatus.PENDING_APPROVAL);
@@ -828,6 +904,9 @@ public class EmployeeService {
           List<String> allEmployeeIds = new ArrayList<>(groupedByEmployeeId.keySet());
           List<Deals> existingPrimaries = this.dealsRepository.findByEmployeeNumberInAndOrganizationIdAndRelationship(allEmployeeIds, organization
               .getOrganizationId(), NomineeRelationship.SELF.getValue());
+          for (Deals loaded : existingPrimaries) {
+              stripEnrollmentAssociations(loaded);
+          }
           Map<String, Deals> primaryEmployeeMap = (Map<String, Deals>)existingPrimaries.stream().collect(Collectors.toMap(Deals::getEmployeeNumber, d -> d, (d1, d2) -> d1));
           List<String> phonesToCheckBulk = new ArrayList<>();
           List<String> emailsToCheckBulk = new ArrayList<>();
@@ -836,7 +915,7 @@ public class EmployeeService {
           for (Map.Entry<String, List<EmployeeUploadDto>> entry : groupedByEmployeeId.entrySet()) {
             String employeeId = entry.getKey();
             List<EmployeeUploadDto> employeeGroup = entry.getValue();
-            EmployeeUploadDto selfDto = employeeGroup.stream().filter(e -> "Self".equalsIgnoreCase(e.getRelationship())).findFirst().orElse(null);
+            EmployeeUploadDto selfDto = employeeGroup.stream().filter(e -> EmployeeToDeals.isPrimaryMemberRelationship(e.getRelationship())).findFirst().orElse(null);
             if (selfDto != null && !primaryEmployeeMap.containsKey(employeeId)) {
               String phone = (selfDto.getMobile() != null && !selfDto.getMobile().trim().isEmpty()) ? selfDto.getMobile().trim() : null;
               String email = (selfDto.getEmail() != null && !selfDto.getEmail().trim().isEmpty()) ? selfDto.getEmail().trim() : null;
@@ -861,13 +940,14 @@ public class EmployeeService {
             String employeeId = entry.getKey();
             List<EmployeeUploadDto> employeeGroup = entry.getValue();
             Deals primaryEmployee = null;
-            EmployeeUploadDto selfDto = employeeGroup.stream().filter(e -> "Self".equalsIgnoreCase(e.getRelationship())).findFirst().orElse(null);
+            EmployeeUploadDto selfDto = employeeGroup.stream().filter(e -> EmployeeToDeals.isPrimaryMemberRelationship(e.getRelationship())).findFirst().orElse(null);
             if (selfDto != null) {
               Deals existingPrimary = primaryEmployeeMap.get(employeeId);
               Deals existingPrimaryFromDb = null;
               Optional<Deals> existingPrimaryOptional = dealsRepository.findByEmployeeNumberAndOrganizationIdAndRelationship(employeeId, organization.getOrganizationId(), NomineeRelationship.SELF.getValue());
               if(existingPrimaryOptional.isPresent()) {
                 existingPrimaryFromDb = existingPrimaryOptional.get();
+                stripEnrollmentAssociations(existingPrimaryFromDb);
                 if(existingPrimaryFromDb.getStatus().equals(AccountStatus.PENDING_EXIT) || existingPrimaryFromDb.getStatus().equals(AccountStatus.LEAVING)) {
                     validateResponse.getErrors().add("employeeId: " + employeeId + " - Employee is currently in leaving or pending exit status.");
                     validateResponse.setMessage("Validation errors!!");
@@ -875,17 +955,28 @@ public class EmployeeService {
                 }
               }
               if (existingPrimary != null || existingPrimaryFromDb != null) {
+                Deals dbSource = existingPrimaryFromDb != null ? existingPrimaryFromDb : existingPrimary;
+                if (dbSource == null) {
+                    validateResponse.getErrors().add("employeeId: " + employeeId + " - Could not load existing primary for update.");
+                    validateResponse.setMessage("Validation errors!!");
+                    return validateResponse;
+                }
                 primaryEmployee = new Deals();
                 EmployeeToDeals.updateDealFromDto(primaryEmployee, selfDto, organization);
-                primaryEmployee.setIndividualId(existingPrimaryFromDb.getIndividualId());
-                primaryEmployee.setCreatedAt(existingPrimaryFromDb.getCreatedAt());
-                primaryEmployee.setUpdatedAt(existingPrimaryFromDb.getUpdatedAt());
-                primaryEmployee.setEndorsementId(existingPrimaryFromDb.getEndorsementId());
-                primaryEmployee.setPrimaryIndividual(existingPrimaryFromDb.getPrimaryIndividual());
-                primaryEmployee.setRelationship(existingPrimaryFromDb.getRelationship());
-                primaryEmployee.setStatus(existingPrimaryFromDb.getStatus());
-                primaryEmployee.setEndorsementId(existingPrimaryFromDb.getEndorsementId());
-                Diff diff = javers.compare(existingPrimaryFromDb, primaryEmployee);
+                primaryEmployee.setIndividualId(dbSource.getIndividualId());
+                primaryEmployee.setCreatedAt(dbSource.getCreatedAt());
+                primaryEmployee.setUpdatedAt(dbSource.getUpdatedAt());
+                primaryEmployee.setEndorsementId(dbSource.getEndorsementId());
+                Deals pi = dbSource.getPrimaryIndividual();
+                if (pi != null && pi.getIndividualId() != null) {
+                    primaryEmployee.setPrimaryIndividual(dealsRepository.getReferenceById(pi.getIndividualId()));
+                } else {
+                    primaryEmployee.setPrimaryIndividual(null);
+                }
+                primaryEmployee.setRelationship(dbSource.getRelationship());
+                primaryEmployee.setStatus(dbSource.getStatus());
+                primaryEmployee.setEndorsementId(dbSource.getEndorsementId());
+                Diff diff = javers.compare(dbSource, primaryEmployee);
                 if(diff.hasChanges()) {
                 primaryEmployee.setRelationship(mapRelationshipToNomineeRelationship("Self", 0));
                 primaryEmployee.setStatus(AccountStatus.PENDING_APPROVAL);
@@ -952,6 +1043,9 @@ public class EmployeeService {
           Map<UUID, List<Deals>> dependentsByPrimaryId = new HashMap<>();
           if (!primaryIndividualIds.isEmpty()) {
             List<Deals> allExistingDependents = this.dealsRepository.findByPrimaryIndividualIdIn(primaryIndividualIds);
+            for (Deals loaded : allExistingDependents) {
+                stripEnrollmentAssociations(loaded);
+            }
             dependentsByPrimaryId = (Map<UUID, List<Deals>>)allExistingDependents.stream().filter(d -> (d.getPrimaryIndividual() != null && d.getPrimaryIndividual().getIndividualId() != null)).collect(Collectors.groupingBy(d -> d.getPrimaryIndividual().getIndividualId()));
           } 
           for (Map.Entry<String, List<EmployeeUploadDto>> entry : groupedByEmployeeId.entrySet()) {
@@ -967,7 +1061,7 @@ public class EmployeeService {
                     
                     Collectors.toList()));
               for (EmployeeUploadDto dependentDto : employeeGroup) {
-                if (!"Self".equalsIgnoreCase(dependentDto.getRelationship())) {
+                if (!EmployeeToDeals.isPrimaryMemberRelationship(dependentDto.getRelationship())) {
                   String mappedRelationship, inputRelationship = dependentDto.getRelationship();
                   Deals existingDependent = null;
                   if (inputRelationship != null && inputRelationship.toUpperCase().startsWith("CHILD")) {
@@ -1026,7 +1120,7 @@ public class EmployeeService {
                     EmployeeToDeals.updateDealFromDto(existingDependentToCompare, dependentDto, organization);
                     existingDependentToCompare.setIndividualId(existingDependent.getIndividualId());
                     existingDependentToCompare.setCreatedAt(existingDependent.getCreatedAt());
-                    existingDependentToCompare.setPrimaryIndividual(existingDependent.getPrimaryIndividual());
+                    existingDependentToCompare.setPrimaryIndividual(primaryIndividualRefForBulkSave(existingDependent.getPrimaryIndividual()));
                     existingDependentToCompare.setRelationship(existingDependent.getRelationship());
                     existingDependentToCompare.setStatus(existingDependent.getStatus());
                     existingDependentToCompare.setUpdatedAt(existingDependent.getUpdatedAt());
@@ -1036,7 +1130,7 @@ public class EmployeeService {
                     if(diff.hasChanges()) {
                     log.info("Differences found in existing dependent: {}", diff.prettyPrint());
                     existingDependentToCompare.setRelationship(mappedRelationship);
-                    existingDependentToCompare.setPrimaryIndividual(primaryEmployee);
+                    existingDependentToCompare.setPrimaryIndividual(primaryIndividualRefForBulkSave(primaryEmployee));
                     existingDependentToCompare.setUpdatedAt(LocalDateTime.now());
                     existingDependentToCompare.setStatus(AccountStatus.PENDING_APPROVAL);
                     dealsToSave.add(existingDependentToCompare);
@@ -1047,7 +1141,7 @@ public class EmployeeService {
                   Deals newDependent = EmployeeToDeals.mapToDeals(dependentDto, organization);
                   newDependent.setEmployeeNumber(employeeId);
                   newDependent.setRelationship(mappedRelationship);
-                  newDependent.setPrimaryIndividual(primaryEmployee);
+                  newDependent.setPrimaryIndividual(primaryIndividualRefForBulkSave(primaryEmployee));
                   newDependent.setCreatedAt(LocalDateTime.now());
                   newDependent.setUpdatedAt(LocalDateTime.now());
                   newDependent.setStatus(AccountStatus.PENDING_APPROVAL);
@@ -1071,6 +1165,9 @@ public class EmployeeService {
           for (i = 0; i < dealsToSave.size(); i += batchSize) {
             int end = Math.min(i + batchSize, dealsToSave.size());
             List<Deals> batch = dealsToSave.subList(i, end);
+            for (Deals d : batch) {
+              stripEnrollmentAssociations(d);
+            }
             List<Deals> savedDeals = this.dealsRepository.saveAll(batch);
             totalSaved += savedDeals.size();
             allSavedDeals.addAll(savedDeals);
@@ -1179,11 +1276,22 @@ public class EmployeeService {
 
     
     public Long selfCount(List<EmployeeUploadDto> employeeUploadDtoList) {
-        return employeeUploadDtoList.stream().filter(e ->  e.getRelationship().equalsIgnoreCase("Self")).count();
+        if (employeeUploadDtoList == null) {
+            return 0L;
+        }
+        return employeeUploadDtoList.stream()
+            .filter(e -> e != null && EmployeeToDeals.isPrimaryMemberRelationship(e.getRelationship()))
+            .count();
     }
 
     public Long dependentCount(List<EmployeeUploadDto> employeeUploadDtoList) {
-        return employeeUploadDtoList.stream().filter(e -> !e.getRelationship().equalsIgnoreCase("Self")).count();
+        if (employeeUploadDtoList == null) {
+            return 0L;
+        }
+        return employeeUploadDtoList.stream()
+            .filter(e -> e != null && e.getRelationship() != null
+                && !EmployeeToDeals.isPrimaryMemberRelationship(e.getRelationship()))
+            .count();
     }
 
 
@@ -1535,6 +1643,16 @@ public class EmployeeService {
     }
     
     /**
+     * Parses date of birth for age validation. Blank returns null. Supports ISO and DD/MM/YY(YY) (same as bulk upload / CSV).
+     */
+    private static LocalDate parseDobToLocalDateForValidation(String dateStr) {
+        if (dateStr == null || dateStr.trim().isEmpty()) {
+            return null;
+        }
+        return EmployeeToDeals.parseDate(dateStr.trim());
+    }
+
+    /**
      * Validates if the relationship is one of the allowed values
      * Allowed: Self, Spouse, Father, Mother, Father in law, Mother in law, Child1, Child2, Child3, Child4
      */
@@ -1550,7 +1668,7 @@ public class EmployeeService {
         }
         
         // Check for allowed relationships
-        if ("Self".equalsIgnoreCase(rel)) {
+        if ("Self".equalsIgnoreCase(rel) || "Employee".equalsIgnoreCase(rel) || "EMPLOYEE".equals(rel)) {
             return true;
         } else if ("Spouse".equalsIgnoreCase(rel)) {
             return true;
@@ -1627,7 +1745,7 @@ public class EmployeeService {
         Map<String, EmployeeUploadDto> selfByEmployeeNumber = new HashMap<>();
         groupedByEmployeeId.forEach((employeeId, rows) -> {
             EmployeeUploadDto self = rows.stream()
-                    .filter(r -> r != null && r.getRelationship() != null && "Self".equalsIgnoreCase(r.getRelationship()))
+                    .filter(r -> r != null && EmployeeToDeals.isPrimaryMemberRelationship(r.getRelationship()))
                     .findFirst()
                     .orElse(null);
             if (self != null) {
