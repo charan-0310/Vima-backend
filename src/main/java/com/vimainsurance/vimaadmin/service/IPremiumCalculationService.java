@@ -27,6 +27,7 @@ public interface IPremiumCalculationService {
 
     /**
      * Calculate plan premium for given coverage and members. Uses cache for rate tables.
+     * Member ages are evaluated as of today.
      */
     PlanPremiumBreakdown calculatePlanPremium(
             java.util.UUID companyId,
@@ -34,6 +35,19 @@ public interface IPremiumCalculationService {
             String coverageTier,
             BigDecimal sumInsured,
             List<MemberInfo> coveredMembers);
+
+    /**
+     * Calculate plan premium for given coverage and members.
+     * Member ages are evaluated as of {@code ageReferenceDate} (typically the policy start date).
+     * If {@code ageReferenceDate} is null, today's date is used.
+     */
+    PlanPremiumBreakdown calculatePlanPremium(
+            java.util.UUID companyId,
+            String planType,
+            String coverageTier,
+            BigDecimal sumInsured,
+            List<MemberInfo> coveredMembers,
+            java.time.LocalDate ageReferenceDate);
 
     /**
      * Calculate full enrollment premium from context (token-derived), plan selections and dependents.

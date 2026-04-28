@@ -119,6 +119,12 @@ public class PremiumCalculationServiceImpl implements IPremiumCalculationService
     @Override
     public PlanPremiumBreakdown calculatePlanPremium(UUID companyId, String planType, String coverageTier,
             BigDecimal sumInsured, List<MemberInfo> coveredMembers) {
+        return calculatePlanPremium(companyId, planType, coverageTier, sumInsured, coveredMembers, null);
+    }
+
+    @Override
+    public PlanPremiumBreakdown calculatePlanPremium(UUID companyId, String planType, String coverageTier,
+            BigDecimal sumInsured, List<MemberInfo> coveredMembers, LocalDate ageReferenceDate) {
         List<PremiumRateTable> rates = cacheService.getRatesForCompany(companyId);
         List<PremiumRateTable> forPlan = rates.stream()
                 .filter(r -> planTypeMatchesRateProductType(planType, r.getProductType()))
@@ -188,11 +194,12 @@ public class PremiumCalculationServiceImpl implements IPremiumCalculationService
             }
         } else if (model == PricingModel.AGE_BANDED) {
             for (MemberInfo m : coveredMembers) {
+                final int memberAge = ageAt(m.dateOfBirth(), ageReferenceDate, m.age());
                 PremiumRateTable row = forPlan.stream()
-                        .filter(r -> r.getAgeBandMin() != null && r.getAgeBandMin() <= m.age())
-                        .filter(r -> r.getAgeBandMax() == null || r.getAgeBandMax() >= m.age())
+                        .filter(r -> r.getAgeBandMin() != null && r.getAgeBandMin() <= memberAge)
+                        .filter(r -> r.getAgeBandMax() == null || r.getAgeBandMax() >= memberAge)
                         .findFirst()
-                        .orElseThrow(() -> new IllegalArgumentException("No rate for age " + m.age() + ", plan " + planType));
+                        .orElseThrow(() -> new IllegalArgumentException("No rate for age " + memberAge + ", plan " + planType));
                 totalPremium = totalPremium.add(row.getRate());
                 if (matchedAgeBand == null && row.getAgeBandMin() != null) {
                     matchedAgeBand = row.getAgeBandMin() + "-" + (row.getAgeBandMax() != null ? row.getAgeBandMax() : "");
@@ -219,11 +226,13 @@ public class PremiumCalculationServiceImpl implements IPremiumCalculationService
                 gstAmount = totalPremium.multiply(gstPct).movePointLeft(2).setScale(2, RoundingMode.HALF_UP);
             }
         }
+        totalPremium = roundUpToFullRupee(totalPremium);
+        gstAmount = roundUpToFullRupee(gstAmount);
         BigDecimal employerShare = totalPremium.multiply(BigDecimal.valueOf(70)).movePointLeft(2).setScale(2, RoundingMode.HALF_UP);
         BigDecimal employeeShare = totalPremium.subtract(employerShare).setScale(2, RoundingMode.HALF_UP);
         return new PlanPremiumBreakdown(
                 planType,
-                totalPremium.setScale(2, RoundingMode.HALF_UP),
+                totalPremium,
                 employerShare,
                 employeeShare,
                 gstAmount,
@@ -264,6 +273,7 @@ public class PremiumCalculationServiceImpl implements IPremiumCalculationService
                     .filter(m -> planTypeMatchesRateProductType(selPlanType, m.getProductType()))
                     .findFirst()
                     .orElse(null);
+            Policy matchedPolicy = null;
             if (mapping != null) {
                 if (sumInsured == null && mapping.getSumInsured() != null) {
                     sumInsured = mapping.getSumInsured();
@@ -271,8 +281,12 @@ public class PremiumCalculationServiceImpl implements IPremiumCalculationService
                 if (coverageTier == null && mapping.getCoverageTier() != null) {
                     coverageTier = mapping.getCoverageTier();
                 }
+                if (mapping.getPolicyId() != null) {
+                    matchedPolicy = policyRepository.findById(mapping.getPolicyId()).orElse(null);
+                }
             }
             if (sumInsured == null) sumInsured = BigDecimal.valueOf(500000);
+            LocalDate ageRefDate = resolveAgeReferenceDate(matchedPolicy);
 
             // PARENT_GMC: only parent/in-law. TOP_UP / SUPER_TOP_UP / GPA / GTL: employee only.
             // GMC / GHI: floater. For ESCP tier, parents are part of base GMC (not separate PARENT_GMC).
@@ -309,7 +323,7 @@ public class PremiumCalculationServiceImpl implements IPremiumCalculationService
                     Optional<BigDecimal> fixedOpt = resolveFixedTopupPremium(
                             sel.getTopupPlanOptionId(), context.getCompanyId(), sumInsured);
                     if (fixedOpt.isPresent()) {
-                        BigDecimal p = fixedOpt.get().setScale(2, RoundingMode.HALF_UP);
+                        BigDecimal p = roundUpToFullRupee(fixedOpt.get());
                         b = new PlanPremiumBreakdown(
                                 selPlanType,
                                 p,
@@ -328,7 +342,8 @@ public class PremiumCalculationServiceImpl implements IPremiumCalculationService
                             selPlanType,
                             coverageTier,
                             sumInsured,
-                            membersForPlan);
+                            membersForPlan,
+                            ageRefDate);
                 }
                 BigDecimal planTotalPremium = b.premium();
                 String coverageCategory = resolveCoverageCategoryForCostSharing(membersForPlan);
@@ -647,6 +662,43 @@ public class PremiumCalculationServiceImpl implements IPremiumCalculationService
 
     private static String nullSafeString(String value) {
         return value == null ? "" : value.trim().toUpperCase();
+    }
+
+    /** Always rounds positive monetary amounts up to the next full rupee. */
+    private static BigDecimal roundUpToFullRupee(BigDecimal amount) {
+        if (amount == null) return BigDecimal.ZERO;
+        return amount.setScale(0, RoundingMode.CEILING);
+    }
+
+    /**
+     * Computes a member's age as of {@code refDate}; falls back to {@code fallbackAge} when DOB or refDate is null.
+     * Used so age-banded matching aligns with the policy start date (Athena-style) instead of today.
+     */
+    private static int ageAt(LocalDate dob, LocalDate refDate, int fallbackAge) {
+        if (dob == null || refDate == null) {
+            return Math.max(0, fallbackAge);
+        }
+        return Math.max(0, Period.between(dob, refDate).getYears());
+    }
+
+    /**
+     * Resolves the date that should be used to compute member ages for premium banding.
+     * Prefers policy start date, then renewal date, then today.
+     */
+    private static LocalDate resolveAgeReferenceDate(Policy policy) {
+        if (policy == null) {
+            return TODAY;
+        }
+        if (policy.getStartDate() != null) {
+            return policy.getStartDate();
+        }
+        if (policy.getEffectiveFrom() != null) {
+            return policy.getEffectiveFrom();
+        }
+        if (policy.getRenewalDate() != null) {
+            return policy.getRenewalDate();
+        }
+        return TODAY;
     }
 
     private List<MemberInfo> buildMemberList(LocalDate employeeDob, List<PremiumCalculationRequestDto.DependentItemDto> dependents) {

@@ -315,9 +315,16 @@ public class EmployeeService {
                 }
                 if (coveredMembers == null || coveredMembers.isEmpty()) continue;
 
+                // Determine age reference date for banded rate matching: align with Athena (policy start).
+                LocalDate ageRefDate = p.getStartDate() != null
+                        ? p.getStartDate()
+                        : (p.getEffectiveFrom() != null
+                                ? p.getEffectiveFrom()
+                                : (p.getRenewalDate() != null ? p.getRenewalDate() : LocalDate.now()));
+
                 // Compute plan premium
                 IPremiumCalculationService.PlanPremiumBreakdown b = premiumCalculationService.calculatePlanPremium(
-                        companyId, planType, coverageTier, sumInsured, coveredMembers);
+                        companyId, planType, coverageTier, sumInsured, coveredMembers, ageRefDate);
 
                 java.math.BigDecimal planPremium = b.premium() != null ? b.premium() : java.math.BigDecimal.ZERO;
                 java.math.BigDecimal gst = b.gstAmount() != null ? b.gstAmount() : java.math.BigDecimal.ZERO;
