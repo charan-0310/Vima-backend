@@ -15,6 +15,8 @@ import com.vimainsurance.vimaadmin.dto.EmployeeUploadDto;
 import com.vimainsurance.vimaadmin.dto.DocumentRequestDto;
 import com.vimainsurance.vimaadmin.dto.DocumentResponseDto;
 import com.vimainsurance.vimaadmin.dto.OrganizationEmployeeDto;
+import com.vimainsurance.vimaadmin.dto.OrganizationBroadcastEmailRequestDto;
+import com.vimainsurance.vimaadmin.dto.OrganizationBroadcastEmailResponseDto;
 import com.vimainsurance.vimaadmin.dto.OrganizationRequestDto;
 import com.vimainsurance.vimaadmin.dto.OrganizationResponseDto;
 import com.vimainsurance.vimaadmin.dto.ResponseDto;
@@ -33,6 +35,7 @@ public interface IOrganizationService {
     ResponseEntity<ResponseDto<String>> deleteDocument(UUID organizationId, String documentId);
     ResponseEntity<ResponseDto<List<DocumentResponseDto>>> getDocuments(UUID organizationId);
     ResponseEntity<ResponseDto<List<OrganizationEmployeeDto>>> getEmployees(UUID organizationId);
+    ResponseEntity<ResponseDto<OrganizationBroadcastEmailResponseDto>> sendOrganizationBroadcastEmail(UUID organizationId, OrganizationBroadcastEmailRequestDto requestDto);
     ResponseEntity<ResponseDto<OrganizationEmployeeDto>> getEmployee(UUID individualId, UUID organizationId);
     ResponseEntity<ResponseDto<List<OrganizationEmployeeDto>>> getEmployeeDependents(UUID individualId, UUID organizationId);
     ResponseEntity<ResponseDto<EmployeeUploadResponse>> uploadDealsFromCsv(MultipartFile file, UUID organizationId);
