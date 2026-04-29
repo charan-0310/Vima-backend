@@ -61,6 +61,10 @@ public class EnrollmentSubmission {
      * Backed by Postgres named enum: cpc.endorsement_status_enum
      * Values: draft, submitted, approved, rejected, endorsed
      */
+    /**
+     * Backed by Postgres named enum: cpc.endorsement_status_enum
+     * Values: draft, submitted, approved, rejected, endorsed
+     */
     @Enumerated(EnumType.STRING)
     @JdbcTypeCode(SqlTypes.NAMED_ENUM)
     @Column(name = "status", nullable = false)
