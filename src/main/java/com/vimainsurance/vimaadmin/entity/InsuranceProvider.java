@@ -43,6 +43,12 @@ public class InsuranceProvider {
     @Column(name = "is_active")
     private Boolean isActive = true;
 
+    @Column(name = "network_hospitals_url", length = 500)
+    private String networkHospitalsUrl;
+
+    @Column(name = "blacklisted_hospitals_url", length = 500)
+    private String blacklistedHospitalsUrl;
+
     @CreationTimestamp
     @Column(name = "created_at", nullable = false, updatable = false)
     private LocalDateTime createdAt;
