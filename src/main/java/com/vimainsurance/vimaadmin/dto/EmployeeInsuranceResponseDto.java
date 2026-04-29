@@ -46,6 +46,8 @@ public class EmployeeInsuranceResponseDto {
     // TPA Details
     private String tpaOrganizationName;
     private String tpaContactInfo;
+    private String networkHospitalsUrl;
+    private String blacklistedHospitalsUrl;
 
     private String companyName;
 

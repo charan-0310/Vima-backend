@@ -745,6 +745,8 @@ public class PolicyServiceImpl implements IPolicyService {
                 .orElseThrow(() -> new RuntimeException("Insurance provider not found"));
         responseDto.setInsuranceProvider(insuranceProviderEntity.getProviderName());
         responseDto.setInsuranceProviderCode(insuranceProviderEntity.getProviderCode());
+        responseDto.setNetworkHospitalsUrl(insuranceProviderEntity.getNetworkHospitalsUrl());
+        responseDto.setBlacklistedHospitalsUrl(insuranceProviderEntity.getBlacklistedHospitalsUrl());
         responseDto.setInsuranceProductId(policy.getInsuranceProductId());
         responseDto.setOrganizationId(policy.getOrganizationId());
         responseDto.setDocumentId(policy.getDocument() != null ? policy.getDocument().getDocumentId() : null);
