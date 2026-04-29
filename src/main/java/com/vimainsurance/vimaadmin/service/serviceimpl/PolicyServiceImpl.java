@@ -1,8 +1,11 @@
 package com.vimainsurance.vimaadmin.service.serviceimpl;
 
 import java.math.BigDecimal;
+import java.sql.Timestamp;
+import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
@@ -56,8 +59,10 @@ import com.vimainsurance.vimaadmin.enums.UserRole;
 import com.vimainsurance.vimaadmin.exception.BadRequestException;
 import com.vimainsurance.vimaadmin.repository.IAdminUserRepository;
 import com.vimainsurance.vimaadmin.repository.ICdAccountRepository;
+import com.vimainsurance.vimaadmin.repository.ICdBalanceTransactionRepository;
 import com.vimainsurance.vimaadmin.repository.IDealsRepository;
 import com.vimainsurance.vimaadmin.repository.IDocumentRepository;
+import com.vimainsurance.vimaadmin.repository.IEndorsementRepository;
 import com.vimainsurance.vimaadmin.repository.IInsuranceProviderRepository;
 import com.vimainsurance.vimaadmin.repository.ICostSharingRuleRepository;
 import com.vimainsurance.vimaadmin.repository.IMotorPolicyDetailsRepository;
@@ -123,6 +128,12 @@ public class PolicyServiceImpl implements IPolicyService {
 
     @Autowired
     private ICostSharingRuleRepository costSharingRuleRepository;
+
+    @Autowired
+    private IEndorsementRepository endorsementRepository;
+
+    @Autowired
+    private ICdBalanceTransactionRepository cdBalanceTransactionRepository;
 
     @Override
     @Transactional(rollbackFor = Exception.class)
@@ -540,9 +551,13 @@ public class PolicyServiceImpl implements IPolicyService {
             List<Policy> policies = policyRepository.findByOrganizationId(organizationId);
             Long employeesCount = dealsRepository.countByOrganizationIdAndRelationshipSelf(organizationId);
             Long dependentsCount = dealsRepository.countByOrganizationIdAndRelationshipNonSelf(organizationId);
+            Map<Long, PolicyPremiumSummary> policyPremiumSummaryMap = getPolicyPremiumSummary(organizationId, policies);
             List<PolicyResponseDto> responseDtos = policies.stream()
                 .map(policy -> {
-                    PolicyResponseDto responseDto = mapToResponseDto(policy);
+                    PolicyResponseDto responseDto = mapToResponseDto(
+                        policy,
+                        policyPremiumSummaryMap.get(policy.getPolicyId())
+                    );
                     responseDto.setEmployeesCount(employeesCount);
                     responseDto.setDependentsCount(dependentsCount);
                     return responseDto;
@@ -718,6 +733,10 @@ public class PolicyServiceImpl implements IPolicyService {
      * Map Policy entity to PolicyResponseDto
      */
     private PolicyResponseDto mapToResponseDto(Policy policy) {
+        return mapToResponseDto(policy, null);
+    }
+
+    private PolicyResponseDto mapToResponseDto(Policy policy, PolicyPremiumSummary premiumSummary) {
         PolicyResponseDto responseDto = new PolicyResponseDto();
         responseDto.setPolicyId(policy.getPolicyId());
         responseDto.setPolicyNumber(policy.getPolicyNumber());
@@ -744,6 +763,34 @@ public class PolicyServiceImpl implements IPolicyService {
         responseDto.setSumInsured(policy.getSumInsured());
         responseDto.setSumInsuredMultiplier(policy.getSumInsuredMultiplier());
         responseDto.setPremiumAmount(policy.getPremiumAmount());
+        BigDecimal inceptionPremium = policy.getPremiumAmount() != null ? policy.getPremiumAmount() : BigDecimal.ZERO;
+        BigDecimal endorsementPremium = premiumSummary != null && premiumSummary.endorsementPremium() != null
+            ? premiumSummary.endorsementPremium()
+            : BigDecimal.ZERO;
+        BigDecimal runningPremium = inceptionPremium.add(endorsementPremium);
+        responseDto.setInceptionPremium(inceptionPremium);
+        responseDto.setEndorsementPremium(endorsementPremium);
+        responseDto.setRunningPremium(runningPremium);
+        responseDto.setEndorsementCount(premiumSummary != null ? premiumSummary.endorsementCount() : 0);
+        responseDto.setPendingEndorsementCount(premiumSummary != null ? premiumSummary.pendingEndorsementCount() : 0);
+        if (inceptionPremium.compareTo(BigDecimal.ZERO) > 0) {
+            responseDto.setPremiumDeltaPercent(
+                endorsementPremium
+                    .multiply(BigDecimal.valueOf(100))
+                    .divide(inceptionPremium, 2, java.math.RoundingMode.HALF_UP)
+            );
+        } else {
+            responseDto.setPremiumDeltaPercent(BigDecimal.ZERO);
+        }
+        LocalDateTime asOfDateTime = policy.getUpdatedAt();
+        if (premiumSummary != null && premiumSummary.lastEndorsementUpdatedAt() != null) {
+            if (asOfDateTime == null || premiumSummary.lastEndorsementUpdatedAt().isAfter(asOfDateTime)) {
+                asOfDateTime = premiumSummary.lastEndorsementUpdatedAt();
+            }
+        }
+        if (asOfDateTime != null) {
+            responseDto.setPremiumAsOfDate(asOfDateTime.toLocalDate());
+        }
         responseDto.setStartDate(policy.getStartDate());
         responseDto.setEndDate(policy.getEndDate());
         responseDto.setRenewalDate(policy.getRenewalDate());
@@ -796,6 +843,124 @@ public class PolicyServiceImpl implements IPolicyService {
         
         return responseDto;
     }
+
+    private Map<Long, PolicyPremiumSummary> getPolicyPremiumSummary(UUID organizationId, List<Policy> policies) {
+        if (policies == null || policies.isEmpty()) {
+            return Map.of();
+        }
+        List<Long> policyIds = policies.stream()
+            .map(Policy::getPolicyId)
+            .filter(id -> id != null)
+            .distinct()
+            .toList();
+        if (policyIds.isEmpty()) {
+            return Map.of();
+        }
+        List<Object[]> endorsementRows = endorsementRepository.getPolicyPremiumSummaryByOrganizationAndPolicyIds(
+            organizationId,
+            policyIds
+        );
+        List<Object[]> ledgerRows = cdBalanceTransactionRepository.getEndorsementTransactionSummaryByOrganizationAndPolicyIds(
+            organizationId,
+            policyIds
+        );
+        Map<Long, PolicyPremiumSummary> result = new HashMap<>();
+        for (Object[] row : endorsementRows) {
+            if (row == null || row.length < 5 || row[0] == null) {
+                continue;
+            }
+            Long policyId = ((Number) row[0]).longValue();
+            int endorsementCount = row[2] != null ? ((Number) row[2]).intValue() : 0;
+            int pendingEndorsementCount = row[3] != null ? ((Number) row[3]).intValue() : 0;
+            LocalDateTime lastUpdatedAt = toLocalDateTime(row[4]);
+            result.put(
+                policyId,
+                new PolicyPremiumSummary(
+                    BigDecimal.ZERO,
+                    endorsementCount,
+                    pendingEndorsementCount,
+                    lastUpdatedAt
+                )
+            );
+        }
+
+        for (Object[] row : ledgerRows) {
+            if (row == null || row.length < 4 || row[0] == null) {
+                continue;
+            }
+            Long policyId = ((Number) row[0]).longValue();
+            BigDecimal totalEndorsementCredit = toBigDecimal(row[1]);
+            BigDecimal totalEndorsementDebit = toBigDecimal(row[2]);
+            BigDecimal endorsementPremium = totalEndorsementCredit.subtract(totalEndorsementDebit);
+            LocalDateTime ledgerUpdatedAt = toLocalDateTime(row[3]);
+
+            PolicyPremiumSummary existing = result.get(policyId);
+            if (existing == null) {
+                result.put(
+                    policyId,
+                    new PolicyPremiumSummary(endorsementPremium, 0, 0, ledgerUpdatedAt)
+                );
+                continue;
+            }
+            LocalDateTime mergedUpdatedAt = existing.lastEndorsementUpdatedAt();
+            if (ledgerUpdatedAt != null && (mergedUpdatedAt == null || ledgerUpdatedAt.isAfter(mergedUpdatedAt))) {
+                mergedUpdatedAt = ledgerUpdatedAt;
+            }
+            result.put(
+                policyId,
+                new PolicyPremiumSummary(
+                    endorsementPremium,
+                    existing.endorsementCount(),
+                    existing.pendingEndorsementCount(),
+                    mergedUpdatedAt
+                )
+            );
+        }
+        return result;
+    }
+
+    private BigDecimal toBigDecimal(Object value) {
+        if (value == null) {
+            return BigDecimal.ZERO;
+        }
+        if (value instanceof BigDecimal bigDecimal) {
+            return bigDecimal;
+        }
+        if (value instanceof Number number) {
+            return BigDecimal.valueOf(number.doubleValue());
+        }
+        try {
+            return new BigDecimal(String.valueOf(value));
+        } catch (NumberFormatException ex) {
+            return BigDecimal.ZERO;
+        }
+    }
+
+    private LocalDateTime toLocalDateTime(Object value) {
+        if (value == null) {
+            return null;
+        }
+        if (value instanceof LocalDateTime localDateTime) {
+            return localDateTime;
+        }
+        if (value instanceof Instant instant) {
+            return LocalDateTime.ofInstant(instant, ZoneId.systemDefault());
+        }
+        if (value instanceof Timestamp timestamp) {
+            return timestamp.toLocalDateTime();
+        }
+        if (value instanceof java.util.Date date) {
+            return LocalDateTime.ofInstant(date.toInstant(), ZoneId.systemDefault());
+        }
+        return null;
+    }
+
+    private record PolicyPremiumSummary(
+        BigDecimal endorsementPremium,
+        int endorsementCount,
+        int pendingEndorsementCount,
+        LocalDateTime lastEndorsementUpdatedAt
+    ) {}
     
     private Document resolveDocument(UUID documentId) {
         if (documentId == null) {
