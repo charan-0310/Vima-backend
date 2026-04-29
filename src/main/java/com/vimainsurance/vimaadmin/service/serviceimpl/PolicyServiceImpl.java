@@ -147,6 +147,12 @@ public class PolicyServiceImpl implements IPolicyService {
      */
     private static final long POLICY_DOCUMENT_MAX_BYTES = 50L * 1024L * 1024L;
 
+    @Autowired
+    private IEndorsementRepository endorsementRepository;
+
+    @Autowired
+    private ICdBalanceTransactionRepository cdBalanceTransactionRepository;
+
     @Override
     @Transactional(rollbackFor = Exception.class)
     @AuditedOperation(schemaName = "cpc", tableName = "policies", entityType = "POLICY", action = "CREATE")
