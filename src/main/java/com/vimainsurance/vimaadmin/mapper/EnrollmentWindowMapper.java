@@ -53,6 +53,7 @@ public class EnrollmentWindowMapper {
         if (entity.getOrganization() != null) {
             dto.setOrganizationId(entity.getOrganization().getOrganizationId());
             dto.setOrganizationName(entity.getOrganization().getOrganizationName());
+            dto.setOrganizationDisplayName(entity.getOrganization().getOrganizationDisplayName());
         }
         dto.setName(entity.getName());
         dto.setDescription(entity.getDescription());
