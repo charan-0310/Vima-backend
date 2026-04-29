@@ -22,6 +22,8 @@ public class PolicyResponseDto {
     private String insuranceProvider;
     /** Provider code (e.g. ICICI) for form selects; same as insurance_company_code on write */
     private String insuranceProviderCode;
+    private String networkHospitalsUrl;
+    private String blacklistedHospitalsUrl;
     private UUID insuranceProductId;
     private UUID organizationId;
     private UUID documentId;
