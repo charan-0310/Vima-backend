@@ -118,6 +118,13 @@ public class EmployeeInsuranceServiceImpl implements IEmployeeInsuranceService {
         }
 
         Long policyId = primaryPolicy != null ? primaryPolicy.getPolicyId() : null;
+        InsuranceProvider primaryProvider = null;
+        if (primaryPolicy != null) {
+            UUID providerId = primaryPolicy.getInsuranceProviderId();
+            if (providerId != null) {
+                primaryProvider = insuranceProviderRepository.findById(providerId).orElse(null);
+            }
+        }
 
         // Build and return the response DTO
         return EmployeeInsuranceResponseDto.builder()
@@ -144,6 +151,8 @@ public class EmployeeInsuranceServiceImpl implements IEmployeeInsuranceService {
                 .policyStartDate(primaryPolicy != null ? primaryPolicy.getStartDate() : null)
                 .tpaOrganizationName(primaryPolicy != null ? primaryPolicy.getTpaOrganizationName() : null)
                 .tpaContactInfo(primaryPolicy != null ? primaryPolicy.getTpaContactInfo() : null)
+                .networkHospitalsUrl(primaryProvider != null ? primaryProvider.getNetworkHospitalsUrl() : null)
+                .blacklistedHospitalsUrl(primaryProvider != null ? primaryProvider.getBlacklistedHospitalsUrl() : null)
                 .companyName(employee.getOrganization() != null ? employee.getOrganization().getOrganizationName() : null)
                 .coveredMembers(primaryCoveredMembers)
                 .policies(policyDetails)
