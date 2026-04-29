@@ -12,6 +12,8 @@ public class EnrollmentWindowResponseDto {
     private UUID id;
     private UUID organizationId;
     private String organizationName;
+    /** User-facing label (may differ from legal organizationName). */
+    private String organizationDisplayName;
     private String name;
     private String description;
     private LocalDate startDate;

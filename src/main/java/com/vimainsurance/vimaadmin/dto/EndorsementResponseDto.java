@@ -11,6 +11,8 @@ public class EndorsementResponseDto {
     private UUID endorsementId;
     private UUID organizationId;
     private String organizationName;
+    /** User-facing label (may differ from legal organizationName). */
+    private String organizationDisplayName;
     private UUID documentId;
     private String endorsementType;
     private String status;
