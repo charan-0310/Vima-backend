@@ -165,7 +165,13 @@ public class OrganizationServiceImpl implements IOrganizationService {
             }
             Organization org = new Organization();
             org.setOrganizationName(requestDto.getOrganizationName());
-            org.setOrganizationDisplayName(requestDto.getOrganizationDisplayName().trim());
+            String displayName = requestDto.getOrganizationDisplayName();
+            if (displayName != null && !displayName.trim().isEmpty()) {
+                org.setOrganizationDisplayName(displayName.trim());
+            } else {
+                org.setOrganizationDisplayName(
+                        requestDto.getOrganizationName() != null ? requestDto.getOrganizationName().trim() : null);
+            }
             org.setGstin(requestDto.getGstin());
             org.setPanNumber(requestDto.getPanNumber());
             org.setPrimaryContactName(requestDto.getPrimaryContactName());
