@@ -165,6 +165,13 @@ public class OrganizationServiceImpl implements IOrganizationService {
             }
             Organization org = new Organization();
             org.setOrganizationName(requestDto.getOrganizationName());
+            String displayName = requestDto.getOrganizationDisplayName();
+            if (displayName != null && !displayName.trim().isEmpty()) {
+                org.setOrganizationDisplayName(displayName.trim());
+            } else {
+                org.setOrganizationDisplayName(
+                        requestDto.getOrganizationName() != null ? requestDto.getOrganizationName().trim() : null);
+            }
             org.setGstin(requestDto.getGstin());
             org.setPanNumber(requestDto.getPanNumber());
             org.setPrimaryContactName(requestDto.getPrimaryContactName());
@@ -220,6 +227,7 @@ public class OrganizationServiceImpl implements IOrganizationService {
                 logger.warn("[correlationId:{}] Could not serialize organization for audit old snapshot: {}", MDC.get("correlationId"), e.getMessage());
             }
             if (requestDto.getOrganizationName() != null) org.setOrganizationName(requestDto.getOrganizationName());
+            if (requestDto.getOrganizationDisplayName() != null) org.setOrganizationDisplayName(requestDto.getOrganizationDisplayName().trim());
             if (requestDto.getGstin() != null) org.setGstin(requestDto.getGstin());
             if (requestDto.getPanNumber() != null) org.setPanNumber(requestDto.getPanNumber());
             if (requestDto.getPrimaryContactName() != null) org.setPrimaryContactName(requestDto.getPrimaryContactName());
@@ -928,6 +936,7 @@ public class OrganizationServiceImpl implements IOrganizationService {
         OrganizationResponseDto dto = new OrganizationResponseDto();
         dto.setOrganizationId(org.getOrganizationId());
         dto.setOrganizationName(org.getOrganizationName());
+        dto.setOrganizationDisplayName(org.getOrganizationDisplayName());
         dto.setGstin(org.getGstin());
         dto.setPanNumber(org.getPanNumber());
         dto.setPrimaryContactName(org.getPrimaryContactName());
