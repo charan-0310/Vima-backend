@@ -24,8 +24,6 @@ public class ClaimDetailsResponse {
     private String claimNumber;
     private UUID organizationId;
     private String organizationName;
-    /** User-facing label (may differ from legal organizationName). */
-    private String organizationDisplayName;
     private Long policyId;
     private String policyNumber;
     private String insuranceProviderLogo;

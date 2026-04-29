@@ -74,7 +74,6 @@ public class EndorsementMapper {
         if (endorsement.getOrganization() != null) {
             dto.setOrganizationId(endorsement.getOrganization().getOrganizationId());
             dto.setOrganizationName(endorsement.getOrganization().getOrganizationName());
-            dto.setOrganizationDisplayName(endorsement.getOrganization().getOrganizationDisplayName());
         }
         
         if (endorsement.getDocument() != null) {

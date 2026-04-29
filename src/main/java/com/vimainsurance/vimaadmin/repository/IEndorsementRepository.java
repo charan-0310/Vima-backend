@@ -214,27 +214,5 @@ public interface IEndorsementRepository extends JpaRepository<Endorsement, UUID>
     Optional<Endorsement> findFirstByOrganization_OrganizationIdAndEnrollmentWindow_IdAndSourceOrderByCreatedAtDesc(
             UUID organizationId, UUID enrollmentWindowId, EndorsementSource source);
 
-    @Query(value = """
-       select
-         e.policy_id,
-         coalesce(sum(e.premium_amount), 0) as endorsement_premium,
-         count(e.endorsement_id) as endorsement_count,
-         sum(
-           case
-             when e.status::text in ('PENDING_APPROVAL', 'PENDING_DELETE', 'PENDING_EXIT', 'PENDING')
-             then 1
-             else 0
-           end
-         ) as pending_endorsement_count,
-         max(e.updated_at) as last_endorsement_updated_at
-       from cpc.endorsements e
-       where e.organization_id = :organizationId
-         and e.policy_id is not null
-         and e.policy_id in (:policyIds)
-       group by e.policy_id
-       """, nativeQuery = true)
-    List<Object[]> getPolicyPremiumSummaryByOrganizationAndPolicyIds(@Param("organizationId") UUID organizationId,
-                                                                     @Param("policyIds") List<Long> policyIds);
-
 }
 
