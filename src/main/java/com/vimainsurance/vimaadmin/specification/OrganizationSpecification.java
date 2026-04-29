@@ -42,10 +42,6 @@ public class OrganizationSpecification {
                         "%" + searchTerm + "%"
                     ),
                     criteriaBuilder.like(
-                        criteriaBuilder.lower(root.get("organizationDisplayName")),
-                        "%" + searchTerm + "%"
-                    ),
-                    criteriaBuilder.like(
                         criteriaBuilder.lower(root.get("gstin")),
                         "%" + searchTerm + "%"
                     ),

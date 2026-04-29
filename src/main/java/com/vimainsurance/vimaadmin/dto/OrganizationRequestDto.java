@@ -14,9 +14,6 @@ public class OrganizationRequestDto {
     @NotBlank
     private String organizationName;
 
-    @NotBlank
-    private String organizationDisplayName;
-
     @Size(max = 15)
     private String gstin;
 

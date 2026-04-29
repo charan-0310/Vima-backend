@@ -26,7 +26,6 @@ public final class ClaimMapper {
         if (claim.getOrganization() != null) {
             dto.setOrganizationId(claim.getOrganization().getOrganizationId());
             dto.setOrganizationName(claim.getOrganization().getOrganizationName());
-            dto.setOrganizationDisplayName(claim.getOrganization().getOrganizationDisplayName());
         }
         dto.setPolicyId(claim.getPolicyId());
         dto.setPolicyNumber(claim.getPolicyNumber());
@@ -213,7 +212,6 @@ public final class ClaimMapper {
         if (claim.getOrganization() != null) {
             dto.setOrganizationId(claim.getOrganization().getOrganizationId());
             dto.setOrganizationName(claim.getOrganization().getOrganizationName());
-            dto.setOrganizationDisplayName(claim.getOrganization().getOrganizationDisplayName());
         }
         dto.setPolicyId(claim.getPolicyId());
         dto.setPolicyNumber(claim.getPolicyNumber());

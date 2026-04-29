@@ -10,7 +10,6 @@ import lombok.Data;
 public class OrganizationResponseDto {
     private UUID organizationId;
     private String organizationName;
-    private String organizationDisplayName;
     private String gstin;
     private String panNumber;
     private String primaryContactName;

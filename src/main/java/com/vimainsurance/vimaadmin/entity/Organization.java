@@ -49,9 +49,6 @@ public class Organization implements AuditIdentifiable {
     @Column(name = "organization_name", nullable = false)
     private String organizationName;
 
-    @Column(name = "organization_displayname", nullable = false)
-    private String organizationDisplayName;
-
     @Column(name = "gstin", length = 15)
     private String gstin;
 

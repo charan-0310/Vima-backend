@@ -39,18 +39,6 @@ public class PolicyResponseDto {
     private BigDecimal sumInsured;
     private Integer sumInsuredMultiplier; // For GPA/GTL
     private BigDecimal premiumAmount;
-    /** Policy inception premium (base annual at policy start). */
-    private BigDecimal inceptionPremium;
-    /** Net premium change from endorsements (+/-). */
-    private BigDecimal endorsementPremium;
-    /** Inception + endorsement premium. */
-    private BigDecimal runningPremium;
-    private Integer endorsementCount;
-    private Integer pendingEndorsementCount;
-    /** endorsementPremium / inceptionPremium * 100. */
-    private BigDecimal premiumDeltaPercent;
-    @JsonFormat(pattern = "yyyy-MM-dd")
-    private LocalDate premiumAsOfDate;
     private BigDecimal netAmount;
     private BigDecimal gst;
     private UUID cdAccountId;
