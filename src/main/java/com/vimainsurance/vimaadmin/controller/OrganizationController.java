@@ -44,6 +44,8 @@ import com.vimainsurance.vimaadmin.dto.EmployeeUploadResponse;
 import com.vimainsurance.vimaadmin.dto.ManualAddEmployeesRequestDto;
 import com.vimainsurance.vimaadmin.dto.ManualDeleteEmployeesRequestDto;
 import com.vimainsurance.vimaadmin.dto.OrganizationEmployeeDto;
+import com.vimainsurance.vimaadmin.dto.OrganizationBroadcastEmailRequestDto;
+import com.vimainsurance.vimaadmin.dto.OrganizationBroadcastEmailResponseDto;
 import com.vimainsurance.vimaadmin.dto.OrganizationRequestDto;
 import com.vimainsurance.vimaadmin.dto.OrganizationResponseDto;
 import com.vimainsurance.vimaadmin.dto.ResponseDto;
@@ -173,6 +175,16 @@ public class OrganizationController {
     public ResponseEntity<ResponseDto<List<OrganizationEmployeeDto>>> getEmployees(@CurrentOrganization UUID organizationId) {
         logger.info("[correlationId:{}] /organization/{}/employees (GET) endpoint called", MDC.get("correlationId"), organizationId);
         return organizationService.getEmployees(organizationId);
+    }
+
+    @PostMapping("/organization/{organizationId}/employees/broadcast-email")
+    @PreAuthorize("hasAnyRole('VIMA_ADMIN', 'HR_ADMIN')")
+    public ResponseEntity<ResponseDto<OrganizationBroadcastEmailResponseDto>> sendOrganizationBroadcastEmail(
+            @CurrentOrganization UUID organizationId,
+            @RequestBody OrganizationBroadcastEmailRequestDto requestDto) {
+        logger.info("[correlationId:{}] /organization/{}/employees/broadcast-email (POST) endpoint called",
+                MDC.get("correlationId"), organizationId);
+        return organizationService.sendOrganizationBroadcastEmail(organizationId, requestDto);
     }
 
     /**
