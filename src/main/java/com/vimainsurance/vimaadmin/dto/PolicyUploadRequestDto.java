@@ -62,6 +62,8 @@ public class PolicyUploadRequestDto {
     private String sumInsuredOptions;
     /** Comma-separated or JSON array string; same count as sumInsuredOptions for TOP_UP / SUPER_TOP_UP. */
     private String topupPremiumOptions;
+    private String policyWording;
+    private String claimChecklist;
     private Boolean coversDependents;
     private Boolean coversParents;
     private Boolean isDeleted;

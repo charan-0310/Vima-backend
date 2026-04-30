@@ -1,6 +1,7 @@
 package com.vimainsurance.vimaadmin.service;
 
 import com.vimainsurance.vimaadmin.dto.EmployeeInsuranceResponseDto;
+import com.vimainsurance.vimaadmin.dto.EmployeePolicyWordingChecklistDto;
 
 import java.util.UUID;
 
@@ -16,4 +17,10 @@ public interface IEmployeeInsuranceService {
      * @return EmployeeInsuranceResponseDto containing employee, policy, and dependents data
      */
     EmployeeInsuranceResponseDto getEmployeeInsuranceDetails(UUID employeeId);
+
+    /**
+     * Return policy wording and claim checklist for employee-visible policy.
+     * Access is restricted to policies that belong to the current employee's organization.
+     */
+    EmployeePolicyWordingChecklistDto getEmployeePolicyWordingChecklist(Long policyId);
 }

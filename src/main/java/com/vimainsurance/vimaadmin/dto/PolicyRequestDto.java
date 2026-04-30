@@ -1,10 +1,6 @@
 package com.vimainsurance.vimaadmin.dto;
 
 import com.fasterxml.jackson.annotation.JsonFormat;
-import com.vimainsurance.vimaadmin.enums.CoverageType;
-import com.vimainsurance.vimaadmin.enums.PolicyStatus;
-import com.vimainsurance.vimaadmin.enums.ProductType;
-import com.vimainsurance.vimaadmin.dto.DealsRequestDto;
 import jakarta.validation.constraints.*;
 import java.util.List;
 import lombok.Data;
@@ -117,6 +113,8 @@ public class PolicyRequestDto {
     private String sumInsuredOptions;
     /** JSON array string of annual premiums; same length/order as sumInsuredOptions for TOP_UP / SUPER_TOP_UP. */
     private String topupPremiumOptions;
+    private String policyWording;
+    private String claimChecklist;
     private Boolean coversDependents;
     private Boolean coversParents;
     private Boolean isDeleted;
