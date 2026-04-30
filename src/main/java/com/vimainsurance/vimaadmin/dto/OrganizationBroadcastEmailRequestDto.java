@@ -17,4 +17,5 @@ public class OrganizationBroadcastEmailRequestDto {
     private boolean sendToAll;
     private List<UUID> employeeIds;
     private boolean dryRun;
+    private List<OrganizationBroadcastEmailAttachmentDto> attachments;
 }
