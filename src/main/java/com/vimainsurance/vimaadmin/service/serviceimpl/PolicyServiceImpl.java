@@ -148,7 +148,7 @@ public class PolicyServiceImpl implements IPolicyService {
 
             // Check if policy number already exists
             if (policyRepository.existsByPolicyNumber(requestDto.getPolicyNumber())) {
-                return responseObj.render(responseObj.formErrorResponse("Policy number already exists"));
+                return responseObj.render(responseObj.formErrorResponse(DUPLICATE_POLICY_NUMBER_MESSAGE));
             }
             final String currentUsername = jwtUserExtractor.extractCurrentUsername();
             Optional<AdminUser> adminUser = adminUserRepository.findByUsername(currentUsername);
@@ -242,6 +242,8 @@ public class PolicyServiceImpl implements IPolicyService {
             policy.setEndDate(requestDto.getEndDate());
             policy.setRenewalDate(requestDto.getRenewalDate());
             policy.setLeadId(requestDto.getLeadId());
+            policy.setPolicyWording(requestDto.getPolicyWording());
+            policy.setClaimChecklist(requestDto.getClaimChecklist());
             // TOP_UP / SUPER_TOP_UP do not require policy-level total premium inputs from form.
             // Keep DB NOT NULL monetary columns populated with safe defaults.
             if ((policyType == ProductType.TOP_UP || policyType == ProductType.SUPER_TOP_UP) && policy.getPremiumAmount() == null) {
@@ -307,6 +309,13 @@ public class PolicyServiceImpl implements IPolicyService {
             TransactionAspectSupport.currentTransactionStatus().setRollbackOnly();
             logger.error("[correlationId:{}] Validation error in createPolicy: {}", MDC.get("correlationId"), e.getMessage());
             return responseObj.render(responseObj.formErrorResponse(e.getMessage()));
+        } catch (DataIntegrityViolationException e) {
+            TransactionAspectSupport.currentTransactionStatus().setRollbackOnly();
+            logger.error("[correlationId:{}] Data integrity violation in createPolicy: {}", MDC.get("correlationId"), e.getMessage(), e);
+            if (isDuplicatePolicyNumberViolation(e)) {
+                return responseObj.render(responseObj.formErrorResponse(DUPLICATE_POLICY_NUMBER_MESSAGE));
+            }
+            return responseObj.render(responseObj.formErrorResponse(e.getMessage()));
         } catch (Exception e) {
             TransactionAspectSupport.currentTransactionStatus().setRollbackOnly();
             logger.error("[correlationId:{}] Exception in createPolicy: {}", MDC.get("correlationId"), e.getMessage(), e);
@@ -337,7 +346,7 @@ public class PolicyServiceImpl implements IPolicyService {
             // Check if policy number is being changed and if it already exists
             if (!policy.getPolicyNumber().equals(requestDto.getPolicyNumber()) && 
                 policyRepository.existsByPolicyNumber(requestDto.getPolicyNumber())) {
-                return responseObj.render(responseObj.formErrorResponse("Policy number already exists"));
+                return responseObj.render(responseObj.formErrorResponse(DUPLICATE_POLICY_NUMBER_MESSAGE));
             }
 
             // Get policy type
@@ -382,6 +391,8 @@ public class PolicyServiceImpl implements IPolicyService {
             policy.setEndDate(requestDto.getEndDate());
             policy.setRenewalDate(requestDto.getRenewalDate());
             policy.setLeadId(requestDto.getLeadId());
+            policy.setPolicyWording(requestDto.getPolicyWording());
+            policy.setClaimChecklist(requestDto.getClaimChecklist());
             if ((policyType == ProductType.TOP_UP || policyType == ProductType.SUPER_TOP_UP) && policy.getPremiumAmount() == null) {
                 policy.setPremiumAmount(BigDecimal.ZERO);
             }
@@ -448,6 +459,12 @@ public class PolicyServiceImpl implements IPolicyService {
             return responseObj.render(responseObj.formSuccessResponse(Constants.SUCCESS, Constants.UPDATE_SUCCESS));
         } catch (BadRequestException e) {
             logger.error("[correlationId:{}] Validation error in updatePolicy: {}", MDC.get("correlationId"), e.getMessage());
+            return responseObj.render(responseObj.formErrorResponse(e.getMessage()));
+        } catch (DataIntegrityViolationException e) {
+            logger.error("[correlationId:{}] Data integrity violation in updatePolicy: {}", MDC.get("correlationId"), e.getMessage(), e);
+            if (isDuplicatePolicyNumberViolation(e)) {
+                return responseObj.render(responseObj.formErrorResponse(DUPLICATE_POLICY_NUMBER_MESSAGE));
+            }
             return responseObj.render(responseObj.formErrorResponse(e.getMessage()));
         } catch (Exception e) {
             logger.error("[correlationId:{}] Exception in updatePolicy: {}", MDC.get("correlationId"), e.getMessage(), e);
@@ -829,6 +846,8 @@ public class PolicyServiceImpl implements IPolicyService {
         responseDto.setDeductibleAmount(policy.getDeductibleAmount());
         responseDto.setSumInsuredOptions(policy.getSumInsuredOptions());
         responseDto.setTopupPremiumOptions(policy.getTopupPremiumOptions());
+        responseDto.setPolicyWording(policy.getPolicyWording());
+        responseDto.setClaimChecklist(policy.getClaimChecklist());
         responseDto.setCoversDependents(policy.getCoversDependents());
         responseDto.setCoversParents(policy.getCoversParents());
         responseDto.setIsDeleted(policy.getIsDeleted());
@@ -893,7 +912,7 @@ public class PolicyServiceImpl implements IPolicyService {
             Long policyId = ((Number) row[0]).longValue();
             BigDecimal totalEndorsementCredit = toBigDecimal(row[1]);
             BigDecimal totalEndorsementDebit = toBigDecimal(row[2]);
-            BigDecimal endorsementPremium = totalEndorsementCredit.subtract(totalEndorsementDebit);
+            BigDecimal endorsementPremium = totalEndorsementDebit.subtract(totalEndorsementCredit);
             LocalDateTime ledgerUpdatedAt = toLocalDateTime(row[3]);
 
             PolicyPremiumSummary existing = result.get(policyId);
@@ -1131,6 +1150,9 @@ public class PolicyServiceImpl implements IPolicyService {
         logger.info("[correlationId:{}] uploadPolicyForOrganization called for organizationId: {}", MDC.get("correlationId"), organizationId);
         BaseResponse<String> responseObj = new BaseResponse<>();
         try {
+            if (policyRepository.existsByPolicyNumber(requestDto.getPolicyNumber())) {
+                return responseObj.render(responseObj.formErrorResponse(DUPLICATE_POLICY_NUMBER_MESSAGE));
+            }
             // Agent is required only when uploading documents (for uploadedBy). Without files, Keycloak-only users (e.g. e2e-vima-admin) can create policies.
             AdminUser agent = null;
             if (requestDto.getFiles() != null && requestDto.getFiles().length > 0) {
@@ -1204,6 +1226,8 @@ public class PolicyServiceImpl implements IPolicyService {
             policy.setNetAmount(requestDto.getNetAmount());
             policy.setGst(requestDto.getGst());
             policy.setLeadId(organizationId); // Use organizationId as leadId
+            policy.setPolicyWording(requestDto.getPolicyWording());
+            policy.setClaimChecklist(requestDto.getClaimChecklist());
             if ((productType == ProductType.TOP_UP || productType == ProductType.SUPER_TOP_UP) && policy.getPremiumAmount() == null) {
                 policy.setPremiumAmount(BigDecimal.ZERO);
             }
@@ -1295,6 +1319,13 @@ public class PolicyServiceImpl implements IPolicyService {
             }
             
             return responseObj.render(responseObj.formSuccessResponse(Constants.SUCCESS, "Policy created and documents uploaded successfully"));
+        } catch (DataIntegrityViolationException e) {
+            TransactionAspectSupport.currentTransactionStatus().setRollbackOnly();
+            logger.error("[correlationId:{}] Data integrity violation in uploadPolicyForOrganization: {}", MDC.get("correlationId"), e.getMessage(), e);
+            if (isDuplicatePolicyNumberViolation(e)) {
+                return responseObj.render(responseObj.formErrorResponse(DUPLICATE_POLICY_NUMBER_MESSAGE));
+            }
+            return responseObj.render(responseObj.formErrorResponse(e.getMessage()));
         } catch (Exception e) {
             TransactionAspectSupport.currentTransactionStatus().setRollbackOnly();
             logger.error("[correlationId:{}] Exception in uploadPolicyForOrganization: {}", MDC.get("correlationId"), e.getMessage(), e);
@@ -1445,4 +1476,18 @@ public class PolicyServiceImpl implements IPolicyService {
                 .isDeleted(false)
                 .build();
     }
+
+    private boolean isDuplicatePolicyNumberViolation(Throwable throwable) {
+        Throwable current = throwable;
+        while (current != null) {
+            String message = current.getMessage();
+            if (message != null && message.contains("policies_policy_number_key")) {
+                return true;
+            }
+            current = current.getCause();
+        }
+        return false;
+    }
+
+    private static final String DUPLICATE_POLICY_NUMBER_MESSAGE = "Policy number already added";
 }

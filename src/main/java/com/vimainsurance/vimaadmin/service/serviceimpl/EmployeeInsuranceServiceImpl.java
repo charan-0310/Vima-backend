@@ -17,6 +17,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import com.vimainsurance.vimaadmin.dto.EmployeeInsuranceResponseDto;
+import com.vimainsurance.vimaadmin.dto.EmployeePolicyWordingChecklistDto;
 import com.vimainsurance.vimaadmin.entity.Deals;
 import com.vimainsurance.vimaadmin.entity.InsuranceProvider;
 import com.vimainsurance.vimaadmin.entity.Nominee;
@@ -29,6 +30,7 @@ import com.vimainsurance.vimaadmin.repository.IInsuranceProviderRepository;
 import com.vimainsurance.vimaadmin.repository.INomineeRepository;
 import com.vimainsurance.vimaadmin.repository.IPolicyRepository;
 import com.vimainsurance.vimaadmin.service.IEmployeeInsuranceService;
+import com.vimainsurance.vimaadmin.util.JwtUserExtractor;
 import com.vimainsurance.vimaadmin.util.TenantContext;
 
 /**
@@ -52,6 +54,9 @@ public class EmployeeInsuranceServiceImpl implements IEmployeeInsuranceService {
 
     @Autowired
     private INomineeRepository nomineeRepository;
+
+    @Autowired
+    private JwtUserExtractor jwtUserExtractor;
 
     @Override
     public EmployeeInsuranceResponseDto getEmployeeInsuranceDetails(UUID employeeId) {
@@ -158,6 +163,36 @@ public class EmployeeInsuranceServiceImpl implements IEmployeeInsuranceService {
                 .policies(policyDetails)
                 .build();
 
+    }
+
+    @Override
+    public EmployeePolicyWordingChecklistDto getEmployeePolicyWordingChecklist(Long policyId) {
+        if (policyId == null) {
+            throw new BadRequestException("Policy ID is required");
+        }
+        UUID organizationId = resolveOrganizationIdFromTenant();
+        UUID currentEmployeeId = jwtUserExtractor.getCurrentEmployeeId();
+        if (currentEmployeeId == null) {
+            throw new BadRequestException("Employee ID not found in authentication token");
+        }
+
+        dealsRepository.findByIndividualIdAndOrganizationId(currentEmployeeId, organizationId)
+                .orElseThrow(() -> new BadRequestException("Employee not found in the current organization"));
+
+        Policy policy = policyRepository.findById(policyId)
+                .orElseThrow(() -> new BadRequestException("Policy not found"));
+        if (policy.getOrganizationId() == null || !organizationId.equals(policy.getOrganizationId())) {
+            throw new BadRequestException("Access denied: policy does not belong to your organization");
+        }
+
+        return EmployeePolicyWordingChecklistDto.builder()
+                .policyId(policy.getPolicyId())
+                .policyNumber(policy.getPolicyNumber())
+                .productType(policy.getProductType() != null ? policy.getProductType().getValue() : null)
+                .policyWording(policy.getPolicyWording())
+                .claimChecklist(policy.getClaimChecklist())
+                .updatedAt(policy.getUpdatedAt())
+                .build();
     }
 
     /**

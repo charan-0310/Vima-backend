@@ -64,7 +64,7 @@ public class CdBalanceController {
     }
 
     @GetMapping("/organization/{orgId}/cd-accounts")
-    @PreAuthorize("hasAnyRole('VIMA_ADMIN', 'ADMIN')")
+    @PreAuthorize("hasAnyRole('VIMA_ADMIN', 'ADMIN', 'HR_ADMIN')")
     public ResponseEntity<ResponseDto<List<CdAccountResponseDto>>> listCdAccountsByOrganization(@PathVariable java.util.UUID orgId) {
         logger.info("[correlationId:{}] GET /api/v1/cd-balance/organization/{}/cd-accounts", MDC.get("correlationId"), orgId);
         List<CdAccountResponseDto> payload = cdAccountService.listAccountsByOrganization(orgId).stream()
@@ -75,7 +75,7 @@ public class CdBalanceController {
     }
 
     @GetMapping("/cd-account/{cdAccountId}")
-    @PreAuthorize("hasAnyRole('VIMA_ADMIN', 'ADMIN',)")
+    @PreAuthorize("hasAnyRole('VIMA_ADMIN', 'ADMIN', 'HR_ADMIN')")
     public ResponseEntity<ResponseDto<CdBalanceResponseDto>> getCdBalance(@PathVariable java.util.UUID cdAccountId) {
         logger.info("[correlationId:{}] GET /api/v1/cd-balance/cd-account/{}", MDC.get("correlationId"), cdAccountId);
         return cdBalanceService.getCdBalance(cdAccountId);
@@ -96,7 +96,7 @@ public class CdBalanceController {
     }
 
     @GetMapping("/cd-account/{cdAccountId}/ledger")
-    @PreAuthorize("hasAnyRole('VIMA_ADMIN', 'ADMIN')")
+    @PreAuthorize("hasAnyRole('VIMA_ADMIN', 'ADMIN', 'HR_ADMIN')")
     public ResponseEntity<ResponseDto<List<CdBalanceTransactionResponseDto>>> getTransactionLedger(
             @PathVariable java.util.UUID cdAccountId,
             @RequestParam(required = false) Long policyId,
