@@ -167,6 +167,12 @@ public class Policy {
     @Column(name = "topup_premium_options", columnDefinition = "jsonb")
     private String topupPremiumOptions;
 
+    @Column(name = "policy_wording", columnDefinition = "TEXT")
+    private String policyWording;
+
+    @Column(name = "claim_checklist", columnDefinition = "TEXT")
+    private String claimChecklist;
+
     @Column(name = "covers_dependents")
     private Boolean coversDependents;
 
