@@ -2,6 +2,7 @@ package com.vimainsurance.vimaadmin.service.serviceimpl;
 
 import java.io.InputStream;
 import java.math.BigDecimal;
+import java.util.Base64;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
@@ -50,7 +51,9 @@ import com.vimainsurance.vimaadmin.dto.EmployeeUploadDto;
 import com.vimainsurance.vimaadmin.exception.OrganizationAccessDeniedException;
 import com.vimainsurance.vimaadmin.dto.EmployeeUploadResponse;
 import com.vimainsurance.vimaadmin.dto.EmailRequest;
+import com.vimainsurance.vimaadmin.dto.EmailAttachment;
 import com.vimainsurance.vimaadmin.dto.OrganizationEmployeeDto;
+import com.vimainsurance.vimaadmin.dto.OrganizationBroadcastEmailAttachmentDto;
 import com.vimainsurance.vimaadmin.dto.OrganizationBroadcastEmailRequestDto;
 import com.vimainsurance.vimaadmin.dto.OrganizationBroadcastEmailResponseDto;
 import com.vimainsurance.vimaadmin.dto.OrganizationBroadcastFailedRecipientDto;
@@ -639,6 +642,7 @@ public class OrganizationServiceImpl implements IOrganizationService {
             }
 
             int sentCount = 0;
+            List<EmailAttachment> parsedAttachments = parseBroadcastAttachments(requestDto.getAttachments());
             if (requestDto.isDryRun()) {
                 String senderEmail = jwtUserExtractor.getCurrentEmail();
                 if (senderEmail == null || senderEmail.isBlank()) {
@@ -649,12 +653,22 @@ public class OrganizationServiceImpl implements IOrganizationService {
                 if (senderEmail == null || senderEmail.isBlank()) {
                     return responseObj.render(responseObj.formErrorResponse("Sender email not found for dry-run"));
                 }
-                var emailResponse = emailService.sendHtmlEmail(EmailRequest.builder()
+                String senderName = jwtUserExtractor.resolveCurrentAdminUser()
+                        .map(AdminUser::getFullName)
+                        .filter(name -> name != null && !name.isBlank())
+                        .orElse("User");
+                String personalizedBody = personalizeEmailBody(bodyHtml, senderName);
+                String personalizedSubject = personalizeEmailBody(subject, senderName);
+                EmailRequest emailRequest = EmailRequest.builder()
                         .to(senderEmail.trim())
-                        .subject(subject)
-                        .body(bodyHtml)
+                        .subject(personalizedSubject)
+                        .body(personalizedBody)
                         .isHtml(true)
-                        .build());
+                        .attachments(parsedAttachments)
+                        .build();
+                var emailResponse = parsedAttachments.isEmpty()
+                        ? emailService.sendHtmlEmail(emailRequest)
+                        : emailService.sendEmailWithAttachments(emailRequest);
                 if (emailResponse != null && emailResponse.isSuccess()) {
                     sentCount = 1;
                 } else {
@@ -668,12 +682,25 @@ public class OrganizationServiceImpl implements IOrganizationService {
             } else {
                 for (Deals recipient : validRecipients) {
                     String email = recipient.getEmail().trim();
-                    var emailResponse = emailService.sendHtmlEmail(EmailRequest.builder()
+                    String recipientName = recipient.getFullName() != null && !recipient.getFullName().isBlank()
+                            ? recipient.getFullName()
+                            : ((recipient.getFirstName() != null ? recipient.getFirstName() : "") + " "
+                                    + (recipient.getLastName() != null ? recipient.getLastName() : "")).trim();
+                    if (recipientName.isBlank()) {
+                        recipientName = "Employee";
+                    }
+                    String personalizedBody = personalizeEmailBody(bodyHtml, recipientName);
+                    String personalizedSubject = personalizeEmailBody(subject, recipientName);
+                    EmailRequest emailRequest = EmailRequest.builder()
                             .to(email)
-                            .subject(subject)
-                            .body(bodyHtml)
+                            .subject(personalizedSubject)
+                            .body(personalizedBody)
                             .isHtml(true)
-                            .build());
+                            .attachments(parsedAttachments)
+                            .build();
+                    var emailResponse = parsedAttachments.isEmpty()
+                            ? emailService.sendHtmlEmail(emailRequest)
+                            : emailService.sendEmailWithAttachments(emailRequest);
                     if (emailResponse != null && emailResponse.isSuccess()) {
                         sentCount++;
                     } else {
@@ -709,6 +736,39 @@ public class OrganizationServiceImpl implements IOrganizationService {
             logger.error("[correlationId:{}] Exception in sendOrganizationBroadcastEmail: {}", MDC.get("correlationId"), e.getMessage(), e);
             return responseObj.render(responseObj.formErrorResponse("Failed to send broadcast email"));
         }
+    }
+
+    private String personalizeEmailBody(String template, String employeeName) {
+        if (template == null) {
+            return "";
+        }
+        String safeName = (employeeName == null || employeeName.isBlank()) ? "Employee" : employeeName.trim();
+        return template.replace("{name}", safeName);
+    }
+
+    private List<EmailAttachment> parseBroadcastAttachments(List<OrganizationBroadcastEmailAttachmentDto> attachmentsDto) {
+        if (attachmentsDto == null || attachmentsDto.isEmpty()) {
+            return List.of();
+        }
+        List<EmailAttachment> attachments = new ArrayList<>();
+        for (OrganizationBroadcastEmailAttachmentDto dto : attachmentsDto) {
+            if (dto == null || dto.getContentBase64() == null || dto.getContentBase64().isBlank()) {
+                continue;
+            }
+            try {
+                byte[] content = Base64.getDecoder().decode(dto.getContentBase64().replaceAll("\\s", ""));
+                attachments.add(EmailAttachment.builder()
+                        .fileName(dto.getFileName() != null && !dto.getFileName().isBlank() ? dto.getFileName() : "attachment")
+                        .contentType(dto.getContentType() != null && !dto.getContentType().isBlank()
+                                ? dto.getContentType()
+                                : "application/octet-stream")
+                        .content(content)
+                        .build());
+            } catch (IllegalArgumentException ignored) {
+                // skip malformed base64 attachment
+            }
+        }
+        return attachments;
     }
 
     @Override
