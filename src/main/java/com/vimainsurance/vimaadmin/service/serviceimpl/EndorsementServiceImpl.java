@@ -79,6 +79,7 @@ import com.vimainsurance.vimaadmin.service.IEmailService;
 import com.vimainsurance.vimaadmin.service.ICdBalanceService;
 import com.vimainsurance.vimaadmin.service.IEmployeePolicyMapService;
 import com.vimainsurance.vimaadmin.service.IEndorsementService;
+import com.vimainsurance.vimaadmin.notification.FlagshipNotificationService;
 import com.vimainsurance.vimaadmin.service.ILifeEventEndorsementService;
 import com.vimainsurance.vimaadmin.service.IS3Service;
 import com.vimainsurance.vimaadmin.specification.EndorsementSpecification;
@@ -154,6 +155,9 @@ public class EndorsementServiceImpl implements IEndorsementService {
     @Autowired
     private TransactionTemplate transactionTemplate;
 
+    @Autowired(required = false)
+    private FlagshipNotificationService flagshipNotificationService;
+
     @Autowired
     @Qualifier(AsyncConfig.ENROLLMENT_BULK_EXECUTOR)
     private Executor enrollmentBulkExecutor;
@@ -202,6 +206,12 @@ public class EndorsementServiceImpl implements IEndorsementService {
             // Map DTO to entity
             Endorsement endorsement = EndorsementMapper.mapToEntity(requestDto, organization, document, uploadedBy);
             endorsementRepository.save(endorsement);
+            if (flagshipNotificationService != null
+                    && endorsement.getEndorsementType() != null
+                    && (endorsement.getEndorsementType() == EndorsementType.BULK_UPLOAD
+                            || endorsement.getEndorsementType() == EndorsementType.INITIAL_UPLOAD)) {
+                flagshipNotificationService.scheduleEndorsementUploaded(endorsement, organization, uploadedBy);
+            }
 
             return responseObj.render(responseObj.formSuccessResponse(Constants.SUCCESS, Constants.SAVE_SUCCESS));
         } catch (IllegalArgumentException e) {
@@ -648,6 +658,9 @@ public class EndorsementServiceImpl implements IEndorsementService {
             endorsement.setStatus(AccountStatus.COMPLETED);
             endorsement.setUpdatedAt(LocalDateTime.now());
             endorsementRepository.save(endorsement);
+            if (flagshipNotificationService != null) {
+                flagshipNotificationService.scheduleEndorsementCompleted(endorsement.getEndorsementId(), organization);
+            }
 
             if (employeePolicyMapService != null) {
                 if (endorsement.getEndorsementType() == EndorsementType.ADDITION || endorsement.getEndorsementType() == EndorsementType.INITIAL_UPLOAD) {
@@ -788,6 +801,10 @@ public class EndorsementServiceImpl implements IEndorsementService {
                 endorsement.setStatus(AccountStatus.COMPLETED);
                 endorsement.setUpdatedAt(updatedAt);
                 endorsementRepository.save(endorsement);
+                if (flagshipNotificationService != null && endorsement.getOrganization() != null) {
+                    flagshipNotificationService.scheduleEndorsementCompleted(
+                            endorsement.getEndorsementId(), endorsement.getOrganization());
+                }
             }
             
             if (activatedCount > 0 || deactivatedCount > 0) {
@@ -874,6 +891,10 @@ public class EndorsementServiceImpl implements IEndorsementService {
                         endorsement.setStatus(AccountStatus.COMPLETED);
                         endorsement.setUpdatedAt(updatedAt);
                         endorsementRepository.save(endorsement);
+                        if (flagshipNotificationService != null && endorsement.getOrganization() != null) {
+                            flagshipNotificationService.scheduleEndorsementCompleted(
+                                    endorsement.getEndorsementId(), endorsement.getOrganization());
+                        }
                         completedEndorsementsCount++;
                     }
                 }

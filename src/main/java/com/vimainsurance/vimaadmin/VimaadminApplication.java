@@ -10,6 +10,7 @@ import com.vimainsurance.vimaadmin.config.AuditReplayConfig;
 import com.vimainsurance.vimaadmin.config.CsvDealsHeaderProperties;
 import com.vimainsurance.vimaadmin.config.EndorsementSchedulerConfig;
 import com.vimainsurance.vimaadmin.config.VendorMasterDataConfig;
+import com.vimainsurance.vimaadmin.notification.config.NotificationsProperties;
 
 @SpringBootApplication
 @EnableScheduling
@@ -18,7 +19,8 @@ import com.vimainsurance.vimaadmin.config.VendorMasterDataConfig;
 		VendorMasterDataConfig.class,
 		CsvDealsHeaderProperties.class,
 		EndorsementSchedulerConfig.class,
-		AuditReplayConfig.class
+		AuditReplayConfig.class,
+		NotificationsProperties.class
 })
 public class VimaadminApplication {
 
