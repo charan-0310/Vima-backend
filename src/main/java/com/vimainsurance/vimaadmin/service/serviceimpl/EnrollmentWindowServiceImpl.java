@@ -44,6 +44,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import com.vimainsurance.vimaadmin.audit.AuditedOperation;
 import com.vimainsurance.vimaadmin.dto.BaseResponse;
+import com.vimainsurance.vimaadmin.dto.DependentEnrollmentUpdateDto;
 import com.vimainsurance.vimaadmin.dto.EnrollmentWindowRequestDto;
 import com.vimainsurance.vimaadmin.dto.EnrollmentWindowResponseDto;
 import com.vimainsurance.vimaadmin.dto.EnrollmentWindowStatsDto;
@@ -196,7 +197,10 @@ public class EnrollmentWindowServiceImpl implements IEnrollmentWindowService {
     }
 
     @Override
-    public ResponseEntity<ResponseDto<List<String>>> validateEmployees(UUID organizationId, List<SelfEmployeeEnrollmentRequestDto> selfEmployeeEnrollmentRequestDtos) {
+    public ResponseEntity<ResponseDto<List<String>>> validateEmployees(
+            UUID organizationId,
+            List<SelfEmployeeEnrollmentRequestDto> selfEmployeeEnrollmentRequestDtos,
+            Map<String, List<DependentEnrollmentUpdateDto>> dependentsByEmployeeId) {
         logger.info("[correlationId:{}] EnrollmentWindow validateEmployees called for organization {}", MDC.get("correlationId"), organizationId);
         BaseResponse<List<String>> responseObj = new BaseResponse<>();
         try {
@@ -206,7 +210,14 @@ public class EnrollmentWindowServiceImpl implements IEnrollmentWindowService {
             }
             validateAndSetOrganizationContext(organizationId);
 
-            if (selfEmployeeEnrollmentRequestDtos == null || selfEmployeeEnrollmentRequestDtos.isEmpty()) {
+            if (selfEmployeeEnrollmentRequestDtos == null) {
+                selfEmployeeEnrollmentRequestDtos = Collections.emptyList();
+            }
+            if (dependentsByEmployeeId == null) {
+                dependentsByEmployeeId = Collections.emptyMap();
+            }
+
+            if (selfEmployeeEnrollmentRequestDtos.isEmpty() && dependentsByEmployeeId.isEmpty()) {
                 return responseObj.render(responseObj.formSuccessResponse(Constants.SUCCESS, Collections.emptyList()));
             }
 
@@ -214,13 +225,32 @@ public class EnrollmentWindowServiceImpl implements IEnrollmentWindowService {
             if (!errors.isEmpty()) {
                 return responseObj.render(new ResponseDto<>(400, "Validation failed", errors));
             }
+            List<String> dependentFieldErrors = validateDependentEnrollmentRequests(dependentsByEmployeeId);
+            if (!dependentFieldErrors.isEmpty()) {
+                return responseObj.render(new ResponseDto<>(400, "Validation failed", dependentFieldErrors));
+            }
+
+            List<Policy> activePolicies = policyRepository.findByOrganizationIdAndStatus(organizationId, PolicyStatus.ACTIVE);
+            Set<String> overlapBypassEmployeeIds = new HashSet<>(
+                    getParentCoverageEmployeeIdsForOverlapBypassFromDependentsMap(
+                            organizationId, dependentsByEmployeeId, activePolicies));
+
             if (!isDependentsOnlyRequestPayload(selfEmployeeEnrollmentRequestDtos)) {
                 List<String> renewalErrors = validateExistingEmployeesForRenewal(
                         organizationId,
                         selfEmployeeEnrollmentRequestDtos,
-                        Collections.emptySet());
+                        overlapBypassEmployeeIds);
                 if (!renewalErrors.isEmpty()) {
                     return responseObj.render(new ResponseDto<>(400, "Validation failed", renewalErrors));
+                }
+            }
+            if (!dependentsByEmployeeId.isEmpty()) {
+                List<String> dependentRenewalErrors = validateExistingDependentsForRenewal(
+                        organizationId,
+                        dependentsByEmployeeId,
+                        overlapBypassEmployeeIds);
+                if (!dependentRenewalErrors.isEmpty()) {
+                    return responseObj.render(new ResponseDto<>(400, "Validation failed", dependentRenewalErrors));
                 }
             }
             return responseObj.render(responseObj.formSuccessResponse(Constants.SUCCESS, Collections.emptyList()));
@@ -1402,6 +1432,192 @@ public class EnrollmentWindowServiceImpl implements IEnrollmentWindowService {
         return Sort.by(direction, sortBy);
     }
 
+
+    private Optional<LocalDate> parseDependentDateOfBirth(String raw) {
+        if (raw == null || raw.isBlank()) {
+            return Optional.empty();
+        }
+        String trimmed = raw.trim();
+        String iso = EnrollmentUploadParserUtil.normalizeDateToIsoString(trimmed);
+        String toParse = iso != null && !iso.isBlank() ? iso : trimmed;
+        try {
+            return Optional.of(LocalDate.parse(toParse));
+        } catch (Exception e) {
+            return Optional.empty();
+        }
+    }
+
+    /**
+     * Field-level checks for dependents sent as JSON (same fields as HR enrollment dependent rows).
+     */
+    private List<String> validateDependentEnrollmentRequests(Map<String, List<DependentEnrollmentUpdateDto>> dependentsByEmployeeId) {
+        List<String> errors = new ArrayList<>();
+        if (dependentsByEmployeeId == null || dependentsByEmployeeId.isEmpty()) {
+            return errors;
+        }
+        LocalDate today = LocalDate.now();
+        for (Map.Entry<String, List<DependentEnrollmentUpdateDto>> e : dependentsByEmployeeId.entrySet()) {
+            String employeeId = e.getKey();
+            List<DependentEnrollmentUpdateDto> rows = e.getValue();
+            if (rows == null || rows.isEmpty()) {
+                continue;
+            }
+            if (employeeId == null || employeeId.isBlank()) {
+                errors.add("dependentsByEmployeeId contains an entry with a missing employee ID key");
+                continue;
+            }
+            for (int i = 0; i < rows.size(); i++) {
+                DependentEnrollmentUpdateDto d = rows.get(i);
+                int n = i + 1;
+                String prefix = "Employee " + employeeId + " dependent " + n + ": ";
+                if (d == null) {
+                    errors.add(prefix + "Invalid dependent entry");
+                    continue;
+                }
+                if (d.getRelationship() == null || d.getRelationship().isBlank()) {
+                    errors.add(prefix + "Relationship is required");
+                }
+                if (d.getDateOfBirth() == null || d.getDateOfBirth().isBlank()) {
+                    errors.add(prefix + "Date of birth is required");
+                } else {
+                    Optional<LocalDate> dobOpt = parseDependentDateOfBirth(d.getDateOfBirth());
+                    if (dobOpt.isEmpty()) {
+                        errors.add(prefix + "Invalid date of birth");
+                    } else if (dobOpt.get().isAfter(today)) {
+                        errors.add(prefix + "Date of birth cannot be in the future");
+                    }
+                }
+            }
+        }
+        return errors;
+    }
+
+    /**
+     * Parent-GMC overlap bypass for JSON dependents (mirrors file upload {@code getParentCoverageEmployeeIdsForOverlapBypass}).
+     */
+    private Set<String> getParentCoverageEmployeeIdsForOverlapBypassFromDependentsMap(
+            UUID organizationId,
+            Map<String, List<DependentEnrollmentUpdateDto>> dependentsByEmployeeId,
+            List<Policy> activePolicies) {
+        if (dependentsByEmployeeId == null || dependentsByEmployeeId.isEmpty()) {
+            return Collections.emptySet();
+        }
+        List<Long> activeParentPolicyIds = activePolicies.stream()
+                .filter(this::isParentCoveragePolicy)
+                .map(Policy::getPolicyId)
+                .filter(Objects::nonNull)
+                .toList();
+        if (activeParentPolicyIds.isEmpty()) {
+            return Collections.emptySet();
+        }
+        Set<String> employeeIds = new HashSet<>();
+        dependentsByEmployeeId.forEach((employeeId, dependentRows) -> {
+            if (employeeId == null || employeeId.isBlank() || dependentRows == null || dependentRows.isEmpty()) {
+                return;
+            }
+            boolean hasParentRow = dependentRows.stream()
+                    .filter(Objects::nonNull)
+                    .map(DependentEnrollmentUpdateDto::getRelationship)
+                    .anyMatch(this::isParentCoverageRelationship);
+            if (!hasParentRow) {
+                return;
+            }
+            Optional<Deals> existingSelfDeal = dealsRepository
+                    .findByEmployeeNumberAndOrganizationIdAndRelationship(
+                            employeeId,
+                            organizationId,
+                            NomineeRelationship.SELF.getValue());
+            if (existingSelfDeal.isEmpty()) {
+                employeeIds.add(employeeId);
+                return;
+            }
+            UUID individualId = existingSelfDeal.get().getIndividualId();
+            if (individualId == null) {
+                employeeIds.add(employeeId);
+                return;
+            }
+            boolean alreadyInActiveParentPolicy = hasExistingParentDependent(individualId) || !employeePolicyMapRepository
+                    .findByIndividualIdAndPolicyIdInAndStatus(
+                            individualId,
+                            activeParentPolicyIds,
+                            POLICY_MAP_STATUS_ACTIVE)
+                    .isEmpty();
+            if (!alreadyInActiveParentPolicy) {
+                employeeIds.add(employeeId);
+            }
+        });
+        return employeeIds;
+    }
+
+    /**
+     * Renewal / dual-policy rule for dependents already on file: same logic as {@link #validateExistingEmployeesForRenewal}
+     * but resolves dependents via {@link IDealsRepository#findByEmployeeNumberAndRelationshipAndOrganizationId}.
+     */
+    private List<String> validateExistingDependentsForRenewal(
+            UUID organizationId,
+            Map<String, List<DependentEnrollmentUpdateDto>> dependentsByEmployeeId,
+            Set<String> overlapBypassEmployeeIds) {
+        List<String> errors = new ArrayList<>();
+        if (dependentsByEmployeeId == null || dependentsByEmployeeId.isEmpty()) {
+            return errors;
+        }
+
+        Optional<LocalDate> newPolicyStartOpt = getNewPolicyStartDateForOrganization(organizationId);
+
+        for (Map.Entry<String, List<DependentEnrollmentUpdateDto>> e : dependentsByEmployeeId.entrySet()) {
+            String employeeId = e.getKey();
+            if (employeeId == null || employeeId.isBlank()) {
+                continue;
+            }
+            List<DependentEnrollmentUpdateDto> rows = e.getValue();
+            if (rows == null) {
+                continue;
+            }
+            for (DependentEnrollmentUpdateDto dto : rows) {
+                if (dto == null || dto.getRelationship() == null || dto.getRelationship().isBlank()) {
+                    continue;
+                }
+                String relationship = dto.getRelationship().trim();
+                if (overlapBypassEmployeeIds != null && overlapBypassEmployeeIds.contains(employeeId)
+                        && isParentCoverageRelationship(relationship)) {
+                    continue;
+                }
+                Optional<Deals> existingOpt = dealsRepository.findByEmployeeNumberAndRelationshipAndOrganizationId(
+                        employeeId, relationship, organizationId);
+                if (existingOpt.isEmpty()) {
+                    continue;
+                }
+                Deals existing = existingOpt.get();
+                UUID individualId = existing.getIndividualId();
+
+                if (newPolicyStartOpt.isEmpty()) {
+                    errors.add("Dependent " + relationship + " for employee " + employeeId + " already exists.");
+                    continue;
+                }
+                LocalDate newPolicyStart = newPolicyStartOpt.get();
+                List<EmployeePolicyMap> mappings = employeePolicyMapRepository.findByIndividualIdAndOrganizationIdAndStatus(
+                        individualId, organizationId, POLICY_MAP_STATUS_ACTIVE);
+                if (mappings.isEmpty()) {
+                    continue;
+                }
+                LocalDate latestEnd = mappings.stream()
+                        .map(EmployeePolicyMap::getEffectiveTo)
+                        .filter(Objects::nonNull)
+                        .max(LocalDate::compareTo)
+                        .orElse(null);
+                if (latestEnd == null) {
+                    errors.add("Dependent " + relationship + " for employee " + employeeId
+                            + " cannot be in two policies; new policy start must be after current policy end.");
+                    continue;
+                }
+                if (!newPolicyStart.isAfter(latestEnd)) {
+                    errors.add("Dependent " + relationship + " for employee " + employeeId
+                            + " cannot be in two policies; new policy start must be after current policy end.");
+                }
+            }
+        }
+        return errors;
+    }
 
     /**
      * Validates self-service employee enrollment requests (supports bulk).

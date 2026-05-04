@@ -1,5 +1,6 @@
 package com.vimainsurance.vimaadmin.service.serviceimpl;
 
+import java.io.InputStream;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
@@ -9,7 +10,11 @@ import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
+import org.springframework.core.io.InputStreamResource;
+import org.springframework.core.io.Resource;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -21,6 +26,7 @@ import com.vimainsurance.vimaadmin.dto.claim.ClaimDocumentDto;
 import com.vimainsurance.vimaadmin.dto.claim.ClaimDocumentListResponse;
 import com.vimainsurance.vimaadmin.dto.claim.DocumentUploadResponse;
 import com.vimainsurance.vimaadmin.entity.Claim;
+import com.vimainsurance.vimaadmin.entity.Deals;
 import com.vimainsurance.vimaadmin.entity.Document;
 import com.vimainsurance.vimaadmin.enums.ClaimStatus;
 import com.vimainsurance.vimaadmin.enums.DocumentCategory;
@@ -34,6 +40,7 @@ import com.vimainsurance.vimaadmin.repository.IDocumentRepository;
 import com.vimainsurance.vimaadmin.service.IClaimsDocumentService;
 import com.vimainsurance.vimaadmin.service.IS3Service;
 import com.vimainsurance.vimaadmin.service.claim.ClaimAuditService;
+import com.vimainsurance.vimaadmin.util.S3DocumentKeyUtil;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -185,16 +192,72 @@ public class ClaimsDocumentServiceImpl implements IClaimsDocumentService {
     public ResponseEntity<ResponseDto<ClaimDocumentListResponse>> getClaimDocuments(UUID claimId, UUID requestedBy, boolean isAdmin) {
         Claim claim = claimRepository.findById(claimId)
                 .orElseThrow(() -> new BadRequestException("Claim not found"));
-        if (!isAdmin && !Objects.equals(claim.getEmployee().getIndividualId(), requestedBy)) {
+        Deals employee = claim.getEmployee();
+        if (employee == null || employee.getIndividualId() == null) {
+            log.error("Claim {} has no employee (policy holder) reference — cannot authorize document access", claimId);
+            throw new BadRequestException("Claim data is incomplete (missing policy holder). Contact support.");
+        }
+        if (!isAdmin && !Objects.equals(employee.getIndividualId(), requestedBy)) {
             return ResponseEntity.status(HttpStatus.FORBIDDEN)
                     .body(new ResponseDto<>(403, "You can only view documents for your own claims"));
         }
         List<Document> docs = documentRepository.findByEntityAndCategory(
                 DocumentEntityType.CLAIM, claimId.toString(), DocumentCategory.CLAIM_DOCUMENTS);
         List<ClaimDocumentDto> dtos = docs.stream()
-                .map(d -> toClaimDocumentDto(d))
+                .map(this::toClaimDocumentDto)
                 .collect(Collectors.toList());
         return ResponseEntity.ok(new ResponseDto<>("Success", ClaimDocumentListResponse.builder().documents(dtos).build()));
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public ResponseEntity<Resource> downloadClaimDocument(UUID claimId, UUID documentId, UUID requestedBy, boolean isAdmin) {
+        Claim claim = claimRepository.findById(claimId)
+                .orElseThrow(() -> new BadRequestException("Claim not found"));
+        Deals employee = claim.getEmployee();
+        if (employee == null || employee.getIndividualId() == null) {
+            log.error("Claim {} has no employee (policy holder) reference — cannot authorize document download", claimId);
+            throw new BadRequestException("Claim data is incomplete (missing policy holder). Contact support.");
+        }
+        if (!isAdmin && !Objects.equals(employee.getIndividualId(), requestedBy)) {
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
+        }
+        Document doc = documentRepository.findByDocumentId(documentId).orElse(null);
+        if (doc == null) {
+            return ResponseEntity.notFound().build();
+        }
+        if (!DocumentEntityType.CLAIM.equals(doc.getEntityType()) || !claimId.toString().equals(doc.getEntityId())) {
+            return ResponseEntity.notFound().build();
+        }
+        if (!DocumentCategory.CLAIM_DOCUMENTS.equals(doc.getDocumentCategory())) {
+            return ResponseEntity.notFound().build();
+        }
+        String objectKey = S3DocumentKeyUtil.resolveObjectKeyForPresign(doc.getS3Key(), doc.getDocumentId());
+        if (objectKey == null || objectKey.isBlank()) {
+            return ResponseEntity.notFound().build();
+        }
+        String bucket = doc.getS3Bucket();
+        if (bucket == null || bucket.isBlank()) {
+            bucket = s3Config.getBucketName();
+        }
+        try {
+            InputStream stream = s3Service.downloadFile(bucket, objectKey);
+            String mime = doc.getMimeType();
+            MediaType mediaType = (mime != null && !mime.isBlank())
+                    ? MediaType.parseMediaType(mime)
+                    : MediaType.APPLICATION_OCTET_STREAM;
+            String filename = doc.getOriginalFilename() != null && !doc.getOriginalFilename().isBlank()
+                    ? doc.getOriginalFilename()
+                    : "document";
+            return ResponseEntity.ok()
+                    .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=\"" + filename + "\"")
+                    .header("Access-Control-Expose-Headers", "content-disposition")
+                    .contentType(mediaType)
+                    .body(new InputStreamResource(stream));
+        } catch (Exception e) {
+            log.error("Failed to stream claim document {} from S3: {}", documentId, e.getMessage(), e);
+            return ResponseEntity.status(HttpStatus.NOT_FOUND).build();
+        }
     }
 
     @Override
@@ -281,14 +344,12 @@ public class ClaimsDocumentServiceImpl implements IClaimsDocumentService {
     }
 
     private ClaimDocumentDto toClaimDocumentDto(Document d) {
-        String downloadUrl = s3Service.generatePresignedUrl(d.getS3Key());
         String uploadedByName = resolveUploadedByName(d.getUploadedBy(), d.getUploadedByRole());
         return ClaimDocumentDto.builder()
                 .id(d.getDocumentId().toString())
                 .fileName(d.getOriginalFilename())
                 .documentType(d.getDocumentType())
                 .size(d.getFileSize())
-                .downloadUrl(downloadUrl)
                 .uploadedBy(uploadedByName)
                 .uploadedAt(d.getUploadedAt())
                 .build();
