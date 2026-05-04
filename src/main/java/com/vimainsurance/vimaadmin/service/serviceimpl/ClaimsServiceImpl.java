@@ -40,6 +40,7 @@ import com.vimainsurance.vimaadmin.service.claim.ClaimStatusTransitionValidator;
 import com.vimainsurance.vimaadmin.service.claim.ClaimValidationService;
 import com.vimainsurance.vimaadmin.service.claim.notification.ClaimsNotificationService;
 import com.vimainsurance.vimaadmin.specification.ClaimSpecification;
+import com.vimainsurance.vimaadmin.util.SlackNotificationUtil;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -61,6 +62,7 @@ public class ClaimsServiceImpl implements IClaimsService {
     private final ClaimValidationService validationService;
     private final InsurerAdapterFactory adapterFactory;
     private final ClaimsNotificationService notificationService;
+    private final SlackNotificationUtil slackNotificationUtil;
 
     @Override
     @Transactional(rollbackFor = Exception.class)
@@ -92,6 +94,10 @@ public class ClaimsServiceImpl implements IClaimsService {
         auditService.logAction(claim.getId(), "CLAIM_SUBMITTED", ClaimStatus.DRAFT.getValue(), ClaimStatus.PENDING_REVIEW.getValue(),
                 employeeId, "EMPLOYEE", "Claim submitted for review", null, null, null);
         notificationService.notifyStatusChange(claim, ClaimStatus.DRAFT, ClaimStatus.PENDING_REVIEW);
+        slackNotificationUtil.sendSlackMessage(
+                "New employee claim",
+                slackNotificationUtil.buildEmployeeClaimSubmittedMessage(claim, org, employee),
+                false);
         return toDetailsWithDocuments(claim);
     }
 
