@@ -1,5 +1,5 @@
 <#import "template.ftl" as layout>
-<@layout.registrationLayout displayMessage=!messagesPerField.existsError('username','password') displayInfo=realm.password && realm.registrationAllowed && !registrationDisabled??; section>
+<@layout.registrationLayout displayMessage=!messagesPerField.existsError('username','password') displayInfo=realm.password && realm.registrationAllowed && !registrationDisabled?? suppressHeaderUsernameStrip=usernameHidden!false; section>
     <#if section = "header">
     <#elseif section = "form">
         <div id="kc-form"<#if usernameHidden??> class="modern-login-password"</#if>>

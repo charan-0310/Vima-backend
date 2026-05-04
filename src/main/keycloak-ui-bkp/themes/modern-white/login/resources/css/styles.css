@@ -39,11 +39,25 @@ html, body {
     box-shadow: none !important;
 }
 
-/* Hide realm top bar */
+/* Hide realm top bar (#kc-header shows realm display name; we use the in-card VIMA logo instead) */
 #kc-header,
 #kc-header-wrapper,
 .pf-c-page__header {
     display: none !important;
+}
+
+/*
+ * Fallback if old theme HTML is cached: password-only pages suppress #kc-username in template.ftl.
+ */
+body:has(#kc-form.modern-login-password) header #kc-username {
+    display: none !important;
+}
+
+/* Password-only / login-password: nested "header" is empty — hide empty title element */
+body:has(#kc-form.modern-login-password) #kc-page-title:empty {
+    display: none !important;
+    margin: 0 !important;
+    padding: 0 !important;
 }
 
 /* ===========================
