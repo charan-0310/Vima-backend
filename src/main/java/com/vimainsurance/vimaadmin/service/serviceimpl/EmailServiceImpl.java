@@ -56,6 +56,9 @@ public class EmailServiceImpl implements IEmailService {
     @Value("${aws.ses.from-email:}")
     private String sesFromEmail;
 
+    @Value("${aws.ses.configuration-set:}")
+    private String sesConfigurationSet;
+
     @Value("${app.email.from-name:Vima Insurance}")
     private String fromName;
 
@@ -187,6 +190,12 @@ public class EmailServiceImpl implements IEmailService {
         return MAIL_PROVIDER_SES.equalsIgnoreCase(mailProvider);
     }
 
+    private void applySesConfigurationSet(SendEmailRequest.Builder builder) {
+        if (sesConfigurationSet != null && !sesConfigurationSet.isBlank()) {
+            builder.configurationSetName(sesConfigurationSet.trim());
+        }
+    }
+
     private void sendSimpleEmailViaSes(EmailRequest emailRequest, boolean html) {
         String body = resolveBody(emailRequest);
         String senderEmail = resolveFromEmail();
@@ -215,13 +224,13 @@ public class EmailServiceImpl implements IEmailService {
                 .body(messageBody)
                 .build();
 
-        SendEmailRequest request = SendEmailRequest.builder()
+        SendEmailRequest.Builder requestBuilder = SendEmailRequest.builder()
                 .fromEmailAddress(senderEmail)
                 .destination(destination)
-                .content(EmailContent.builder().simple(message).build())
-                .build();
+                .content(EmailContent.builder().simple(message).build());
+        applySesConfigurationSet(requestBuilder);
 
-        sesV2Client.sendEmail(request);
+        sesV2Client.sendEmail(requestBuilder.build());
     }
 
     private void sendRawEmailViaSes(EmailRequest emailRequest, boolean html)
@@ -236,17 +245,17 @@ public class EmailServiceImpl implements IEmailService {
             ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
             mimeMessage.writeTo(outputStream);
 
-            SendEmailRequest request = SendEmailRequest.builder()
+            SendEmailRequest.Builder requestBuilder = SendEmailRequest.builder()
                     .fromEmailAddress(senderEmail)
                     .destination(Destination.builder().toAddresses(toAddresses).build())
                     .content(EmailContent.builder()
                             .raw(RawMessage.builder()
                                     .data(SdkBytes.fromByteArray(outputStream.toByteArray()))
                                     .build())
-                            .build())
-                    .build();
+                            .build());
+            applySesConfigurationSet(requestBuilder);
 
-            sesV2Client.sendEmail(request);
+            sesV2Client.sendEmail(requestBuilder.build());
         } catch (java.io.IOException | jakarta.mail.MessagingException e) {
             throw new RuntimeException("Failed to build raw SES email payload", e);
         }
