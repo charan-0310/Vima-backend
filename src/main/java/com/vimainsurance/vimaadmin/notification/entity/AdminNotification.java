@@ -96,9 +96,6 @@ public class AdminNotification {
     @Column(name = "read_at")
     private LocalDateTime readAt;
 
-    @Column(name = "is_starred", nullable = false)
-    private Boolean isStarred = false;
-
     @OneToMany(mappedBy = "notification", cascade = CascadeType.ALL, orphanRemoval = true)
     private List<NotificationDelivery> deliveries = new ArrayList<>();
 

@@ -1,7 +1,6 @@
 package com.vimainsurance.vimaadmin.notification;
 
 import java.time.LocalDateTime;
-import java.util.Map;
 import java.util.UUID;
 
 import org.springframework.data.domain.Page;
@@ -26,15 +25,28 @@ public class AdminNotificationInboxService {
 
     private final IAdminNotificationRepository notificationRepository;
     private final JwtUserExtractor jwtUserExtractor;
+    private final NotificationsFeatureGate notificationsFeatureGate;
 
-    /**
-     * Inbox reads are not gated by {@code notifications.enabled} so recipients can still see persisted rows
-     * when the flag is off or misconfigured; emit/dispatch remain gated in {@link NotificationServiceImpl}.
-     */
     @Transactional(readOnly = true)
     public AdminNotificationPageResponseDto list(boolean unreadOnly, NotificationCategory category, UUID companyIdFilter,
             int page, int size) {
+        if (!notificationsFeatureGate.isNotificationsEnabled()) {
+            return AdminNotificationPageResponseDto.builder()
+                    .content(java.util.List.of())
+                    .totalElements(0)
+                    .page(page)
+                    .size(size)
+                    .build();
+        }
         AdminUser me = jwtUserExtractor.resolveCurrentAdminUser().orElseThrow();
+        if ("HR_ADMIN".equals(me.getRole()) && me.getOrganization() == null) {
+            return AdminNotificationPageResponseDto.builder()
+                    .content(java.util.List.of())
+                    .totalElements(0)
+                    .page(page)
+                    .size(size)
+                    .build();
+        }
         UUID recipientId = me.getId();
         UUID effectiveCompanyFilter = resolveCompanyFilter(me, companyIdFilter);
         Page<AdminNotification> p = notificationRepository.findInbox(
@@ -53,12 +65,18 @@ public class AdminNotificationInboxService {
 
     @Transactional(readOnly = true)
     public long unreadCount() {
+        if (!notificationsFeatureGate.isNotificationsEnabled()) {
+            return 0L;
+        }
         UUID recipientId = jwtUserExtractor.resolveCurrentAdminUser().orElseThrow().getId();
         return notificationRepository.countByRecipient_IdAndReadAtIsNull(recipientId);
     }
 
     @Transactional
     public boolean markRead(UUID id) {
+        if (!notificationsFeatureGate.isNotificationsEnabled()) {
+            return false;
+        }
         UUID recipientId = jwtUserExtractor.resolveCurrentAdminUser().orElseThrow().getId();
         int updated = notificationRepository.markReadIfOwned(id, recipientId, LocalDateTime.now());
         return updated > 0;
@@ -66,34 +84,22 @@ public class AdminNotificationInboxService {
 
     @Transactional
     public int markAllRead(UUID companyIdFilter) {
+        if (!notificationsFeatureGate.isNotificationsEnabled()) {
+            return 0;
+        }
         AdminUser me = jwtUserExtractor.resolveCurrentAdminUser().orElseThrow();
+        if ("HR_ADMIN".equals(me.getRole()) && me.getOrganization() == null) {
+            return 0;
+        }
         UUID effectiveCompanyFilter = resolveCompanyFilter(me, companyIdFilter);
         return notificationRepository.markAllReadForRecipient(me.getId(), effectiveCompanyFilter, LocalDateTime.now());
     }
 
-    @Transactional
-    public boolean markStarred(UUID id, boolean starred) {
-        UUID recipientId = jwtUserExtractor.resolveCurrentAdminUser().orElseThrow().getId();
-        int updated = notificationRepository.markStarredIfOwned(id, recipientId, starred, LocalDateTime.now());
-        return updated > 0;
-    }
-
     private UUID resolveCompanyFilter(AdminUser me, UUID companyIdFilter) {
-        if (isHrAdminRole(me.getRole())) {
+        if ("HR_ADMIN".equals(me.getRole())) {
             return me.getOrganization() != null ? me.getOrganization().getOrganizationId() : null;
         }
         return companyIdFilter;
-    }
-
-    private boolean isHrAdminRole(String role) {
-        if (role == null) {
-            return false;
-        }
-        String normalized = role.trim().toUpperCase();
-        if (normalized.startsWith("ROLE_")) {
-            normalized = normalized.substring("ROLE_".length());
-        }
-        return "HR_ADMIN".equals(normalized);
     }
 
     private AdminNotificationResponseDto toDto(AdminNotification n) {
@@ -107,41 +113,6 @@ public class AdminNotificationInboxService {
                 .deepLinkUrl(n.getDeepLinkUrl())
                 .readAt(n.getReadAt())
                 .companyId(n.getCompany() != null ? n.getCompany().getOrganizationId() : null)
-                .starred(Boolean.TRUE.equals(n.getIsStarred()))
-                .actorName(resolveActorName(n))
-                .organizationName(resolveOrganizationName(n))
                 .build();
-    }
-
-    private String resolveActorName(AdminNotification n) {
-        Map<String, Object> vars = n.getEmailTemplateVars();
-        if (vars == null) {
-            return null;
-        }
-        Object actedBy = vars.get("actedByName");
-        if (actedBy instanceof String s && !s.isBlank()) {
-            return s.trim();
-        }
-        Object uploadedBy = vars.get("uploadedByName");
-        if (uploadedBy instanceof String s && !s.isBlank()) {
-            return s.trim();
-        }
-        return null;
-    }
-
-    private String resolveOrganizationName(AdminNotification n) {
-        Map<String, Object> vars = n.getEmailTemplateVars();
-        if (vars == null) {
-            return null;
-        }
-        Object displayOrganizationName = vars.get("displayOrganizationName");
-        if (displayOrganizationName instanceof String s && !s.isBlank()) {
-            return s.trim();
-        }
-        Object organizationName = vars.get("organizationName");
-        if (organizationName instanceof String s && !s.isBlank()) {
-            return s.trim();
-        }
-        return null;
     }
 }

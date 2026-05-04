@@ -13,13 +13,6 @@
         (<span th:text="${endorsementType}">TYPE</span>)
     </span>.
 </p>
-<p th:if="${hasSelfEmployeeIds != null and hasSelfEmployeeIds}">
-    Primary employee IDs (Self) in this upload:
-    <span th:text="${selfEmployeeIdsText}">ID1, ID2</span>
-    <span th:if="${selfEmployeeIdsRemainingCount != null and selfEmployeeIdsRemainingCount > 0}">
-        (and <span th:text="${selfEmployeeIdsRemainingCount}">0</span> more)
-    </span>.
-</p>
 <p>
     <a th:href="${deepLinkUrl}" th:text="${deepLinkUrl}">Open in Vima</a>
 </p>

@@ -24,7 +24,4 @@ public class AdminNotificationResponseDto {
     @JsonFormat(pattern = "yyyy-MM-dd HH:mm:ss")
     private LocalDateTime readAt;
     private UUID companyId;
-    private Boolean starred;
-    private String actorName;
-    private String organizationName;
 }

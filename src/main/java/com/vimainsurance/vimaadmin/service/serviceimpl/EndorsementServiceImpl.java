@@ -8,7 +8,6 @@ import java.time.OffsetDateTime;
 import java.time.ZoneId;
 import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
@@ -215,7 +214,7 @@ public class EndorsementServiceImpl implements IEndorsementService {
                     && (endorsement.getEndorsementType() == EndorsementType.BULK_UPLOAD
                             || endorsement.getEndorsementType() == EndorsementType.INITIAL_UPLOAD
                             || endorsement.getEndorsementType() == EndorsementType.ADDITION)) {
-                flagshipNotificationService.scheduleEndorsementUploaded(endorsement, organization, uploadedBy, Collections.emptyList());
+                flagshipNotificationService.scheduleEndorsementUploaded(endorsement, organization, uploadedBy);
             }
 
             return responseObj.render(responseObj.formSuccessResponse(Constants.SUCCESS, Constants.SAVE_SUCCESS));
@@ -669,23 +668,7 @@ public class EndorsementServiceImpl implements IEndorsementService {
             endorsement.setUpdatedAt(LocalDateTime.now());
             endorsementRepository.save(endorsement);
             if (flagshipNotificationService != null) {
-                Organization notificationOrganization = endorsement.getOrganization() != null
-                        ? endorsement.getOrganization()
-                        : organization;
-                if (notificationOrganization != null && organization != null
-                        && notificationOrganization.getOrganizationId() != null
-                        && organization.getOrganizationId() != null
-                        && !notificationOrganization.getOrganizationId().equals(organization.getOrganizationId())) {
-                    logger.warn("[correlationId:{}] Endorsement approve org mismatch requestOrgId={} endorsementOrgId={}",
-                            MDC.get("correlationId"),
-                            organization.getOrganizationId(),
-                            notificationOrganization.getOrganizationId());
-                }
-                flagshipNotificationService.scheduleEndorsementCompleted(
-                        endorsement.getEndorsementId(), notificationOrganization,
-                        endorsement.getUploadedBy() != null ? endorsement.getUploadedBy().getId() : null,
-                        resolveCurrentActorName(),
-                        "Vima Admin");
+                flagshipNotificationService.scheduleEndorsementCompleted(endorsement.getEndorsementId(), organization);
             }
 
             if (employeePolicyMapService != null) {
@@ -845,10 +828,7 @@ public class EndorsementServiceImpl implements IEndorsementService {
                 endorsementRepository.save(endorsement);
                 if (flagshipNotificationService != null && endorsement.getOrganization() != null) {
                     flagshipNotificationService.scheduleEndorsementCompleted(
-                            endorsement.getEndorsementId(), endorsement.getOrganization(),
-                            endorsement.getUploadedBy() != null ? endorsement.getUploadedBy().getId() : null,
-                            resolveCurrentActorName(),
-                            "Vima Admin");
+                            endorsement.getEndorsementId(), endorsement.getOrganization());
                 }
             }
             
@@ -938,10 +918,7 @@ public class EndorsementServiceImpl implements IEndorsementService {
                         endorsementRepository.save(endorsement);
                         if (flagshipNotificationService != null && endorsement.getOrganization() != null) {
                             flagshipNotificationService.scheduleEndorsementCompleted(
-                                    endorsement.getEndorsementId(), endorsement.getOrganization(),
-                                    endorsement.getUploadedBy() != null ? endorsement.getUploadedBy().getId() : null,
-                                    resolveCurrentActorName(),
-                                    "Vima Admin");
+                                    endorsement.getEndorsementId(), endorsement.getOrganization());
                         }
                         completedEndorsementsCount++;
                     }

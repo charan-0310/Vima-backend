@@ -12,14 +12,6 @@ public class NotificationsProperties {
      * Dedicated Slack Incoming Webhook for unified notifications (separate from legacy SlackNotificationUtil).
      */
     private String slackWebhookUrl = "";
-    /**
-     * Optional Slack Bot token used for chat.postMessage.
-     */
-    private String slackBotToken = "";
-    /**
-     * Target Slack channel ID for endorsement-completed notifications.
-     */
-    private String slackChannelId = "C0B22DB8AUC";
 
     private int retryMaxAttempts = 5;
 

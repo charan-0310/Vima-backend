@@ -1,8 +1,5 @@
 package com.vimainsurance.vimaadmin.controller;
 
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
 import java.util.UUID;
 
 import org.slf4j.Logger;
@@ -21,31 +18,21 @@ import org.springframework.web.bind.annotation.RestController;
 import com.vimainsurance.vimaadmin.dto.BaseResponse;
 import com.vimainsurance.vimaadmin.dto.ResponseDto;
 import com.vimainsurance.vimaadmin.notification.AdminNotificationInboxService;
-import com.vimainsurance.vimaadmin.notification.NotificationDispatcher;
 import com.vimainsurance.vimaadmin.notification.dto.AdminNotificationPageResponseDto;
-import com.vimainsurance.vimaadmin.notification.entity.NotificationDelivery;
 import com.vimainsurance.vimaadmin.notification.enums.NotificationCategory;
-import com.vimainsurance.vimaadmin.notification.repository.INotificationDeliveryRepository;
 
 @RestController
 @CrossOrigin(allowedHeaders = "*")
-@RequestMapping({"/api/v1/admin/notifications", "/api/notifications"})
+@RequestMapping("/api/v1/admin/notifications")
 @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'VIMA_ADMIN', 'HR_ADMIN')")
 public class AdminNotificationController {
 
     private static final Logger logger = LoggerFactory.getLogger(AdminNotificationController.class);
 
     private final AdminNotificationInboxService inboxService;
-    private final NotificationDispatcher notificationDispatcher;
-    private final INotificationDeliveryRepository notificationDeliveryRepository;
 
-    public AdminNotificationController(
-            AdminNotificationInboxService inboxService,
-            NotificationDispatcher notificationDispatcher,
-            INotificationDeliveryRepository notificationDeliveryRepository) {
+    public AdminNotificationController(AdminNotificationInboxService inboxService) {
         this.inboxService = inboxService;
-        this.notificationDispatcher = notificationDispatcher;
-        this.notificationDeliveryRepository = notificationDeliveryRepository;
     }
 
     @GetMapping
@@ -94,50 +81,5 @@ public class AdminNotificationController {
         BaseResponse<Integer> responseObj = new BaseResponse<>();
         int updated = inboxService.markAllRead(companyId);
         return responseObj.render(responseObj.formSuccessResponse("Updated", updated, updated));
-    }
-
-    @PostMapping("/{id}/star")
-    public ResponseEntity<ResponseDto<String>> markStarred(
-            @PathVariable UUID id,
-            @RequestParam(defaultValue = "true") boolean starred) {
-        logger.info("[correlationId:{}] POST /api/v1/admin/notifications/{}/star starred={}",
-                MDC.get("correlationId"), id, starred);
-        BaseResponse<String> responseObj = new BaseResponse<>();
-        boolean ok = inboxService.markStarred(id, starred);
-        if (!ok) {
-            return responseObj.render(responseObj.formErrorResponse(404, "Notification not found"));
-        }
-        return responseObj.render(responseObj.formSuccessResponse("OK", starred ? "starred" : "unstarred"));
-    }
-
-    @PostMapping("/{id}/redispatch")
-    public ResponseEntity<ResponseDto<String>> redispatch(@PathVariable UUID id) {
-        logger.info("[correlationId:{}] POST /api/v1/admin/notifications/{}/redispatch", MDC.get("correlationId"), id);
-        BaseResponse<String> responseObj = new BaseResponse<>();
-        notificationDispatcher.dispatchDeliveriesFor(id);
-        return responseObj.render(responseObj.formSuccessResponse("OK", "redispatch triggered"));
-    }
-
-    @GetMapping("/{id}/deliveries")
-    public ResponseEntity<ResponseDto<List<Map<String, Object>>>> deliveries(@PathVariable UUID id) {
-        logger.info("[correlationId:{}] GET /api/v1/admin/notifications/{}/deliveries", MDC.get("correlationId"), id);
-        BaseResponse<List<Map<String, Object>>> responseObj = new BaseResponse<>();
-        List<Map<String, Object>> payload = notificationDeliveryRepository.findByNotification_IdOrderByCreatedAtAsc(id).stream()
-                .map(this::toDeliveryMap)
-                .toList();
-        return responseObj.render(responseObj.formSuccessResponse("Deliveries", payload, payload.size()));
-    }
-
-    private Map<String, Object> toDeliveryMap(NotificationDelivery d) {
-        Map<String, Object> out = new HashMap<>();
-        out.put("deliveryId", d.getId());
-        out.put("channel", d.getChannel() != null ? d.getChannel().name() : null);
-        out.put("status", d.getStatus() != null ? d.getStatus().name() : null);
-        out.put("attemptCount", d.getAttemptCount());
-        out.put("lastError", d.getLastError());
-        out.put("lastAttemptAt", d.getLastAttemptAt());
-        out.put("createdAt", d.getCreatedAt());
-        out.put("updatedAt", d.getUpdatedAt());
-        return out;
     }
 }

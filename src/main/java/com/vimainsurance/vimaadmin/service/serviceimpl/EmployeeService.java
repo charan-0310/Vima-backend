@@ -1275,7 +1275,7 @@ public class EmployeeService {
               List<String> selfEmployeeIds = extractSelfEmployeeIdsFromUpload(employeeUploadDtoList);
               log.info("endorsement_upload_notification_schedule endorsementId={} uploadType={} uploadedBy={} selfEmployeeIdCount={}",
                   savedEndorsement.getEndorsementId(), uploadType, adminUser != null ? adminUser.getId() : null, selfEmployeeIds.size());
-              flagshipNotificationService.scheduleEndorsementUploaded(savedEndorsement, organization, adminUser, selfEmployeeIds);
+              flagshipNotificationService.scheduleEndorsementUploaded(savedEndorsement, organization, adminUser);
             }
           } else {
             log.info("endorsement_upload_no_endorsement_created uploadType={} orgId={} createdCount={} updatedCount={}",

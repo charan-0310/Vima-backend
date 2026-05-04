@@ -24,23 +24,19 @@ public class AfterCommitNotificationRunner {
     public void runAsyncAfterCommit(Runnable task) {
         Runnable wrapped = () -> {
             try {
-                log.info("after_commit_notification_execute");
                 task.run();
             } catch (Exception e) {
                 log.warn("after_commit_notification_failed: {}", e.getMessage(), e);
             }
         };
         if (TransactionSynchronizationManager.isSynchronizationActive()) {
-            log.info("after_commit_notification_register mode=tx_sync");
             TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
                 @Override
                 public void afterCommit() {
-                    log.info("after_commit_notification_after_commit");
                     executor.execute(wrapped);
                 }
             });
         } else {
-            log.info("after_commit_notification_register mode=immediate");
             executor.execute(wrapped);
         }
     }
