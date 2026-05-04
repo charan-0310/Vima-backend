@@ -71,6 +71,9 @@ public class Document {
     @Column(name = "s3_bucket", nullable = false, length = 255)
     private String s3Bucket;
 
+    /**
+     * Object key within {@link #s3Bucket}, or a legacy full URL (S3 HTTPS / CloudFront); see {@code S3DocumentKeyUtil}.
+     */
     @Column(name = "s3_key", nullable = false, columnDefinition = "TEXT")
     private String s3Key;
 

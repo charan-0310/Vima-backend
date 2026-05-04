@@ -41,12 +41,14 @@ public interface IS3Service {
     String uploadFile(InputStream inputStream, String key, String contentType, long contentLength);
 
     /**
-     * Download a file from S3
-     * 
-     * @param key The S3 key (path) of the file
-     * @return InputStream of the file
+     * Download a file from S3 (default configured bucket).
      */
     InputStream downloadFile(String key);
+
+    /**
+     * Download from an explicit bucket (e.g. {@code document.s3_bucket}).
+     */
+    InputStream downloadFile(String bucket, String key);
 
     /**
      * Delete a file from S3
@@ -57,21 +59,18 @@ public interface IS3Service {
     boolean deleteFile(String key);
 
     /**
-     * Generate a pre-signed URL for downloading a file
-     * 
-     * @param key The S3 key (path) of the file
-     * @param expirationInSeconds The expiration time in seconds
-     * @return Pre-signed URL
+     * Generate a pre-signed URL for downloading a file (configured default bucket).
      */
     String generatePresignedUrl(String key, long expirationInSeconds);
 
-    /**
-     * Generate a pre-signed URL for downloading a file with default expiration
-     * 
-     * @param key The S3 key (path) of the file
-     * @return Pre-signed URL
-     */
     String generatePresignedUrl(String key);
+
+    /**
+     * Pre-signed GET for an explicit bucket (use when {@code document.s3_bucket} differs from app default).
+     */
+    String generatePresignedUrl(String bucket, String key, long expirationInSeconds);
+
+    String generatePresignedUrl(String bucket, String key);
 
     /**
      * Check if a file exists in S3

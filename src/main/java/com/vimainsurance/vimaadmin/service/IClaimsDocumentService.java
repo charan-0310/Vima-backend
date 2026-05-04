@@ -2,6 +2,7 @@ package com.vimainsurance.vimaadmin.service;
 
 import java.util.UUID;
 
+import org.springframework.core.io.Resource;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.multipart.MultipartFile;
 
@@ -12,7 +13,7 @@ import com.vimainsurance.vimaadmin.enums.DocumentType;
 import com.vimainsurance.vimaadmin.enums.UserRole;
 
 /**
- * Claims document upload, list (with pre-signed URLs), and delete.
+ * Claims document upload, list, streamed download, and delete.
  * Enforces BR-DOC-001 (max 10 docs per claim), file type/size, and role-based document types.
  */
 public interface IClaimsDocumentService {
@@ -38,10 +39,15 @@ public interface IClaimsDocumentService {
             String role);
 
     /**
-     * List claim documents with pre-signed download URLs.
+     * List claim documents (metadata only; use {@link #downloadClaimDocument} for file bytes).
      * Employee: own claims only. Admin: any claim.
      */
     ResponseEntity<ResponseDto<ClaimDocumentListResponse>> getClaimDocuments(UUID claimId, UUID requestedBy, boolean isAdmin);
+
+    /**
+     * Stream document bytes from S3 (same authorization as {@link #getClaimDocuments}).
+     */
+    ResponseEntity<Resource> downloadClaimDocument(UUID claimId, UUID documentId, UUID requestedBy, boolean isAdmin);
 
     /**
      * Remove a document (admin only). Deletes from S3 and DB and writes audit log.
