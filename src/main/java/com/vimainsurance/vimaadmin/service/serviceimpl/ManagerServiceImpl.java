@@ -28,6 +28,7 @@ import org.slf4j.LoggerFactory;
 import org.slf4j.MDC;
 
 import com.vimainsurance.vimaadmin.util.Constants;
+import com.vimainsurance.vimaadmin.util.JwtUserExtractor;
 
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageImpl;
@@ -42,9 +43,11 @@ public class ManagerServiceImpl implements IManagerService {
 
 
     private final IAdminUserRepository adminUserRepository;
+    private final JwtUserExtractor jwtUserExtractor;
     
-    public ManagerServiceImpl(IAdminUserRepository adminUserRepository) {
+    public ManagerServiceImpl(IAdminUserRepository adminUserRepository, JwtUserExtractor jwtUserExtractor) {
         this.adminUserRepository = adminUserRepository;
+        this.jwtUserExtractor = jwtUserExtractor;
     }
     
 
@@ -55,7 +58,7 @@ public class ManagerServiceImpl implements IManagerService {
                    MDC.get("correlationId"), owner, sortBy, sortDirection);
         BaseResponse<List<CustomerResponseDto>> responseObj = new BaseResponse<>();
         try {
-            Optional<AdminUser> adminUser = adminUserRepository.findByUsername(username);
+            Optional<AdminUser> adminUser = jwtUserExtractor.resolveAdminUserByLoginIdentifier(username);
             if(adminUser.isEmpty()){
                 return responseObj.render(responseObj.formErrorResponse("Agent not found"));
             }
@@ -186,8 +189,8 @@ public class ManagerServiceImpl implements IManagerService {
                    MDC.get("correlationId"), username, period);
         BaseResponse<ManagerDashboardResponseDto> responseObj = new BaseResponse<>();
         try {
-            // Validate manager exists
-            Optional<AdminUser> manager = adminUserRepository.findByUsername(username);
+            // Validate manager exists (same login resolution as /auth/me — case, email, etc.)
+            Optional<AdminUser> manager = jwtUserExtractor.resolveAdminUserByLoginIdentifier(username);
             if(manager.isEmpty()){
                 return responseObj.render(responseObj.formErrorResponse("Manager not found"));
             }
