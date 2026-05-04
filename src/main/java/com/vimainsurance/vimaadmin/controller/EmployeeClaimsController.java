@@ -5,6 +5,8 @@ import java.util.UUID;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
+import org.springframework.core.io.Resource;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
@@ -174,16 +176,31 @@ public class EmployeeClaimsController {
     }
 
     /**
-     * GET /api/v1/claims/{claimId}/documents - List claim documents with pre-signed download URLs (own claims only).
+     * GET /api/v1/claims/{claimId}/documents - List claim document metadata (own claims only for employees).
      */
     @GetMapping("/{claimId}/documents")
     @PreAuthorize("hasAnyRole('VIMA_ADMIN', 'HR_ADMIN', 'EMPLOYEE')")
     public ResponseEntity<ResponseDto<ClaimDocumentListResponse>> getClaimDocuments(@PathVariable UUID claimId) {
         UUID employeeId = jwtUserExtractor.getCurrentEmployeeId();
         if (employeeId == null) {
-            return ResponseEntity.status(org.springframework.http.HttpStatus.UNAUTHORIZED)
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
                     .body(new ResponseDto<>(401, "Authentication required. Employee context not found in token."));
         }
         return claimsDocumentService.getClaimDocuments(claimId, employeeId, false);
+    }
+
+    /**
+     * GET /api/v1/claims/{claimId}/documents/{documentId}/download - Stream file from S3 (same access as list).
+     */
+    @GetMapping("/{claimId}/documents/{documentId}/download")
+    @PreAuthorize("hasAnyRole('VIMA_ADMIN', 'HR_ADMIN', 'EMPLOYEE')")
+    public ResponseEntity<Resource> downloadClaimDocument(
+            @PathVariable UUID claimId,
+            @PathVariable UUID documentId) {
+        UUID employeeId = jwtUserExtractor.getCurrentEmployeeId();
+        if (employeeId == null) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
+        }
+        return claimsDocumentService.downloadClaimDocument(claimId, documentId, employeeId, false);
     }
 }
