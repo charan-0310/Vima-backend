@@ -1,7 +1,10 @@
 package com.vimainsurance.vimaadmin.service;
 
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
+
+import com.vimainsurance.vimaadmin.dto.DependentEnrollmentUpdateDto;
 
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.multipart.MultipartFile;
@@ -21,7 +24,10 @@ public interface IEnrollmentWindowService {
      * Validate employees for enrollment (no window or employees created).
      * Returns success with empty payload when valid, or error with payload = list of error messages.
      */
-    ResponseEntity<ResponseDto<List<String>>> validateEmployees(UUID organizationId, List<SelfEmployeeEnrollmentRequestDto> selfEmployeeEnrollmentRequestDtos);
+    ResponseEntity<ResponseDto<List<String>>> validateEmployees(
+            UUID organizationId,
+            List<SelfEmployeeEnrollmentRequestDto> selfEmployeeEnrollmentRequestDtos,
+            Map<String, List<DependentEnrollmentUpdateDto>> dependentsByEmployeeId);
 
     /**
      * Validate uploaded enrollment file (SELF + dependents) before creating window.
