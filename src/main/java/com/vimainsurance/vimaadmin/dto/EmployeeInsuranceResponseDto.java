@@ -51,6 +51,13 @@ public class EmployeeInsuranceResponseDto {
 
     private String companyName;
 
+    /**
+     * Organization primary contact — from {@code organizations.primary_contact_email} / {@code primary_contact_phone}
+     * for employee-facing "Contact HR" actions.
+     */
+    private String primaryContactEmail;
+    private String primaryContactPhone;
+
     // Covered members (employee + dependents) for the primary/first policy (backward compatibility)
     private List<CoveredMemberDto> coveredMembers;
 
