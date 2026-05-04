@@ -214,11 +214,22 @@ public interface IEndorsementRepository extends JpaRepository<Endorsement, UUID>
     Optional<Endorsement> findFirstByOrganization_OrganizationIdAndEnrollmentWindow_IdAndSourceOrderByCreatedAtDesc(
             UUID organizationId, UUID enrollmentWindowId, EndorsementSource source);
 
+    /**
+     * Per-policy endorsement aggregates for company policy cards.
+     * {@code endorsement_count} excludes pending statuses (same four as {@code pending_endorsement_count}),
+     * so the UI shows processed/completed endorsements only.
+     */
     @Query(value = """
        select
          e.policy_id,
          coalesce(sum(e.premium_amount), 0) as endorsement_premium,
-         count(e.endorsement_id) as endorsement_count,
+         sum(
+           case
+             when e.status::text in ('PENDING_APPROVAL', 'PENDING_DELETE', 'PENDING_EXIT', 'PENDING')
+             then 0
+             else 1
+           end
+         ) as endorsement_count,
          sum(
            case
              when e.status::text in ('PENDING_APPROVAL', 'PENDING_DELETE', 'PENDING_EXIT', 'PENDING')
