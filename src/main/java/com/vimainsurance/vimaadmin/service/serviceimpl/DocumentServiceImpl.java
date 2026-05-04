@@ -42,6 +42,7 @@ import com.vimainsurance.vimaadmin.util.Constants;
 import com.vimainsurance.vimaadmin.util.EnvironmentUtil;
 import com.vimainsurance.vimaadmin.util.IMaskService;
 import com.vimainsurance.vimaadmin.util.JwtUserExtractor;
+import com.vimainsurance.vimaadmin.util.S3DocumentKeyUtil;
 
 /**
  * Service implementation for Document management
@@ -399,9 +400,17 @@ public class DocumentServiceImpl implements IDocumentService {
             }
             
             Document document = documentOpt.get();
-            
-            // Generate pre-signed URL from S3
-            String downloadUrl = s3Service.generatePresignedUrl(document.getS3Key());
+
+            String objectKey = S3DocumentKeyUtil.resolveObjectKeyForPresign(
+                    document.getS3Key(), document.getDocumentId());
+            if (objectKey == null || objectKey.isBlank()) {
+                return responseObj.render(responseObj.formErrorResponse("Document has no S3 object key"));
+            }
+            String bucket = document.getS3Bucket();
+            if (bucket == null || bucket.isBlank()) {
+                bucket = s3Config.getBucketName();
+            }
+            String downloadUrl = s3Service.generatePresignedUrl(bucket, objectKey);
             
             return responseObj.render(responseObj.formSuccessResponse(Constants.SUCCESS, downloadUrl));
             
