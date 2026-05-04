@@ -17,7 +17,9 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import com.vimainsurance.vimaadmin.dto.EmployeeInsuranceResponseDto;
+import com.vimainsurance.vimaadmin.dto.EmployeePolicyWordingChecklistDto;
 import com.vimainsurance.vimaadmin.entity.Deals;
+import com.vimainsurance.vimaadmin.entity.Organization;
 import com.vimainsurance.vimaadmin.entity.InsuranceProvider;
 import com.vimainsurance.vimaadmin.entity.Nominee;
 import com.vimainsurance.vimaadmin.entity.Policy;
@@ -29,6 +31,7 @@ import com.vimainsurance.vimaadmin.repository.IInsuranceProviderRepository;
 import com.vimainsurance.vimaadmin.repository.INomineeRepository;
 import com.vimainsurance.vimaadmin.repository.IPolicyRepository;
 import com.vimainsurance.vimaadmin.service.IEmployeeInsuranceService;
+import com.vimainsurance.vimaadmin.util.JwtUserExtractor;
 import com.vimainsurance.vimaadmin.util.TenantContext;
 
 /**
@@ -52,6 +55,9 @@ public class EmployeeInsuranceServiceImpl implements IEmployeeInsuranceService {
 
     @Autowired
     private INomineeRepository nomineeRepository;
+
+    @Autowired
+    private JwtUserExtractor jwtUserExtractor;
 
     @Override
     public EmployeeInsuranceResponseDto getEmployeeInsuranceDetails(UUID employeeId) {
@@ -126,6 +132,10 @@ public class EmployeeInsuranceServiceImpl implements IEmployeeInsuranceService {
             }
         }
 
+        Organization organization = employee.getOrganization();
+        String primaryContactEmail = organization != null ? blankToNull(organization.getPrimaryContactEmail()) : null;
+        String primaryContactPhone = organization != null ? blankToNull(organization.getPrimaryContactPhone()) : null;
+
         // Build and return the response DTO
         return EmployeeInsuranceResponseDto.builder()
                 .employeeId(employee.getIndividualId())
@@ -153,11 +163,51 @@ public class EmployeeInsuranceServiceImpl implements IEmployeeInsuranceService {
                 .tpaContactInfo(primaryPolicy != null ? primaryPolicy.getTpaContactInfo() : null)
                 .networkHospitalsUrl(primaryProvider != null ? primaryProvider.getNetworkHospitalsUrl() : null)
                 .blacklistedHospitalsUrl(primaryProvider != null ? primaryProvider.getBlacklistedHospitalsUrl() : null)
-                .companyName(employee.getOrganization() != null ? employee.getOrganization().getOrganizationName() : null)
+                .companyName(organization != null ? organization.getOrganizationName() : null)
+                .primaryContactEmail(primaryContactEmail)
+                .primaryContactPhone(primaryContactPhone)
                 .coveredMembers(primaryCoveredMembers)
                 .policies(policyDetails)
                 .build();
 
+    }
+
+    private static String blankToNull(String value) {
+        if (value == null) {
+            return null;
+        }
+        String trimmed = value.trim();
+        return trimmed.isEmpty() ? null : trimmed;
+    }
+
+    @Override
+    public EmployeePolicyWordingChecklistDto getEmployeePolicyWordingChecklist(Long policyId) {
+        if (policyId == null) {
+            throw new BadRequestException("Policy ID is required");
+        }
+        UUID organizationId = resolveOrganizationIdFromTenant();
+        UUID currentEmployeeId = jwtUserExtractor.getCurrentEmployeeId();
+        if (currentEmployeeId == null) {
+            throw new BadRequestException("Employee ID not found in authentication token");
+        }
+
+        dealsRepository.findByIndividualIdAndOrganizationId(currentEmployeeId, organizationId)
+                .orElseThrow(() -> new BadRequestException("Employee not found in the current organization"));
+
+        Policy policy = policyRepository.findById(policyId)
+                .orElseThrow(() -> new BadRequestException("Policy not found"));
+        if (policy.getOrganizationId() == null || !organizationId.equals(policy.getOrganizationId())) {
+            throw new BadRequestException("Access denied: policy does not belong to your organization");
+        }
+
+        return EmployeePolicyWordingChecklistDto.builder()
+                .policyId(policy.getPolicyId())
+                .policyNumber(policy.getPolicyNumber())
+                .productType(policy.getProductType() != null ? policy.getProductType().getValue() : null)
+                .policyWording(policy.getPolicyWording())
+                .claimChecklist(policy.getClaimChecklist())
+                .updatedAt(policy.getUpdatedAt())
+                .build();
     }
 
     /**

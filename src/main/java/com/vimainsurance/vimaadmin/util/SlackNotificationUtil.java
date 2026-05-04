@@ -12,7 +12,10 @@ import org.springframework.http.MediaType;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestTemplate;
 
+import com.vimainsurance.vimaadmin.entity.Claim;
+import com.vimainsurance.vimaadmin.entity.Deals;
 import com.vimainsurance.vimaadmin.entity.Endorsement;
+import com.vimainsurance.vimaadmin.entity.Organization;
 
 
 @Component
@@ -104,6 +107,40 @@ public class SlackNotificationUtil {
         } catch (Exception e) {
             logger.error("Failed to send Slack notification: {}", e.getMessage(), e);
         }
+    }
+
+    /**
+     * Message body for Slack reminder channel when an employee submits a claim via the portal.
+     */
+    public String buildEmployeeClaimSubmittedMessage(Claim claim, Organization org, Deals employee) {
+        if (claim == null) {
+            return "";
+        }
+        String orgName = org != null && org.getOrganizationName() != null && !org.getOrganizationName().isBlank()
+            ? org.getOrganizationName() : "N/A";
+        String submitter = "N/A";
+        if (employee != null) {
+            if (employee.getFullName() != null && !employee.getFullName().isBlank()) {
+                submitter = employee.getFullName();
+            } else if (employee.getEmail() != null && !employee.getEmail().isBlank()) {
+                submitter = employee.getEmail();
+            }
+        }
+        String claimNo = claim.getClaimNumber() != null ? claim.getClaimNumber() : "—";
+        String member = claim.getMemberName() != null && !claim.getMemberName().isBlank() ? claim.getMemberName() : "—";
+        String amount = claim.getClaimAmount() != null ? claim.getClaimAmount().toPlainString() : "—";
+        String type = claim.getClaimType() != null ? claim.getClaimType().name() : "—";
+        String hospital = claim.getHospitalName() != null && !claim.getHospitalName().isBlank() ? claim.getHospitalName() : "—";
+
+        StringBuilder message = new StringBuilder();
+        message.append(":inbox_tray: *Employee claim submitted*\n");
+        message.append("• *Claim #:* ").append(claimNo).append("\n");
+        message.append("• *Organization:* ").append(orgName).append("\n");
+        message.append("• *Submitted by:* ").append(submitter).append("\n");
+        message.append("• *Member / patient:* ").append(member).append("\n");
+        message.append("• *Type:* ").append(type).append(" | *Amount:* ").append(amount).append("\n");
+        message.append("• *Hospital:* ").append(hospital);
+        return message.toString();
     }
 
     public String buildEndorsementNotificationMessage(Endorsement endorsement) {

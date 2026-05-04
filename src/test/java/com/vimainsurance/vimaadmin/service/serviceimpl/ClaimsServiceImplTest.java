@@ -54,6 +54,7 @@ import com.vimainsurance.vimaadmin.service.claim.ClaimNumberGenerator;
 import com.vimainsurance.vimaadmin.service.claim.ClaimStatusTransitionValidator;
 import com.vimainsurance.vimaadmin.service.claim.ClaimValidationService;
 import com.vimainsurance.vimaadmin.service.claim.notification.ClaimsNotificationService;
+import com.vimainsurance.vimaadmin.util.SlackNotificationUtil;
 
 @ExtendWith(MockitoExtension.class)
 class ClaimsServiceImplTest {
@@ -92,6 +93,9 @@ class ClaimsServiceImplTest {
     private ClaimsNotificationService notificationService;
 
     @Mock
+    private SlackNotificationUtil slackNotificationUtil;
+
+    @Mock
     private InsurerAdapter insurerAdapter;
 
     private ClaimsServiceImpl claimsService;
@@ -107,7 +111,8 @@ class ClaimsServiceImplTest {
     void setUp() {
         claimsService = new ClaimsServiceImpl(
                 claimRepository, organizationRepository, dealsRepository, adminUserRepository, documentRepository,
-                claimNumberGenerator, statusValidator, auditService, validationService, adapterFactory, notificationService);
+                claimNumberGenerator, statusValidator, auditService, validationService, adapterFactory, notificationService,
+                slackNotificationUtil);
 
         claimId = UUID.randomUUID();
         employeeId = UUID.randomUUID();
@@ -146,6 +151,8 @@ class ClaimsServiceImplTest {
             return c;
         });
         when(documentRepository.findByEntityTypeAndEntityId(eq(DocumentEntityType.CLAIM), anyString())).thenReturn(Collections.emptyList());
+        when(slackNotificationUtil.buildEmployeeClaimSubmittedMessage(any(), any(), any()))
+                .thenReturn(":inbox_tray: test slack body");
 
         ClaimDetailsResponse response = claimsService.submitClaim(submissionRequest, employeeId);
 
@@ -154,6 +161,7 @@ class ClaimsServiceImplTest {
         assertEquals("VIMA-CLM-2025-0001", response.getClaimNumber());
         verify(claimRepository).save(any(Claim.class));
         verify(auditService).logAction(eq(claimId), eq("CLAIM_SUBMITTED"), anyString(), anyString(), eq(employeeId), anyString(), anyString(), eq(null), eq(null), eq(null));
+        verify(slackNotificationUtil).sendSlackMessage(eq("New employee claim"), anyString(), eq(false));
     }
 
     @Test

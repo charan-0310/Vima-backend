@@ -103,6 +103,8 @@ public class PolicyResponseDto {
     private String sumInsuredOptions; // JSON array string
     /** JSON array string of annual premiums; index-aligned with sumInsuredOptions. */
     private String topupPremiumOptions;
+    private String policyWording;
+    private String claimChecklist;
     private Boolean coversDependents;
     private Boolean coversParents;
     private Boolean isDeleted;

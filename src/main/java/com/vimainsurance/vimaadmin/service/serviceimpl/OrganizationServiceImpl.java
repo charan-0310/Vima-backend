@@ -2,6 +2,7 @@ package com.vimainsurance.vimaadmin.service.serviceimpl;
 
 import java.io.InputStream;
 import java.math.BigDecimal;
+import java.util.Base64;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
@@ -49,7 +50,13 @@ import com.vimainsurance.vimaadmin.dto.ManualDeleteEmployeesRequestDto;
 import com.vimainsurance.vimaadmin.dto.EmployeeUploadDto;
 import com.vimainsurance.vimaadmin.exception.OrganizationAccessDeniedException;
 import com.vimainsurance.vimaadmin.dto.EmployeeUploadResponse;
+import com.vimainsurance.vimaadmin.dto.EmailRequest;
+import com.vimainsurance.vimaadmin.dto.EmailAttachment;
 import com.vimainsurance.vimaadmin.dto.OrganizationEmployeeDto;
+import com.vimainsurance.vimaadmin.dto.OrganizationBroadcastEmailAttachmentDto;
+import com.vimainsurance.vimaadmin.dto.OrganizationBroadcastEmailRequestDto;
+import com.vimainsurance.vimaadmin.dto.OrganizationBroadcastEmailResponseDto;
+import com.vimainsurance.vimaadmin.dto.OrganizationBroadcastFailedRecipientDto;
 import com.vimainsurance.vimaadmin.dto.OrganizationRequestDto;
 import com.vimainsurance.vimaadmin.dto.OrganizationResponseDto;
 import com.vimainsurance.vimaadmin.dto.ResponseDto;
@@ -81,6 +88,7 @@ import com.vimainsurance.vimaadmin.repository.IOrganizationRepository;
 import com.vimainsurance.vimaadmin.repository.IPolicyRepository;
 import com.vimainsurance.vimaadmin.service.IDocumentService;
 import com.vimainsurance.vimaadmin.service.FeatureFlagService;
+import com.vimainsurance.vimaadmin.service.IEmailService;
 import com.vimainsurance.vimaadmin.service.IOrganizationService;
 import com.vimainsurance.vimaadmin.service.IS3Service;
 import com.vimainsurance.vimaadmin.specification.OrganizationSpecification;
@@ -150,6 +158,9 @@ public class OrganizationServiceImpl implements IOrganizationService {
 
     @Autowired
     private FeatureFlagService featureFlagService;
+
+    @Autowired
+    private IEmailService emailService;
 
     @Override
     @Transactional(rollbackFor = Exception.class)
@@ -542,6 +553,222 @@ public class OrganizationServiceImpl implements IOrganizationService {
             logger.error("[correlationId:{}] Exception in getEmployees: {}", MDC.get("correlationId"), e.getMessage(), e);
             return responseObj.render(responseObj.formErrorResponse("Error occurred while getting employees"));
         }
+    }
+
+    @Override
+    public ResponseEntity<ResponseDto<OrganizationBroadcastEmailResponseDto>> sendOrganizationBroadcastEmail(
+            UUID organizationId,
+            OrganizationBroadcastEmailRequestDto requestDto) {
+        logger.info("[correlationId:{}] sendOrganizationBroadcastEmail called for org {}", MDC.get("correlationId"), organizationId);
+        BaseResponse<OrganizationBroadcastEmailResponseDto> responseObj = new BaseResponse<>();
+        try {
+            if (requestDto == null) {
+                return responseObj.render(responseObj.formErrorResponse("Request body is required"));
+            }
+            if (requestDto.getOrganizationId() != null && !organizationId.equals(requestDto.getOrganizationId())) {
+                return responseObj.render(responseObj.formErrorResponse("Organization ID mismatch"));
+            }
+
+            String subject = requestDto.getSubject() != null ? requestDto.getSubject().trim() : "";
+            String bodyHtml = requestDto.getBodyHtml() != null ? requestDto.getBodyHtml().trim() : "";
+            if (subject.isEmpty()) {
+                return responseObj.render(responseObj.formErrorResponse("Subject is required"));
+            }
+            if (bodyHtml.isEmpty()) {
+                return responseObj.render(responseObj.formErrorResponse("Email body is required"));
+            }
+
+            Optional<Organization> orgOpt = organizationRepository.findByOrganizationId(organizationId);
+            if (orgOpt.isEmpty()) {
+                return responseObj.render(responseObj.formErrorResponse("Organization not found"));
+            }
+
+            List<Deals> primaryEmployeesInOrg = dealsRepository.findByOrganizationId(organizationId).stream()
+                    .filter(deal -> Boolean.TRUE.equals(deal.getIsPrimaryMember()))
+                    .collect(Collectors.toList());
+            Map<UUID, Deals> employeesById = primaryEmployeesInOrg.stream()
+                    .collect(Collectors.toMap(Deals::getIndividualId, deal -> deal, (a, b) -> a));
+
+            List<OrganizationBroadcastFailedRecipientDto> failures = new ArrayList<>();
+            List<Deals> targetEmployees = new ArrayList<>();
+            int totalRecipients;
+
+            if (requestDto.isSendToAll()) {
+                targetEmployees.addAll(primaryEmployeesInOrg);
+                totalRecipients = targetEmployees.size();
+            } else {
+                List<UUID> requestedEmployeeIds = requestDto.getEmployeeIds() == null
+                        ? List.of()
+                        : requestDto.getEmployeeIds().stream().filter(id -> id != null).distinct().collect(Collectors.toList());
+                if (requestedEmployeeIds.isEmpty()) {
+                    return responseObj.render(responseObj.formErrorResponse("At least one employee must be selected"));
+                }
+                totalRecipients = requestedEmployeeIds.size();
+                for (UUID employeeId : requestedEmployeeIds) {
+                    Deals deal = employeesById.get(employeeId);
+                    if (deal == null) {
+                        failures.add(new OrganizationBroadcastFailedRecipientDto(
+                                employeeId,
+                                null,
+                                "Employee does not belong to this organization or does not exist"));
+                        continue;
+                    }
+                    targetEmployees.add(deal);
+                }
+            }
+
+            List<Deals> validRecipients = new ArrayList<>();
+            for (Deals employee : targetEmployees) {
+                if (employee.getStatus() != AccountStatus.ACTIVE) {
+                    failures.add(new OrganizationBroadcastFailedRecipientDto(
+                            employee.getIndividualId(),
+                            employee.getEmail(),
+                            "Employee is not ACTIVE"));
+                    continue;
+                }
+                String email = employee.getEmail() != null ? employee.getEmail().trim() : "";
+                if (email.isEmpty()) {
+                    failures.add(new OrganizationBroadcastFailedRecipientDto(
+                            employee.getIndividualId(),
+                            null,
+                            "Employee email is missing"));
+                    continue;
+                }
+                validRecipients.add(employee);
+            }
+
+            if (totalRecipients == 0 || validRecipients.isEmpty()) {
+                return responseObj.render(responseObj.formErrorResponse("No valid recipients available for sending"));
+            }
+
+            int sentCount = 0;
+            List<EmailAttachment> parsedAttachments = parseBroadcastAttachments(requestDto.getAttachments());
+            if (requestDto.isDryRun()) {
+                String senderEmail = jwtUserExtractor.getCurrentEmail();
+                if (senderEmail == null || senderEmail.isBlank()) {
+                    senderEmail = jwtUserExtractor.resolveCurrentAdminUser()
+                            .map(AdminUser::getEmail)
+                            .orElse(null);
+                }
+                if (senderEmail == null || senderEmail.isBlank()) {
+                    return responseObj.render(responseObj.formErrorResponse("Sender email not found for dry-run"));
+                }
+                String senderName = jwtUserExtractor.resolveCurrentAdminUser()
+                        .map(AdminUser::getFullName)
+                        .filter(name -> name != null && !name.isBlank())
+                        .orElse("User");
+                String personalizedBody = personalizeEmailBody(bodyHtml, senderName);
+                String personalizedSubject = personalizeEmailBody(subject, senderName);
+                EmailRequest emailRequest = EmailRequest.builder()
+                        .to(senderEmail.trim())
+                        .subject(personalizedSubject)
+                        .body(personalizedBody)
+                        .isHtml(true)
+                        .attachments(parsedAttachments)
+                        .build();
+                var emailResponse = parsedAttachments.isEmpty()
+                        ? emailService.sendHtmlEmail(emailRequest)
+                        : emailService.sendEmailWithAttachments(emailRequest);
+                if (emailResponse != null && emailResponse.isSuccess()) {
+                    sentCount = 1;
+                } else {
+                    failures.add(new OrganizationBroadcastFailedRecipientDto(
+                            null,
+                            senderEmail,
+                            emailResponse != null && emailResponse.getError() != null
+                                    ? emailResponse.getError()
+                                    : "Dry-run email send failed"));
+                }
+            } else {
+                for (Deals recipient : validRecipients) {
+                    String email = recipient.getEmail().trim();
+                    String recipientName = recipient.getFullName() != null && !recipient.getFullName().isBlank()
+                            ? recipient.getFullName()
+                            : ((recipient.getFirstName() != null ? recipient.getFirstName() : "") + " "
+                                    + (recipient.getLastName() != null ? recipient.getLastName() : "")).trim();
+                    if (recipientName.isBlank()) {
+                        recipientName = "Employee";
+                    }
+                    String personalizedBody = personalizeEmailBody(bodyHtml, recipientName);
+                    String personalizedSubject = personalizeEmailBody(subject, recipientName);
+                    EmailRequest emailRequest = EmailRequest.builder()
+                            .to(email)
+                            .subject(personalizedSubject)
+                            .body(personalizedBody)
+                            .isHtml(true)
+                            .attachments(parsedAttachments)
+                            .build();
+                    var emailResponse = parsedAttachments.isEmpty()
+                            ? emailService.sendHtmlEmail(emailRequest)
+                            : emailService.sendEmailWithAttachments(emailRequest);
+                    if (emailResponse != null && emailResponse.isSuccess()) {
+                        sentCount++;
+                    } else {
+                        failures.add(new OrganizationBroadcastFailedRecipientDto(
+                                recipient.getIndividualId(),
+                                email,
+                                emailResponse != null && emailResponse.getError() != null
+                                        ? emailResponse.getError()
+                                        : "Email send failed"));
+                    }
+                }
+            }
+
+            OrganizationBroadcastEmailResponseDto payload = new OrganizationBroadcastEmailResponseDto(
+                    totalRecipients,
+                    sentCount,
+                    failures.size(),
+                    failures);
+
+            logger.info(
+                    "[correlationId:{}] Broadcast email audit | orgId={} | sender={} | dryRun={} | totalRecipients={} | sentCount={} | failedCount={} | timestamp={}",
+                    MDC.get("correlationId"),
+                    organizationId,
+                    jwtUserExtractor.getCurrentUsername(),
+                    requestDto.isDryRun(),
+                    payload.getTotalRecipients(),
+                    payload.getSentCount(),
+                    payload.getFailedCount(),
+                    LocalDateTime.now());
+
+            return responseObj.render(responseObj.formSuccessResponse(Constants.SUCCESS, payload));
+        } catch (Exception e) {
+            logger.error("[correlationId:{}] Exception in sendOrganizationBroadcastEmail: {}", MDC.get("correlationId"), e.getMessage(), e);
+            return responseObj.render(responseObj.formErrorResponse("Failed to send broadcast email"));
+        }
+    }
+
+    private String personalizeEmailBody(String template, String employeeName) {
+        if (template == null) {
+            return "";
+        }
+        String safeName = (employeeName == null || employeeName.isBlank()) ? "Employee" : employeeName.trim();
+        return template.replace("{name}", safeName);
+    }
+
+    private List<EmailAttachment> parseBroadcastAttachments(List<OrganizationBroadcastEmailAttachmentDto> attachmentsDto) {
+        if (attachmentsDto == null || attachmentsDto.isEmpty()) {
+            return List.of();
+        }
+        List<EmailAttachment> attachments = new ArrayList<>();
+        for (OrganizationBroadcastEmailAttachmentDto dto : attachmentsDto) {
+            if (dto == null || dto.getContentBase64() == null || dto.getContentBase64().isBlank()) {
+                continue;
+            }
+            try {
+                byte[] content = Base64.getDecoder().decode(dto.getContentBase64().replaceAll("\\s", ""));
+                attachments.add(EmailAttachment.builder()
+                        .fileName(dto.getFileName() != null && !dto.getFileName().isBlank() ? dto.getFileName() : "attachment")
+                        .contentType(dto.getContentType() != null && !dto.getContentType().isBlank()
+                                ? dto.getContentType()
+                                : "application/octet-stream")
+                        .content(content)
+                        .build());
+            } catch (IllegalArgumentException ignored) {
+                // skip malformed base64 attachment
+            }
+        }
+        return attachments;
     }
 
     @Override
