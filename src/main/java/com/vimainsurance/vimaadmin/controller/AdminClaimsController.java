@@ -7,6 +7,7 @@ import java.util.UUID;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
+import org.springframework.core.io.Resource;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
@@ -298,7 +299,7 @@ public class AdminClaimsController {
     }
 
     /**
-     * GET /api/v1/admin/claims/{claimId}/documents - List all claim documents with pre-signed URLs.
+     * GET /api/v1/admin/claims/{claimId}/documents - List claim document metadata.
      */
     @GetMapping("/{claimId}/documents")
     @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'VIMA_ADMIN', 'HR_ADMIN')")
@@ -309,6 +310,21 @@ public class AdminClaimsController {
                     .body(new ResponseDto<>(401, "Authentication required. Admin context not found in token."));
         }
         return claimsDocumentService.getClaimDocuments(claimId, adminId, true);
+    }
+
+    /**
+     * GET /api/v1/admin/claims/{claimId}/documents/{documentId}/download - Stream file from S3 (authenticated).
+     */
+    @GetMapping("/{claimId}/documents/{documentId}/download")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'VIMA_ADMIN', 'HR_ADMIN')")
+    public ResponseEntity<Resource> downloadClaimDocument(
+            @PathVariable UUID claimId,
+            @PathVariable UUID documentId) {
+        UUID adminId = jwtUserExtractor.getCurrentUserId();
+        if (adminId == null) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
+        }
+        return claimsDocumentService.downloadClaimDocument(claimId, documentId, adminId, true);
     }
 
     /**

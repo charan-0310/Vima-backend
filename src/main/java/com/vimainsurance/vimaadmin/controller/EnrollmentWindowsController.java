@@ -1,6 +1,7 @@
 package com.vimainsurance.vimaadmin.controller;
 
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 import org.slf4j.Logger;
@@ -29,6 +30,7 @@ import com.vimainsurance.vimaadmin.dto.EnrollmentWindowResponseDto;
 import com.vimainsurance.vimaadmin.dto.EnrollmentWindowStatsDto;
 import com.vimainsurance.vimaadmin.dto.ResponseDto;
 import com.vimainsurance.vimaadmin.dto.SelfEmployeeEnrollmentRequestDto;
+import com.vimainsurance.vimaadmin.dto.DependentEnrollmentUpdateDto;
 import com.vimainsurance.vimaadmin.dto.ValidateEmployeesRequestDto;
 import com.vimainsurance.vimaadmin.service.IEnrollmentWindowService;
 
@@ -64,9 +66,11 @@ public class EnrollmentWindowsController {
     public ResponseEntity<ResponseDto<List<String>>> validateEmployees(@RequestBody ValidateEmployeesRequestDto requestDto) {
         logger.info("[correlationId:{}] POST /api/admin/enrollment-windows/validate-employees called", MDC.get("correlationId"));
         List<SelfEmployeeEnrollmentRequestDto> dtos = requestDto.getSelfEmployeeEnrollmentRequestDtos();
+        Map<String, List<DependentEnrollmentUpdateDto>> deps = requestDto.getDependentsByEmployeeId();
         return enrollmentWindowService.validateEmployees(
                 requestDto.getOrganizationId(),
-                dtos != null ? dtos : List.of());
+                dtos != null ? dtos : List.of(),
+                deps != null ? deps : Map.of());
     }
 
     /**

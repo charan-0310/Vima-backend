@@ -60,24 +60,15 @@ public class S3Config {
     }
 
     /**
-     * Creates and configures S3 Presigner for generating pre-signed URLs
-     * 
-     * @return Configured S3Presigner instance
+     * Creates S3 Presigner aligned with {@link #s3Client()}.
+     * Building the presigner separately with only region/credentials can leave the SDK's
+     * endpoint provider unset on default AWS endpoints, causing NPE during presign.
      */
     @Bean
-    public S3Presigner s3Presigner() {
-        AwsBasicCredentials awsCredentials = AwsBasicCredentials.create(accessKey, secretKey);
-        
-        software.amazon.awssdk.services.s3.presigner.S3Presigner.Builder presignerBuilder = S3Presigner.builder()
-                .region(Region.of(region))
-                .credentialsProvider(StaticCredentialsProvider.create(awsCredentials));
-        
-        // If custom endpoint is provided
-        if (endpoint != null && !endpoint.isEmpty()) {
-            presignerBuilder.endpointOverride(URI.create(endpoint));
-        }
-        
-        return presignerBuilder.build();
+    public S3Presigner s3Presigner(S3Client s3Client) {
+        return S3Presigner.builder()
+                .s3Client(s3Client)
+                .build();
     }
 
     /**

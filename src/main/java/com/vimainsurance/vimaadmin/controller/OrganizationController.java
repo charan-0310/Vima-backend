@@ -44,9 +44,15 @@ import com.vimainsurance.vimaadmin.dto.EmployeeUploadResponse;
 import com.vimainsurance.vimaadmin.dto.ManualAddEmployeesRequestDto;
 import com.vimainsurance.vimaadmin.dto.ManualDeleteEmployeesRequestDto;
 import com.vimainsurance.vimaadmin.dto.OrganizationEmployeeDto;
+import com.vimainsurance.vimaadmin.dto.EmployeeOnboardingResponseDto;
+import com.vimainsurance.vimaadmin.dto.OrganizationBroadcastEmailRequestDto;
+import com.vimainsurance.vimaadmin.dto.OrganizationBroadcastEmailResponseDto;
+import com.vimainsurance.vimaadmin.dto.OrganizationCreateLoginsRequestDto;
+import com.vimainsurance.vimaadmin.dto.OrganizationEmployeeLoginPreviewDto;
 import com.vimainsurance.vimaadmin.dto.OrganizationRequestDto;
 import com.vimainsurance.vimaadmin.dto.OrganizationResponseDto;
 import com.vimainsurance.vimaadmin.dto.ResponseDto;
+import com.vimainsurance.vimaadmin.service.IOrganizationEmployeeLoginService;
 import com.vimainsurance.vimaadmin.service.IOrganizationService;
 
 @RestController
@@ -58,6 +64,9 @@ public class OrganizationController {
 
     @Autowired
     private IOrganizationService organizationService;
+
+    @Autowired
+    private IOrganizationEmployeeLoginService organizationEmployeeLoginService;
 
     @Autowired
     private ObjectMapper objectMapper;
@@ -173,6 +182,55 @@ public class OrganizationController {
     public ResponseEntity<ResponseDto<List<OrganizationEmployeeDto>>> getEmployees(@CurrentOrganization UUID organizationId) {
         logger.info("[correlationId:{}] /organization/{}/employees (GET) endpoint called", MDC.get("correlationId"), organizationId);
         return organizationService.getEmployees(organizationId);
+    }
+
+    @GetMapping("/organization/{organizationId}/employees/logins/preview")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'VIMA_ADMIN', 'HR_ADMIN')")
+    public ResponseEntity<ResponseDto<OrganizationEmployeeLoginPreviewDto>> previewEmployeeLogins(
+            @CurrentOrganization UUID organizationId) {
+        logger.info("[correlationId:{}] /organization/{}/employees/logins/preview (GET) endpoint called",
+                MDC.get("correlationId"), organizationId);
+        return organizationEmployeeLoginService.previewEmployeeLogins(organizationId);
+    }
+
+    @PostMapping("/organization/{organizationId}/employees/logins/create")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'VIMA_ADMIN', 'HR_ADMIN')")
+    public ResponseEntity<ResponseDto<EmployeeOnboardingResponseDto>> createEmployeeLogins(
+            @CurrentOrganization UUID organizationId,
+            @RequestBody OrganizationCreateLoginsRequestDto requestDto) {
+        logger.info("[correlationId:{}] /organization/{}/employees/logins/create (POST) endpoint called",
+                MDC.get("correlationId"), organizationId);
+        return organizationEmployeeLoginService.createEmployeeLogins(organizationId, requestDto);
+    }
+
+    @PostMapping("/organization/{organizationId}/employees/{individualId}/logins/resend-welcome")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'VIMA_ADMIN', 'HR_ADMIN')")
+    public ResponseEntity<ResponseDto<String>> resendEmployeeWelcomeEmail(
+            @CurrentOrganization UUID organizationId,
+            @PathVariable UUID individualId) {
+        logger.info("[correlationId:{}] /organization/{}/employees/{}/logins/resend-welcome (POST) endpoint called",
+                MDC.get("correlationId"), organizationId, individualId);
+        return organizationEmployeeLoginService.resendWelcomeEmail(organizationId, individualId);
+    }
+
+    @PostMapping("/organization/{organizationId}/employees/{individualId}/logins/send-password-reset")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'VIMA_ADMIN', 'HR_ADMIN')")
+    public ResponseEntity<ResponseDto<String>> sendEmployeePasswordResetEmail(
+            @CurrentOrganization UUID organizationId,
+            @PathVariable UUID individualId) {
+        logger.info("[correlationId:{}] /organization/{}/employees/{}/logins/send-password-reset (POST) endpoint called",
+                MDC.get("correlationId"), organizationId, individualId);
+        return organizationEmployeeLoginService.sendPasswordResetEmail(organizationId, individualId);
+    }
+
+    @PostMapping("/organization/{organizationId}/employees/broadcast-email")
+    @PreAuthorize("hasAnyRole('VIMA_ADMIN', 'HR_ADMIN')")
+    public ResponseEntity<ResponseDto<OrganizationBroadcastEmailResponseDto>> sendOrganizationBroadcastEmail(
+            @CurrentOrganization UUID organizationId,
+            @RequestBody OrganizationBroadcastEmailRequestDto requestDto) {
+        logger.info("[correlationId:{}] /organization/{}/employees/broadcast-email (POST) endpoint called",
+                MDC.get("correlationId"), organizationId);
+        return organizationService.sendOrganizationBroadcastEmail(organizationId, requestDto);
     }
 
     /**

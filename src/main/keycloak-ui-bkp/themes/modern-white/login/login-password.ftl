@@ -1,5 +1,5 @@
 <#import "template.ftl" as layout>
-<@layout.registrationLayout displayMessage=!messagesPerField.existsError('password'); section>
+<@layout.registrationLayout displayMessage=!messagesPerField.existsError('password') suppressHeaderUsernameStrip=true; section>
     <#if section = "header">
     <#elseif section = "form">
         <div id="kc-form" class="modern-login-password">

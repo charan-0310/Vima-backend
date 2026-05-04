@@ -24,10 +24,14 @@ import software.amazon.awssdk.services.sesv2.model.RawMessage;
 import software.amazon.awssdk.services.sesv2.model.SendEmailRequest;
 
 import java.io.ByteArrayOutputStream;
+import java.util.Base64;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Objects;
+import java.util.UUID;
 import java.util.stream.Collectors;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 @Slf4j
 @Service
@@ -38,6 +42,9 @@ public class EmailServiceImpl implements IEmailService {
     private static final String COMPANY_NAME = "Vima Insurance";
     private static final String COMPANY_NAME_KEY = "companyName";
     private static final String MAIL_PROVIDER_SES = "ses";
+    private static final Pattern INLINE_DATA_IMAGE_PATTERN = Pattern.compile(
+            "<img\\b([^>]*?)\\bsrc\\s*=\\s*['\"](data:image/([a-zA-Z0-9.+-]+);base64,([^'\"]+))['\"]([^>]*)>",
+            Pattern.CASE_INSENSITIVE | Pattern.DOTALL);
 
     private final JavaMailSender mailSender;
     private final SpringTemplateEngine templateEngine;
@@ -48,6 +55,9 @@ public class EmailServiceImpl implements IEmailService {
 
     @Value("${aws.ses.from-email:}")
     private String sesFromEmail;
+
+    @Value("${aws.ses.configuration-set:}")
+    private String sesConfigurationSet;
 
     @Value("${app.email.from-name:Vima Insurance}")
     private String fromName;
@@ -82,7 +92,8 @@ public class EmailServiceImpl implements IEmailService {
     @Override
     public EmailResponse sendHtmlEmail(EmailRequest emailRequest) {
         try {
-            sendEmail(emailRequest, true, false);
+            boolean hasInlineDataImage = containsInlineDataImages(emailRequest.getBody());
+            sendEmail(emailRequest, true, hasInlineDataImage);
             
             log.info("HTML email sent successfully to: {}", emailRequest.getTo());
             return EmailResponse.builder()
@@ -179,6 +190,12 @@ public class EmailServiceImpl implements IEmailService {
         return MAIL_PROVIDER_SES.equalsIgnoreCase(mailProvider);
     }
 
+    private void applySesConfigurationSet(SendEmailRequest.Builder builder) {
+        if (sesConfigurationSet != null && !sesConfigurationSet.isBlank()) {
+            builder.configurationSetName(sesConfigurationSet.trim());
+        }
+    }
+
     private void sendSimpleEmailViaSes(EmailRequest emailRequest, boolean html) {
         String body = resolveBody(emailRequest);
         String senderEmail = resolveFromEmail();
@@ -207,13 +224,13 @@ public class EmailServiceImpl implements IEmailService {
                 .body(messageBody)
                 .build();
 
-        SendEmailRequest request = SendEmailRequest.builder()
+        SendEmailRequest.Builder requestBuilder = SendEmailRequest.builder()
                 .fromEmailAddress(senderEmail)
                 .destination(destination)
-                .content(EmailContent.builder().simple(message).build())
-                .build();
+                .content(EmailContent.builder().simple(message).build());
+        applySesConfigurationSet(requestBuilder);
 
-        sesV2Client.sendEmail(request);
+        sesV2Client.sendEmail(requestBuilder.build());
     }
 
     private void sendRawEmailViaSes(EmailRequest emailRequest, boolean html)
@@ -228,17 +245,17 @@ public class EmailServiceImpl implements IEmailService {
             ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
             mimeMessage.writeTo(outputStream);
 
-            SendEmailRequest request = SendEmailRequest.builder()
+            SendEmailRequest.Builder requestBuilder = SendEmailRequest.builder()
                     .fromEmailAddress(senderEmail)
                     .destination(Destination.builder().toAddresses(toAddresses).build())
                     .content(EmailContent.builder()
                             .raw(RawMessage.builder()
                                     .data(SdkBytes.fromByteArray(outputStream.toByteArray()))
                                     .build())
-                            .build())
-                    .build();
+                            .build());
+            applySesConfigurationSet(requestBuilder);
 
-            sesV2Client.sendEmail(request);
+            sesV2Client.sendEmail(requestBuilder.build());
         } catch (java.io.IOException | jakarta.mail.MessagingException e) {
             throw new RuntimeException("Failed to build raw SES email payload", e);
         }
@@ -265,6 +282,9 @@ public class EmailServiceImpl implements IEmailService {
         helper.setSubject(subject);
 
         String body = resolveBody(emailRequest);
+        if (html && body != null && containsInlineDataImages(body)) {
+            body = attachInlineDataImages(helper, body);
+        }
         helper.setText(body != null ? body : "", html || emailRequest.getTemplateName() != null);
 
         if (emailRequest.getCc() != null && !emailRequest.getCc().isEmpty()) {
@@ -326,6 +346,39 @@ public class EmailServiceImpl implements IEmailService {
                 .map(String::trim)
                 .filter(s -> !s.isEmpty())
                 .collect(Collectors.toList());
+    }
+
+    private boolean containsInlineDataImages(String body) {
+        return body != null && INLINE_DATA_IMAGE_PATTERN.matcher(body).find();
+    }
+
+    private String attachInlineDataImages(MimeMessageHelper helper, String htmlBody) throws jakarta.mail.MessagingException {
+        Matcher matcher = INLINE_DATA_IMAGE_PATTERN.matcher(htmlBody);
+        StringBuffer sb = new StringBuffer();
+
+        while (matcher.find()) {
+            String mimeSubtype = matcher.group(3);
+            String base64Data = matcher.group(4);
+            String contentType = "image/" + (mimeSubtype != null ? mimeSubtype.toLowerCase() : "png");
+            String cid = "inline-" + UUID.randomUUID();
+            byte[] decoded;
+            try {
+                decoded = Base64.getDecoder().decode(base64Data.replaceAll("\\s", ""));
+            } catch (IllegalArgumentException ex) {
+                // If decode fails, keep original image tag as-is.
+                matcher.appendReplacement(sb, Matcher.quoteReplacement(matcher.group(0)));
+                continue;
+            }
+
+            helper.addInline(
+                    cid,
+                    new jakarta.mail.util.ByteArrayDataSource(decoded, contentType));
+
+            String replacement = "<img" + matcher.group(1) + "src=\"cid:" + cid + "\"" + matcher.group(5) + ">";
+            matcher.appendReplacement(sb, Matcher.quoteReplacement(replacement));
+        }
+        matcher.appendTail(sb);
+        return sb.toString();
     }
 
     private List<String> sanitizeAddresses(String[] addresses) {
