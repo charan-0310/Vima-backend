@@ -1,0 +1,63 @@
+# ----------------------------------------------------------------------
+#  application-local.properties.template
+#  Copy to application-local.properties (which IS git-ignored) and fill in
+#  the real local-development values. Never commit the populated file.
+#
+#  Production / stage / uat / dev secrets are NOT defined here — those are
+#  injected via environment variables sourced from AWS Secrets Manager.
+# ----------------------------------------------------------------------
+spring.application.name=vimaadmin
+server.port=8080
+server.servlet.context-path=/local
+
+# Local Postgres (docker-compose)
+spring.datasource.url=jdbc:postgresql://localhost:5432/vima_local
+spring.datasource.username=vima_user
+spring.datasource.password=CHANGE_ME_LOCAL_DEV_ONLY
+spring.datasource.driver-class-name=org.postgresql.Driver
+
+# JWT signing key for local dev only (HS256, base64-encoded 32 bytes)
+jwt.securitykey=REDACTED
+jwt.expiration=900000
+jwt.refreshexpiration=604800000
+
+# CORS for the local SPA
+cors.allowed-origins=http://localhost:5173,http://localhost:8080
+cors.allowed-methods=GET,POST,PUT,PATCH,DELETE,OPTIONS
+cors.allowed-headers=Authorization,Content-Type,X-Requested-With,X-Correlation-Id,X-CSRF-Token,Accept,Origin
+cors.allow-credentials=true
+
+redirect.url=http://localhost:5173
+redirect.allowed-targets=http://localhost:5173,http://localhost:8080
+
+# Google OAuth — only fill in if you actually use Google sign-in locally
+spring.security.oauth2.client.registration.google.client-id=
+spring.security.oauth2.client.registration.google.client-secret=
+
+# Keycloak (sole IdP — dev/prod no longer use Authentik)
+keycloak.auth-server-url=http://localhost:8081
+keycloak.realm=vima-local
+keycloak.client-id=vima-backend
+keycloak.client-secret=
+keycloak.service.client-id=vima-service
+keycloak.service.client-secret=
+
+# Mail — use Mailpit/Mailhog locally; prod uses SES
+spring.mail.host=localhost
+spring.mail.port=1025
+spring.mail.username=
+spring.mail.password=
+mail.provider=ses
+aws.ses.region=ap-south-1
+aws.ses.access-key=
+aws.ses.secret-key=
+aws.ses.from-email=no-reply@vimainsurance.local
+
+# S3 (use LocalStack or a sandbox bucket)
+aws.s3.access-key=
+aws.s3.secret-key=
+aws.s3.region=ap-south-1
+aws.s3.bucket-name=vimainsurance-local
+aws.s3.endpoint=
+aws.s3.presigned-url-expiration=300
+aws.s3.server-side-encryption.kms-key-id=

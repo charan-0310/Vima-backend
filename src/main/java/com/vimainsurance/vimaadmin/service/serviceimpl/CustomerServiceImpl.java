@@ -74,7 +74,6 @@ import com.vimainsurance.vimaadmin.service.ICustomerService;
 import com.vimainsurance.vimaadmin.service.IDocumentService;
 import com.vimainsurance.vimaadmin.service.IPolicyService;
 import com.vimainsurance.vimaadmin.service.IS3Service;
-import com.vimainsurance.vimaadmin.service.IZohoCRMService;
 import com.vimainsurance.vimaadmin.util.Constants;
 import com.vimainsurance.vimaadmin.util.ConverterUtils;
 import com.vimainsurance.vimaadmin.util.EnvironmentUtil;
@@ -104,9 +103,6 @@ public class CustomerServiceImpl implements ICustomerService{
 
     @Autowired
     private IdGenerator customerIdGenerator;
-
-    @Autowired
-    private IZohoCRMService zohoCRMService;
 
 
     @Autowired

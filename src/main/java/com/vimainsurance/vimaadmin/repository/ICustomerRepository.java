@@ -19,12 +19,10 @@ public interface ICustomerRepository extends JpaRepository<Customer, UUID> {
     Optional<Customer> findByPhoneNumber(String phoneNumber);
     Optional<Customer> findByEmail(String email);
     Optional<Customer> findByCustId(String custId);
-    Optional<Customer> findByZohoCrmId(String zohoCrmId);
     // List<Customer> findByCreatedBy(AdminUser user);
     Page<Customer> findAll(Pageable pageable);
     @Query("SELECT MAX(CAST(SUBSTRING(c.custId, 2) AS INTEGER))  FROM Customer c WHERE c.custId LIKE 'C%'")
     String findMaxCustomerId();
-    List<Customer> findAllByZohoCrmIdIsNull();
     List<Customer> findAllByCustIdIn(List<String> custIds);
     
     @Query(value = "SELECT nextval('admin.customer_id_seq')", nativeQuery = true)
