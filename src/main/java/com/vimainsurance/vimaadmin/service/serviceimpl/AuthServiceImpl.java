@@ -42,7 +42,6 @@ import com.vimainsurance.vimaadmin.service.IAuthService;
 import com.vimainsurance.vimaadmin.util.Constants;
 import com.vimainsurance.vimaadmin.util.JwtUtil;
 import com.vimainsurance.vimaadmin.util.RSAKeyPairUtil;
-import com.vimainsurance.vimaadmin.util.ZohoUtil;
 
 @Service
 public class AuthServiceImpl implements IAuthService {
@@ -51,9 +50,6 @@ public class AuthServiceImpl implements IAuthService {
 
     @Autowired
     private JwtUtil jwtUtil;
-
-    @Autowired
-    private ZohoUtil zohoUtil;
 
     @Autowired
     private AuthenticationManager authenticationManager;
@@ -67,12 +63,6 @@ public class AuthServiceImpl implements IAuthService {
     @Autowired
     private RSAKeyPairUtil rsaKeyPairUtil;
 
-    @Value("${google.recaptcha.secret}")
-    private String secret;
-
-    @Value("${google.recaptcha.site}")
-    private String site;
-
     // ✅ FIX: Inject singleton RestTemplate instead of creating new one per request
     // This prevents memory leaks from per-request RestTemplate creation
     @Autowired
@@ -80,19 +70,15 @@ public class AuthServiceImpl implements IAuthService {
 
     // Database-based nonce storage (no longer using in-memory map)
 
-
-    // @Autowired
-    // private IZohoAuthService zohoAuthService;
-
     @Override
     public ResponseEntity<ResponseDto<LoginResponseDto>> login(LoginRequestDto requestDto) {
         logger.info("[correlationId:{}] login called", MDC.get("correlationId"));
         BaseResponse<LoginResponseDto> responseObj = new BaseResponse<>();
         try {
-            if(requestDto.getRecaptchaToken() == null || !verifyToken(requestDto.getRecaptchaToken())){
-                return responseObj.render(responseObj.formErrorResponse("Invalid Captcha!!"));
-            }          
-            
+            // reCAPTCHA verification removed — Vima no longer uses reCAPTCHA.
+            // Legacy /login is in the process of being deprecated in favour of Authentik/Keycloak OAuth2.
+            // See IRDAI_ISO27001_Remediation_Plan.md (F-16, F-20).
+
             Authentication authentication = authenticationManager.authenticate(
                     new UsernamePasswordAuthenticationToken(
                         requestDto.getUsername(),
@@ -108,7 +94,6 @@ public class AuthServiceImpl implements IAuthService {
             }
             String token = jwtUtil.generateToken(requestDto.getUsername(), authentication.getAuthorities().iterator().next().getAuthority(), adminUser.getEmail(), adminUser.getAgentId(), organizationId );
             String refreshToken = jwtUtil.generateRefreshToken(requestDto.getUsername(), authentication.getAuthorities().iterator().next().getAuthority());
-            // Initialize Zoho CRM after successful authentication
 
             return responseObj.render(responseObj.formSuccessResponse(Constants.SUCCESS, new LoginResponseDto(token, refreshToken)));
         } catch (BadCredentialsException ex) {
@@ -132,16 +117,8 @@ public class AuthServiceImpl implements IAuthService {
             }
 
             String username = jwtUtil.extractUsername(refreshToken);
-            AdminUser adminUser = adminUserRepository.findByUsername(username).orElseThrow();    
+            AdminUser adminUser = adminUserRepository.findByUsername(username).orElseThrow();
 
-            // Refresh Zoho token along with JWT token
-            try {
-                // zohoAuthService.refreshZohoToken();
-                // zohoUtil.refreshZohoAccessToken();
-            } catch (Exception e) {
-                // Log the error but don't fail the token refresh
-                logger.error("Failed to refresh Zoho token", e);
-            }
             String organizationId = "";
             if (adminUser.getOrganization() != null && adminUser.getOrganization().getOrganizationId() != null) {
                 organizationId = adminUser.getOrganization().getOrganizationId().toString();
@@ -155,41 +132,15 @@ public class AuthServiceImpl implements IAuthService {
         }
     }
 
+    /**
+     * @deprecated reCAPTCHA verification removed (Vima no longer uses reCAPTCHA).
+     * Method retained as a no-op so any remaining caller in /auth/login
+     * compiles and continues to function. Remove together with the legacy
+     * /api/v1/login flow once the OAuth2 cutover (F-20) is complete.
+     */
+    @Deprecated
     public boolean verifyToken(String token) {
-        final String projectId = "vimaadmin";
-        final String expectedAction = "login"; // match frontend action
-    
-        String url = "https://recaptchaenterprise.googleapis.com/v1/projects/" 
-                   + projectId + "/assessments?key=" + secret;
-    
-        try {
-            // Prepare request body
-            Map<String, Object> event = new HashMap<>();
-            event.put("token", token);
-            event.put("siteKey", site);
-    
-            Map<String, Object> requestBody = new HashMap<>();
-            requestBody.put("event", event);
-    
-            HttpHeaders headers = new HttpHeaders();
-            // headers.setContentType(MediaType.APPLICATION_JSON);
-    
-            HttpEntity<Map<String, Object>> request = new HttpEntity<>(requestBody, headers);
-    
-            ResponseEntity<Map> response = restTemplate.postForEntity(url, request, Map.class);
-    
-            Map<String, Object> responseBody = response.getBody();
-            if (responseBody == null) return false;
-    
-            Map<String, Object> tokenProps = (Map<String, Object>) responseBody.get("tokenProperties");
-    
-            return tokenProps != null &&
-                   Boolean.TRUE.equals(tokenProps.get("valid"));
-    
-        } catch (Exception e) {
-            e.printStackTrace();
-            return false;
-        }
+        return true;
     }
     
     @Override
@@ -239,21 +190,14 @@ public class AuthServiceImpl implements IAuthService {
         try {
             String username = requestDto.getUsername(); // Keep existing field name for compatibility
             String clientProof = requestDto.getClientproof(); // This will contain the client proof
-            String hashedPassword = requestDto.getHashedPassword(); // Temporarily use recaptchaToken field for hashedPassword
-            String recaptchaToken = requestDto.getRecaptchaToken(); // We'll need to add a new field later
-            
+            String hashedPassword = requestDto.getHashedPassword();
+
             logger.info("[correlationId:{}] Received username: {}", MDC.get("correlationId"), username);
-            // logger.info("[correlationId:{}] Received client proof: {}", MDC.get("correlationId"), clientProof);
-            logger.info("[correlationId:{}] Received hashed password: {}", MDC.get("correlationId"), hashedPassword);
-            
+            // recaptchaToken field on the DTO is retained for wire-compat but no longer verified.
+
             if (username == null || username.trim().isEmpty() ||
                 hashedPassword == null || hashedPassword.trim().isEmpty()) {
                 return responseObj.render(responseObj.formErrorResponse("Username, client proof, and hashed password are required"));
-            }
-            
-            // Verify reCAPTCHA token
-            if (recaptchaToken == null || !verifyToken(recaptchaToken)) {
-                return responseObj.render(responseObj.formErrorResponse("Invalid Captcha!!"));
             }
             
             // Find user by username
@@ -308,7 +252,6 @@ public class AuthServiceImpl implements IAuthService {
             }
             String token = jwtUtil.generateToken(requestDto.getUsername(), adminUser.getRole(), adminUser.getEmail(), adminUser.getAgentId(), organizationId);
             String refreshToken = jwtUtil.generateRefreshToken(requestDto.getUsername(), adminUser.getRole());
-            // Initialize Zoho CRM after successful authentication
 
             return responseObj.render(responseObj.formSuccessResponse(Constants.SUCCESS, new LoginResponseDto(token, refreshToken)));
         } catch (BadCredentialsException ex) {

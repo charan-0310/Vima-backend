@@ -41,6 +41,11 @@ zoho_sdk_logger/
 ### Local profile configs with secrets ###
 application-test.properties
 application-local.properties
+application-local-secrets.properties
+.env
+.env.local
+*.pem
+rds-combined-ca-bundle.pem
 
 # Cursor local-only overrides
 CLAUDE.local.md
