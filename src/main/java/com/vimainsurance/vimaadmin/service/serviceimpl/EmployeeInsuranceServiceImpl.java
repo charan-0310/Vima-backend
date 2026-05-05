@@ -19,6 +19,7 @@ import org.springframework.transaction.annotation.Transactional;
 import com.vimainsurance.vimaadmin.dto.EmployeeInsuranceResponseDto;
 import com.vimainsurance.vimaadmin.dto.EmployeePolicyWordingChecklistDto;
 import com.vimainsurance.vimaadmin.entity.Deals;
+import com.vimainsurance.vimaadmin.entity.Organization;
 import com.vimainsurance.vimaadmin.entity.InsuranceProvider;
 import com.vimainsurance.vimaadmin.entity.Nominee;
 import com.vimainsurance.vimaadmin.entity.Policy;
@@ -131,6 +132,10 @@ public class EmployeeInsuranceServiceImpl implements IEmployeeInsuranceService {
             }
         }
 
+        Organization organization = employee.getOrganization();
+        String primaryContactEmail = organization != null ? blankToNull(organization.getPrimaryContactEmail()) : null;
+        String primaryContactPhone = organization != null ? blankToNull(organization.getPrimaryContactPhone()) : null;
+
         // Build and return the response DTO
         return EmployeeInsuranceResponseDto.builder()
                 .employeeId(employee.getIndividualId())
@@ -158,11 +163,21 @@ public class EmployeeInsuranceServiceImpl implements IEmployeeInsuranceService {
                 .tpaContactInfo(primaryPolicy != null ? primaryPolicy.getTpaContactInfo() : null)
                 .networkHospitalsUrl(primaryProvider != null ? primaryProvider.getNetworkHospitalsUrl() : null)
                 .blacklistedHospitalsUrl(primaryProvider != null ? primaryProvider.getBlacklistedHospitalsUrl() : null)
-                .companyName(employee.getOrganization() != null ? employee.getOrganization().getOrganizationName() : null)
+                .companyName(organization != null ? organization.getOrganizationName() : null)
+                .primaryContactEmail(primaryContactEmail)
+                .primaryContactPhone(primaryContactPhone)
                 .coveredMembers(primaryCoveredMembers)
                 .policies(policyDetails)
                 .build();
 
+    }
+
+    private static String blankToNull(String value) {
+        if (value == null) {
+            return null;
+        }
+        String trimmed = value.trim();
+        return trimmed.isEmpty() ? null : trimmed;
     }
 
     @Override

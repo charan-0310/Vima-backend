@@ -315,6 +315,30 @@ public class JwtUserExtractor {
     }
 
     /**
+     * Resolve {@code admin_users} from a single login identifier (Keycloak {@code preferred_username}, URL path
+     * segment, etc.): exact username, case-insensitive username, exact email, deterministic case-insensitive email.
+     * Aligns with {@code AuthController} {@code /auth/me} and {@link #resolveCurrentAdminUser()}.
+     */
+    public Optional<AdminUser> resolveAdminUserByLoginIdentifier(String identifier) {
+        if (identifier == null || identifier.isBlank()) {
+            return Optional.empty();
+        }
+        Optional<AdminUser> byUsername = adminUserRepository.findByUsername(identifier);
+        if (byUsername.isPresent()) {
+            return byUsername;
+        }
+        Optional<AdminUser> byUsernameIgnoreCase = adminUserRepository.findByUsernameIgnoreCase(identifier);
+        if (byUsernameIgnoreCase.isPresent()) {
+            return byUsernameIgnoreCase;
+        }
+        Optional<AdminUser> byEmail = adminUserRepository.findByEmail(identifier);
+        if (byEmail.isPresent()) {
+            return byEmail;
+        }
+        return adminUserRepository.findFirstByEmailIgnoreCaseOrderByCreatedAtAsc(identifier);
+    }
+
+    /**
      * Resolve {@code admin_users} for the current JWT using the same rules as {@code AuthController} {@code /auth/me}:
      * exact username, case-insensitive username, exact email, then deterministic case-insensitive email
      * (oldest row when duplicates exist). This must stay in sync with that endpoint so feature flags do not fail
@@ -327,21 +351,13 @@ public class JwtUserExtractor {
             return Optional.empty();
         }
         if (jwtUsername != null && !jwtUsername.isBlank()) {
-            Optional<AdminUser> byUsername = adminUserRepository.findByUsername(jwtUsername);
-            if (byUsername.isPresent()) {
-                return byUsername;
-            }
-            Optional<AdminUser> byUsernameIgnoreCase = adminUserRepository.findByUsernameIgnoreCase(jwtUsername);
-            if (byUsernameIgnoreCase.isPresent()) {
-                return byUsernameIgnoreCase;
+            Optional<AdminUser> fromPreferred = resolveAdminUserByLoginIdentifier(jwtUsername);
+            if (fromPreferred.isPresent()) {
+                return fromPreferred;
             }
         }
         if (jwtEmail != null && !jwtEmail.isBlank()) {
-            Optional<AdminUser> byEmail = adminUserRepository.findByEmail(jwtEmail);
-            if (byEmail.isPresent()) {
-                return byEmail;
-            }
-            return adminUserRepository.findFirstByEmailIgnoreCaseOrderByCreatedAtAsc(jwtEmail);
+            return resolveAdminUserByLoginIdentifier(jwtEmail);
         }
         return Optional.empty();
     }

@@ -24,7 +24,9 @@ import org.keycloak.admin.client.Keycloak;
 import org.keycloak.admin.client.KeycloakBuilder;
 import org.keycloak.admin.client.resource.UserResource;
 import org.keycloak.representations.idm.CredentialRepresentation;
+import org.keycloak.representations.idm.EventRepresentation;
 import org.keycloak.representations.idm.GroupRepresentation;
+import org.keycloak.representations.idm.RealmRepresentation;
 import org.keycloak.representations.idm.RoleRepresentation;
 import org.keycloak.representations.idm.UserRepresentation;
 import org.slf4j.Logger;
@@ -952,5 +954,184 @@ public class KeyCloakUtil {
                 .filter(u -> u != null && u.getEmail() != null && email.trim().equalsIgnoreCase(u.getEmail().trim()))
                 .findFirst()
                 .orElse(null);
+    }
+
+    /**
+     * Whether realm saves LOGIN events (needed for last-login lookups).
+     */
+    public boolean isRealmLoginEventsEnabled() {
+        if (!isConfigPresent()) {
+            return false;
+        }
+        try (Keycloak kc = getKeycloakClient()) {
+            RealmRepresentation r = kc.realm(realm).toRepresentation();
+            if (!Boolean.TRUE.equals(r.isEventsEnabled())) {
+                return false;
+            }
+            List<String> types = r.getEnabledEventTypes();
+            if (types == null || types.isEmpty()) {
+                return true;
+            }
+            return types.contains("LOGIN");
+        } catch (Exception e) {
+            logger.warn("Could not read Keycloak realm events config: {}", e.getMessage());
+            return false;
+        }
+    }
+
+    /**
+     * Latest LOGIN event time per normalized email (only emails that exist in the realm).
+     * Parallel batching matches {@link #checkEmailsExistInRealmBatched}; returns empty map when Keycloak is unavailable.
+     */
+    public Map<String, Instant> getLastLoginForEmails(List<String> normalizedEmails) {
+        if (!isConfigPresent() || normalizedEmails == null || normalizedEmails.isEmpty()) {
+            return Map.of();
+        }
+        List<String> distinct = normalizedEmails.stream()
+                .filter(e -> e != null && !e.isBlank())
+                .map(e -> e.trim().toLowerCase())
+                .distinct()
+                .toList();
+        if (distinct.size() > EMAIL_PREVIEW_MAX_UNIQUE) {
+            throw new IllegalArgumentException(
+                    "Too many distinct emails (" + distinct.size() + "); max " + EMAIL_PREVIEW_MAX_UNIQUE);
+        }
+        Map<String, Instant> result = new ConcurrentHashMap<>();
+        int n = distinct.size();
+        int workers = Math.min(EMAIL_PREVIEW_PARALLEL_WORKERS, Math.max(1, (n + 199) / 200));
+        List<List<String>> slices = splitIntoSlices(distinct, workers);
+        ExecutorService pool = Executors.newFixedThreadPool(Math.max(1, slices.size()));
+        try {
+            List<Future<?>> futures = new ArrayList<>();
+            for (List<String> slice : slices) {
+                futures.add(pool.submit(() -> {
+                    try (Keycloak kc = getKeycloakClient()) {
+                        var realmResource = kc.realm(realm);
+                        for (String email : slice) {
+                            UserRepresentation user = findUserByEmail(kc, email);
+                            if (user == null || user.getId() == null) {
+                                continue;
+                            }
+                            List<EventRepresentation> ev;
+                            try {
+                                ev = realmResource.getEvents(
+                                        List.of("LOGIN"),
+                                        null,
+                                        user.getId(),
+                                        null,
+                                        null,
+                                        null,
+                                        0,
+                                        25);
+                            } catch (Exception ex) {
+                                logger.debug("Keycloak getEvents failed for {}: {}", email, ex.getMessage());
+                                continue;
+                            }
+                            if (ev == null || ev.isEmpty()) {
+                                continue;
+                            }
+                            long maxMillis = 0L;
+                            for (EventRepresentation er : ev) {
+                                if (er == null) {
+                                    continue;
+                                }
+                                long t = er.getTime();
+                                if (t > maxMillis) {
+                                    maxMillis = t;
+                                }
+                            }
+                            if (maxMillis > 0) {
+                                result.put(email, Instant.ofEpochMilli(maxMillis));
+                            }
+                        }
+                    }
+                }));
+            }
+            for (Future<?> f : futures) {
+                f.get();
+            }
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new RuntimeException("Last-login lookup interrupted", e);
+        } catch (ExecutionException e) {
+            Throwable c = e.getCause() != null ? e.getCause() : e;
+            throw new RuntimeException("Keycloak last-login batch failed: " + c.getMessage(), c);
+        } finally {
+            pool.shutdown();
+            try {
+                if (!pool.awaitTermination(30, TimeUnit.MINUTES)) {
+                    pool.shutdownNow();
+                }
+            } catch (InterruptedException e) {
+                pool.shutdownNow();
+                Thread.currentThread().interrupt();
+            }
+        }
+        return result;
+    }
+
+    /**
+     * Sets a new temporary password and UPDATE_PASSWORD required action; returns plain password for welcome email.
+     *
+     * @throws IllegalArgumentException if user not found or Keycloak not configured
+     */
+    public String regenerateTemporaryPasswordForEmail(String email) {
+        if (!isConfigPresent()) {
+            throw new IllegalStateException("Keycloak config missing");
+        }
+        if (email == null || email.isBlank()) {
+            throw new IllegalArgumentException("Email is required");
+        }
+        String emailTrim = email.trim();
+        try (Keycloak kc = getKeycloakClient()) {
+            UserRepresentation user = findUserByEmail(kc, emailTrim);
+            if (user == null || user.getId() == null || user.getId().isBlank()) {
+                throw new IllegalArgumentException("User not found in Keycloak for email");
+            }
+            String pwd = PasswordGenerator.generateRandomPassword(12);
+            UserResource ur = kc.realm(realm).users().get(user.getId());
+            CredentialRepresentation cred = new CredentialRepresentation();
+            cred.setType(CredentialRepresentation.PASSWORD);
+            cred.setValue(pwd);
+            cred.setTemporary(true);
+            ur.resetPassword(cred);
+            UserRepresentation rep = ur.toRepresentation();
+            rep.setRequiredActions(List.of("UPDATE_PASSWORD"));
+            ur.update(rep);
+            return pwd;
+        }
+    }
+
+    /**
+     * Sends Keycloak's execute-actions email for UPDATE_PASSWORD (password reset link flow).
+     *
+     * @param clientId     optional Keycloak client id (null = realm default)
+     * @param redirectUri  optional redirect after actions (e.g. portal login URL)
+     * @param lifespanSeconds optional link lifetime; defaults to 86400 when null
+     */
+    public void sendUpdatePasswordActionEmail(String email, String clientId, String redirectUri, Integer lifespanSeconds) {
+        if (!isConfigPresent()) {
+            throw new IllegalStateException("Keycloak config missing");
+        }
+        if (email == null || email.isBlank()) {
+            throw new IllegalArgumentException("Email is required");
+        }
+        int lifespan = lifespanSeconds != null && lifespanSeconds > 0 ? lifespanSeconds : 86400;
+        String emailTrim = email.trim();
+        try (Keycloak kc = getKeycloakClient()) {
+            UserRepresentation user = findUserByEmail(kc, emailTrim);
+            if (user == null || user.getId() == null || user.getId().isBlank()) {
+                throw new IllegalArgumentException("User not found in Keycloak for email");
+            }
+            UserResource ur = kc.realm(realm).users().get(user.getId());
+            List<String> actions = List.of("UPDATE_PASSWORD");
+            String cid = clientId != null && !clientId.isBlank() ? clientId.trim() : null;
+            String redir = redirectUri != null && !redirectUri.isBlank() ? redirectUri.trim() : null;
+            if (cid != null || redir != null) {
+                ur.executeActionsEmail(cid, redir, lifespan, actions);
+            } else {
+                ur.executeActionsEmail(actions, lifespan);
+            }
+        }
     }
 }

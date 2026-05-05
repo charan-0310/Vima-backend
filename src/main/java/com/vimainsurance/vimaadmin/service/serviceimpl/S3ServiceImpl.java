@@ -139,16 +139,22 @@ public class S3ServiceImpl implements IS3Service {
 
     @Override
     public InputStream downloadFile(String key) {
-        logger.info("[correlationId:{}] Downloading file from S3: {}", MDC.get(CORRELATION_ID), key);
-        
+        return downloadFile(s3Config.getBucketName(), key);
+    }
+
+    @Override
+    public InputStream downloadFile(String bucket, String key) {
+        String b = (bucket != null && !bucket.isBlank()) ? bucket.trim() : s3Config.getBucketName();
+        logger.info("[correlationId:{}] Downloading file from S3: s3://{}/{}", MDC.get(CORRELATION_ID), b, key);
+
         try {
             GetObjectRequest getObjectRequest = GetObjectRequest.builder()
-                    .bucket(s3Config.getBucketName())
+                    .bucket(b)
                     .key(key)
                     .build();
 
             return s3Client.getObject(getObjectRequest);
-            
+
         } catch (S3Exception e) {
             logger.error("[correlationId:{}] S3 error downloading file: {}", MDC.get(CORRELATION_ID), key, e);
             throw new RuntimeException("S3 error: " + e.awsErrorDetails().errorMessage(), e);
@@ -178,11 +184,22 @@ public class S3ServiceImpl implements IS3Service {
 
     @Override
     public String generatePresignedUrl(String key, long expirationInSeconds) {
-        logger.info("[correlationId:{}] Generating presigned URL for S3 file: {}", MDC.get(CORRELATION_ID), key);
-        
+        return generatePresignedUrl(s3Config.getBucketName(), key, expirationInSeconds);
+    }
+
+    @Override
+    public String generatePresignedUrl(String key) {
+        return generatePresignedUrl(s3Config.getBucketName(), key, s3Config.getPresignedUrlExpiration());
+    }
+
+    @Override
+    public String generatePresignedUrl(String bucket, String key, long expirationInSeconds) {
+        String b = (bucket != null && !bucket.isBlank()) ? bucket.trim() : s3Config.getBucketName();
+        logger.info("[correlationId:{}] Generating presigned URL for s3://{}/{}", MDC.get(CORRELATION_ID), b, key);
+
         try {
             GetObjectRequest getObjectRequest = GetObjectRequest.builder()
-                    .bucket(s3Config.getBucketName())
+                    .bucket(b)
                     .key(key)
                     .build();
 
@@ -192,12 +209,12 @@ public class S3ServiceImpl implements IS3Service {
                     .build();
 
             PresignedGetObjectRequest presignedRequest = s3Presigner.presignGetObject(presignRequest);
-            
+
             String presignedUrl = presignedRequest.url().toString();
             logger.info("[correlationId:{}] Presigned URL generated successfully for: {}", MDC.get(CORRELATION_ID), key);
-            
+
             return presignedUrl;
-            
+
         } catch (S3Exception e) {
             logger.error("[correlationId:{}] S3 error generating presigned URL: {}", MDC.get(CORRELATION_ID), key, e);
             throw new RuntimeException("S3 error: " + e.awsErrorDetails().errorMessage(), e);
@@ -205,8 +222,8 @@ public class S3ServiceImpl implements IS3Service {
     }
 
     @Override
-    public String generatePresignedUrl(String key) {
-        return generatePresignedUrl(key, s3Config.getPresignedUrlExpiration());
+    public String generatePresignedUrl(String bucket, String key) {
+        return generatePresignedUrl(bucket, key, s3Config.getPresignedUrlExpiration());
     }
 
     @Override
