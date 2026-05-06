@@ -73,7 +73,6 @@ import com.vimainsurance.vimaadmin.repository.IPolicyRepository;
 import com.vimainsurance.vimaadmin.repository.IDocumentRepository;
 import com.vimainsurance.vimaadmin.repository.IEmployeePolicyMapRepository;
 import com.vimainsurance.vimaadmin.exception.DocumentUploadException;
-import com.vimainsurance.vimaadmin.util.SlackNotificationUtil;
 import com.vimainsurance.vimaadmin.util.TopupPremiumOptionsUtil;
 import com.vimainsurance.vimaadmin.util.GmcCoverageUploadValidationUtil;
 import com.vimainsurance.vimaadmin.service.policy.PolicyMemberMappingHelper;
@@ -113,9 +112,6 @@ public class EmployeeService {
        
     @Autowired
     private Javers javers;
-
-    @Autowired
-    private SlackNotificationUtil slackNotificationUtil;
 
     @Autowired(required = false)
     private FlagshipNotificationService flagshipNotificationService;
@@ -1268,7 +1264,6 @@ public class EmployeeService {
             log.info("endorsement_upload_saved endorsementId={} uploadType={} orgId={} createdCount={} updatedCount={}",
                 savedEndorsement.getEndorsementId(), uploadType,
                 organization != null ? organization.getOrganizationId() : null, createdCount, updatedCount);
-            slackNotificationUtil.sendSlackMessage(slackNotificationUtil.buildEndorsementNotificationMessage(savedEndorsement), false);
             if (flagshipNotificationService != null
                     && uploadType != null
                     && (uploadType.equalsIgnoreCase("addition") || uploadType.equalsIgnoreCase("bulk-upload"))) {
@@ -1518,7 +1513,9 @@ public class EmployeeService {
             }
             deletedCount = dealsToDelete.size();
             if (primaryEndorsement != null) {
-                slackNotificationUtil.sendSlackMessage(slackNotificationUtil.buildEndorsementNotificationMessage(primaryEndorsement), false);
+                log.info("endorsement_delete_saved endorsementId={} orgId={}",
+                        primaryEndorsement.getEndorsementId(),
+                        organization != null ? organization.getOrganizationId() : null);
             }
         }
             return new EmployeeUploadResponse(deletedCount, deletedCount, 0, new ArrayList<>(), "Employees" + "(" + employeeCount + ")" + " and dependents" + "(" + dependentCount + ")" + " deleted successfully", employeeCount, dependentCount);
@@ -1961,7 +1958,9 @@ public class EmployeeService {
             }
 
             if (primaryEndorsement != null) {
-                slackNotificationUtil.sendSlackMessage(slackNotificationUtil.buildEndorsementNotificationMessage(primaryEndorsement), false);
+                log.info("endorsement_delete_manual_saved endorsementId={} orgId={}",
+                        primaryEndorsement.getEndorsementId(),
+                        organization != null ? organization.getOrganizationId() : null);
             }
 
             String message = String.format("Employees (%d) and dependents (%d) submitted for deletion successfully. Endorsement created with status Pending.", employeeCount, dependentCount);

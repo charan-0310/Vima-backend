@@ -26,6 +26,10 @@ public class NotificationSlackWebhookClient {
 
     public boolean postMessage(String text) {
         String url = notificationsProperties.getSlackWebhookUrl();
+        return postMessageToWebhookUrl(text, url);
+    }
+
+    public boolean postMessageToWebhookUrl(String text, String url) {
         if (url == null || url.isBlank()) {
             return false;
         }
