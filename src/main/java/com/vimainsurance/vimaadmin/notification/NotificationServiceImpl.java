@@ -34,16 +34,19 @@ public class NotificationServiceImpl implements NotificationService {
     @Override
     @Transactional
     public Optional<UUID> createIfAbsent(CreateNotificationCommand command) {
+        log.info("notification_create_attempt event={} recipientId={} companyId={} dedupKey={}",
+                command.eventType(), command.recipientId(), command.companyId(), command.dedupKey());
         if (!notificationsFeatureGate.isNotificationsEnabled()) {
-            log.debug("Skipping notification create: {} flag disabled", NotificationsFeatureGate.FLAG_KEY);
+            log.info("notification_create_skip reason=flag_disabled flag={}", NotificationsFeatureGate.FLAG_KEY);
             return Optional.empty();
         }
         if (notificationRepository.existsByDedupKey(command.dedupKey())) {
+            log.info("notification_create_skip reason=dedup_exists dedupKey={}", command.dedupKey());
             return Optional.empty();
         }
         AdminUser recipient = adminUserRepository.findById(command.recipientId()).orElse(null);
         if (recipient == null) {
-            log.warn("Notification recipient not found: {}", command.recipientId());
+            log.warn("notification_create_skip reason=recipient_not_found recipientId={}", command.recipientId());
             return Optional.empty();
         }
         Organization company = null;
@@ -78,9 +81,11 @@ public class NotificationServiceImpl implements NotificationService {
 
         try {
             AdminNotification saved = notificationRepository.saveAndFlush(n);
+            log.info("notification_create_success notificationId={} recipientId={} dedupKey={}",
+                    saved.getId(), command.recipientId(), command.dedupKey());
             return Optional.of(saved.getId());
         } catch (DataIntegrityViolationException ex) {
-            log.info("Notification dedup race for key {}: {}", command.dedupKey(), ex.getMessage());
+            log.info("notification_create_skip reason=dedup_race dedupKey={} message={}", command.dedupKey(), ex.getMessage());
             return Optional.empty();
         }
     }

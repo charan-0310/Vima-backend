@@ -1,10 +1,14 @@
 package com.vimainsurance.vimaadmin.service.serviceimpl;
 
 import java.io.InputStream;
+import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.OffsetDateTime;
 import java.time.ZoneId;
+import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
@@ -59,6 +63,7 @@ import com.vimainsurance.vimaadmin.entity.Deals;
 import com.vimainsurance.vimaadmin.entity.Document;
 import com.vimainsurance.vimaadmin.entity.Endorsement;
 import com.vimainsurance.vimaadmin.entity.Organization;
+import com.vimainsurance.vimaadmin.exception.OrganizationAccessDeniedException;
 import com.vimainsurance.vimaadmin.enums.AccountStatus;
 import com.vimainsurance.vimaadmin.enums.DocumentCategory;
 import com.vimainsurance.vimaadmin.enums.DocumentEntityType;
@@ -208,8 +213,9 @@ public class EndorsementServiceImpl implements IEndorsementService {
             if (flagshipNotificationService != null
                     && endorsement.getEndorsementType() != null
                     && (endorsement.getEndorsementType() == EndorsementType.BULK_UPLOAD
-                            || endorsement.getEndorsementType() == EndorsementType.INITIAL_UPLOAD)) {
-                flagshipNotificationService.scheduleEndorsementUploaded(endorsement, organization, uploadedBy);
+                            || endorsement.getEndorsementType() == EndorsementType.INITIAL_UPLOAD
+                            || endorsement.getEndorsementType() == EndorsementType.ADDITION)) {
+                flagshipNotificationService.scheduleEndorsementUploaded(endorsement, organization, uploadedBy, Collections.emptyList());
             }
 
             return responseObj.render(responseObj.formSuccessResponse(Constants.SUCCESS, Constants.SAVE_SUCCESS));
@@ -323,6 +329,7 @@ public class EndorsementServiceImpl implements IEndorsementService {
     }
 
     @Override
+    @Transactional(readOnly = true)
     public ResponseEntity<ResponseDto<EndorsementResponseDto>> getById(UUID endorsementId) {
         logger.info("[correlationId:{}] Endorsement getById called for {}", MDC.get("correlationId"), endorsementId);
         BaseResponse<EndorsementResponseDto> responseObj = new BaseResponse<>();
@@ -338,12 +345,14 @@ public class EndorsementServiceImpl implements IEndorsementService {
                 jwtUserExtractor.validateOrganizationAccess(orgId);
                 com.vimainsurance.vimaadmin.audit.AuditContextSupplier.setOrganizationId(orgId);
             }
-            EndorsementResponseDto dto = EndorsementMapper.mapToResponseDto(opt.get());
+            EndorsementResponseDto dto = mapToResponseDtoWithoutPolicy(opt.get());
             applyDynamicMemberCounts(dto, opt.get());
             return responseObj.render(responseObj.formSuccessResponse(Constants.SUCCESS, dto));
+        } catch (OrganizationAccessDeniedException e) {
+            throw e;
         } catch (Exception e) {
             logger.error("[correlationId:{}] Exception in Endorsement getById: {}", MDC.get("correlationId"), e.getMessage(), e);
-            return responseObj.render(responseObj.formErrorResponse(Constants.RECORD_NOT_FOUND_MESSAGE));
+            throw (e instanceof RuntimeException re) ? re : new RuntimeException(e);
         }
     }
 
@@ -432,6 +441,7 @@ public class EndorsementServiceImpl implements IEndorsementService {
     }
 
     @Override
+    @Transactional(readOnly = true)
     public ResponseEntity<ResponseDto<List<EndorsementResponseDto>>> getAllWithFilters(
             UUID organizationId, String organizationName, String status, String endorsementType, String uploadedBy,
             UUID splitGroupId, Long policyId, String fromDate, String toDate, int page, int size, String sortBy, String sortDirection) {
@@ -450,11 +460,11 @@ public class EndorsementServiceImpl implements IEndorsementService {
             if (endorsementType != null && !endorsementType.trim().isEmpty()) {
                 type = EndorsementType.fromValue(endorsementType);
             }
-            if(fromDate != null) {
-                fromDateTime = LocalDate.parse(fromDate).atStartOfDay();
+            if (fromDate != null && !fromDate.isBlank()) {
+                fromDateTime = parseFilterDateStart(fromDate.trim());
             }
-            if(toDate != null) {
-                toDateTime = LocalDate.parse(toDate).atStartOfDay();
+            if (toDate != null && !toDate.isBlank()) {
+                toDateTime = parseFilterDateEndInclusive(toDate.trim());
             }
             // Multi-tenant: restrict by organization IDs from JWT
             Map<String, List<String>> tenantMap = TenantContext.getCurrentTenant();
@@ -495,16 +505,16 @@ public class EndorsementServiceImpl implements IEndorsementService {
             // Create sort and page request
             Sort sort = createSort(sortBy, sortDirection);
             PageRequest pageRequest = PageRequest.of(page, size, sort);
-            
-            // Execute query using specification
+
+            // Default JpaSpecificationExecutor paging only (no @EntityGraph on repository — avoids PostgreSQL/Hibernate errors).
             Page<Endorsement> endorsementPage = endorsementRepository.findAll(spec, pageRequest);
+            List<Endorsement> pageRows = endorsementPage.getContent();
 
-            Map<UUID, MemberCounts> memberCountsByEndorsementId = calculateMemberCountsForEndorsements(endorsementPage.getContent());
+            Map<UUID, MemberCounts> memberCountsByEndorsementId = calculateMemberCountsForEndorsements(pageRows);
 
-            // Map to DTOs
             List<EndorsementResponseDto> out = new ArrayList<>();
-            for (Endorsement endorsement : endorsementPage.getContent()) {
-                EndorsementResponseDto dto = EndorsementMapper.mapToResponseDto(endorsement);
+            for (Endorsement endorsement : pageRows) {
+                EndorsementResponseDto dto = mapToResponseDtoWithoutPolicy(endorsement);
                 MemberCounts counts = memberCountsByEndorsementId.get(endorsement.getEndorsementId());
                 if (counts == null) {
                     counts = new MemberCounts(0, 0);
@@ -520,7 +530,8 @@ public class EndorsementServiceImpl implements IEndorsementService {
             return responseObj.render(responseObj.formErrorResponse("Invalid enum value: " + e.getMessage()));
         } catch (Exception e) {
             logger.error("[correlationId:{}] Exception in Endorsement getAllWithFilters: {}", MDC.get("correlationId"), e.getMessage(), e);
-            return responseObj.render(responseObj.formErrorResponse(Constants.RECORD_NOT_FOUND_MESSAGE));
+            /* Do not return error ResponseEntity here: inside @Transactional a swallowed failure marks the TX rollback-only and causes UnexpectedRollbackException on commit. */
+            throw (e instanceof RuntimeException re) ? re : new RuntimeException(e);
         }
     }
 
@@ -658,7 +669,23 @@ public class EndorsementServiceImpl implements IEndorsementService {
             endorsement.setUpdatedAt(LocalDateTime.now());
             endorsementRepository.save(endorsement);
             if (flagshipNotificationService != null) {
-                flagshipNotificationService.scheduleEndorsementCompleted(endorsement.getEndorsementId(), organization);
+                Organization notificationOrganization = endorsement.getOrganization() != null
+                        ? endorsement.getOrganization()
+                        : organization;
+                if (notificationOrganization != null && organization != null
+                        && notificationOrganization.getOrganizationId() != null
+                        && organization.getOrganizationId() != null
+                        && !notificationOrganization.getOrganizationId().equals(organization.getOrganizationId())) {
+                    logger.warn("[correlationId:{}] Endorsement approve org mismatch requestOrgId={} endorsementOrgId={}",
+                            MDC.get("correlationId"),
+                            organization.getOrganizationId(),
+                            notificationOrganization.getOrganizationId());
+                }
+                flagshipNotificationService.scheduleEndorsementCompleted(
+                        endorsement.getEndorsementId(), notificationOrganization,
+                        endorsement.getUploadedBy() != null ? endorsement.getUploadedBy().getId() : null,
+                        resolveCurrentActorName(),
+                        "Vima Admin");
             }
 
             if (employeePolicyMapService != null) {
@@ -802,7 +829,10 @@ public class EndorsementServiceImpl implements IEndorsementService {
                 endorsementRepository.save(endorsement);
                 if (flagshipNotificationService != null && endorsement.getOrganization() != null) {
                     flagshipNotificationService.scheduleEndorsementCompleted(
-                            endorsement.getEndorsementId(), endorsement.getOrganization());
+                            endorsement.getEndorsementId(), endorsement.getOrganization(),
+                            endorsement.getUploadedBy() != null ? endorsement.getUploadedBy().getId() : null,
+                            resolveCurrentActorName(),
+                            "Vima Admin");
                 }
             }
             
@@ -892,7 +922,10 @@ public class EndorsementServiceImpl implements IEndorsementService {
                         endorsementRepository.save(endorsement);
                         if (flagshipNotificationService != null && endorsement.getOrganization() != null) {
                             flagshipNotificationService.scheduleEndorsementCompleted(
-                                    endorsement.getEndorsementId(), endorsement.getOrganization());
+                                    endorsement.getEndorsementId(), endorsement.getOrganization(),
+                                    endorsement.getUploadedBy() != null ? endorsement.getUploadedBy().getId() : null,
+                                    resolveCurrentActorName(),
+                                    "Vima Admin");
                         }
                         completedEndorsementsCount++;
                     }
@@ -1394,6 +1427,46 @@ public class EndorsementServiceImpl implements IEndorsementService {
     }
 
     
+    /** Accepts {@code yyyy-MM-dd} or ISO-8601 instant/offset (frontend sends UTC instants). */
+    private static LocalDateTime parseFilterDateStart(String raw) {
+        try {
+            if (raw.length() >= 10 && raw.charAt(4) == '-' && raw.charAt(7) == '-') {
+                return LocalDate.parse(raw.substring(0, 10)).atStartOfDay();
+            }
+        } catch (DateTimeParseException ignored) {
+            // fall through
+        }
+        try {
+            return Instant.parse(raw).atZone(ZoneId.systemDefault()).toLocalDateTime();
+        } catch (DateTimeParseException e) {
+            try {
+                return OffsetDateTime.parse(raw).toLocalDateTime();
+            } catch (DateTimeParseException e2) {
+                throw new IllegalArgumentException("Invalid fromDate: " + raw);
+            }
+        }
+    }
+
+    /** End of local calendar day (matches inclusive date-range filtering expectations). */
+    private static LocalDateTime parseFilterDateEndInclusive(String raw) {
+        try {
+            if (raw.length() >= 10 && raw.charAt(4) == '-' && raw.charAt(7) == '-') {
+                return LocalDate.parse(raw.substring(0, 10)).atTime(23, 59, 59, 999_000_000);
+            }
+        } catch (DateTimeParseException ignored) {
+            // fall through
+        }
+        try {
+            return Instant.parse(raw).atZone(ZoneId.systemDefault()).toLocalDateTime();
+        } catch (DateTimeParseException e) {
+            try {
+                return OffsetDateTime.parse(raw).toLocalDateTime();
+            } catch (DateTimeParseException e2) {
+                throw new IllegalArgumentException("Invalid toDate: " + raw);
+            }
+        }
+    }
+
     /**
      * Helper method to create Sort object
      */
@@ -1464,7 +1537,9 @@ public class EndorsementServiceImpl implements IEndorsementService {
         for (UUID endorsementId : endorsementIds) {
             Map<UUID, Deals> uniqueMembers = uniqueMembersByEndorsement.getOrDefault(endorsementId, Map.of());
             Endorsement endorsement = endorsementById.get(endorsementId);
-            ProductType pt = resolveProductTypeForMemberCounts(endorsement, null);
+            // List endpoint stability: avoid touching policy on this bulk path.
+            // Some environments have policy schema drift that breaks lazy policy SQL and crashes the whole list.
+            ProductType pt = null;
             if (pt == ProductType.GPA || pt == ProductType.GTL || pt == ProductType.TOP_UP || pt == ProductType.SUPER_TOP_UP) {
                 int self = (int) uniqueMembers.values().stream()
                         .filter(d -> d != null && d.getRelationship() != null && "SELF".equalsIgnoreCase(d.getRelationship()))
@@ -1557,9 +1632,8 @@ public class EndorsementServiceImpl implements IEndorsementService {
     }
 
     private ProductType resolveProductTypeForMemberCounts(Endorsement endorsement, EndorsementResponseDto dto) {
-        if (endorsement != null && endorsement.getPolicy() != null && endorsement.getPolicy().getProductType() != null) {
-            return endorsement.getPolicy().getProductType();
-        }
+        // Deliberately avoid lazy-loading endorsement.policy on list/read paths.
+        // Some DBs are behind the Policy schema (e.g. missing claim_checklist), causing SQLGrammarException.
         if (dto != null && dto.getPolicyType() != null && !dto.getPolicyType().isBlank()) {
             try {
                 return ProductType.fromValue(dto.getPolicyType());
@@ -1568,6 +1642,51 @@ public class EndorsementServiceImpl implements IEndorsementService {
             }
         }
         return null;
+    }
+
+    private EndorsementResponseDto mapToResponseDtoWithoutPolicy(Endorsement endorsement) {
+        EndorsementResponseDto dto = new EndorsementResponseDto();
+        dto.setEndorsementId(endorsement.getEndorsementId());
+        if (endorsement.getOrganization() != null) {
+            dto.setOrganizationId(endorsement.getOrganization().getOrganizationId());
+            dto.setOrganizationName(endorsement.getOrganization().getOrganizationName());
+            dto.setOrganizationDisplayName(endorsement.getOrganization().getOrganizationDisplayName());
+        }
+        if (endorsement.getDocument() != null) {
+            dto.setDocumentId(endorsement.getDocument().getDocumentId());
+        }
+        if (endorsement.getEndorsementType() != null) {
+            dto.setEndorsementType(endorsement.getEndorsementType().getValue());
+        }
+        if (endorsement.getStatus() != null) {
+            dto.setStatus(endorsement.getStatus().getValue());
+        }
+        dto.setApprovedAt(endorsement.getApprovedAt());
+        dto.setApprovedBy(endorsement.getApprovedBy());
+        if (endorsement.getUploadedBy() != null) {
+            dto.setUploadedBy(endorsement.getUploadedBy().getId());
+            dto.setUploadedByName(endorsement.getUploadedBy().getFullName());
+        }
+        if (endorsement.getConfirmationMethod() != null) {
+            dto.setConfirmationMethod(endorsement.getConfirmationMethod().getValue());
+        }
+        dto.setInsurerRefNumber(endorsement.getInsurerRefNumber());
+        if (endorsement.getPremiumChangeType() != null) {
+            dto.setPremiumChangeType(endorsement.getPremiumChangeType().getValue());
+        }
+        dto.setPremiumAmount(endorsement.getPremiumAmount());
+        dto.setCreatedAt(endorsement.getCreatedAt());
+        dto.setUpdatedAt(endorsement.getUpdatedAt());
+        if (endorsement.getSource() != null) {
+            dto.setSource(endorsement.getSource().getValue());
+        }
+        dto.setLifeEventType(endorsement.getLifeEventType());
+        dto.setSplitGroupId(endorsement.getSplitGroupId());
+        if (endorsement.getParentEndorsement() != null) {
+            dto.setParentEndorsementId(endorsement.getParentEndorsement().getEndorsementId());
+        }
+        // Intentionally omit policy fields on listing endpoint to avoid policy-table schema drift failures.
+        return dto;
     }
 
     private boolean isParentRelationshipForEndorsementCounts(String relationship) {
@@ -1753,6 +1872,18 @@ public class EndorsementServiceImpl implements IEndorsementService {
             return responseObj.render(responseObj.formErrorResponse("Failed to deactivate endorsement!"));
         }
     }
+
+    private String resolveCurrentActorName() {
+        try {
+            return jwtUserExtractor.resolveCurrentAdminUser()
+                    .map(AdminUser::getFullName)
+                    .filter(name -> name != null && !name.isBlank())
+                    .orElse("Vima Admin");
+        } catch (Exception ex) {
+            return "Vima Admin";
+        }
+    }
+
     /**
      * Normalizes relationship for lookup: "Employee" (case insensitive) is treated as "SELF".
      */

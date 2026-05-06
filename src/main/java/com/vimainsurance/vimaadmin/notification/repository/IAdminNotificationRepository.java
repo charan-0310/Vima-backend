@@ -29,12 +29,16 @@ public interface IAdminNotificationRepository extends JpaRepository<AdminNotific
 
     long countByRecipient_IdAndReadAtIsNull(UUID recipientId);
 
+    /**
+     * HR (and optional VIMA company filter): include rows with {@code company_id} null so legacy/manual rows still appear.
+     * Rows remain scoped to {@code recipientId} only.
+     */
     @Query("""
             SELECT n FROM AdminNotification n
             WHERE n.recipient.id = :recipientId
               AND (:unreadOnly = false OR n.readAt IS NULL)
               AND (:category IS NULL OR n.category = :category)
-              AND (:companyId IS NULL OR (n.company IS NOT NULL AND n.company.organizationId = :companyId))
+              AND (:companyId IS NULL OR n.company IS NULL OR n.company.organizationId = :companyId)
             """)
     Page<AdminNotification> findInbox(
             @Param("recipientId") UUID recipientId,
@@ -48,10 +52,18 @@ public interface IAdminNotificationRepository extends JpaRepository<AdminNotific
     int markReadIfOwned(@Param("id") UUID id, @Param("recipientId") UUID recipientId, @Param("readAt") LocalDateTime readAt);
 
     @Modifying
+    @Query("UPDATE AdminNotification n SET n.isStarred = :starred, n.updatedAt = :updatedAt WHERE n.id = :id AND n.recipient.id = :recipientId")
+    int markStarredIfOwned(
+            @Param("id") UUID id,
+            @Param("recipientId") UUID recipientId,
+            @Param("starred") boolean starred,
+            @Param("updatedAt") LocalDateTime updatedAt);
+
+    @Modifying
     @Query("""
             UPDATE AdminNotification n SET n.readAt = :readAt, n.updatedAt = :readAt
             WHERE n.recipient.id = :recipientId AND n.readAt IS NULL
-              AND (:companyId IS NULL OR (n.company IS NOT NULL AND n.company.organizationId = :companyId))
+              AND (:companyId IS NULL OR n.company IS NULL OR n.company.organizationId = :companyId)
             """)
     int markAllReadForRecipient(
             @Param("recipientId") UUID recipientId,
