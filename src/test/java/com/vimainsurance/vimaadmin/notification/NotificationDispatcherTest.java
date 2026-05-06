@@ -15,7 +15,6 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
-import org.springframework.core.env.Environment;
 
 import com.vimainsurance.vimaadmin.entity.AdminUser;
 import com.vimainsurance.vimaadmin.notification.config.NotificationsProperties;
@@ -41,8 +40,6 @@ class NotificationDispatcherTest {
     private IEmailService emailService;
     @Mock
     private NotificationSlackWebhookClient slackWebhookClient;
-    @Mock
-    private Environment environment;
 
     private NotificationDispatcher dispatcher;
     private NotificationsProperties notificationsProperties;
@@ -59,44 +56,41 @@ class NotificationDispatcherTest {
                 deliveryRepository,
                 notificationsFeatureGate,
                 notificationsProperties,
-                environment,
                 emailService,
                 slackWebhookClient);
     }
 
     @Test
-    void endorsementCompleted_usesWebhookPathLikeUploadFlow() {
+    void endorsementCompleted_prefersBotTokenPathWhenConfigured() {
         notificationsProperties.setSlackBotToken("xoxb-test-token");
         notificationsProperties.setSlackChannelId("C09PR4VC0DR");
         notificationsProperties.setSlackWebhookUrl("https://hooks.slack.com/services/test");
         AdminNotification notification = slackNotification(NotificationEventType.ENDORSEMENT_COMPLETED);
         when(notificationsFeatureGate.isNotificationsEnabled()).thenReturn(true);
         when(notificationRepository.findByIdForDispatch(notification.getId())).thenReturn(Optional.of(notification));
-        when(slackWebhookClient.postMessageToWebhookUrl(expectedText(notification), "https://hooks.slack.com/services/test"))
-                .thenReturn(true);
+        when(slackWebhookClient.postMessageToChannel("C09PR4VC0DR", expectedText(notification))).thenReturn(true);
 
         dispatcher.dispatchDeliveriesFor(notification.getId());
 
-        verify(slackWebhookClient, never()).postMessageToChannel(any(), any());
-        verify(slackWebhookClient).postMessageToWebhookUrl(expectedText(notification), "https://hooks.slack.com/services/test");
+        verify(slackWebhookClient).postMessageToChannel("C09PR4VC0DR", expectedText(notification));
+        verify(slackWebhookClient, never()).postMessage(any());
         assertEquals(NotificationDeliveryStatus.SENT, notification.getDeliveries().get(0).getStatus());
     }
 
     @Test
-    void endorsementCompleted_usesWebhookEvenWhenBotRouteUnavailable() {
+    void endorsementCompleted_fallsBackToWebhookWhenBotRouteUnavailable() {
         notificationsProperties.setSlackBotToken("");
         notificationsProperties.setSlackChannelId("C09PR4VC0DR");
         notificationsProperties.setSlackWebhookUrl("https://hooks.slack.com/services/test");
         AdminNotification notification = slackNotification(NotificationEventType.ENDORSEMENT_COMPLETED);
         when(notificationsFeatureGate.isNotificationsEnabled()).thenReturn(true);
         when(notificationRepository.findByIdForDispatch(notification.getId())).thenReturn(Optional.of(notification));
-        when(slackWebhookClient.postMessageToWebhookUrl(expectedText(notification), "https://hooks.slack.com/services/test"))
-                .thenReturn(true);
+        when(slackWebhookClient.postMessage(expectedText(notification))).thenReturn(true);
 
         dispatcher.dispatchDeliveriesFor(notification.getId());
 
         verify(slackWebhookClient, never()).postMessageToChannel(any(), any());
-        verify(slackWebhookClient).postMessageToWebhookUrl(expectedText(notification), "https://hooks.slack.com/services/test");
+        verify(slackWebhookClient).postMessage(expectedText(notification));
         assertEquals(NotificationDeliveryStatus.SENT, notification.getDeliveries().get(0).getStatus());
     }
 
@@ -108,13 +102,12 @@ class NotificationDispatcherTest {
         AdminNotification notification = slackNotification(NotificationEventType.ENDORSEMENT_UPLOADED);
         when(notificationsFeatureGate.isNotificationsEnabled()).thenReturn(true);
         when(notificationRepository.findByIdForDispatch(notification.getId())).thenReturn(Optional.of(notification));
-        when(slackWebhookClient.postMessageToWebhookUrl(expectedText(notification), "https://hooks.slack.com/services/test"))
-                .thenReturn(true);
+        when(slackWebhookClient.postMessage(expectedText(notification))).thenReturn(true);
 
         dispatcher.dispatchDeliveriesFor(notification.getId());
 
         verify(slackWebhookClient, never()).postMessageToChannel(any(), any());
-        verify(slackWebhookClient).postMessageToWebhookUrl(expectedText(notification), "https://hooks.slack.com/services/test");
+        verify(slackWebhookClient).postMessage(expectedText(notification));
         assertEquals(NotificationDeliveryStatus.SENT, notification.getDeliveries().get(0).getStatus());
     }
 
