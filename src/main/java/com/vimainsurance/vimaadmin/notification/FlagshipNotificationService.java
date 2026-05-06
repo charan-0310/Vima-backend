@@ -41,7 +41,8 @@ public class FlagshipNotificationService {
     @Value("${app.base-url:http://localhost:7219}")
     private String appBaseUrl;
 
-    private static final int MAX_SELF_EMPLOYEE_IDS_IN_COPY = 20;
+    private record EndorsementMemberCounts(int totalEmployees, int totalDependents) {
+    }
 
     public void scheduleEndorsementUploaded(Endorsement endorsement, Organization organization, AdminUser uploadedBy) {
         scheduleEndorsementUploaded(endorsement, organization, uploadedBy, List.of());
@@ -112,66 +113,58 @@ public class FlagshipNotificationService {
                     endorsement.getEndorsementId());
             return;
         }
+        // Slack channel delivery is global (single webhook), so emit only one notification per upload
+        // to avoid duplicate Slack posts when multiple platform admins are routed.
+        AdminUser primaryRecipient = recipients.get(0);
         String orgName = organization.getOrganizationName();
         String uploader = uploadedBy != null && uploadedBy.getFullName() != null ? uploadedBy.getFullName() : "HR";
         String deepLink = portalBase() + "/endorsements/" + endorsement.getEndorsementId();
-        String bodyText = buildEndorsementUploadedBody(selfEmployeeIds);
-        int shownCount = Math.min(MAX_SELF_EMPLOYEE_IDS_IN_COPY, selfEmployeeIds.size());
-        int remainingAfterCap = Math.max(0, selfEmployeeIds.size() - shownCount);
-        String displayedIdsCsv = selfEmployeeIds.isEmpty()
-                ? ""
-                : String.join(", ", selfEmployeeIds.subList(0, shownCount));
-        for (AdminUser admin : recipients) {
-            String dedup = "ENDORSEMENT_UPLOADED:" + endorsement.getEndorsementId() + ":" + admin.getId();
-            Map<String, Object> vars = new HashMap<>();
-            vars.put("title", "Endorsement uploaded — " + orgName);
-            vars.put("organizationName", orgName);
-            vars.put("uploadedByName", uploader);
-            vars.put("endorsementType", endorsement.getEndorsementType() != null ? endorsement.getEndorsementType().name() : "");
-            vars.put("deepLinkUrl", deepLink);
-            vars.put("hasSelfEmployeeIds", !selfEmployeeIds.isEmpty());
-            vars.put("selfEmployeeIdsText", displayedIdsCsv);
-            vars.put("selfEmployeeIdsRemainingCount", remainingAfterCap);
-            CreateNotificationCommand cmd = new CreateNotificationCommand(
-                    admin.getId(),
-                    organization.getOrganizationId(),
-                    NotificationEventType.ENDORSEMENT_UPLOADED,
-                    NotificationCategory.ENDORSEMENT,
-                    NotificationSeverity.INFO,
-                    "New endorsement upload — " + orgName,
-                    bodyText,
-                    deepLink,
-                    dedup,
-                    "Endorsement uploaded — " + orgName,
-                    "email/notification-endorsement-uploaded",
-                    vars);
-            notificationService.createIfAbsent(cmd).ifPresentOrElse(
-                    id -> {
-                        notificationDispatcher.dispatchDeliveriesFor(id);
-                        log.info("flagship_notification_emit event=ENDORSEMENT_UPLOADED notificationId={} dedupKey={}", id, dedup);
-                    },
-                    () -> log.debug("flagship_notification_dedup event=ENDORSEMENT_UPLOADED dedupKey={}", dedup));
-        }
+        EndorsementMemberCounts counts = resolveMemberCountsForEndorsement(endorsement.getEndorsementId());
+        String bodyText = buildEndorsementUploadedBody(counts, uploader, orgName);
+        String dedup = "ENDORSEMENT_UPLOADED:" + endorsement.getEndorsementId();
+        Map<String, Object> vars = new HashMap<>();
+        vars.put("title", "Endorsement uploaded — " + orgName);
+        vars.put("organizationName", orgName);
+        vars.put("uploadedByName", uploader);
+        vars.put("endorsementType", endorsement.getEndorsementType() != null ? endorsement.getEndorsementType().name() : "");
+        vars.put("deepLinkUrl", deepLink);
+        vars.put("totalEmployees", counts.totalEmployees());
+        vars.put("totalDependents", counts.totalDependents());
+        CreateNotificationCommand cmd = new CreateNotificationCommand(
+                primaryRecipient.getId(),
+                organization.getOrganizationId(),
+                NotificationEventType.ENDORSEMENT_UPLOADED,
+                NotificationCategory.ENDORSEMENT,
+                NotificationSeverity.INFO,
+                "New endorsement upload — " + orgName,
+                bodyText,
+                deepLink,
+                dedup,
+                "Endorsement uploaded — " + orgName,
+                "email/notification-endorsement-uploaded",
+                vars);
+        notificationService.createIfAbsent(cmd).ifPresentOrElse(
+                id -> {
+                    notificationDispatcher.dispatchDeliveriesFor(id);
+                    log.info("flagship_notification_emit event=ENDORSEMENT_UPLOADED notificationId={} dedupKey={} recipientId={} suppressedRecipients={}",
+                            id, dedup, primaryRecipient.getId(), Math.max(0, recipients.size() - 1));
+                },
+                () -> log.debug("flagship_notification_dedup event=ENDORSEMENT_UPLOADED dedupKey={}", dedup));
     }
 
     /**
-     * In-app/Slack body and email {@code bodyText} fallback. Lists primary (Self) employee IDs from the upload sheet, capped for readability.
+     * In-app/Slack body and email {@code bodyText} fallback for uploaded endorsement.
      */
-    private String buildEndorsementUploadedBody(List<String> selfEmployeeIds) {
-        if (selfEmployeeIds == null || selfEmployeeIds.isEmpty()) {
-            return "An endorsement batch was uploaded successfully.";
-        }
-        int cap = Math.min(MAX_SELF_EMPLOYEE_IDS_IN_COPY, selfEmployeeIds.size());
-        List<String> shown = selfEmployeeIds.subList(0, cap);
-        int remaining = selfEmployeeIds.size() - cap;
-        String joined = String.join(", ", shown);
-        StringBuilder sb = new StringBuilder("Uploaded employees (Self): ").append(joined);
-        if (remaining > 0) {
-            sb.append(" (and ").append(remaining).append(" more).");
-        } else {
-            sb.append(".");
-        }
-        return sb.toString();
+    private String buildEndorsementUploadedBody(
+            EndorsementMemberCounts counts,
+            String uploadedByName,
+            String organizationName) {
+        String uploader = (uploadedByName != null && !uploadedByName.isBlank()) ? uploadedByName : "HR";
+        String org = (organizationName != null && !organizationName.isBlank()) ? organizationName : "Organization";
+        return "Total Employees: " + counts.totalEmployees()
+                + "\n:family: Total Dependents: " + counts.totalDependents()
+                + "\n:bust_in_silhouette: Uploaded By: " + uploader
+                + "\n:office: Organization: " + org;
     }
 
     private void emitEnrollmentAllSubmitted(UUID organizationId, UUID windowId, String organizationDisplayName) {
@@ -230,8 +223,11 @@ public class FlagshipNotificationService {
         }
         String orgName = organization.getOrganizationName();
         String deepLink = portalBase() + "/endorsements/" + endorsementId;
-        List<String> selfEmployeeIds = resolveSelfEmployeeIdsForEndorsement(endorsementId);
-        String bodyText = buildEndorsementCompletedBody(selfEmployeeIds);
+        EndorsementMemberCounts counts = resolveMemberCountsForEndorsement(endorsementId);
+        String bodyText = buildEndorsementCompletedBody(
+                counts,
+                actedByName,
+                orgName);
         for (AdminUser admin : recipients) {
             String dedup = "ENDORSEMENT_COMPLETED:" + endorsementId + ":" + admin.getId();
             Map<String, Object> vars = new HashMap<>();
@@ -243,8 +239,9 @@ public class FlagshipNotificationService {
                 vars.put("actedByName", actedByName);
             }
             vars.put("deepLinkUrl", deepLink);
-            vars.put("hasSelfEmployeeIds", !selfEmployeeIds.isEmpty());
-            vars.put("selfEmployeeIdsText", String.join(", ", selfEmployeeIds.subList(0, Math.min(selfEmployeeIds.size(), MAX_SELF_EMPLOYEE_IDS_IN_COPY))));
+            vars.put("totalEmployees", counts.totalEmployees());
+            vars.put("totalDependents", counts.totalDependents());
+            vars.put("uploadedByName", actedByName != null && !actedByName.isBlank() ? actedByName : "Vima Admin");
             CreateNotificationCommand cmd = new CreateNotificationCommand(
                     admin.getId(),
                     organization.getOrganizationId(),
@@ -267,47 +264,43 @@ public class FlagshipNotificationService {
         }
     }
 
-    private List<String> resolveSelfEmployeeIdsForEndorsement(UUID endorsementId) {
+    private String buildEndorsementCompletedBody(
+            EndorsementMemberCounts counts,
+            String actedByName,
+            String organizationName) {
+        String uploadedBy = (actedByName != null && !actedByName.isBlank()) ? actedByName : "Vima Admin";
+        String org = (organizationName != null && !organizationName.isBlank()) ? organizationName : "Organization";
+        return "Total Employees: " + counts.totalEmployees()
+                + "\n:family: Total Dependents: " + counts.totalDependents()
+                + "\n:bust_in_silhouette: Approved By: " + uploadedBy
+                + "\n:office: Organization: " + org;
+    }
+
+    private EndorsementMemberCounts resolveMemberCountsForEndorsement(UUID endorsementId) {
         if (endorsementId == null) {
-            return List.of();
+            return new EndorsementMemberCounts(0, 0);
         }
         try {
             List<DealEndorsement> rows = dealEndorsementRepository.findByEndorsementEndorsementIdWithDeal(endorsementId);
-            LinkedHashSet<String> ids = new LinkedHashSet<>();
+            LinkedHashSet<UUID> employeeIds = new LinkedHashSet<>();
+            LinkedHashSet<UUID> dependentIds = new LinkedHashSet<>();
             for (DealEndorsement row : rows) {
-                if (row == null || row.getDeal() == null) {
+                if (row == null || row.getDeal() == null || row.getDeal().getIndividualId() == null) {
                     continue;
                 }
+                UUID individualId = row.getDeal().getIndividualId();
                 String relationship = row.getDeal().getRelationship();
-                if (!EmployeeToDeals.isPrimaryMemberRelationship(relationship)) {
-                    continue;
-                }
-                String employeeId = row.getDeal().getEmployeeNumber();
-                if (employeeId != null && !employeeId.isBlank()) {
-                    ids.add(employeeId.trim());
+                if (EmployeeToDeals.isPrimaryMemberRelationship(relationship)) {
+                    employeeIds.add(individualId);
+                } else {
+                    dependentIds.add(individualId);
                 }
             }
-            return new ArrayList<>(ids);
+            return new EndorsementMemberCounts(employeeIds.size(), dependentIds.size());
         } catch (Exception ex) {
-            log.warn("flagship_notification_self_ids_lookup_failed endorsementId={} error={}", endorsementId, ex.getMessage(), ex);
-            return List.of();
+            log.warn("flagship_notification_member_counts_lookup_failed endorsementId={} error={}",
+                    endorsementId, ex.getMessage(), ex);
+            return new EndorsementMemberCounts(0, 0);
         }
-    }
-
-    private String buildEndorsementCompletedBody(List<String> selfEmployeeIds) {
-        if (selfEmployeeIds == null || selfEmployeeIds.isEmpty()) {
-            return "Endorsement processing is completed.";
-        }
-        int cap = Math.min(MAX_SELF_EMPLOYEE_IDS_IN_COPY, selfEmployeeIds.size());
-        List<String> shown = selfEmployeeIds.subList(0, cap);
-        int remaining = selfEmployeeIds.size() - cap;
-        StringBuilder sb = new StringBuilder("Uploaded employees (Self): ")
-                .append(String.join(", ", shown))
-                .append(". Endorsement processing is completed");
-        if (remaining > 0) {
-            sb.append(" (and ").append(remaining).append(" more)");
-        }
-        sb.append(".");
-        return sb.toString();
     }
 }

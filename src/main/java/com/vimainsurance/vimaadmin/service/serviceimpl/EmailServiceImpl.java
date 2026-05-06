@@ -42,6 +42,9 @@ public class EmailServiceImpl implements IEmailService {
     private static final String COMPANY_NAME = "Vima Insurance";
     private static final String COMPANY_NAME_KEY = "companyName";
     private static final String MAIL_PROVIDER_SES = "ses";
+    private static final String EMAIL_TEMPLATE_PREFIX = "email/";
+    private static final String EMAIL_TEMPLATE_FULL_PREFIX = "templates/email/";
+    private static final String HTML_SUFFIX = ".html";
     private static final Pattern INLINE_DATA_IMAGE_PATTERN = Pattern.compile(
             "<img\\b([^>]*?)\\bsrc\\s*=\\s*['\"](data:image/([a-zA-Z0-9.+-]+);base64,([^'\"]+))['\"]([^>]*)>",
             Pattern.CASE_INSENSITIVE | Pattern.DOTALL);
@@ -118,8 +121,9 @@ public class EmailServiceImpl implements IEmailService {
             if (emailRequest.getTemplateVariables() != null) {
                 context.setVariables(emailRequest.getTemplateVariables());
             }
-            
-            String htmlContent = templateEngine.process(emailRequest.getTemplateName(), context);
+
+            String normalizedTemplateName = normalizeTemplateName(emailRequest.getTemplateName());
+            String htmlContent = templateEngine.process(normalizedTemplateName, context);
             EmailRequest templateEmailRequest = EmailRequest.builder()
                     .to(emailRequest.getTo())
                     .toList(emailRequest.getToList())
@@ -132,9 +136,9 @@ public class EmailServiceImpl implements IEmailService {
                     .isHtml(true)
                     .build();
             sendEmail(templateEmailRequest, true, false);
-            
-            log.info("Template email sent successfully to: {} using template: {}", 
-                    emailRequest.getTo(), emailRequest.getTemplateName());
+
+            log.info("Template email sent successfully to: {} using template: {}",
+                    emailRequest.getTo(), normalizedTemplateName);
             return EmailResponse.builder()
                     .success(true)
                     .message("Template email sent successfully")
@@ -322,9 +326,26 @@ public class EmailServiceImpl implements IEmailService {
             if (emailRequest.getTemplateVariables() != null) {
                 context.setVariables(emailRequest.getTemplateVariables());
             }
-            body = templateEngine.process(emailRequest.getTemplateName(), context);
+            body = templateEngine.process(normalizeTemplateName(emailRequest.getTemplateName()), context);
         }
         return body != null ? body : "";
+    }
+
+    private String normalizeTemplateName(String templateName) {
+        if (templateName == null) {
+            return null;
+        }
+        String normalized = templateName.trim();
+        if (normalized.startsWith(EMAIL_TEMPLATE_FULL_PREFIX)) {
+            normalized = normalized.substring(EMAIL_TEMPLATE_FULL_PREFIX.length());
+        }
+        if (normalized.startsWith(EMAIL_TEMPLATE_PREFIX)) {
+            normalized = normalized.substring(EMAIL_TEMPLATE_PREFIX.length());
+        }
+        if (normalized.endsWith(HTML_SUFFIX)) {
+            normalized = normalized.substring(0, normalized.length() - HTML_SUFFIX.length());
+        }
+        return normalized;
     }
 
     private String resolveFromEmail() {

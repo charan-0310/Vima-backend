@@ -17,6 +17,8 @@ import com.vimainsurance.vimaadmin.notification.enums.NotificationDeliveryStatus
 @Repository
 public interface INotificationDeliveryRepository extends JpaRepository<NotificationDelivery, UUID> {
 
+    List<NotificationDelivery> findByNotification_IdOrderByCreatedAtAsc(UUID notificationId);
+
     @Query("""
             SELECT d FROM NotificationDelivery d
             JOIN FETCH d.notification n

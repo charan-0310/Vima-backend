@@ -3,12 +3,14 @@ package com.vimainsurance.vimaadmin.notification;
 import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 
 import org.springframework.data.domain.PageRequest;
+import org.springframework.core.env.Environment;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -37,6 +39,7 @@ public class NotificationDispatcher {
     private final INotificationDeliveryRepository deliveryRepository;
     private final NotificationsFeatureGate notificationsFeatureGate;
     private final NotificationsProperties notificationsProperties;
+    private final Environment environment;
     private final IEmailService emailService;
     private final NotificationSlackWebhookClient slackWebhookClient;
 
@@ -52,6 +55,7 @@ public class NotificationDispatcher {
             log.info("notification_dispatch_skip reason=notification_not_found notificationId={}", notificationId);
             return;
         }
+        ensureRequiredDeliveries(n);
         log.info("notification_dispatch_found notificationId={} deliveries={}", notificationId, n.getDeliveries().size());
         for (NotificationDelivery d : n.getDeliveries()) {
             if (d.getStatus() == NotificationDeliveryStatus.SENT || d.getStatus() == NotificationDeliveryStatus.SKIPPED) {
@@ -105,6 +109,32 @@ public class NotificationDispatcher {
         deliveryRepository.save(d);
     }
 
+    private void ensureRequiredDeliveries(AdminNotification n) {
+        Set<NotificationChannelKind> existingChannels = new HashSet<>();
+        for (NotificationDelivery d : n.getDeliveries()) {
+            if (d.getChannel() != null) {
+                existingChannels.add(d.getChannel());
+            }
+        }
+        if (!existingChannels.contains(NotificationChannelKind.EMAIL)) {
+            NotificationDelivery email = new NotificationDelivery();
+            email.setNotification(n);
+            email.setChannel(NotificationChannelKind.EMAIL);
+            email.setStatus(NotificationDeliveryStatus.PENDING);
+            n.getDeliveries().add(email);
+        }
+        if (!existingChannels.contains(NotificationChannelKind.SLACK)) {
+            NotificationDelivery slack = new NotificationDelivery();
+            slack.setNotification(n);
+            slack.setChannel(NotificationChannelKind.SLACK);
+            slack.setStatus(NotificationDeliveryStatus.PENDING);
+            n.getDeliveries().add(slack);
+        }
+        if (n.getId() != null) {
+            notificationRepository.save(n);
+        }
+    }
+
     private void sendEmail(AdminNotification n, NotificationDelivery d) {
         AdminUser recipient = n.getRecipient();
         if (recipient.getEmail() == null || recipient.getEmail().isBlank()) {
@@ -147,33 +177,36 @@ public class NotificationDispatcher {
             text = text + "\n" + n.getDeepLinkUrl();
         }
         boolean ok = false;
-        boolean attemptedBotTokenRoute = false;
-        if (NotificationEventType.ENDORSEMENT_COMPLETED.equals(n.getEventType())) {
-            String channelId = notificationsProperties.getSlackChannelId();
-            String botToken = notificationsProperties.getSlackBotToken();
-            if (botToken != null && !botToken.isBlank() && channelId != null && !channelId.isBlank()) {
-                attemptedBotTokenRoute = true;
-                ok = slackWebhookClient.postMessageToChannel(channelId, text);
-            }
-        }
-        if (!ok) {
-            String url = notificationsProperties.getSlackWebhookUrl();
+        String route = "none";
+        String url;
+        if (NotificationEventType.ENDORSEMENT_UPLOADED.equals(n.getEventType())) {
+            url = environment.getProperty("slack.reminder.channel.url", "");
             if (url == null || url.isBlank()) {
-                d.setStatus(NotificationDeliveryStatus.SKIPPED);
-                d.setLastError("notifications.slack-webhook-url not configured");
-                log.info("notification_delivery_skipped channel=SLACK notificationId={} reason=no_webhook attemptedBotRoute={}",
-                        n.getId(), attemptedBotTokenRoute);
-                return;
+                url = notificationsProperties.getSlackWebhookUrl();
             }
-            ok = slackWebhookClient.postMessage(text);
+        } else {
+            url = notificationsProperties.getSlackWebhookUrl();
         }
+        if (url == null || url.isBlank()) {
+            url = environment.getProperty("slack.webhook.url", "");
+        }
+        if (url == null || url.isBlank()) {
+            d.setStatus(NotificationDeliveryStatus.SKIPPED);
+            d.setLastError("notifications.slack-webhook-url (or slack.webhook.url) not configured");
+            log.info("notification_delivery_skipped channel=SLACK notificationId={} reason=no_webhook", n.getId());
+            return;
+        }
+        route = "webhook";
+        log.info("notification_delivery_route channel=SLACK route=webhook notificationId={} deliveryId={} eventType={}",
+                n.getId(), d.getId(), n.getEventType());
+        ok = slackWebhookClient.postMessageToWebhookUrl(text, url);
         if (ok) {
             d.setStatus(NotificationDeliveryStatus.SENT);
             d.setLastError(null);
-            log.info("notification_delivery_sent channel=SLACK notificationId={} deliveryId={}", n.getId(), d.getId());
+            log.info("notification_delivery_sent channel=SLACK notificationId={} deliveryId={} route={}", n.getId(), d.getId(), route);
         } else {
             markFailed(d, "Slack webhook rejected or failed");
-            log.warn("notification_delivery_failed channel=SLACK notificationId={} deliveryId={}", n.getId(), d.getId());
+            log.warn("notification_delivery_failed channel=SLACK notificationId={} deliveryId={} route={}", n.getId(), d.getId(), route);
         }
     }
 
