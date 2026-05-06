@@ -15,12 +15,12 @@ public class NotificationsFeatureGate {
     private final IFeatureFlagRepository featureFlagRepository;
 
     /**
-     * Global backend gate: feature flag row must exist and {@code is_active = true}.
-     * Per-user/org flag resolution is not applied for system-driven emits (scheduler, employee submit).
+     * Notifications are enabled by default.
+     * If a feature-flag row is present, its value can still explicitly disable notifications.
      */
     public boolean isNotificationsEnabled() {
         return featureFlagRepository.findByFlagKey(FLAG_KEY)
                 .map(f -> Boolean.TRUE.equals(f.getIsActive()))
-                .orElse(false);
+                .orElse(true);
     }
 }

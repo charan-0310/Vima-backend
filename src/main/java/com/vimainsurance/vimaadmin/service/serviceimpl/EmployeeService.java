@@ -77,6 +77,7 @@ import com.vimainsurance.vimaadmin.util.TopupPremiumOptionsUtil;
 import com.vimainsurance.vimaadmin.util.GmcCoverageUploadValidationUtil;
 import com.vimainsurance.vimaadmin.service.policy.PolicyMemberMappingHelper;
 import com.vimainsurance.vimaadmin.notification.FlagshipNotificationService;
+import com.vimainsurance.vimaadmin.util.SlackNotificationUtil;
 
 @Slf4j
 @Service
@@ -115,6 +116,9 @@ public class EmployeeService {
 
     @Autowired(required = false)
     private FlagshipNotificationService flagshipNotificationService;
+
+    @Autowired
+    private SlackNotificationUtil slackNotificationUtil;
 
     @Autowired
     private IPolicyRepository policyRepository;
@@ -1269,6 +1273,7 @@ public class EmployeeService {
             log.info("endorsement_upload_saved endorsementId={} uploadType={} orgId={} createdCount={} updatedCount={}",
                 savedEndorsement.getEndorsementId(), uploadType,
                 organization != null ? organization.getOrganizationId() : null, createdCount, updatedCount);
+            slackNotificationUtil.sendSlackMessage(slackNotificationUtil.buildEndorsementNotificationMessage(savedEndorsement), false);
             if (flagshipNotificationService != null
                     && uploadType != null
                     && (uploadType.equalsIgnoreCase("addition") || uploadType.equalsIgnoreCase("bulk-upload"))) {

@@ -8,6 +8,7 @@ import java.time.OffsetDateTime;
 import java.time.ZoneId;
 import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
@@ -668,7 +669,23 @@ public class EndorsementServiceImpl implements IEndorsementService {
             endorsement.setUpdatedAt(LocalDateTime.now());
             endorsementRepository.save(endorsement);
             if (flagshipNotificationService != null) {
-                flagshipNotificationService.scheduleEndorsementCompleted(endorsement.getEndorsementId(), organization);
+                Organization notificationOrganization = endorsement.getOrganization() != null
+                        ? endorsement.getOrganization()
+                        : organization;
+                if (notificationOrganization != null && organization != null
+                        && notificationOrganization.getOrganizationId() != null
+                        && organization.getOrganizationId() != null
+                        && !notificationOrganization.getOrganizationId().equals(organization.getOrganizationId())) {
+                    logger.warn("[correlationId:{}] Endorsement approve org mismatch requestOrgId={} endorsementOrgId={}",
+                            MDC.get("correlationId"),
+                            organization.getOrganizationId(),
+                            notificationOrganization.getOrganizationId());
+                }
+                flagshipNotificationService.scheduleEndorsementCompleted(
+                        endorsement.getEndorsementId(), notificationOrganization,
+                        endorsement.getUploadedBy() != null ? endorsement.getUploadedBy().getId() : null,
+                        resolveCurrentActorName(),
+                        "Vima Admin");
             }
 
             if (employeePolicyMapService != null) {
@@ -828,7 +845,10 @@ public class EndorsementServiceImpl implements IEndorsementService {
                 endorsementRepository.save(endorsement);
                 if (flagshipNotificationService != null && endorsement.getOrganization() != null) {
                     flagshipNotificationService.scheduleEndorsementCompleted(
-                            endorsement.getEndorsementId(), endorsement.getOrganization());
+                            endorsement.getEndorsementId(), endorsement.getOrganization(),
+                            endorsement.getUploadedBy() != null ? endorsement.getUploadedBy().getId() : null,
+                            resolveCurrentActorName(),
+                            "Vima Admin");
                 }
             }
             
@@ -918,7 +938,10 @@ public class EndorsementServiceImpl implements IEndorsementService {
                         endorsementRepository.save(endorsement);
                         if (flagshipNotificationService != null && endorsement.getOrganization() != null) {
                             flagshipNotificationService.scheduleEndorsementCompleted(
-                                    endorsement.getEndorsementId(), endorsement.getOrganization());
+                                    endorsement.getEndorsementId(), endorsement.getOrganization(),
+                                    endorsement.getUploadedBy() != null ? endorsement.getUploadedBy().getId() : null,
+                                    resolveCurrentActorName(),
+                                    "Vima Admin");
                         }
                         completedEndorsementsCount++;
                     }

@@ -23,7 +23,7 @@ import com.vimainsurance.vimaadmin.notification.enums.NotificationCategory;
 
 @RestController
 @CrossOrigin(allowedHeaders = "*")
-@RequestMapping("/api/v1/admin/notifications")
+@RequestMapping({"/api/v1/admin/notifications", "/api/notifications"})
 @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'VIMA_ADMIN', 'HR_ADMIN')")
 public class AdminNotificationController {
 
@@ -81,5 +81,19 @@ public class AdminNotificationController {
         BaseResponse<Integer> responseObj = new BaseResponse<>();
         int updated = inboxService.markAllRead(companyId);
         return responseObj.render(responseObj.formSuccessResponse("Updated", updated, updated));
+    }
+
+    @PostMapping("/{id}/star")
+    public ResponseEntity<ResponseDto<String>> markStarred(
+            @PathVariable UUID id,
+            @RequestParam(defaultValue = "true") boolean starred) {
+        logger.info("[correlationId:{}] POST /api/v1/admin/notifications/{}/star starred={}",
+                MDC.get("correlationId"), id, starred);
+        BaseResponse<String> responseObj = new BaseResponse<>();
+        boolean ok = inboxService.markStarred(id, starred);
+        if (!ok) {
+            return responseObj.render(responseObj.formErrorResponse(404, "Notification not found"));
+        }
+        return responseObj.render(responseObj.formSuccessResponse("OK", starred ? "starred" : "unstarred"));
     }
 }
