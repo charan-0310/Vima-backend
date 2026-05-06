@@ -2,6 +2,7 @@ package com.vimainsurance.vimaadmin.notification;
 
 import java.time.Duration;
 import java.time.LocalDateTime;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -110,8 +111,14 @@ public class NotificationDispatcher {
     }
 
     private void ensureRequiredDeliveries(AdminNotification n) {
+        // Tests (and some callers) may provide immutable lists (e.g., List.of(...)).
+        // Always normalize to a mutable list before adding missing channel deliveries.
+        List<NotificationDelivery> deliveries = n.getDeliveries() != null
+                ? new ArrayList<>(n.getDeliveries())
+                : new ArrayList<>();
+        n.setDeliveries(deliveries);
         Set<NotificationChannelKind> existingChannels = new HashSet<>();
-        for (NotificationDelivery d : n.getDeliveries()) {
+        for (NotificationDelivery d : deliveries) {
             if (d.getChannel() != null) {
                 existingChannels.add(d.getChannel());
             }
@@ -121,14 +128,14 @@ public class NotificationDispatcher {
             email.setNotification(n);
             email.setChannel(NotificationChannelKind.EMAIL);
             email.setStatus(NotificationDeliveryStatus.PENDING);
-            n.getDeliveries().add(email);
+            deliveries.add(email);
         }
         if (!existingChannels.contains(NotificationChannelKind.SLACK)) {
             NotificationDelivery slack = new NotificationDelivery();
             slack.setNotification(n);
             slack.setChannel(NotificationChannelKind.SLACK);
             slack.setStatus(NotificationDeliveryStatus.PENDING);
-            n.getDeliveries().add(slack);
+            deliveries.add(slack);
         }
         if (n.getId() != null) {
             notificationRepository.save(n);
