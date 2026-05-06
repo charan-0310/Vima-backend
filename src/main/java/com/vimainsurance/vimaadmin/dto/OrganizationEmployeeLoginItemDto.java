@@ -21,4 +21,9 @@ public class OrganizationEmployeeLoginItemDto {
      * Used by the Logins page to enable/disable the "Email health cards" action without an extra round trip.
      */
     private int healthIdCount;
+    /**
+     * Health ID on the primary employee record (non-blank), if any. Dependents may still have IDs
+     * when this is null; see {@link #healthIdCount}.
+     */
+    private String primaryHealthId;
 }

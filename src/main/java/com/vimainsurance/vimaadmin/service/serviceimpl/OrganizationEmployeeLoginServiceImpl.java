@@ -570,6 +570,9 @@ public class OrganizationEmployeeLoginServiceImpl implements IOrganizationEmploy
             row.setFullName(deal.getFullName());
             row.setEmployeeNumber(deal.getEmployeeNumber());
             row.setHealthIdCount(healthIdCountByPrimary.getOrDefault(deal.getIndividualId(), 0));
+            String primaryHid = deal.getHealthId();
+            row.setPrimaryHealthId(
+                    primaryHid != null && !primaryHid.isBlank() ? primaryHid.trim() : null);
             String rawEmail = deal.getEmail();
             if (rawEmail == null || rawEmail.isBlank()) {
                 row.setStatus("INVALID_EMAIL");
