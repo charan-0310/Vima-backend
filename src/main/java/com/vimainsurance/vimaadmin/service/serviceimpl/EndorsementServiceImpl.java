@@ -689,14 +689,30 @@ public class EndorsementServiceImpl implements IEndorsementService {
             }
 
             if (employeePolicyMapService != null) {
-                if (endorsement.getEndorsementType() == EndorsementType.ADDITION || endorsement.getEndorsementType() == EndorsementType.INITIAL_UPLOAD) {
-                    employeePolicyMapService.createMappingsFromEndorsement(endorsement.getEndorsementId(), endorsement.getEndorsementType().name());
-                } else if (endorsement.getEndorsementType() == EndorsementType.DELETION) {
-                    employeePolicyMapService.cancelMappingsFromEndorsement(endorsement.getEndorsementId());
+                try {
+                    if (endorsement.getEndorsementType() == EndorsementType.ADDITION || endorsement.getEndorsementType() == EndorsementType.INITIAL_UPLOAD) {
+                        employeePolicyMapService.createMappingsFromEndorsement(endorsement.getEndorsementId(), endorsement.getEndorsementType().name());
+                    } else if (endorsement.getEndorsementType() == EndorsementType.DELETION) {
+                        employeePolicyMapService.cancelMappingsFromEndorsement(endorsement.getEndorsementId());
+                    }
+                } catch (RuntimeException hookEx) {
+                    logger.warn(
+                            "[correlationId:{}] Post-approval policy mapping hook failed for endorsement {}: {}",
+                            MDC.get("correlationId"),
+                            endorsement.getEndorsementId(),
+                            hookEx.getMessage());
                 }
             }
             if (lifeEventEndorsementService != null && endorsement.getLifeEventType() != null && !endorsement.getLifeEventType().isBlank()) {
-                lifeEventEndorsementService.onLifeEventEndorsementApproved(endorsement);
+                try {
+                    lifeEventEndorsementService.onLifeEventEndorsementApproved(endorsement);
+                } catch (RuntimeException hookEx) {
+                    logger.warn(
+                            "[correlationId:{}] Post-approval life-event hook failed for endorsement {}: {}",
+                            MDC.get("correlationId"),
+                            endorsement.getEndorsementId(),
+                            hookEx.getMessage());
+                }
             }
 
             return responseObj.render(responseObj.formSuccessResponse(Constants.SUCCESS, "Endorsement approved successfully"));
@@ -1536,37 +1552,11 @@ public class EndorsementServiceImpl implements IEndorsementService {
         Map<UUID, MemberCounts> countsByEndorsementId = new HashMap<>();
         for (UUID endorsementId : endorsementIds) {
             Map<UUID, Deals> uniqueMembers = uniqueMembersByEndorsement.getOrDefault(endorsementId, Map.of());
-            Endorsement endorsement = endorsementById.get(endorsementId);
-            // List endpoint stability: avoid touching policy on this bulk path.
-            // Some environments have policy schema drift that breaks lazy policy SQL and crashes the whole list.
-            ProductType pt = null;
-            if (pt == ProductType.GPA || pt == ProductType.GTL || pt == ProductType.TOP_UP || pt == ProductType.SUPER_TOP_UP) {
-                int self = (int) uniqueMembers.values().stream()
-                        .filter(d -> d != null && d.getRelationship() != null && "SELF".equalsIgnoreCase(d.getRelationship()))
-                        .count();
-                countsByEndorsementId.put(endorsementId, new MemberCounts(self, 0));
-                continue;
-            }
-            if (pt == ProductType.PARENT_GMC) {
-                int self = (int) uniqueMembers.values().stream()
-                        .filter(d -> d != null && d.getRelationship() != null && "SELF".equalsIgnoreCase(d.getRelationship()))
-                        .count();
-                int parents = (int) uniqueMembers.values().stream()
-                        .filter(d -> d != null && isParentRelationshipForEndorsementCounts(d.getRelationship()))
-                        .count();
-                countsByEndorsementId.put(endorsementId, new MemberCounts(self, parents));
-                continue;
-            }
-
-            int employeeCount = 0;
-            int dependentCount = 0;
-            for (Deals deal : uniqueMembers.values()) {
-                if (isEmployeeRelationship(deal != null ? deal.getRelationship() : null)) {
-                    employeeCount++;
-                } else {
-                    dependentCount++;
-                }
-            }
+            // Keep list path policy-agnostic to avoid policy lazy-load SQL failures on schema-drifted DBs.
+            int employeeCount = (int) uniqueMembers.values().stream()
+                    .filter(d -> isEmployeeRelationship(d != null ? d.getRelationship() : null))
+                    .count();
+            int dependentCount = uniqueMembers.size() - employeeCount;
             countsByEndorsementId.put(endorsementId, new MemberCounts(employeeCount, dependentCount));
         }
         return countsByEndorsementId;
