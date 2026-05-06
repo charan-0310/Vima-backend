@@ -153,6 +153,21 @@ public class PolicyServiceImpl implements IPolicyService {
     @Autowired
     private ICdBalanceTransactionRepository cdBalanceTransactionRepository;
 
+    @Autowired
+    private com.vimainsurance.vimaadmin.service.IS3Service s3Service;
+
+    @Autowired
+    private com.vimainsurance.vimaadmin.config.S3Config s3Config;
+
+    /**
+     * Maximum size for a wording / claim-checklist PDF upload — 50 MB.
+     * Wording PDFs typically run 60–70 pages with embedded images, which can
+     * exceed 25 MB; keep this aligned with {@code spring.servlet.multipart.max-file-size}
+     * (currently 50 MB on prod). Anything larger should be rejected at the
+     * Spring layer first; this constant is a defensive secondary guard.
+     */
+    private static final long POLICY_DOCUMENT_MAX_BYTES = 50L * 1024L * 1024L;
+
     @Override
     @Transactional(rollbackFor = Exception.class)
     @AuditedOperation(schemaName = "cpc", tableName = "policies", entityType = "POLICY", action = "CREATE")
@@ -1585,6 +1600,16 @@ public class PolicyServiceImpl implements IPolicyService {
             // NOTE: Default cost-sharing rules are no longer auto-seeded here.
             // See createPolicy() for the rationale — the lookup defaults to 100% employer
             // when no rule exists, so HR-managed rules are now the sole source of truth.
+
+            // Optional policy wording PDF + claim checklist PDF uploaded as multipart parts
+            // alongside the policy. Each is independent — failure to upload one shouldn't
+            // block policy creation, but we surface validation errors cleanly.
+            if (requestDto.getPolicyWordingFile() != null && !requestDto.getPolicyWordingFile().isEmpty()) {
+                attachPolicyDocument(savedPolicy, requestDto.getPolicyWordingFile(), DocumentType.POLICY_WORDING);
+            }
+            if (requestDto.getClaimChecklistFile() != null && !requestDto.getClaimChecklistFile().isEmpty()) {
+                attachPolicyDocument(savedPolicy, requestDto.getClaimChecklistFile(), DocumentType.CLAIM_CHECKLIST);
+            }
 
             // Optional policy wording PDF + claim checklist PDF uploaded as multipart parts
             // alongside the policy. Each is independent — failure to upload one shouldn't
