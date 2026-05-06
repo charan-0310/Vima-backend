@@ -223,6 +223,42 @@ public class OrganizationController {
         return organizationEmployeeLoginService.sendPasswordResetEmail(organizationId, individualId);
     }
 
+    /**
+     * Email pre-rendered JPEG health-card images to the employee's on-file address.
+     * The frontend captures JPEGs from the live HealthCard component (via html2canvas) and posts
+     * them here as multipart/form-data. The recipient email is resolved server-side from the DB.
+     */
+    @PostMapping(value = "/organization/{organizationId}/employees/{individualId}/health-cards/email",
+            consumes = MediaType.MULTIPART_FORM_DATA_VALUE,
+            produces = MediaType.APPLICATION_JSON_VALUE)
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'VIMA_ADMIN', 'HR_ADMIN')")
+    public ResponseEntity<ResponseDto<String>> sendEmployeeHealthCardsEmail(
+            @CurrentOrganization UUID organizationId,
+            @PathVariable UUID individualId,
+            @RequestParam("attachments") MultipartFile[] attachments,
+            @RequestParam(value = "memberNames", required = false) String memberNamesJson) {
+        logger.info("[correlationId:{}] /organization/{}/employees/{}/health-cards/email (POST) endpoint called with {} attachment(s)",
+                MDC.get("correlationId"), organizationId, individualId,
+                attachments != null ? attachments.length : 0);
+        List<String> memberNames = parseMemberNames(memberNamesJson);
+        return organizationEmployeeLoginService.sendHealthCardsByEmail(
+                organizationId, individualId, attachments, memberNames);
+    }
+
+    private List<String> parseMemberNames(String json) {
+        if (json == null || json.isBlank()) {
+            return List.of();
+        }
+        try {
+            List<String> parsed = objectMapper.readValue(json, new TypeReference<List<String>>() { });
+            return parsed != null ? parsed : List.of();
+        } catch (JsonProcessingException ex) {
+            logger.warn("[correlationId:{}] Could not parse memberNames JSON ({}): {}",
+                    MDC.get("correlationId"), ex.getMessage(), json);
+            return List.of();
+        }
+    }
+
     @PostMapping("/organization/{organizationId}/employees/broadcast-email")
     @PreAuthorize("hasAnyRole('VIMA_ADMIN', 'HR_ADMIN')")
     public ResponseEntity<ResponseDto<OrganizationBroadcastEmailResponseDto>> sendOrganizationBroadcastEmail(

@@ -25,9 +25,14 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.support.TransactionTemplate;
 
+import org.springframework.web.multipart.MultipartFile;
+
 import com.vimainsurance.vimaadmin.audit.AuditedOperation;
 import com.vimainsurance.vimaadmin.config.AsyncConfig;
 import com.vimainsurance.vimaadmin.dto.BaseResponse;
+import com.vimainsurance.vimaadmin.dto.EmailAttachment;
+import com.vimainsurance.vimaadmin.dto.EmailRequest;
+import com.vimainsurance.vimaadmin.dto.EmailResponse;
 import com.vimainsurance.vimaadmin.dto.EmployeeOnboardingResponseDto;
 import com.vimainsurance.vimaadmin.dto.OrganizationCreateLoginsRequestDto;
 import com.vimainsurance.vimaadmin.dto.OrganizationEmployeeLoginItemDto;
@@ -50,6 +55,12 @@ import com.vimainsurance.vimaadmin.util.PrimaryEmployeeRelationshipUtil;
 public class OrganizationEmployeeLoginServiceImpl implements IOrganizationEmployeeLoginService {
 
     private static final Logger logger = LoggerFactory.getLogger(OrganizationEmployeeLoginServiceImpl.class);
+
+    /** Hard caps to protect SES quota and avoid abuse — kept conservative. */
+    private static final int HEALTH_CARD_MAX_ATTACHMENTS = 12;
+    private static final long HEALTH_CARD_MAX_BYTES_PER_FILE = 1_500_000L; // 1.5 MB
+    private static final long HEALTH_CARD_MAX_BYTES_TOTAL = 5_000_000L;    // 5 MB
+    private static final String HEALTH_CARD_TEMPLATE = "health-card-email";
 
     @Autowired
     private IDealsRepository dealsRepository;
@@ -348,6 +359,188 @@ public class OrganizationEmployeeLoginServiceImpl implements IOrganizationEmploy
         return base + "/login";
     }
 
+    @Override
+    @AuditedOperation(schemaName = "cpc", tableName = "customers", entityType = "ORG_EMPLOYEE_HEALTH_CARD_EMAIL", action = "SUBMIT")
+    public ResponseEntity<ResponseDto<String>> sendHealthCardsByEmail(
+            UUID organizationId,
+            UUID individualId,
+            MultipartFile[] attachments,
+            List<String> memberNames) {
+        BaseResponse<String> responseObj = new BaseResponse<>();
+        try {
+            if (attachments == null || attachments.length == 0) {
+                return responseObj.render(responseObj.formErrorResponse("At least one health card attachment is required"));
+            }
+            if (attachments.length > HEALTH_CARD_MAX_ATTACHMENTS) {
+                return responseObj.render(responseObj.formErrorResponse(
+                        "Too many attachments (" + attachments.length + ") — limit is "
+                                + HEALTH_CARD_MAX_ATTACHMENTS));
+            }
+            long totalBytes = 0L;
+            for (MultipartFile file : attachments) {
+                if (file == null || file.isEmpty()) {
+                    return responseObj.render(responseObj.formErrorResponse("One of the attachments is empty"));
+                }
+                long size = file.getSize();
+                if (size > HEALTH_CARD_MAX_BYTES_PER_FILE) {
+                    return responseObj.render(responseObj.formErrorResponse(
+                            "Attachment '" + safeFileName(file.getOriginalFilename())
+                                    + "' is too large (max 1.5 MB per file)"));
+                }
+                totalBytes += size;
+                if (totalBytes > HEALTH_CARD_MAX_BYTES_TOTAL) {
+                    return responseObj.render(responseObj.formErrorResponse(
+                            "Total attachment size exceeds 5 MB"));
+                }
+                String contentType = file.getContentType();
+                if (contentType != null && !contentType.toLowerCase().startsWith("image/jpeg")
+                        && !contentType.toLowerCase().startsWith("image/jpg")) {
+                    return responseObj.render(responseObj.formErrorResponse(
+                            "Only JPEG attachments are accepted (got '" + contentType + "')"));
+                }
+            }
+
+            Optional<Deals> dealOpt = dealsRepository.findByIndividualIdAndOrganizationId(individualId, organizationId);
+            if (dealOpt.isEmpty()) {
+                return responseObj.render(responseObj.formErrorResponse("Employee not found for this organization"));
+            }
+            Deals deal = dealOpt.get();
+            if (deal.getStatus() != AccountStatus.ACTIVE) {
+                return responseObj.render(responseObj.formErrorResponse("Employee is not ACTIVE"));
+            }
+            if (!Boolean.TRUE.equals(deal.getIsPrimaryMember())
+                    || !PrimaryEmployeeRelationshipUtil.isPrimarySelfEmployee(deal)) {
+                return responseObj.render(responseObj.formErrorResponse(
+                        "Health card emails are only sent to primary employees (SELF or EMPLOYEE with actual SELF)"));
+            }
+            String recipientEmail = deal.getEmail() != null ? deal.getEmail().trim() : "";
+            if (recipientEmail.isEmpty()) {
+                return responseObj.render(responseObj.formErrorResponse("Employee email is missing"));
+            }
+
+            List<EmailAttachment> emailAttachments = new ArrayList<>(attachments.length);
+            for (int i = 0; i < attachments.length; i++) {
+                MultipartFile file = attachments[i];
+                String fileName = safeFileName(file.getOriginalFilename());
+                if (fileName == null || fileName.isBlank()) {
+                    fileName = "health-card-" + (i + 1) + ".jpg";
+                }
+                byte[] bytes;
+                try {
+                    bytes = file.getBytes();
+                } catch (java.io.IOException ioe) {
+                    logger.warn("[correlationId:{}] Failed to read attachment '{}': {}",
+                            MDC.get("correlationId"), fileName, ioe.getMessage());
+                    return responseObj.render(responseObj.formErrorResponse(
+                            "Could not read attachment '" + fileName + "'"));
+                }
+                emailAttachments.add(EmailAttachment.builder()
+                        .fileName(fileName)
+                        .contentType("image/jpeg")
+                        .content(bytes)
+                        .build());
+            }
+
+            String orgName = deal.getOrganization() != null ? deal.getOrganization().getOrganizationName() : null;
+            int attachmentCount = emailAttachments.size();
+            String displayName = deal.getFullName() != null && !deal.getFullName().isBlank()
+                    ? deal.getFullName().trim()
+                    : "there";
+            List<String> safeMemberNames = sanitizeMemberNames(memberNames, attachmentCount);
+
+            Map<String, Object> templateVars = new HashMap<>();
+            templateVars.put("userFullName", displayName);
+            templateVars.put("organizationName", orgName != null ? orgName : "");
+            templateVars.put("memberNames", safeMemberNames);
+            templateVars.put("attachmentCount", attachmentCount);
+            templateVars.put("baseUrl", appBaseUrl != null ? appBaseUrl : "");
+
+            String subject = attachmentCount == 1
+                    ? "Your Vima e-Health ID card"
+                    : "Your Vima e-Health ID cards (" + attachmentCount + ")";
+
+            EmailRequest req = EmailRequest.builder()
+                    .to(recipientEmail)
+                    .subject(subject)
+                    .templateName(HEALTH_CARD_TEMPLATE)
+                    .templateVariables(templateVars)
+                    .isHtml(true)
+                    .attachments(emailAttachments)
+                    .build();
+
+            EmailResponse emailResponse = emailService.sendEmailWithAttachments(req);
+            if (emailResponse == null || !emailResponse.isSuccess()) {
+                String detail = emailResponse != null && emailResponse.getError() != null
+                        ? emailResponse.getError()
+                        : "Email provider rejected the message";
+                logger.warn("[correlationId:{}] Health card email failed for individual {} ({} attachments): {}",
+                        MDC.get("correlationId"), individualId, attachmentCount, detail);
+                return responseObj.render(responseObj.formErrorResponse(
+                        "Failed to send health card email: " + detail));
+            }
+            logger.info("[correlationId:{}] Health card email sent for individual {} -> {} ({} attachments)",
+                    MDC.get("correlationId"), individualId, redactEmail(recipientEmail), attachmentCount);
+            return responseObj.render(responseObj.formSuccessResponse(
+                    "Health card email sent to " + recipientEmail, "OK"));
+        } catch (IllegalArgumentException | IllegalStateException e) {
+            return responseObj.render(responseObj.formErrorResponse(e.getMessage()));
+        } catch (Exception e) {
+            logger.error("[correlationId:{}] sendHealthCardsByEmail failed: {}", MDC.get("correlationId"), e.getMessage(), e);
+            return responseObj.render(responseObj.formErrorResponse("Failed to send health card email"));
+        }
+    }
+
+    private static List<String> sanitizeMemberNames(List<String> raw, int attachmentCount) {
+        if (raw == null || raw.isEmpty()) {
+            return List.of();
+        }
+        List<String> out = new ArrayList<>(Math.min(raw.size(), attachmentCount));
+        for (String name : raw) {
+            if (name == null) {
+                continue;
+            }
+            String trimmed = name.trim();
+            if (trimmed.isEmpty()) {
+                continue;
+            }
+            // Cap individual names to a reasonable length to avoid template abuse.
+            out.add(trimmed.length() > 80 ? trimmed.substring(0, 80) : trimmed);
+            if (out.size() >= attachmentCount) {
+                break;
+            }
+        }
+        return out;
+    }
+
+    private static String safeFileName(String name) {
+        if (name == null) {
+            return null;
+        }
+        String trimmed = name.trim();
+        if (trimmed.isEmpty()) {
+            return null;
+        }
+        // Strip path separators and any control characters; keep it short.
+        String cleaned = trimmed.replaceAll("[\\\\/\\x00-\\x1F]", "_");
+        return cleaned.length() > 120 ? cleaned.substring(0, 120) : cleaned;
+    }
+
+    private static String redactEmail(String email) {
+        if (email == null) {
+            return "";
+        }
+        int at = email.indexOf('@');
+        if (at <= 0) {
+            return "***";
+        }
+        String local = email.substring(0, at);
+        String domain = email.substring(at);
+        String masked = local.length() <= 2
+                ? "*".repeat(local.length())
+                : local.charAt(0) + "*".repeat(Math.max(1, local.length() - 2)) + local.charAt(local.length() - 1);
+        return masked + domain;
+    }
+
     /**
      * @return null when organization not found; throws IllegalStateException when Keycloak group missing
      */
@@ -364,6 +557,8 @@ public class OrganizationEmployeeLoginServiceImpl implements IOrganizationEmploy
         }
 
         List<Deals> selfActive = listActivePrimarySelfDeals(organizationId);
+        Map<UUID, Integer> healthIdCountByPrimary = countHealthIdsByPrimary(selfActive);
+
         List<OrganizationEmployeeLoginItemDto> items = new ArrayList<>();
         Set<String> seenEmails = new HashSet<>();
         List<String> uniqueForKeycloak = new ArrayList<>();
@@ -374,6 +569,7 @@ public class OrganizationEmployeeLoginServiceImpl implements IOrganizationEmploy
             row.setIndividualId(deal.getIndividualId());
             row.setFullName(deal.getFullName());
             row.setEmployeeNumber(deal.getEmployeeNumber());
+            row.setHealthIdCount(healthIdCountByPrimary.getOrDefault(deal.getIndividualId(), 0));
             String rawEmail = deal.getEmail();
             if (rawEmail == null || rawEmail.isBlank()) {
                 row.setStatus("INVALID_EMAIL");
@@ -485,5 +681,49 @@ public class OrganizationEmployeeLoginServiceImpl implements IOrganizationEmploy
                 .filter(d -> d.getStatus() == AccountStatus.ACTIVE)
                 .filter(PrimaryEmployeeRelationshipUtil::isPrimarySelfEmployee)
                 .collect(Collectors.toList());
+    }
+
+    /**
+     * For each primary employee, count non-blank Health IDs across self + active dependents.
+     * One batched query for all dependents — keeps the preview O(1) extra DB round-trips per org.
+     */
+    private Map<UUID, Integer> countHealthIdsByPrimary(List<Deals> primaries) {
+        Map<UUID, Integer> counts = new HashMap<>();
+        if (primaries == null || primaries.isEmpty()) {
+            return counts;
+        }
+        List<UUID> primaryIds = new ArrayList<>(primaries.size());
+        for (Deals primary : primaries) {
+            UUID id = primary.getIndividualId();
+            if (id == null) {
+                continue;
+            }
+            primaryIds.add(id);
+            counts.put(id, hasHealthId(primary) ? 1 : 0);
+        }
+        if (primaryIds.isEmpty()) {
+            return counts;
+        }
+        List<Deals> dependents = dealsRepository.findByPrimaryIndividualIdIn(primaryIds);
+        for (Deals dep : dependents) {
+            if (dep.getStatus() != AccountStatus.ACTIVE) {
+                continue;
+            }
+            if (!hasHealthId(dep)) {
+                continue;
+            }
+            Deals primary = dep.getPrimaryIndividual();
+            if (primary == null || primary.getIndividualId() == null) {
+                continue;
+            }
+            UUID primaryId = primary.getIndividualId();
+            counts.merge(primaryId, 1, Integer::sum);
+        }
+        return counts;
+    }
+
+    private static boolean hasHealthId(Deals deal) {
+        String h = deal != null ? deal.getHealthId() : null;
+        return h != null && !h.isBlank();
     }
 }

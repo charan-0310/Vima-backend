@@ -1,5 +1,6 @@
 package com.vimainsurance.vimaadmin.service;
 
+import com.vimainsurance.vimaadmin.dto.PolicyDocumentRefDto;
 import com.vimainsurance.vimaadmin.dto.PolicyRequestDto;
 import com.vimainsurance.vimaadmin.dto.PolicyResponseDto;
 import com.vimainsurance.vimaadmin.dto.PolicyUploadRequestDto;
@@ -8,6 +9,7 @@ import com.vimainsurance.vimaadmin.enums.PolicyStatus;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.http.ResponseEntity;
+import org.springframework.web.multipart.MultipartFile;
 
 import java.time.LocalDate;
 import java.util.List;
@@ -102,4 +104,30 @@ public interface IPolicyService {
      * Upload policy with details for an organization
      */
     ResponseEntity<ResponseDto<String>> uploadPolicyForOrganization(UUID organizationId, PolicyUploadRequestDto requestDto);
+
+    /**
+     * Upload (or replace) the policy wording PDF for the given policy. The previously
+     * attached wording document, if any, is removed from S3 and the documents table.
+     * The operation is rejected if the policy does not belong to {@code organizationId}.
+     */
+    ResponseEntity<ResponseDto<PolicyDocumentRefDto>> attachPolicyWordingDocument(UUID organizationId, Long policyId, MultipartFile file);
+
+    /**
+     * Upload (or replace) the claim checklist PDF for the given policy. The previously
+     * attached claim checklist, if any, is removed from S3 and the documents table.
+     * The operation is rejected if the policy does not belong to {@code organizationId}.
+     */
+    ResponseEntity<ResponseDto<PolicyDocumentRefDto>> attachClaimChecklistDocument(UUID organizationId, Long policyId, MultipartFile file);
+
+    /**
+     * Detach and delete the currently uploaded policy wording PDF (no-op when absent).
+     * The operation is rejected if the policy does not belong to {@code organizationId}.
+     */
+    ResponseEntity<ResponseDto<String>> removePolicyWordingDocument(UUID organizationId, Long policyId);
+
+    /**
+     * Detach and delete the currently uploaded claim checklist PDF (no-op when absent).
+     * The operation is rejected if the policy does not belong to {@code organizationId}.
+     */
+    ResponseEntity<ResponseDto<String>> removeClaimChecklistDocument(UUID organizationId, Long policyId);
 }
