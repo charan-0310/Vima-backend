@@ -43,7 +43,9 @@ public enum DocumentType {
     DIAGNOSTIC_REPORT("DIAGNOSTIC_REPORT"),
     CLAIM_FORM("CLAIM_FORM"),
     OTHER("OTHER"),
-    POLICY("POLICY");
+    POLICY("POLICY"),
+    POLICY_WORDING("POLICY_WORDING"),
+    CLAIM_CHECKLIST("CLAIM_CHECKLIST");
 
     private final String value;
 

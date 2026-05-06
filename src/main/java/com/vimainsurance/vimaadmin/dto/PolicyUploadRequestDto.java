@@ -62,8 +62,19 @@ public class PolicyUploadRequestDto {
     private String sumInsuredOptions;
     /** Comma-separated or JSON array string; same count as sumInsuredOptions for TOP_UP / SUPER_TOP_UP. */
     private String topupPremiumOptions;
-    private String policyWording;
-    private String claimChecklist;
+
+    /** Optional policy wording PDF uploaded alongside the policy on the create flow. Admin-only; not shown to employees. */
+    private MultipartFile policyWordingFile;
+
+    /** Optional claim checklist PDF uploaded alongside the policy on the create flow. Admin-only; not shown to employees. */
+    private MultipartFile claimChecklistFile;
+
+    /** Optional admin-authored condensed wording (HTML) shown to employees in place of the wording PDF. */
+    private String policyWordingSummary;
+
+    /** Optional admin-authored "additional documents" rich text (HTML) appended to the default claim checklist. */
+    private String claimChecklistAdditionalDocs;
+
     private Boolean coversDependents;
     private Boolean coversParents;
     private Boolean isDeleted;

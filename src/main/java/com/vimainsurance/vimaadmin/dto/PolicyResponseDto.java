@@ -103,8 +103,14 @@ public class PolicyResponseDto {
     private String sumInsuredOptions; // JSON array string
     /** JSON array string of annual premiums; index-aligned with sumInsuredOptions. */
     private String topupPremiumOptions;
-    private String policyWording;
-    private String claimChecklist;
+    /** Metadata for the uploaded policy wording PDF (admin-only; null when not uploaded). */
+    private PolicyDocumentRefDto policyWordingDocument;
+    /** Metadata for the uploaded claim checklist PDF (admin-only; null when not uploaded). */
+    private PolicyDocumentRefDto claimChecklistDocument;
+    /** Admin-authored condensed wording (HTML). What employees see in place of the wording PDF. */
+    private String policyWordingSummary;
+    /** Admin-authored "additional documents" rich text (HTML) appended to the default claim checklist. */
+    private String claimChecklistAdditionalDocs;
     private Boolean coversDependents;
     private Boolean coversParents;
     private Boolean isDeleted;

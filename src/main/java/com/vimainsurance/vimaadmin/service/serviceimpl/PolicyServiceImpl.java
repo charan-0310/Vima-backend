@@ -26,11 +26,15 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.interceptor.TransactionAspectSupport;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
+import org.springframework.web.multipart.MultipartFile;
 
 import com.vimainsurance.vimaadmin.dto.BaseResponse;
 import com.vimainsurance.vimaadmin.dto.DealsRequestDto;
 import com.vimainsurance.vimaadmin.dto.DealsResponseDto;
 import com.vimainsurance.vimaadmin.dto.DocumentRequestDto;
+import com.vimainsurance.vimaadmin.dto.PolicyDocumentRefDto;
 import com.vimainsurance.vimaadmin.dto.PolicyRequestDto;
 import com.vimainsurance.vimaadmin.dto.PolicyResponseDto;
 import com.vimainsurance.vimaadmin.dto.PolicyUploadRequestDto;
@@ -134,6 +138,21 @@ public class PolicyServiceImpl implements IPolicyService {
 
     @Autowired
     private ICdBalanceTransactionRepository cdBalanceTransactionRepository;
+
+    @Autowired
+    private com.vimainsurance.vimaadmin.service.IS3Service s3Service;
+
+    @Autowired
+    private com.vimainsurance.vimaadmin.config.S3Config s3Config;
+
+    /**
+     * Maximum size for a wording / claim-checklist PDF upload — 50 MB.
+     * Wording PDFs typically run 60–70 pages with embedded images, which can
+     * exceed 25 MB; keep this aligned with {@code spring.servlet.multipart.max-file-size}
+     * (currently 50 MB on prod). Anything larger should be rejected at the
+     * Spring layer first; this constant is a defensive secondary guard.
+     */
+    private static final long POLICY_DOCUMENT_MAX_BYTES = 50L * 1024L * 1024L;
 
     @Override
     @Transactional(rollbackFor = Exception.class)
@@ -242,8 +261,8 @@ public class PolicyServiceImpl implements IPolicyService {
             policy.setEndDate(requestDto.getEndDate());
             policy.setRenewalDate(requestDto.getRenewalDate());
             policy.setLeadId(requestDto.getLeadId());
-            policy.setPolicyWording(requestDto.getPolicyWording());
-            policy.setClaimChecklist(requestDto.getClaimChecklist());
+            // policy_wording / claim_checklist are now uploaded via the dedicated PDF
+            // endpoints below — see PolicyController#uploadPolicyWordingDocument etc.
             // TOP_UP / SUPER_TOP_UP do not require policy-level total premium inputs from form.
             // Keep DB NOT NULL monetary columns populated with safe defaults.
             if ((policyType == ProductType.TOP_UP || policyType == ProductType.SUPER_TOP_UP) && policy.getPremiumAmount() == null) {
@@ -289,6 +308,9 @@ public class PolicyServiceImpl implements IPolicyService {
                 policy.setEffectiveFrom(requestDto.getEffectiveFrom());
                 policy.setEffectiveTo(requestDto.getEffectiveTo());
             }
+
+            policy.setPolicyWordingSummary(requestDto.getPolicyWordingSummary());
+            policy.setClaimChecklistAdditionalDocs(requestDto.getClaimChecklistAdditionalDocs());
 
             Policy savedPolicy = policyRepository.save(policy);
             logger.info("[correlationId:{}] Policy created successfully with ID: {}",
@@ -391,8 +413,8 @@ public class PolicyServiceImpl implements IPolicyService {
             policy.setEndDate(requestDto.getEndDate());
             policy.setRenewalDate(requestDto.getRenewalDate());
             policy.setLeadId(requestDto.getLeadId());
-            policy.setPolicyWording(requestDto.getPolicyWording());
-            policy.setClaimChecklist(requestDto.getClaimChecklist());
+            // policy_wording / claim_checklist documents are managed through the
+            // dedicated PDF endpoints; the JSON PUT no longer touches them.
             if ((policyType == ProductType.TOP_UP || policyType == ProductType.SUPER_TOP_UP) && policy.getPremiumAmount() == null) {
                 policy.setPremiumAmount(BigDecimal.ZERO);
             }
@@ -449,6 +471,9 @@ public class PolicyServiceImpl implements IPolicyService {
             } else {
                 policy.setTopupPremiumOptions(null);
             }
+
+            policy.setPolicyWordingSummary(requestDto.getPolicyWordingSummary());
+            policy.setClaimChecklistAdditionalDocs(requestDto.getClaimChecklistAdditionalDocs());
 
             policyRepository.save(policy);
             if (policyType == ProductType.TOP_UP || policyType == ProductType.SUPER_TOP_UP) {
@@ -701,7 +726,14 @@ public class PolicyServiceImpl implements IPolicyService {
                             "Cannot delete policy. At least one policy must remain for the company."));
                 }
             }
+            // Capture the wording / checklist document refs before delete; the
+            // FK has ON DELETE SET NULL on the policies table, but the Document
+            // rows + S3 objects belong to the policy and would otherwise leak.
+            Document wordingDoc = policy.getPolicyWordingDocument();
+            Document checklistDoc = policy.getClaimChecklistDocument();
             policyRepository.delete(policy);
+            deleteDocumentSafely(wordingDoc);
+            deleteDocumentSafely(checklistDoc);
             
             logger.info("[correlationId:{}] Policy deleted successfully", MDC.get("correlationId"));
             return responseObj.render(responseObj.formSuccessResponse(Constants.SUCCESS, Constants.DELETE_MESSAGE));
@@ -744,6 +776,253 @@ public class PolicyServiceImpl implements IPolicyService {
             logger.error("[correlationId:{}] Exception in getPolicyStatistics: {}", MDC.get("correlationId"), e.getMessage(), e);
             return responseObj.render(responseObj.formErrorResponse(e.getMessage()));
         }
+    }
+
+    // ---------------------------------------------------------------
+    // Policy wording / claim checklist PDF management
+    // ---------------------------------------------------------------
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public ResponseEntity<ResponseDto<PolicyDocumentRefDto>> attachPolicyWordingDocument(UUID organizationId, Long policyId, MultipartFile file) {
+        return attachPolicyDocumentEndpoint(organizationId, policyId, file, DocumentType.POLICY_WORDING);
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public ResponseEntity<ResponseDto<PolicyDocumentRefDto>> attachClaimChecklistDocument(UUID organizationId, Long policyId, MultipartFile file) {
+        return attachPolicyDocumentEndpoint(organizationId, policyId, file, DocumentType.CLAIM_CHECKLIST);
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public ResponseEntity<ResponseDto<String>> removePolicyWordingDocument(UUID organizationId, Long policyId) {
+        return removePolicyDocumentEndpoint(organizationId, policyId, DocumentType.POLICY_WORDING);
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    public ResponseEntity<ResponseDto<String>> removeClaimChecklistDocument(UUID organizationId, Long policyId) {
+        return removePolicyDocumentEndpoint(organizationId, policyId, DocumentType.CLAIM_CHECKLIST);
+    }
+
+    private ResponseEntity<ResponseDto<PolicyDocumentRefDto>> attachPolicyDocumentEndpoint(
+            UUID organizationId, Long policyId, MultipartFile file, DocumentType slot) {
+        BaseResponse<PolicyDocumentRefDto> responseObj = new BaseResponse<>();
+        try {
+            if (file == null || file.isEmpty()) {
+                return responseObj.render(responseObj.formErrorResponse("File is required"));
+            }
+            Policy policy = policyRepository.findById(policyId)
+                    .orElse(null);
+            if (policy == null) {
+                return responseObj.render(responseObj.formErrorResponse("Policy not found"));
+            }
+            verifyPolicyBelongsToOrganization(policy, organizationId);
+            Document doc = attachPolicyDocument(policy, file, slot);
+            return responseObj.render(responseObj.formSuccessResponse(Constants.SUCCESS, toPolicyDocumentRefDto(doc)));
+        } catch (BadRequestException e) {
+            logger.warn("[correlationId:{}] Validation failed attaching {} to policy {}: {}",
+                    MDC.get("correlationId"), slot, policyId, e.getMessage());
+            return responseObj.render(responseObj.formErrorResponse(e.getMessage()));
+        } catch (Exception e) {
+            logger.error("[correlationId:{}] Error attaching {} to policy {}",
+                    MDC.get("correlationId"), slot, policyId, e);
+            return responseObj.render(responseObj.formErrorResponse("Failed to upload document: " + e.getMessage()));
+        }
+    }
+
+    private ResponseEntity<ResponseDto<String>> removePolicyDocumentEndpoint(UUID organizationId, Long policyId, DocumentType slot) {
+        BaseResponse<String> responseObj = new BaseResponse<>();
+        try {
+            Policy policy = policyRepository.findById(policyId).orElse(null);
+            if (policy == null) {
+                return responseObj.render(responseObj.formErrorResponse("Policy not found"));
+            }
+            verifyPolicyBelongsToOrganization(policy, organizationId);
+            Document existing = (slot == DocumentType.POLICY_WORDING)
+                    ? policy.getPolicyWordingDocument()
+                    : policy.getClaimChecklistDocument();
+            if (existing == null) {
+                return responseObj.render(responseObj.formSuccessResponse(Constants.SUCCESS, "No document attached"));
+            }
+            if (slot == DocumentType.POLICY_WORDING) {
+                policy.setPolicyWordingDocument(null);
+            } else {
+                policy.setClaimChecklistDocument(null);
+            }
+            policyRepository.save(policy);
+            deleteDocumentSafely(existing);
+            return responseObj.render(responseObj.formSuccessResponse(Constants.SUCCESS, "Document removed"));
+        } catch (BadRequestException e) {
+            logger.warn("[correlationId:{}] Access denied removing {} from policy {}: {}",
+                    MDC.get("correlationId"), slot, policyId, e.getMessage());
+            return responseObj.render(responseObj.formErrorResponse(e.getMessage()));
+        } catch (Exception e) {
+            logger.error("[correlationId:{}] Error removing {} from policy {}",
+                    MDC.get("correlationId"), slot, policyId, e);
+            return responseObj.render(responseObj.formErrorResponse("Failed to remove document: " + e.getMessage()));
+        }
+    }
+
+    /**
+     * Reject the request if the resolved tenant organization does not own the policy.
+     * Refuses both null org id and mismatched org id; the controller layer
+     * ({@code @CurrentOrganization}) is the primary guard, this is the
+     * secondary check at the service boundary.
+     */
+    private void verifyPolicyBelongsToOrganization(Policy policy, UUID organizationId) {
+        if (organizationId == null) {
+            throw new BadRequestException("Organization ID is required");
+        }
+        if (policy.getOrganizationId() == null || !organizationId.equals(policy.getOrganizationId())) {
+            throw new BadRequestException("Access denied: policy does not belong to your organization");
+        }
+    }
+
+    /**
+     * Validates the file is a PDF, uploads it to S3, creates a {@link Document}
+     * row, swaps the FK on the policy, and deletes any previously attached
+     * document for that slot. Returns the newly persisted {@link Document}.
+     *
+     * <p>Registers a transaction-synchronization callback that deletes the
+     * freshly uploaded S3 object if the surrounding transaction rolls back,
+     * so we don't leak orphaned bytes on DB failures after the upload.
+     */
+    private Document attachPolicyDocument(Policy policy, MultipartFile file, DocumentType slot) {
+        if (file == null || file.isEmpty()) {
+            throw new BadRequestException("File is required");
+        }
+        if (file.getSize() > POLICY_DOCUMENT_MAX_BYTES) {
+            throw new BadRequestException(
+                    "File too large. Maximum allowed size is " + (POLICY_DOCUMENT_MAX_BYTES / (1024 * 1024)) + " MB");
+        }
+        String mime = file.getContentType();
+        if (mime == null || !"application/pdf".equalsIgnoreCase(mime.trim())) {
+            throw new BadRequestException("Only PDF files are allowed");
+        }
+        String original = file.getOriginalFilename() != null ? file.getOriginalFilename() : "document.pdf";
+        if (!original.toLowerCase().endsWith(".pdf")) {
+            throw new BadRequestException("Only PDF files are allowed");
+        }
+
+        String sanitized = sanitizeFilename(original);
+        String slotFolder = (slot == DocumentType.POLICY_WORDING) ? "wording" : "claim-checklist";
+        String s3Key = String.format("policies/%d/%s/%s_%s",
+                policy.getPolicyId(), slotFolder, UUID.randomUUID(), sanitized);
+
+        s3Service.uploadFile(file, s3Key);
+        registerS3RollbackCleanup(s3Key);
+
+        Document document = new Document();
+        document.setEntityType(DocumentEntityType.POLICY);
+        document.setEntityId(String.valueOf(policy.getPolicyId()));
+        document.setDocumentType(slot);
+        document.setDocumentCategory(DocumentCategory.POLICY_DOCUMENTS);
+        document.setS3Bucket(s3Config.getBucketName());
+        document.setS3Key(s3Key);
+        document.setOriginalFilename(original);
+        document.setFileSize(file.getSize());
+        document.setMimeType(mime);
+        document.setUploadedAt(LocalDateTime.now());
+        try {
+            UUID uploadedBy = jwtUserExtractor.getCurrentUserId();
+            UserRole uploadedByRole = jwtUserExtractor.getCurrentUserRole();
+            document.setUploadedBy(uploadedBy);
+            document.setUploadedByRole(uploadedByRole);
+        } catch (Exception ignored) {
+            // Anonymous / system uploads are acceptable for these slots.
+        }
+        Document saved = documentRepository.save(document);
+
+        Document previous;
+        if (slot == DocumentType.POLICY_WORDING) {
+            previous = policy.getPolicyWordingDocument();
+            policy.setPolicyWordingDocument(saved);
+        } else {
+            previous = policy.getClaimChecklistDocument();
+            policy.setClaimChecklistDocument(saved);
+        }
+        policyRepository.save(policy);
+
+        if (previous != null) {
+            deleteDocumentSafely(previous);
+        }
+        return saved;
+    }
+
+    /**
+     * Schedule an S3 object delete if (and only if) the current transaction rolls back.
+     * Uses Spring's transaction synchronization so commits leave the object in
+     * place. No-op when called outside a transaction (defensive).
+     */
+    private void registerS3RollbackCleanup(String s3Key) {
+        if (s3Key == null || s3Key.isBlank()) {
+            return;
+        }
+        if (!TransactionSynchronizationManager.isSynchronizationActive()) {
+            return;
+        }
+        TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+            @Override
+            public void afterCompletion(int status) {
+                if (status != STATUS_ROLLED_BACK) {
+                    return;
+                }
+                try {
+                    s3Service.deleteFile(s3Key);
+                } catch (Exception ex) {
+                    logger.warn("[correlationId:{}] Failed to delete orphaned S3 object {} after rollback: {}",
+                            MDC.get("correlationId"), s3Key, ex.getMessage());
+                }
+            }
+        });
+    }
+
+    private void deleteDocumentSafely(Document doc) {
+        if (doc == null) {
+            return;
+        }
+        try {
+            if (doc.getS3Key() != null && !doc.getS3Key().isBlank()) {
+                s3Service.deleteFile(doc.getS3Key());
+            }
+        } catch (Exception e) {
+            logger.warn("[correlationId:{}] Failed to delete S3 object {} for replaced document {}: {}",
+                    MDC.get("correlationId"), doc.getS3Key(), doc.getDocumentId(), e.getMessage());
+        }
+        try {
+            documentRepository.delete(doc);
+        } catch (Exception e) {
+            logger.warn("[correlationId:{}] Failed to delete document row {} after replacement: {}",
+                    MDC.get("correlationId"), doc.getDocumentId(), e.getMessage());
+        }
+    }
+
+    private static String sanitizeFilename(String name) {
+        if (name == null) return "file.pdf";
+        String base = name.replaceAll("[^a-zA-Z0-9._-]", "_");
+        if (base.length() > 120) {
+            base = base.substring(base.length() - 120);
+        }
+        return base;
+    }
+
+    /**
+     * Map a Document entity to a PolicyDocumentRefDto for non-employee responses
+     * (no presigned URL — admin UIs render filename and have separate download URL).
+     */
+    private PolicyDocumentRefDto toPolicyDocumentRefDto(Document doc) {
+        if (doc == null) {
+            return null;
+        }
+        return PolicyDocumentRefDto.builder()
+                .documentId(doc.getDocumentId())
+                .filename(doc.getOriginalFilename())
+                .fileSizeBytes(doc.getFileSize())
+                .mimeType(doc.getMimeType())
+                .uploadedAt(doc.getUploadedAt())
+                .build();
     }
 
     /**
@@ -846,8 +1125,10 @@ public class PolicyServiceImpl implements IPolicyService {
         responseDto.setDeductibleAmount(policy.getDeductibleAmount());
         responseDto.setSumInsuredOptions(policy.getSumInsuredOptions());
         responseDto.setTopupPremiumOptions(policy.getTopupPremiumOptions());
-        responseDto.setPolicyWording(policy.getPolicyWording());
-        responseDto.setClaimChecklist(policy.getClaimChecklist());
+        responseDto.setPolicyWordingDocument(toPolicyDocumentRefDto(policy.getPolicyWordingDocument()));
+        responseDto.setClaimChecklistDocument(toPolicyDocumentRefDto(policy.getClaimChecklistDocument()));
+        responseDto.setPolicyWordingSummary(policy.getPolicyWordingSummary());
+        responseDto.setClaimChecklistAdditionalDocs(policy.getClaimChecklistAdditionalDocs());
         responseDto.setCoversDependents(policy.getCoversDependents());
         responseDto.setCoversParents(policy.getCoversParents());
         responseDto.setIsDeleted(policy.getIsDeleted());
@@ -1226,8 +1507,9 @@ public class PolicyServiceImpl implements IPolicyService {
             policy.setNetAmount(requestDto.getNetAmount());
             policy.setGst(requestDto.getGst());
             policy.setLeadId(organizationId); // Use organizationId as leadId
-            policy.setPolicyWording(requestDto.getPolicyWording());
-            policy.setClaimChecklist(requestDto.getClaimChecklist());
+            // policy_wording / claim_checklist PDFs are attached after the policy
+            // is saved via attachPolicyWordingDocument / attachClaimChecklistDocument
+            // below (so the policyId exists for the S3 key + Document.entityId).
             if ((productType == ProductType.TOP_UP || productType == ProductType.SUPER_TOP_UP) && policy.getPremiumAmount() == null) {
                 policy.setPremiumAmount(BigDecimal.ZERO);
             }
@@ -1272,6 +1554,9 @@ public class PolicyServiceImpl implements IPolicyService {
                         normalizeTopupPremiumOptionsForSave(policy.getSumInsuredOptions(), requestDto.getTopupPremiumOptions()));
             }
 
+            policy.setPolicyWordingSummary(requestDto.getPolicyWordingSummary());
+            policy.setClaimChecklistAdditionalDocs(requestDto.getClaimChecklistAdditionalDocs());
+
             policy.setCreatedAt(LocalDateTime.now());
             policy.setUpdatedAt(LocalDateTime.now());
             
@@ -1288,6 +1573,16 @@ public class PolicyServiceImpl implements IPolicyService {
                 createProductCatalogForParentGmc(savedPolicy);
             }
             seedMissingDefaultCostSharingRules(savedPolicy.getOrganizationId());
+
+            // Optional policy wording PDF + claim checklist PDF uploaded as multipart parts
+            // alongside the policy. Each is independent — failure to upload one shouldn't
+            // block policy creation, but we surface validation errors cleanly.
+            if (requestDto.getPolicyWordingFile() != null && !requestDto.getPolicyWordingFile().isEmpty()) {
+                attachPolicyDocument(savedPolicy, requestDto.getPolicyWordingFile(), DocumentType.POLICY_WORDING);
+            }
+            if (requestDto.getClaimChecklistFile() != null && !requestDto.getClaimChecklistFile().isEmpty()) {
+                attachPolicyDocument(savedPolicy, requestDto.getClaimChecklistFile(), DocumentType.CLAIM_CHECKLIST);
+            }
 
             // Upload documents if provided (agent already looked up above when files present)
             if (requestDto.getFiles() != null && requestDto.getFiles().length > 0 && agent != null) {
