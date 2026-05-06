@@ -20,6 +20,7 @@ import com.vimainsurance.vimaadmin.notification.entity.AdminNotification;
 import com.vimainsurance.vimaadmin.notification.entity.NotificationDelivery;
 import com.vimainsurance.vimaadmin.notification.enums.NotificationChannelKind;
 import com.vimainsurance.vimaadmin.notification.enums.NotificationDeliveryStatus;
+import com.vimainsurance.vimaadmin.notification.enums.NotificationEventType;
 import com.vimainsurance.vimaadmin.notification.repository.IAdminNotificationRepository;
 import com.vimainsurance.vimaadmin.notification.repository.INotificationDeliveryRepository;
 import com.vimainsurance.vimaadmin.service.IEmailService;
@@ -141,18 +142,31 @@ public class NotificationDispatcher {
     }
 
     private void sendSlack(AdminNotification n, NotificationDelivery d) {
-        String url = notificationsProperties.getSlackWebhookUrl();
-        if (url == null || url.isBlank()) {
-            d.setStatus(NotificationDeliveryStatus.SKIPPED);
-            d.setLastError("notifications.slack-webhook-url not configured");
-            log.info("notification_delivery_skipped channel=SLACK notificationId={} reason=no_webhook", n.getId());
-            return;
-        }
         String text = (n.getTitle() != null ? "*" + n.getTitle() + "*\n" : "") + (n.getBody() != null ? n.getBody() : "");
         if (n.getDeepLinkUrl() != null && !n.getDeepLinkUrl().isBlank()) {
             text = text + "\n" + n.getDeepLinkUrl();
         }
-        boolean ok = slackWebhookClient.postMessage(text);
+        boolean ok = false;
+        boolean attemptedBotTokenRoute = false;
+        if (NotificationEventType.ENDORSEMENT_COMPLETED.equals(n.getEventType())) {
+            String channelId = notificationsProperties.getSlackChannelId();
+            String botToken = notificationsProperties.getSlackBotToken();
+            if (botToken != null && !botToken.isBlank() && channelId != null && !channelId.isBlank()) {
+                attemptedBotTokenRoute = true;
+                ok = slackWebhookClient.postMessageToChannel(channelId, text);
+            }
+        }
+        if (!ok) {
+            String url = notificationsProperties.getSlackWebhookUrl();
+            if (url == null || url.isBlank()) {
+                d.setStatus(NotificationDeliveryStatus.SKIPPED);
+                d.setLastError("notifications.slack-webhook-url not configured");
+                log.info("notification_delivery_skipped channel=SLACK notificationId={} reason=no_webhook attemptedBotRoute={}",
+                        n.getId(), attemptedBotTokenRoute);
+                return;
+            }
+            ok = slackWebhookClient.postMessage(text);
+        }
         if (ok) {
             d.setStatus(NotificationDeliveryStatus.SENT);
             d.setLastError(null);
