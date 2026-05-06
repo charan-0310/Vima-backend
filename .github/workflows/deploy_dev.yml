@@ -50,5 +50,10 @@ jobs:
       - name: Restart Docker Compose service (Dev)
         run: |
           cd ~/vima-app-deployment
+          if [ ! -f api-dev/entrypoint.sh ]; then
+            printf '%s\n' '#!/usr/bin/env sh' 'set -e' 'exec java -jar /app/app.jar' > api-dev/entrypoint.sh
+            chmod +x api-dev/entrypoint.sh
+            echo "✅ Created missing api-dev/entrypoint.sh"
+          fi
           docker compose up -d --build vima-api-dev
           echo "✅ Docker Compose service 'vima-api-dev' restarted for DEV environment"    
