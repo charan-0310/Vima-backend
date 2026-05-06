@@ -77,6 +77,7 @@ import com.vimainsurance.vimaadmin.util.SlackNotificationUtil;
 import com.vimainsurance.vimaadmin.util.TopupPremiumOptionsUtil;
 import com.vimainsurance.vimaadmin.util.GmcCoverageUploadValidationUtil;
 import com.vimainsurance.vimaadmin.service.policy.PolicyMemberMappingHelper;
+import com.vimainsurance.vimaadmin.notification.FlagshipNotificationService;
 
 @Slf4j
 @Service
@@ -115,6 +116,9 @@ public class EmployeeService {
 
     @Autowired
     private SlackNotificationUtil slackNotificationUtil;
+
+    @Autowired(required = false)
+    private FlagshipNotificationService flagshipNotificationService;
 
     @Autowired
     private IPolicyRepository policyRepository;
@@ -1175,6 +1179,11 @@ public class EmployeeService {
           UUID splitGroupId = UUID.randomUUID();
           Endorsement primaryEndorsement = null;
           Map<Long, List<Deals>> dealsByPolicy = mapDealsByPolicyForUpload(allSavedDeals, groupedByEmployeeId, selectedPolicyMap);
+          boolean hasAnyPolicyBucket = dealsByPolicy.values().stream().anyMatch(bucket -> bucket != null && !bucket.isEmpty());
+          if (!hasAnyPolicyBucket) {
+              throw new IllegalStateException(
+                  "No endorsements were created for selected policies. Ensure uploaded rows contain coverage values for at least one selected policy.");
+          }
           for (Map.Entry<Long, List<Deals>> entry : dealsByPolicy.entrySet()) {
               if (entry.getValue().isEmpty()) {
                   continue;
@@ -1255,8 +1264,22 @@ public class EmployeeService {
           if(createdCount == 0 && updatedCount == 0) {
             response.setMessage("No changes detected!");
           }
-          if(savedEndorsement != null) {
+          if (savedEndorsement != null) {
+            log.info("endorsement_upload_saved endorsementId={} uploadType={} orgId={} createdCount={} updatedCount={}",
+                savedEndorsement.getEndorsementId(), uploadType,
+                organization != null ? organization.getOrganizationId() : null, createdCount, updatedCount);
             slackNotificationUtil.sendSlackMessage(slackNotificationUtil.buildEndorsementNotificationMessage(savedEndorsement), false);
+            if (flagshipNotificationService != null
+                    && uploadType != null
+                    && (uploadType.equalsIgnoreCase("addition") || uploadType.equalsIgnoreCase("bulk-upload"))) {
+              List<String> selfEmployeeIds = extractSelfEmployeeIdsFromUpload(employeeUploadDtoList);
+              log.info("endorsement_upload_notification_schedule endorsementId={} uploadType={} uploadedBy={} selfEmployeeIdCount={}",
+                  savedEndorsement.getEndorsementId(), uploadType, adminUser != null ? adminUser.getId() : null, selfEmployeeIds.size());
+              flagshipNotificationService.scheduleEndorsementUploaded(savedEndorsement, organization, adminUser, selfEmployeeIds);
+            }
+          } else {
+            log.info("endorsement_upload_no_endorsement_created uploadType={} orgId={} createdCount={} updatedCount={}",
+                uploadType, organization != null ? organization.getOrganizationId() : null, createdCount, updatedCount);
           }
           return response;
         } catch (Exception e) {
@@ -1294,6 +1317,25 @@ public class EmployeeService {
             .count();
     }
 
+    /**
+     * Employee IDs from sheet rows marked as Self / primary ({@link EmployeeToDeals#isPrimaryMemberRelationship}), preserving first-seen order.
+     */
+    private List<String> extractSelfEmployeeIdsFromUpload(List<EmployeeUploadDto> rows) {
+        if (rows == null || rows.isEmpty()) {
+            return List.of();
+        }
+        LinkedHashSet<String> seen = new LinkedHashSet<>();
+        for (EmployeeUploadDto dto : rows) {
+            if (dto == null || !EmployeeToDeals.isPrimaryMemberRelationship(dto.getRelationship())) {
+                continue;
+            }
+            String employeeId = dto.getEmployeeId();
+            if (employeeId != null && !employeeId.isBlank()) {
+                seen.add(employeeId.trim());
+            }
+        }
+        return new ArrayList<>(seen);
+    }
 
     public List<String> getEmployeeIds(List<EmployeeUploadDto> employeeUploadDtoList) {
         return employeeUploadDtoList.stream().distinct().map(EmployeeUploadDto::getEmployeeId).collect(Collectors.toList());

@@ -41,13 +41,17 @@ public class NotificationDispatcher {
 
     @Transactional
     public void dispatchDeliveriesFor(UUID notificationId) {
+        log.info("notification_dispatch_start notificationId={}", notificationId);
         if (!notificationsFeatureGate.isNotificationsEnabled()) {
+            log.info("notification_dispatch_skip reason=flag_disabled notificationId={}", notificationId);
             return;
         }
         AdminNotification n = notificationRepository.findByIdForDispatch(notificationId).orElse(null);
         if (n == null) {
+            log.info("notification_dispatch_skip reason=notification_not_found notificationId={}", notificationId);
             return;
         }
+        log.info("notification_dispatch_found notificationId={} deliveries={}", notificationId, n.getDeliveries().size());
         for (NotificationDelivery d : n.getDeliveries()) {
             if (d.getStatus() == NotificationDeliveryStatus.SENT || d.getStatus() == NotificationDeliveryStatus.SKIPPED) {
                 continue;
