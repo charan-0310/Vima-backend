@@ -1273,7 +1273,6 @@ public class EmployeeService {
             log.info("endorsement_upload_saved endorsementId={} uploadType={} orgId={} createdCount={} updatedCount={}",
                 savedEndorsement.getEndorsementId(), uploadType,
                 organization != null ? organization.getOrganizationId() : null, createdCount, updatedCount);
-            slackNotificationUtil.sendSlackMessage(slackNotificationUtil.buildEndorsementNotificationMessage(savedEndorsement), false);
             if (flagshipNotificationService != null
                     && uploadType != null
                     && (uploadType.equalsIgnoreCase("addition") || uploadType.equalsIgnoreCase("bulk-upload"))) {
