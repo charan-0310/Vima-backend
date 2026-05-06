@@ -1021,8 +1021,8 @@ public class OrganizationServiceImpl implements IOrganizationService {
                 .sorted()
                 .findFirst()
                 .orElse(null);
-            if (fallbackDoj == null && endorsement != null && endorsement.getPolicy() != null) {
-                fallbackDoj = endorsement.getPolicy().getStartDate();
+            if (fallbackDoj == null) {
+                fallbackDoj = safeEndorsementPolicyStartDate(endorsement);
             }
             dto.setDateOfJoining(fallbackDoj);
         }
@@ -1046,8 +1046,8 @@ public class OrganizationServiceImpl implements IOrganizationService {
                 .orElse(null);
 
             BigDecimal resolvedSi = gmcOrGhi != null ? gmcOrGhi : anyCoverSi;
-            if (resolvedSi == null && endorsement != null && endorsement.getPolicy() != null) {
-                resolvedSi = endorsement.getPolicy().getSumInsured();
+            if (resolvedSi == null) {
+                resolvedSi = safeEndorsementPolicySumInsured(endorsement);
             }
             if (resolvedSi != null) {
                 dto.setSumInsured(resolvedSi.stripTrailingZeros().toPlainString());
@@ -1067,12 +1067,52 @@ public class OrganizationServiceImpl implements IOrganizationService {
         dto.setEndorsementType(endorsement.getEndorsementType() != null ? endorsement.getEndorsementType().name() : null);
         dto.setEndorsementStatus(endorsement.getStatus() != null ? endorsement.getStatus().name() : null);
         dto.setEndorsementSource(endorsement.getSource() != null ? endorsement.getSource().name() : null);
-        dto.setEndorsementPolicyId(endorsement.getPolicy() != null ? endorsement.getPolicy().getPolicyId() : null);
-        dto.setEndorsementPolicyNumber(endorsement.getPolicy() != null ? endorsement.getPolicy().getPolicyNumber() : null);
+        dto.setEndorsementPolicyId(safeEndorsementPolicyId(endorsement));
+        dto.setEndorsementPolicyNumber(safeEndorsementPolicyNumber(endorsement));
         dto.setSplitGroupId(endorsement.getSplitGroupId());
         dto.setInsurerRefNumber(endorsement.getInsurerRefNumber());
         dto.setApprovedAt(endorsement.getApprovedAt());
         dto.setApprovedBy(endorsement.getApprovedBy());
+    }
+
+    private LocalDate safeEndorsementPolicyStartDate(Endorsement endorsement) {
+        try {
+            return endorsement != null && endorsement.getPolicy() != null ? endorsement.getPolicy().getStartDate() : null;
+        } catch (RuntimeException ex) {
+            logger.warn("[correlationId:{}] Could not load endorsement policy startDate for {}: {}",
+                    MDC.get("correlationId"), endorsement != null ? endorsement.getEndorsementId() : null, ex.getMessage());
+            return null;
+        }
+    }
+
+    private BigDecimal safeEndorsementPolicySumInsured(Endorsement endorsement) {
+        try {
+            return endorsement != null && endorsement.getPolicy() != null ? endorsement.getPolicy().getSumInsured() : null;
+        } catch (RuntimeException ex) {
+            logger.warn("[correlationId:{}] Could not load endorsement policy sumInsured for {}: {}",
+                    MDC.get("correlationId"), endorsement != null ? endorsement.getEndorsementId() : null, ex.getMessage());
+            return null;
+        }
+    }
+
+    private Long safeEndorsementPolicyId(Endorsement endorsement) {
+        try {
+            return endorsement != null && endorsement.getPolicy() != null ? endorsement.getPolicy().getPolicyId() : null;
+        } catch (RuntimeException ex) {
+            logger.warn("[correlationId:{}] Could not load endorsement policyId for {}: {}",
+                    MDC.get("correlationId"), endorsement != null ? endorsement.getEndorsementId() : null, ex.getMessage());
+            return null;
+        }
+    }
+
+    private String safeEndorsementPolicyNumber(Endorsement endorsement) {
+        try {
+            return endorsement != null && endorsement.getPolicy() != null ? endorsement.getPolicy().getPolicyNumber() : null;
+        } catch (RuntimeException ex) {
+            logger.warn("[correlationId:{}] Could not load endorsement policyNumber for {}: {}",
+                    MDC.get("correlationId"), endorsement != null ? endorsement.getEndorsementId() : null, ex.getMessage());
+            return null;
+        }
     }
 
     private Sort createSort(String sortBy, String sortDirection) {
