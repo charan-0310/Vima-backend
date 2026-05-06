@@ -76,6 +76,8 @@ import com.vimainsurance.vimaadmin.enums.DocumentEntityType;
 import com.vimainsurance.vimaadmin.enums.DocumentType;
 import com.vimainsurance.vimaadmin.enums.EmployerShareType;
 import com.vimainsurance.vimaadmin.enums.Industry;
+import com.vimainsurance.vimaadmin.enums.PolicyStatus;
+import com.vimainsurance.vimaadmin.enums.ProductType;
 import com.vimainsurance.vimaadmin.enums.UserRole;
 import com.vimainsurance.vimaadmin.repository.IAdminUserRepository;
 import com.vimainsurance.vimaadmin.repository.IDealEndorsementRepository;
@@ -408,8 +410,7 @@ public class OrganizationServiceImpl implements IOrganizationService {
         logger.info("[correlationId:{}] uploadDocument called for organization {}", MDC.get("correlationId"), organizationId);
         BaseResponse<String> responseObj = new BaseResponse<>();
         try {
-            String uploadedBy = jwtUserExtractor.getCurrentUsername();
-            Optional<AdminUser> adminUser = adminUserRepository.findByUsername(uploadedBy);
+            Optional<AdminUser> adminUser = jwtUserExtractor.resolveCurrentAdminUser();
             if (adminUser.isEmpty()) {
                 return responseObj.render(responseObj.formErrorResponse("Agent not found"));
             }
@@ -1584,6 +1585,8 @@ public class OrganizationServiceImpl implements IOrganizationService {
             // All validation passed - proceed with processing
             logger.info("[correlationId:{}] CSV validation passed. Proceeding with upload of {} records.", 
                 MDC.get("correlationId"), parseResult.getDeals().size());
+
+            applyDefaultPrimaryDateOfJoiningFromPolicy(parseResult.getDeals(), organization.getOrganizationId());
             
             // Prepare deals for batch save
             List<Deals> dealsToSave = new ArrayList<>();
@@ -2032,8 +2035,8 @@ public class OrganizationServiceImpl implements IOrganizationService {
 
             jwtUserExtractor.validateOrganizationAccess(organizationId);
             Organization organization = organizationRepository.findByOrganizationId(organizationId).orElseThrow(() -> new RuntimeException("Organization not found"));
-            String username = jwtUserExtractor.getCurrentUsername();
-            AdminUser adminUser = adminUserRepository.findByUsername(username).orElseThrow(() -> new RuntimeException("Admin user not found"));
+            AdminUser adminUser = jwtUserExtractor.resolveCurrentAdminUser()
+                    .orElseThrow(() -> new RuntimeException("Admin user not found"));
 
             EmployeeUploadResponse result = employeeService.deleteEmployeeManual(requestDto.getEmployeeIds(), organization, adminUser);
 
@@ -2076,9 +2079,8 @@ public class OrganizationServiceImpl implements IOrganizationService {
         com.vimainsurance.vimaadmin.audit.AuditContextSupplier.setActionSource(com.vimainsurance.vimaadmin.audit.ActionSource.BULK);
         Organization organization = organizationRepository.findByOrganizationId(organizationId).orElseThrow(() -> new RuntimeException("Organization not found"));
         EmployeeUploadResponse employeeUploadResponse = new EmployeeUploadResponse();
-        AdminUser adminuser = null;
-            String username = jwtUserExtractor.getCurrentUsername();
-            adminuser = adminUserRepository.findByUsername(username).orElseThrow(() -> new RuntimeException("Admin user not found"));
+        AdminUser adminuser = jwtUserExtractor.resolveCurrentAdminUser()
+                .orElseThrow(() -> new RuntimeException("Admin user not found"));
         com.vimainsurance.vimaadmin.audit.AuditContextSupplier.setCurrentUserId(adminuser != null ? adminuser.getId() : null);
         employeeUploadResponse = employeeService.uploadEmployees(employeeUploadDtoList, organization, adminuser, file, uploadType, policyIds);
         String responseMessage = (employeeUploadResponse.getMessage() != null && !employeeUploadResponse.getMessage().isEmpty())
@@ -2102,7 +2104,8 @@ public class OrganizationServiceImpl implements IOrganizationService {
         try {
             jwtUserExtractor.validateOrganizationAccess(organizationId);
             Organization organization = organizationRepository.findByOrganizationId(organizationId).orElseThrow(() -> new RuntimeException("Organization not found"));
-            AdminUser adminUser = adminUserRepository.findByUsername(jwtUserExtractor.getCurrentUsername()).orElseThrow(() -> new RuntimeException("Admin user not found"));
+            AdminUser adminUser = jwtUserExtractor.resolveCurrentAdminUser()
+                    .orElseThrow(() -> new RuntimeException("Admin user not found"));
             List<EmployeeUploadDto> employees = requestDto != null && requestDto.getEmployees() != null ? requestDto.getEmployees() : List.of();
             if (employees.isEmpty()) {
                 return responseObj.render(responseObj.formErrorResponse("At least one employee is required"));
@@ -2147,7 +2150,8 @@ public class OrganizationServiceImpl implements IOrganizationService {
         BaseResponse<EmployeeUploadResponse> responseObj = new BaseResponse<>();
         try {
             Organization organization = organizationRepository.findByOrganizationId(organizationId).orElseThrow(() -> new RuntimeException("Organization not found"));
-            AdminUser adminuser = adminUserRepository.findByUsername(jwtUserExtractor.getCurrentUsername()).orElseThrow(() -> new RuntimeException("Admin user not found"));
+            AdminUser adminuser = jwtUserExtractor.resolveCurrentAdminUser()
+                    .orElseThrow(() -> new RuntimeException("Admin user not found"));
             EmployeeUploadResponse employeeUploadResponse = employeeService.deleteEmployee(bulkEmployeeDeletionRequestDtoList, organization, adminuser, file, uploadType);
             return responseObj.render(responseObj.formSuccessResponse(Constants.SUCCESS, employeeUploadResponse));
         } catch (Exception e) {
@@ -2182,6 +2186,43 @@ public class OrganizationServiceImpl implements IOrganizationService {
             logger.error("[correlationId:{}] Exception in getEmployeesByEndorsementId: {}", MDC.get("correlationId"), e.getMessage(), e);
             return responseObj.render(responseObj.formErrorResponse("Error Occured while getting employees by endorsement id"));
         }
+    }
+
+    /**
+     * Grouped CSV may omit primary {@code date_of_joining}; align with portal bulk upload by using the
+     * organization's default active policy start date (GMC first, else first active policy).
+     */
+    private void applyDefaultPrimaryDateOfJoiningFromPolicy(List<Deals> deals, UUID organizationId) {
+        if (deals == null || deals.isEmpty() || organizationId == null) {
+            return;
+        }
+        Optional<Policy> policyOpt = resolveDefaultActivePolicyForCsvFallback(organizationId);
+        if (policyOpt.isEmpty()) {
+            return;
+        }
+        LocalDate start = policyOpt.get().getStartDate();
+        if (start == null) {
+            return;
+        }
+        for (Deals deal : deals) {
+            if (deal == null || !Boolean.TRUE.equals(deal.getIsPrimaryMember())) {
+                continue;
+            }
+            if (deal.getDateOfJoining() == null) {
+                deal.setDateOfJoining(start);
+            }
+        }
+    }
+
+    private Optional<Policy> resolveDefaultActivePolicyForCsvFallback(UUID organizationId) {
+        List<Policy> active = policyRepository.findByOrganizationIdAndStatus(organizationId, PolicyStatus.ACTIVE);
+        if (active == null || active.isEmpty()) {
+            return Optional.empty();
+        }
+        return active.stream()
+                .filter(p -> ProductType.GMC.equals(p.getProductType()))
+                .findFirst()
+                .or(() -> Optional.of(active.get(0)));
     }
   
 }

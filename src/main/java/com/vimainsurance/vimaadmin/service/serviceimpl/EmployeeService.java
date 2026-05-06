@@ -459,7 +459,7 @@ public class EmployeeService {
                 .filter(e -> e != null && EmployeeToDeals.isPrimaryMemberRelationship(e.getRelationship()))
                 .count();
             long spouseCount = employeeUploadDtoListByEmployeeId.stream()
-                .filter(e -> "Spouse".equalsIgnoreCase(e.getRelationship()))
+                .filter(e -> isSpouseRelationship(e.getRelationship()))
                 .count();
             long fatherCount = employeeUploadDtoListByEmployeeId.stream()
                 .filter(e -> "Father".equalsIgnoreCase(e.getRelationship()))
@@ -651,7 +651,7 @@ public class EmployeeService {
                     }
                 }
                 }
-                else if ("Spouse".equalsIgnoreCase(relationship) || 
+                else if (isSpouseRelationship(relationship) ||
                         (relationship.toUpperCase().startsWith("SPOUSE"))) {
                     LocalDate dateOfBirth = parseDobToLocalDateForValidation(employeeUploadDto.getDateOfBirth());
                     if (dateOfBirth == null) {
@@ -890,6 +890,11 @@ public class EmployeeService {
                 employeeUploadDtoList,
                 List.of("No policies found for provided policyIds"));
           }
+          List<Policy> orderedSelectedPolicies = (policyIds == null ? List.<Long>of() : policyIds).stream()
+              .map(selectedPolicyMap::get)
+              .filter(Objects::nonNull)
+              .toList();
+          applyPolicyDefaultsForMissingFields(employeeUploadDtoList, orderedSelectedPolicies);
           List<String> coverageErrors = GmcCoverageUploadValidationUtil.validateBulkUploadRows(employeeUploadDtoList, selectedPolicies);
           if (!coverageErrors.isEmpty()) {
             return buildValidationFailureResponse(employeeUploadDtoList, coverageErrors);
@@ -1590,6 +1595,59 @@ public class EmployeeService {
         return NomineeRelationship.MOTHER_IN_LAW.getValue().equals(normalizeInLawRelationship(relationship));
     }
 
+    private boolean isSpouseRelationship(String relationship) {
+        if (relationship == null) return false;
+        String rel = relationship.trim();
+        return "SPOUSE".equalsIgnoreCase(rel)
+                || "WIFE".equalsIgnoreCase(rel)
+                || "HUSBAND".equalsIgnoreCase(rel);
+    }
+
+    private void applyPolicyDefaultsForMissingFields(List<EmployeeUploadDto> rows, List<Policy> selectedPolicies) {
+        if (rows == null || rows.isEmpty()) {
+            return;
+        }
+        Optional<Policy> defaultPolicyOpt = resolveDefaultPolicyForFallbacks(selectedPolicies);
+        if (defaultPolicyOpt.isEmpty()) {
+            return;
+        }
+        Policy defaultPolicy = defaultPolicyOpt.get();
+        String defaultDateOfJoining = defaultPolicy.getStartDate() != null ? defaultPolicy.getStartDate().toString() : null;
+        String defaultSumInsured = defaultPolicy.getSumInsured() != null ? defaultPolicy.getSumInsured().toPlainString() : null;
+        for (EmployeeUploadDto row : rows) {
+            if (row == null) continue;
+            if (!EmployeeToDeals.isPrimaryMemberRelationship(row.getRelationship())) {
+                continue;
+            }
+            if ((row.getDateOfJoining() == null || row.getDateOfJoining().trim().isEmpty()) && defaultDateOfJoining != null) {
+                row.setDateOfJoining(defaultDateOfJoining);
+            }
+            if ((row.getSumInsured() == null || row.getSumInsured().trim().isEmpty()) && defaultSumInsured != null) {
+                row.setSumInsured(defaultSumInsured);
+            }
+        }
+    }
+
+    private Optional<Policy> resolveDefaultPolicyForFallbacks(List<Policy> selectedPolicies) {
+        if (selectedPolicies == null || selectedPolicies.isEmpty()) {
+            return Optional.empty();
+        }
+        List<Policy> activePolicies = selectedPolicies.stream()
+                .filter(Objects::nonNull)
+                .filter(p -> PolicyStatus.ACTIVE.equals(p.getStatus()))
+                .toList();
+        Optional<Policy> gmcPolicy = activePolicies.stream()
+                .filter(p -> ProductType.GMC.equals(p.getProductType()))
+                .findFirst();
+        if (gmcPolicy.isPresent()) {
+            return gmcPolicy;
+        }
+        if (!activePolicies.isEmpty()) {
+            return Optional.of(activePolicies.get(0));
+        }
+        return selectedPolicies.stream().filter(Objects::nonNull).findFirst();
+    }
+
     private boolean isParentRelationship(String relationship) {
         if (relationship == null) return false;
         return "FATHER".equalsIgnoreCase(relationship)
@@ -1653,7 +1711,7 @@ public class EmployeeService {
         
         if ("Self".equalsIgnoreCase(rel)) {
             return NomineeRelationship.SELF.getValue();
-        } else if ("Spouse".equalsIgnoreCase(rel)) {
+        } else if (isSpouseRelationship(rel)) {
             return NomineeRelationship.SPOUSE.getValue();
         } else if ("Father".equalsIgnoreCase(rel)) {
             return NomineeRelationship.FATHER.getValue();
@@ -1709,7 +1767,7 @@ public class EmployeeService {
         // Check for allowed relationships
         if ("Self".equalsIgnoreCase(rel) || "Employee".equalsIgnoreCase(rel) || "EMPLOYEE".equals(rel)) {
             return true;
-        } else if ("Spouse".equalsIgnoreCase(rel)) {
+        } else if (isSpouseRelationship(rel)) {
             return true;
         } else if ("Father".equalsIgnoreCase(rel)) {
             return true;
