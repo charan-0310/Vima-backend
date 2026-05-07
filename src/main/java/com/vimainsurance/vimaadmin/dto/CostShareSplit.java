@@ -3,6 +3,7 @@ package com.vimainsurance.vimaadmin.dto;
 import java.math.BigDecimal;
 import java.util.UUID;
 
+import com.vimainsurance.vimaadmin.enums.CoverageCategory;
 import com.vimainsurance.vimaadmin.enums.EmployerShareType;
 
 import lombok.AllArgsConstructor;
@@ -24,4 +25,10 @@ public class CostShareSplit {
     private EmployerShareType shareType;
     private BigDecimal shareValue;
     private UUID ruleId;
+    /**
+     * The coverage_category of the rule that actually fired. Useful for debugging when
+     * the applied rule is not the requested category (i.e. fell through to DEFAULT, etc.).
+     * Null when no rule matched.
+     */
+    private CoverageCategory appliedCategory;
 }

@@ -563,12 +563,11 @@ public class EndorsementServiceImpl implements IEndorsementService {
             Organization organization = orgOpt.get();
             AdminUser uploadedBy = null;
             if (EnvironmentUtil.isProductionEnvironment(environment)) {
-                String username = jwtUserExtractor.getCurrentUsername();
-                Optional<AdminUser> uploadedByOpt = adminUserRepository.findByUsername(username);
-            if (uploadedByOpt.isEmpty()) {
-                return responseObj.render(responseObj.formErrorResponse("Uploaded by user not found"));
-            }
-            uploadedBy = uploadedByOpt.get();
+                Optional<AdminUser> uploadedByOpt = jwtUserExtractor.resolveCurrentAdminUser();
+                if (uploadedByOpt.isEmpty()) {
+                    return responseObj.render(responseObj.formErrorResponse("Uploaded by user not found"));
+                }
+                uploadedBy = uploadedByOpt.get();
             }
             Endorsement endorsement = opt.get();
             if(endorsement.getStatus().equals(AccountStatus.COMPLETED)) {

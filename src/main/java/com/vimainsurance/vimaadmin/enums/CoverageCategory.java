@@ -12,7 +12,15 @@ public enum CoverageCategory {
     CHILD("CHILD"),
     PARENT("PARENT"),
     PARENT_IN_LAW("PARENT_IN_LAW"),
-    ALL_DEPENDENTS("ALL_DEPENDENTS");
+    ALL_DEPENDENTS("ALL_DEPENDENTS"),
+    /**
+     * DEFAULT — catch-all rule that applies when no more specific category matches.
+     * HR can configure a single DEFAULT rule per plan to express "this is the split for
+     * any family shape, unless overridden". Lookups consult this BEFORE the legacy
+     * SPOUSE/CHILD/SELF fallbacks, so adopting DEFAULT collapses the per-category
+     * fallback gymnastics into a single explicit rule.
+     */
+    DEFAULT("DEFAULT");
 
     private final String value;
 
