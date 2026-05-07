@@ -42,7 +42,6 @@ import com.vimainsurance.vimaadmin.dto.ProductCatalogRequestDto;
 import com.vimainsurance.vimaadmin.dto.ResponseDto;
 import com.vimainsurance.vimaadmin.entity.AdminUser;
 import com.vimainsurance.vimaadmin.entity.CdAccount;
-import com.vimainsurance.vimaadmin.entity.CostSharingRule;
 import com.vimainsurance.vimaadmin.entity.Deals;
 import com.vimainsurance.vimaadmin.entity.Document;
 import com.vimainsurance.vimaadmin.entity.Nominee;
@@ -50,12 +49,10 @@ import com.vimainsurance.vimaadmin.entity.Policy;
 import com.vimainsurance.vimaadmin.entity.ProductCatalog;
 import com.vimainsurance.vimaadmin.enums.AccountStatus;
 import com.vimainsurance.vimaadmin.enums.AccountType;
-import com.vimainsurance.vimaadmin.enums.CoverageCategory;
 import com.vimainsurance.vimaadmin.enums.CoverageType;
 import com.vimainsurance.vimaadmin.enums.DocumentCategory;
 import com.vimainsurance.vimaadmin.enums.DocumentEntityType;
 import com.vimainsurance.vimaadmin.enums.DocumentType;
-import com.vimainsurance.vimaadmin.enums.EmployerShareType;
 import com.vimainsurance.vimaadmin.enums.PaymentFrequency;
 import com.vimainsurance.vimaadmin.enums.PolicyStatus;
 import com.vimainsurance.vimaadmin.enums.ProductType;
@@ -68,7 +65,6 @@ import com.vimainsurance.vimaadmin.repository.IDealsRepository;
 import com.vimainsurance.vimaadmin.repository.IDocumentRepository;
 import com.vimainsurance.vimaadmin.repository.IEndorsementRepository;
 import com.vimainsurance.vimaadmin.repository.IInsuranceProviderRepository;
-import com.vimainsurance.vimaadmin.repository.ICostSharingRuleRepository;
 import com.vimainsurance.vimaadmin.repository.IMotorPolicyDetailsRepository;
 import com.vimainsurance.vimaadmin.repository.INomineeRepository;
 import com.vimainsurance.vimaadmin.repository.IPolicyRepository;
@@ -131,9 +127,6 @@ public class PolicyServiceImpl implements IPolicyService {
     private IProductCatalogRepository productCatalogRepository;
 
     @Autowired
-    private ICostSharingRuleRepository costSharingRuleRepository;
-
-    @Autowired
     private IEndorsementRepository endorsementRepository;
 
     @Autowired
@@ -169,8 +162,7 @@ public class PolicyServiceImpl implements IPolicyService {
             if (policyRepository.existsByPolicyNumber(requestDto.getPolicyNumber())) {
                 return responseObj.render(responseObj.formErrorResponse(DUPLICATE_POLICY_NUMBER_MESSAGE));
             }
-            final String currentUsername = jwtUserExtractor.extractCurrentUsername();
-            Optional<AdminUser> adminUser = adminUserRepository.findByUsername(currentUsername);
+            Optional<AdminUser> adminUser = jwtUserExtractor.resolveCurrentAdminUser();
             if(adminUser.isEmpty()){
                 return responseObj.render(responseObj.formErrorResponse("Agent not found"));
             }
@@ -324,7 +316,12 @@ public class PolicyServiceImpl implements IPolicyService {
             if (policyType == ProductType.PARENT_GMC) {
                 createProductCatalogForParentGmc(savedPolicy);
             }
-            seedMissingDefaultCostSharingRules(savedPolicy.getOrganizationId());
+            // NOTE: Default cost-sharing rules are no longer auto-seeded here.
+            // The seed previously created 8 rows per policy keyed by LocalDate.now(),
+            // which could accumulate duplicates and confused HR ("which row do I edit?").
+            // CostSharingRuleServiceImpl.getEffectiveRule + applyCostSharing default to
+            // 100% employer / 0% employee when no rule exists, so behavior is preserved.
+            // HR explicitly adds rules from the Cost-Sharing Config page when they want a split.
 
             return responseObj.render(responseObj.formSuccessResponse(Constants.SUCCESS, Constants.SAVE_SUCCESS));
         } catch (BadRequestException e) {
@@ -1437,8 +1434,7 @@ public class PolicyServiceImpl implements IPolicyService {
             // Agent is required only when uploading documents (for uploadedBy). Without files, Keycloak-only users (e.g. e2e-vima-admin) can create policies.
             AdminUser agent = null;
             if (requestDto.getFiles() != null && requestDto.getFiles().length > 0) {
-                final String currentUsername = jwtUserExtractor.extractCurrentUsername();
-                Optional<AdminUser> adminUser = adminUserRepository.findByUsername(currentUsername);
+                Optional<AdminUser> adminUser = jwtUserExtractor.resolveCurrentAdminUser();
                 if (adminUser.isEmpty()) {
                     return responseObj.render(responseObj.formErrorResponse("Agent not found"));
                 }
@@ -1572,7 +1568,9 @@ public class PolicyServiceImpl implements IPolicyService {
             if (productType == ProductType.PARENT_GMC) {
                 createProductCatalogForParentGmc(savedPolicy);
             }
-            seedMissingDefaultCostSharingRules(savedPolicy.getOrganizationId());
+            // NOTE: Default cost-sharing rules are no longer auto-seeded here.
+            // See createPolicy() for the rationale — the lookup defaults to 100% employer
+            // when no rule exists, so HR-managed rules are now the sole source of truth.
 
             // Optional policy wording PDF + claim checklist PDF uploaded as multipart parts
             // alongside the policy. Each is independent — failure to upload one shouldn't
@@ -1715,61 +1713,6 @@ public class PolicyServiceImpl implements IPolicyService {
         } catch (com.fasterxml.jackson.core.JsonProcessingException e) {
             return null;
         }
-    }
-
-    private void seedMissingDefaultCostSharingRules(UUID organizationId) {
-        if (organizationId == null) {
-            return;
-        }
-        LocalDate effectiveFrom = LocalDate.now();
-        List<CostSharingRule> defaults = List.of(
-                defaultRule(organizationId, "GMC", CoverageCategory.SELF, BigDecimal.valueOf(100), effectiveFrom),
-                defaultRule(organizationId, "GMC", CoverageCategory.SPOUSE, BigDecimal.valueOf(100), effectiveFrom),
-                defaultRule(organizationId, "GMC", CoverageCategory.CHILD, BigDecimal.valueOf(100), effectiveFrom),
-                defaultRule(organizationId, "GMC", CoverageCategory.PARENT, BigDecimal.valueOf(100), effectiveFrom),
-                defaultRule(organizationId, "GPA", CoverageCategory.ALL_DEPENDENTS, BigDecimal.valueOf(100), effectiveFrom),
-                defaultRule(organizationId, "GTL", CoverageCategory.ALL_DEPENDENTS, BigDecimal.valueOf(100), effectiveFrom),
-                defaultRule(organizationId, "TOP_UP", CoverageCategory.SELF, BigDecimal.ZERO, effectiveFrom),
-                defaultRule(organizationId, "SUPER_TOP_UP", CoverageCategory.SELF, BigDecimal.ZERO, effectiveFrom));
-
-        for (CostSharingRule rule : defaults) {
-            boolean exists = costSharingRuleRepository.existsByCompanyIdAndPlanTypeAndCoverageCategoryAndEffectiveFrom(
-                    rule.getCompanyId(),
-                    rule.getPlanType(),
-                    rule.getCoverageCategory(),
-                    rule.getEffectiveFrom());
-            if (exists) {
-                continue;
-            }
-            try {
-                costSharingRuleRepository.save(rule);
-            } catch (DataIntegrityViolationException ex) {
-                logger.info("[correlationId:{}] Default cost-sharing rule already exists for org {} plan {} category {} effectiveFrom {}",
-                        MDC.get("correlationId"),
-                        rule.getCompanyId(),
-                        rule.getPlanType(),
-                        rule.getCoverageCategory(),
-                        rule.getEffectiveFrom());
-            }
-        }
-    }
-
-    private CostSharingRule defaultRule(
-            UUID organizationId,
-            String planType,
-            CoverageCategory coverageCategory,
-            BigDecimal employerShareValue,
-            LocalDate effectiveFrom) {
-        return CostSharingRule.builder()
-                .companyId(organizationId)
-                .planType(planType)
-                .coverageCategory(coverageCategory)
-                .employerShareType(EmployerShareType.PERCENTAGE)
-                .employerShareValue(employerShareValue)
-                .effectiveFrom(effectiveFrom)
-                .effectiveTo(null)
-                .isDeleted(false)
-                .build();
     }
 
     private boolean isDuplicatePolicyNumberViolation(Throwable throwable) {

@@ -392,8 +392,7 @@ public class DealsServiceImpl implements IDealsService{
         logger.info("[correlationId:{}] uploadDocument called", MDC.get("correlationId"));
         BaseResponse<String> responseObj = new BaseResponse<>();
         try {
-            final String currentUsername = jwtUserExtractor.extractCurrentUsername();
-            Optional<AdminUser> adminUser = adminUserRepository.findByUsername(currentUsername);
+            Optional<AdminUser> adminUser = jwtUserExtractor.resolveCurrentAdminUser();
             if(adminUser.isEmpty()){
                 return responseObj.render(responseObj.formErrorResponse("Agent not found"));
             }
@@ -583,8 +582,7 @@ public class DealsServiceImpl implements IDealsService{
         BaseResponse<String> responseObj = new BaseResponse<>();
         try {
             // Get current user
-            final String currentUsername = jwtUserExtractor.extractCurrentUsername();
-            Optional<AdminUser> adminUser = adminUserRepository.findByUsername(currentUsername);
+            Optional<AdminUser> adminUser = jwtUserExtractor.resolveCurrentAdminUser();
             if(adminUser.isEmpty()){
                 return responseObj.render(responseObj.formErrorResponse("Agent not found"));
             }

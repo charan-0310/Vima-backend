@@ -598,9 +598,9 @@ public class CustomerServiceImpl implements ICustomerService{
                 return responseObj.render(responseObj.formErrorResponse(Constants.RECORD_NOT_FOUND_MESSAGE));
             }
             
-            // Find AdminUser by username (preferred_username from JWT)
-            AdminUser adminUser = adminUserRepository.findByUsername(currentUsername)
-                .orElseThrow(() -> new RuntimeException("Admin user not found for username: " + currentUsername));
+            // Resolve admin user from JWT with username/email + case-insensitive fallback.
+            AdminUser adminUser = jwtUserExtractor.resolveCurrentAdminUser()
+                .orElseThrow(() -> new RuntimeException("Admin user not found for current JWT user"));
             Customer customer = optionalCustomer.get();
             
             // Check if user has admin privileges (ADMIN or VIMA_ADMIN roles)
@@ -716,8 +716,7 @@ public class CustomerServiceImpl implements ICustomerService{
         logger.info("[correlationId:{}] uploadDocument called", MDC.get("correlationId"));
         BaseResponse<String> responseObj = new BaseResponse<>();
         try {
-            final String currentUsername = jwtUserExtractor.extractCurrentUsername();
-            Optional<AdminUser> adminUser = adminUserRepository.findByUsername(currentUsername);
+            Optional<AdminUser> adminUser = jwtUserExtractor.resolveCurrentAdminUser();
             if(adminUser.isEmpty()){
                 return responseObj.render(responseObj.formErrorResponse("Agent not found"));
             }
@@ -969,8 +968,8 @@ public class CustomerServiceImpl implements ICustomerService{
                 document.setEntityId(deals.getIndividualId().toString());
                 documentRepository.save(document);
             }
-            final String currentUsername = jwtUserExtractor.extractCurrentUsername();
-            AdminUser adminUser = adminUserRepository.findByUsername(currentUsername).orElseThrow(() -> new RuntimeException("Agent not found"));
+            AdminUser adminUser = jwtUserExtractor.resolveCurrentAdminUser()
+                    .orElseThrow(() -> new RuntimeException("Agent not found"));
             ResponseEntity<ResponseDto<List<Document>>> response = documentService.uploadKYCDocuments(requestDto.getDocument(), deals.getIndividualId().toString(), DocumentEntityType.POLICY, DocumentType.POLICY_CERTIFICATE, adminUser.getId(), UserRole.fromValue(adminUser.getRole()), "", DocumentCategory.POLICY_DOCUMENTS);
             if (response.getBody() == null || response.getBody().getErrorCode() != null) {
                 TransactionAspectSupport.currentTransactionStatus().setRollbackOnly();

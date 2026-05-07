@@ -385,9 +385,22 @@ public class PremiumCalculationServiceImpl implements IPremiumCalculationService
                         .employerShare(split.getEmployerShare())
                         .employeeShare(split.getEmployeeShare())
                         .gstAmount(b.gstAmount())
+                        .appliedRuleId(split.getRuleId())
+                        .appliedCategory(split.getAppliedCategory() != null
+                                ? split.getAppliedCategory().getValue() : null)
                         .build());
             } catch (Exception e) {
                 log.warn("Plan premium calculation failed for {}: {}", selPlanType, e.getMessage());
+                // Emit a zero-valued breakdown so the plan is never silently dropped from the
+                // response. The UI relies on every opted-in plan being present — without this,
+                // GTL (and any plan that throws) disappears from the review screen.
+                breakdowns.add(PremiumCalculationResponseDto.PlanBreakdownItemDto.builder()
+                        .planType(selPlanType)
+                        .premium(BigDecimal.ZERO.setScale(2, RoundingMode.HALF_UP))
+                        .employerShare(BigDecimal.ZERO.setScale(2, RoundingMode.HALF_UP))
+                        .employeeShare(BigDecimal.ZERO.setScale(2, RoundingMode.HALF_UP))
+                        .gstAmount(BigDecimal.ZERO.setScale(2, RoundingMode.HALF_UP))
+                        .build());
             }
         }
 

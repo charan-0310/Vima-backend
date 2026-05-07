@@ -905,8 +905,7 @@ public class HRApprovalServiceImpl implements IHRApprovalService {
         }
 
         // Phase 2: create ONE endorsement per policy, aggregate all employees + dependents
-        String username = jwtUserExtractor.extractCurrentUsername();
-        AdminUser uploadedBy = adminUserRepository.findByUsername(username).orElse(null);
+        AdminUser uploadedBy = jwtUserExtractor.resolveCurrentAdminUser().orElse(null);
         EnrollmentWindows window = approved.isEmpty() ? null : approved.get(0).getEnrollmentWindow();
         Endorsement primaryEndorsement = null;
 

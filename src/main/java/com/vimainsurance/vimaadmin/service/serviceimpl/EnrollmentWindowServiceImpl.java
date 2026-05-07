@@ -173,8 +173,7 @@ public class EnrollmentWindowServiceImpl implements IEnrollmentWindowService {
             if (orgOpt.isEmpty()) {
                 return responseObj.render(responseObj.formErrorResponse("Organization not found"));
             }
-            String username = jwtUserExtractor.getCurrentUsername();
-            Optional<AdminUser> createdByOpt = adminUserRepository.findByUsername(username);
+            Optional<AdminUser> createdByOpt = jwtUserExtractor.resolveCurrentAdminUser();
             if (createdByOpt.isEmpty()) {
                 return responseObj.render(responseObj.formErrorResponse("Current user not found"));
             }
