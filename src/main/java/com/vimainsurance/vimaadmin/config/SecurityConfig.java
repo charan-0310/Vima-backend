@@ -61,7 +61,10 @@ import jakarta.servlet.http.HttpServletResponse;
 @EnableWebSecurity
 @EnableMethodSecurity(prePostEnabled = true)
 public class SecurityConfig {
-    
+
+    private static final org.slf4j.Logger securityLogger =
+            org.slf4j.LoggerFactory.getLogger(SecurityConfig.class);
+
     @Autowired
     private AdminUserDetailsService userDetailsService;
 
@@ -89,7 +92,49 @@ public class SecurityConfig {
     /** Context path (e.g. /dev) so permitAll matchers work when request URI includes it. */
     @Value("${server.servlet.context-path:}")
     private String contextPath;
-    
+
+    /**
+     * F-07 fail-fast guard. Throws on startup if a permissive profile (dev/local/test) is active
+     * AND the deployment is running on a production-like environment. Catches the misconfiguration
+     * where SPRING_PROFILES_ACTIVE accidentally includes "dev" on a prod EC2 instance.
+     *
+     * Production-like is identified by either:
+     *   - VIMA_DEPLOY_ENV=prod / stage / uat (set in the EC2 user data / ECS task definition), or
+     *   - the host name containing "vimainsurance.com".
+     *
+     * The bypass can still be intentionally allowed by setting VIMA_DEV_AUTH_BYPASS_ENABLED=true.
+     */
+    @jakarta.annotation.PostConstruct
+    public void enforceProfileSafety() {
+        java.util.Set<String> active = new java.util.HashSet<>(java.util.Arrays.asList(environment.getActiveProfiles()));
+        boolean permissiveProfile = active.contains("dev") || active.contains("local") || active.contains("test");
+        if (!permissiveProfile) {
+            return;
+        }
+        String deployEnv = System.getenv("VIMA_DEPLOY_ENV");
+        boolean isProdLikeDeploy = deployEnv != null
+                && java.util.Arrays.asList("prod", "stage", "uat").contains(deployEnv.toLowerCase());
+        String hostName = "";
+        try {
+            hostName = java.net.InetAddress.getLocalHost().getHostName();
+        } catch (Exception ignored) {
+            // best effort
+        }
+        boolean isProdLikeHost = hostName != null && hostName.toLowerCase().contains("vimainsurance");
+        boolean explicitlyAllowed = "true".equalsIgnoreCase(System.getenv("VIMA_DEV_AUTH_BYPASS_ENABLED"));
+
+        if ((isProdLikeDeploy || isProdLikeHost) && !explicitlyAllowed) {
+            String msg = String.format(
+                    "FATAL: permissive Spring profile %s detected on production-like host (deployEnv=%s, host=%s). "
+                            + "Refusing to start. Set SPRING_PROFILES_ACTIVE to prod/stage/uat or set "
+                            + "VIMA_DEV_AUTH_BYPASS_ENABLED=true to acknowledge.",
+                    active, deployEnv, hostName);
+            securityLogger.error(msg);
+            throw new IllegalStateException(msg);
+        }
+        securityLogger.warn("Permissive profile {} active. This must NEVER happen on a production host.", active);
+    }
+
     /**
      * Filter to set up mock authentication when there is no real JWT (dev/local/test).
      * <p>On {@code local}/{@code dev}, if the client sends {@code Authorization: Bearer ...}, this filter does
@@ -198,7 +243,7 @@ public class SecurityConfig {
 
                             // Legacy endpoints that may need authentication - keeping for backward compatibility
                             // These should eventually be migrated to use JWT tokens
-                            .requestMatchers("/api/v1/login", "/oauth2/**", "/api/v1/zoho/auth/**",
+                            .requestMatchers("/api/v1/login", "/oauth2/**",
                                     "/api/v1/nonce", "/api/v1/auth/challenge", "/api/v1/auth/login").permitAll()
                             // Enrollment token validation - public (no JWT; token in path)
                             .requestMatchers("/api/v1/enrollments/**").permitAll()
@@ -214,16 +259,12 @@ public class SecurityConfig {
                                     "/favicon.ico"
                             ).permitAll()
 
-                            // Enrollment — public (token-based auth, no JWT). Magic-link flow: validateTokenAndGetContext, calculate-premium, etc.
+                            // F-09: Enrollment — public (token-based auth, no JWT). Magic-link flow.
+                            // Single source of truth. Tomcat strips contextPath before matching, so no
+                            // /dev or /prod prefix duplicates are needed. The HMAC token signature is
+                            // validated downstream by EnrollmentSecurityConfig / EnrollmentController.
                             .requestMatchers("/api/v1/enrollment/**").permitAll()
                             .requestMatchers("/api/v1/enrollment-submissions/**").permitAll()
-                            // With context-path (e.g. /dev, /prod), request URI may include it — match explicitly so magic-link step 4 (calculate-premium) works
-                            .requestMatchers("/dev/api/v1/enrollment/**").permitAll()
-                            .requestMatchers("/dev/api/v1/enrollment-submissions/**").permitAll()
-                            .requestMatchers("/prod/api/v1/enrollment/**").permitAll()
-                            .requestMatchers("/prod/api/v1/enrollment-submissions/**").permitAll()
-                            .requestMatchers(contextPath + "/api/v1/enrollment/**").permitAll()
-                            .requestMatchers(contextPath + "/api/v1/enrollment-submissions/**").permitAll()
 
                             // All other /api/** endpoints require authentication via JWT
                             .requestMatchers("/api/**").authenticated()

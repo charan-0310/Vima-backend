@@ -37,7 +37,6 @@ import com.vimainsurance.vimaadmin.dto.ResponseDto;
 import com.vimainsurance.vimaadmin.entity.AdminUser;
 import com.vimainsurance.vimaadmin.repository.IAdminUserRepository;
 import com.vimainsurance.vimaadmin.service.IEmailService;
-import com.vimainsurance.vimaadmin.util.AuthentikUtil;
 import com.vimainsurance.vimaadmin.util.Constants;
 import com.vimainsurance.vimaadmin.util.IdGenerator;
 import com.vimainsurance.vimaadmin.util.KeyCloakUtil;
@@ -57,9 +56,6 @@ class AdminUserServiceImplTest {
 
     @Mock
     private BCryptPasswordEncoder passwordEncoder;
-
-    @Mock
-    private AuthentikUtil authentikUtil;
 
     @Mock
     private KeyCloakUtil keyCloakUtil;

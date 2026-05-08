@@ -43,7 +43,6 @@ import com.vimainsurance.vimaadmin.repository.IAdminUserRepository;
 import com.vimainsurance.vimaadmin.repository.ICustomerRepository;
 import com.vimainsurance.vimaadmin.repository.IDealsRepository;
 import com.vimainsurance.vimaadmin.repository.IDocumentRepository;
-import com.vimainsurance.vimaadmin.service.IZohoCRMService;
 import com.vimainsurance.vimaadmin.util.Constants;
 import com.vimainsurance.vimaadmin.util.IdGenerator;
 import com.vimainsurance.vimaadmin.util.JwtUserExtractor;
@@ -62,9 +61,6 @@ class CustomerServiceImplTest {
 
     @Mock
     private IDealsRepository dealsRepository;
-
-    @Mock
-    private IZohoCRMService zohoCRMService;
 
     @Mock
     private IdGenerator customerIdGenerator;

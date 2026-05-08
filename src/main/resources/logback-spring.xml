@@ -4,6 +4,9 @@
             <logGroupName>VimaBackendLogs</logGroupName>
             <logStreamName>VimaBackendStream</logStreamName>
             <region>ap-south-1</region>
+            <!-- F-02: Credentials removed. CloudWatchAppender now reads from the AWS DefaultCredentialsProvider chain
+                 (EC2 instance role / ECS task role / SSO / env vars). The empty values let the appender skip the
+                 explicit-credential branch and fall back to the SDK default. -->
             <accessKeyId>${VIMA_CLOUDWATCH_ACCESS_KEY:-}</accessKeyId>
             <secretKey>${VIMA_CLOUDWATCH_SECRET_KEY:-}</secretKey>
             <layout class="ch.qos.logback.classic.PatternLayout">

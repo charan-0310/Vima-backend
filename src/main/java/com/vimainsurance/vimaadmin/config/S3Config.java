@@ -4,6 +4,8 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import software.amazon.awssdk.auth.credentials.AwsBasicCredentials;
+import software.amazon.awssdk.auth.credentials.AwsCredentialsProvider;
+import software.amazon.awssdk.auth.credentials.DefaultCredentialsProvider;
 import software.amazon.awssdk.auth.credentials.StaticCredentialsProvider;
 import software.amazon.awssdk.regions.Region;
 import software.amazon.awssdk.services.s3.S3Client;
@@ -45,18 +47,30 @@ public class S3Config {
      */
     @Bean
     public S3Client s3Client() {
-        AwsBasicCredentials awsCredentials = AwsBasicCredentials.create(accessKey, secretKey);
-        
         software.amazon.awssdk.services.s3.S3ClientBuilder s3ClientBuilder = S3Client.builder()
                 .region(Region.of(region))
-                .credentialsProvider(StaticCredentialsProvider.create(awsCredentials));
-        
+                .credentialsProvider(resolveCredentialsProvider());
+
         // If custom endpoint is provided (for LocalStack, MinIO, etc.)
         if (endpoint != null && !endpoint.isEmpty()) {
             s3ClientBuilder.endpointOverride(URI.create(endpoint));
         }
-        
+
         return s3ClientBuilder.build();
+    }
+
+    /**
+     * If an explicit access key is configured (legacy / local LocalStack), use it.
+     * Otherwise fall through to the AWS DefaultCredentialsProvider chain — EC2 instance role,
+     * ECS task role, env vars, ~/.aws/credentials, SSO. This is what production should use
+     * (see F-01 / F-02 in IRDAI_ISO27001_Remediation_Plan.md).
+     */
+    private AwsCredentialsProvider resolveCredentialsProvider() {
+        if (accessKey != null && !accessKey.isBlank()
+                && secretKey != null && !secretKey.isBlank()) {
+            return StaticCredentialsProvider.create(AwsBasicCredentials.create(accessKey, secretKey));
+        }
+        return DefaultCredentialsProvider.create();
     }
 
     /**
