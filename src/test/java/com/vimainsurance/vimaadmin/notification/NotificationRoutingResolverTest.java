@@ -2,7 +2,6 @@ package com.vimainsurance.vimaadmin.notification;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
-import static org.mockito.ArgumentMatchers.anyCollection;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -10,7 +9,6 @@ import static org.mockito.Mockito.when;
 import java.util.List;
 import java.util.UUID;
 
-import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
@@ -35,18 +33,13 @@ class NotificationRoutingResolverTest {
     @InjectMocks
     private NotificationRoutingResolver resolver;
 
-    @BeforeEach
-    void defaultNotificationProps() {
-        when(notificationsProperties.isIncludeUnscopedHrAdmins()).thenReturn(false);
-    }
-
     @Test
     void endorsementUploaded_targetsPlatformRoles() {
         AdminUser vima = new AdminUser();
         vima.setId(UUID.randomUUID());
         vima.setRole("VIMA_ADMIN");
-        when(adminUserRepository.findByRoleInAndIsActiveTrue(anyCollection()))
-                .thenReturn(List.of(vima));
+        vima.setIsActive(true);
+        when(adminUserRepository.findByIsActiveTrue()).thenReturn(List.of(vima));
         List<AdminUser> out = resolver.resolveRecipients(NotificationEventType.ENDORSEMENT_UPLOADED, null);
         assertEquals(1, out.size());
         assertEquals(vima.getId(), out.get(0).getId());
@@ -54,6 +47,7 @@ class NotificationRoutingResolverTest {
 
     @Test
     void enrollmentAllSubmitted_targetsHrForOrg() {
+        when(notificationsProperties.isIncludeUnscopedHrAdmins()).thenReturn(false);
         UUID orgId = UUID.randomUUID();
         Organization org = new Organization();
         org.setOrganizationId(orgId);
@@ -74,6 +68,7 @@ class NotificationRoutingResolverTest {
 
     @Test
     void endorsementCompleted_targetsHrWithRolePrefix() {
+        when(notificationsProperties.isIncludeUnscopedHrAdmins()).thenReturn(false);
         UUID orgId = UUID.randomUUID();
         Organization org = new Organization();
         org.setOrganizationId(orgId);
