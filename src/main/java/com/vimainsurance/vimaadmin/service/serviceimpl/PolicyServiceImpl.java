@@ -1131,6 +1131,14 @@ public class PolicyServiceImpl implements IPolicyService {
         responseDto.setIsDeleted(policy.getIsDeleted());
         responseDto.setEffectiveFrom(policy.getEffectiveFrom());
         responseDto.setEffectiveTo(policy.getEffectiveTo());
+        // NOTE: `coveredIndividuals` is intentionally NOT exposed on this response.
+        // Its semantics are inconsistent across creation paths:
+        //   - createPolicy()              → list of real individual UUIDs
+        //   - uploadPolicyForOrganization → Arrays.asList(organizationId)  (legacy)
+        // Until that data model is normalized, exposing the field would let
+        // clients build matching logic on top of a misleading signal. Clients
+        // that need the per-employee → policy mapping should use the dedicated
+        // employee-policy mapping endpoints instead.
 
         List<Deals> dependents = (policy.getCoveredIndividuals() != null && !policy.getCoveredIndividuals().isEmpty())
             ? dealsRepository.findByIndividualIdIn(policy.getCoveredIndividuals())
