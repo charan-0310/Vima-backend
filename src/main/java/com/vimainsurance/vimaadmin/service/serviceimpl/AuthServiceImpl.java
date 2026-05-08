@@ -4,8 +4,6 @@ import java.nio.charset.StandardCharsets;
 import java.security.InvalidKeyException;
 import java.security.NoSuchAlgorithmException;
 import java.time.LocalDateTime;
-import java.util.HashMap;
-import java.util.Map;
 
 import javax.crypto.Mac;
 import javax.crypto.spec.SecretKeySpec;
@@ -15,8 +13,6 @@ import org.slf4j.LoggerFactory;
 import org.slf4j.MDC;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.http.HttpEntity;
-import org.springframework.http.HttpHeaders;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.authentication.BadCredentialsException;
@@ -25,7 +21,6 @@ import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.stereotype.Service;
-import org.springframework.web.client.RestTemplate;
 
 import com.vimainsurance.vimaadmin.dto.BaseResponse;
 import com.vimainsurance.vimaadmin.dto.ChallengeLoginRequestDto;
@@ -38,6 +33,7 @@ import com.vimainsurance.vimaadmin.dto.RefreshTokenResponseDto;
 import com.vimainsurance.vimaadmin.dto.ResponseDto;
 import com.vimainsurance.vimaadmin.entity.AdminUser;
 import com.vimainsurance.vimaadmin.repository.IAdminUserRepository;
+import com.vimainsurance.vimaadmin.security.LoginAttemptService;
 import com.vimainsurance.vimaadmin.service.IAuthService;
 import com.vimainsurance.vimaadmin.util.Constants;
 import com.vimainsurance.vimaadmin.util.JwtUtil;
@@ -63,10 +59,8 @@ public class AuthServiceImpl implements IAuthService {
     @Autowired
     private RSAKeyPairUtil rsaKeyPairUtil;
 
-    // ✅ FIX: Inject singleton RestTemplate instead of creating new one per request
-    // This prevents memory leaks from per-request RestTemplate creation
     @Autowired
-    private RestTemplate restTemplate;
+    private LoginAttemptService loginAttemptService;
 
     // Database-based nonce storage (no longer using in-memory map)
 
@@ -75,9 +69,15 @@ public class AuthServiceImpl implements IAuthService {
         logger.info("[correlationId:{}] login called", MDC.get("correlationId"));
         BaseResponse<LoginResponseDto> responseObj = new BaseResponse<>();
         try {
-            // reCAPTCHA verification removed — Vima no longer uses reCAPTCHA.
-            // Legacy /login is in the process of being deprecated in favour of Authentik/Keycloak OAuth2.
-            // See IRDAI_ISO27001_Remediation_Plan.md (F-16, F-20).
+            // F-16: per-username lockout replaces the reCAPTCHA layer that previously gated this endpoint.
+            // Combined with the per-IP rate limit in GlobalRateLimitFilter (5 req/min on /auth/**).
+            try {
+                loginAttemptService.assertNotLocked(requestDto.getUsername());
+            } catch (LoginAttemptService.AccountLockedException locked) {
+                logger.warn("[correlationId:{}] Login refused — account locked: {}",
+                        MDC.get("correlationId"), requestDto.getUsername());
+                return responseObj.render(responseObj.formErrorResponse(locked.getMessage()));
+            }
 
             Authentication authentication = authenticationManager.authenticate(
                     new UsernamePasswordAuthenticationToken(
@@ -85,8 +85,8 @@ public class AuthServiceImpl implements IAuthService {
                         requestDto.getPassword()
                     )
             );
-            
-            AdminUser adminUser = adminUserRepository.findByUsername(requestDto.getUsername()).orElseThrow();    
+
+            AdminUser adminUser = adminUserRepository.findByUsername(requestDto.getUsername()).orElseThrow();
             SecurityContextHolder.getContext().setAuthentication(authentication);
             String organizationId = "";
             if (adminUser.getOrganization() != null && adminUser.getOrganization().getOrganizationId() != null) {
@@ -95,14 +95,16 @@ public class AuthServiceImpl implements IAuthService {
             String token = jwtUtil.generateToken(requestDto.getUsername(), authentication.getAuthorities().iterator().next().getAuthority(), adminUser.getEmail(), adminUser.getAgentId(), organizationId );
             String refreshToken = jwtUtil.generateRefreshToken(requestDto.getUsername(), authentication.getAuthorities().iterator().next().getAuthority());
 
+            loginAttemptService.onSuccess(requestDto.getUsername());
             return responseObj.render(responseObj.formSuccessResponse(Constants.SUCCESS, new LoginResponseDto(token, refreshToken)));
         } catch (BadCredentialsException ex) {
+            loginAttemptService.onFailure(requestDto.getUsername());
             logger.error("Bad credentials provided for user: {}", requestDto.getUsername());
             return responseObj.render(responseObj.formErrorResponse("Invalid username or password!!"));
         } catch (Exception ex) {
             logger.error("Error in login: {}", ex.getMessage());
             return responseObj.render(responseObj.formErrorResponse("Internal Server Error!!"));
-        }    
+        }
     }
 
     @Override
@@ -132,16 +134,6 @@ public class AuthServiceImpl implements IAuthService {
         }
     }
 
-    /**
-     * @deprecated reCAPTCHA verification removed (Vima no longer uses reCAPTCHA).
-     * Method retained as a no-op so any remaining caller in /auth/login
-     * compiles and continues to function. Remove together with the legacy
-     * /api/v1/login flow once the OAuth2 cutover (F-20) is complete.
-     */
-    @Deprecated
-    public boolean verifyToken(String token) {
-        return true;
-    }
     
     @Override
     public ResponseEntity<ResponseDto<ChallengeResponseDto>> getChallenge(ChallengeRequestDto requestDto) {
@@ -199,11 +191,21 @@ public class AuthServiceImpl implements IAuthService {
                 hashedPassword == null || hashedPassword.trim().isEmpty()) {
                 return responseObj.render(responseObj.formErrorResponse("Username, client proof, and hashed password are required"));
             }
-            
+
+            // F-16: per-username lockout (replaces removed reCAPTCHA layer).
+            try {
+                loginAttemptService.assertNotLocked(username);
+            } catch (LoginAttemptService.AccountLockedException locked) {
+                logger.warn("[correlationId:{}] challengeLogin refused — account locked: {}",
+                        MDC.get("correlationId"), username);
+                return responseObj.render(responseObj.formErrorResponse(locked.getMessage()));
+            }
+
             // Find user by username
             AdminUser adminUser = adminUserRepository.findByUsername(username).orElse(null);
             if (adminUser == null) {
                 logger.warn("[correlationId:{}] User not found: {}", MDC.get("correlationId"), username);
+                loginAttemptService.onFailure(username);
                 return responseObj.render(responseObj.formErrorResponse("Invalid username"));
             }
             
@@ -231,20 +233,24 @@ public class AuthServiceImpl implements IAuthService {
             // Verify bcrypt(SHA-256(password)) against stored hash
             if (!passwordEncoder.matches(hashedPassword, adminUser.getPasswordHash())) {
                 logger.warn("[correlationId:{}] Invalid password for user: {}", MDC.get("correlationId"), username);
+                loginAttemptService.onFailure(username);
                 return responseObj.render(responseObj.formErrorResponse("Invalid credentials"));
             }
-            
+
             // Recompute expected proof: HMAC_SHA256(hashedPassword, nonce)
             String expectedProof = computeHmacSha256(hashedPassword, nonce);
             logger.info("[correlationId:{}] Expected proof: {}", MDC.get("correlationId"), expectedProof);
             logger.info("[correlationId:{}] Client proof: {}", MDC.get("correlationId"), clientProof);
-            
+
             // Compare client proof with expected proof
             if (!clientProof.equals(expectedProof)) {
                 logger.warn("[correlationId:{}] Invalid client proof for user: {}", MDC.get("correlationId"), username);
                 logger.warn("[correlationId:{}] Expected: {}, Received: {}", MDC.get("correlationId"), expectedProof, clientProof);
+                loginAttemptService.onFailure(username);
                 return responseObj.render(responseObj.formErrorResponse("Invalid credentials"));
             }
+
+            loginAttemptService.onSuccess(username);
 
             String organizationId = "";
             if (adminUser.getOrganization() != null && adminUser.getOrganization().getOrganizationId() != null) {

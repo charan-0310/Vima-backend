@@ -4,7 +4,6 @@ import java.io.IOException;
 import java.time.Duration;
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicLong;
 
 import org.slf4j.Logger;
@@ -17,12 +16,15 @@ import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Component;
 import org.springframework.web.filter.OncePerRequestFilter;
 
+import com.github.benmanes.caffeine.cache.Cache;
+import com.github.benmanes.caffeine.cache.Caffeine;
 import com.vimainsurance.vimaadmin.util.IpAddressExtractor;
 
 import io.github.bucket4j.Bandwidth;
 import io.github.bucket4j.Bucket;
 import io.github.bucket4j.ConsumptionProbe;
 import io.github.bucket4j.Refill;
+import jakarta.annotation.PostConstruct;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
@@ -66,9 +68,31 @@ public class GlobalRateLimitFilter extends OncePerRequestFilter {
     @Value("${ratelimit.enrollment.requests-per-min:20}")
     private int enrollmentRpm;
 
-    /** Map of "scope|ip" -> Bucket. Bounded by ratelimit.cache.max-entries to defend against IP spoofing. */
-    private final ConcurrentHashMap<String, Bucket> buckets = new ConcurrentHashMap<>();
+    @Value("${ratelimit.cache.max-entries:50000}")
+    private long maxCacheEntries;
+
+    @Value("${ratelimit.cache.expire-after-access-minutes:10}")
+    private long expireAfterAccessMinutes;
+
+    /**
+     * Bounded "scope|ip" -> Bucket cache. Caffeine enforces both an upper size cap and an
+     * idle-eviction timer. This blocks the previous unbounded-growth concern when an attacker
+     * floods spoofed source IPs.
+     */
+    private Cache<String, Bucket> buckets;
+
     private final AtomicLong throttleCount = new AtomicLong();
+
+    @PostConstruct
+    void init() {
+        this.buckets = Caffeine.newBuilder()
+                .maximumSize(maxCacheEntries)
+                .expireAfterAccess(Duration.ofMinutes(expireAfterAccessMinutes))
+                .build();
+        logger.info("GlobalRateLimitFilter initialised: defaultRpm={}, authRpm={}, enrollmentRpm={}, "
+                        + "cache maxEntries={}, expireAfterAccess={}min",
+                defaultRpm, authRpm, enrollmentRpm, maxCacheEntries, expireAfterAccessMinutes);
+    }
 
     private enum Scope {
         AUTH,
@@ -108,7 +132,7 @@ public class GlobalRateLimitFilter extends OncePerRequestFilter {
 
         RuleMatch rule = classify(request.getRequestURI());
         String key = rule.scope().name() + "|" + ip;
-        Bucket bucket = buckets.computeIfAbsent(key, k -> newBucket(rule.rpm()));
+        Bucket bucket = buckets.get(key, k -> newBucket(rule.rpm()));
 
         ConsumptionProbe probe = bucket.tryConsumeAndReturnRemaining(1);
         if (probe.isConsumed()) {
@@ -164,6 +188,6 @@ public class GlobalRateLimitFilter extends OncePerRequestFilter {
 
     /** Test/diagnostic accessor. */
     public Map<String, Long> stats() {
-        return Map.of("buckets", (long) buckets.size(), "throttled", throttleCount.get());
+        return Map.of("buckets", buckets.estimatedSize(), "throttled", throttleCount.get());
     }
 }
