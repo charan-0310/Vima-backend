@@ -132,7 +132,7 @@ public class ClaimsNotificationEmitterService {
                 return;
             }
         }
-        Map<String, Object> vars = baseVars(claim, title, deepLink, from, orgName);
+        Map<String, Object> vars = baseVars(claim, title, deepLink, from, orgName, actorRole);
         emitToClaimsTeam(claim, eventType, title, body, deepLink, template, vars,
                 eventType.name() + ":" + claim.getId());
     }
@@ -149,7 +149,7 @@ public class ClaimsNotificationEmitterService {
         String claimNumber = claim.getClaimNumber() != null ? claim.getClaimNumber() : String.valueOf(claim.getId());
         String title = "Claim query raised — " + orgName;
         String body = "A query was raised on claim " + claimNumber + ".";
-        Map<String, Object> vars = baseVars(claim, title, deepLink, from, orgName);
+        Map<String, Object> vars = baseVars(claim, title, deepLink, from, orgName, actorRole);
         vars.put("queryText", query.getQueryText() != null ? query.getQueryText() : "");
         emitToClaimsTeam(
                 claim,
@@ -174,7 +174,7 @@ public class ClaimsNotificationEmitterService {
         String claimNumber = claim.getClaimNumber() != null ? claim.getClaimNumber() : String.valueOf(claim.getId());
         String title = "Claim query responded — " + orgName;
         String body = "A query response was submitted for claim " + claimNumber + ".";
-        Map<String, Object> vars = baseVars(claim, title, deepLink, from, orgName);
+        Map<String, Object> vars = baseVars(claim, title, deepLink, from, orgName, actorRole);
         vars.put("responseText", query.getResponseText() != null ? query.getResponseText() : "");
         emitToClaimsTeam(
                 claim,
@@ -199,7 +199,7 @@ public class ClaimsNotificationEmitterService {
         String claimNumber = claim.getClaimNumber() != null ? claim.getClaimNumber() : String.valueOf(claim.getId());
         String title = "Employee query response submitted — " + orgName;
         String body = "Employee submitted a query response for claim " + claimNumber + ".";
-        Map<String, Object> vars = baseVars(claim, title, deepLink, from, orgName);
+        Map<String, Object> vars = baseVars(claim, title, deepLink, from, orgName, actorRole);
         vars.put("responseText", query.getEmployeeRemarks() != null ? query.getEmployeeRemarks() : "");
         emitToClaimsTeam(
                 claim,
@@ -212,7 +212,13 @@ public class ClaimsNotificationEmitterService {
                 "EMPLOYEE_CLAIM_QUERY_RESPONSE_SUBMITTED:" + claim.getId() + ":" + query.getId());
     }
 
-    private Map<String, Object> baseVars(Claim claim, String title, String deepLink, String from, String organization) {
+    private Map<String, Object> baseVars(
+            Claim claim,
+            String title,
+            String deepLink,
+            String from,
+            String organization,
+            String actorRole) {
         Map<String, Object> vars = new HashMap<>();
         vars.put("title", title);
         vars.put("deepLinkUrl", deepLink);
@@ -224,6 +230,9 @@ public class ClaimsNotificationEmitterService {
         vars.put("from", from);
         vars.put("actedByName", from);
         vars.put("uploadedByName", from);
+        vars.put("actorRole", actorRole);
+        vars.put("creatorName", from);
+        vars.put("creatorRole", actorRole);
         vars.put("claimAmount", claim.getClaimAmount() != null ? claim.getClaimAmount() : BigDecimal.ZERO);
         return vars;
     }
@@ -251,6 +260,9 @@ public class ClaimsNotificationEmitterService {
             AdminUser admin = recipients.get(i);
             String dedup = dedupPrefix + ":" + admin.getId();
             Boolean slackDeliveryEnabled = i == 0 ? null : Boolean.FALSE;
+            String recipientDeepLink = deepLinkForRecipient(claim, admin);
+            Map<String, Object> recipientVars = new HashMap<>(vars);
+            recipientVars.put("deepLinkUrl", recipientDeepLink);
             CreateNotificationCommand cmd = new CreateNotificationCommand(
                     admin.getId(),
                     organizationId,
@@ -259,11 +271,11 @@ public class ClaimsNotificationEmitterService {
                     NotificationSeverity.INFO,
                     title,
                     body,
-                    deepLink,
+                    recipientDeepLink,
                     dedup,
                     title,
                     emailTemplate,
-                    vars,
+                    recipientVars,
                     slackDeliveryEnabled);
             notificationService.createIfAbsent(cmd).ifPresentOrElse(
                     id -> {
@@ -274,6 +286,42 @@ public class ClaimsNotificationEmitterService {
                     },
                     () -> log.debug("claims_notification_dedup event={} dedupKey={}", eventType, dedup));
         }
+    }
+
+    private String deepLinkForRecipient(Claim claim, AdminUser recipient) {
+        if (claim == null || claim.getId() == null) {
+            return portalBase() + "/hr/claims";
+        }
+        String base = portalBase();
+        if (isPlatformAudienceRole(recipient != null ? recipient.getRole() : null)) {
+            return base + "/admin/claims/" + claim.getId();
+        }
+        return base + "/hr/claims/" + claim.getId();
+    }
+
+    private boolean isPlatformAudienceRole(String role) {
+        String normalized = normalizeRole(role);
+        return "VIMA_ADMIN".equals(normalized)
+                || "ADMIN".equals(normalized)
+                || "SUPER_ADMIN".equals(normalized);
+    }
+
+    private String normalizeRole(String role) {
+        if (role == null) {
+            return null;
+        }
+        String normalized = role.trim().toUpperCase();
+        if (normalized.startsWith("ROLE_")) {
+            normalized = normalized.substring("ROLE_".length());
+        }
+        normalized = normalized.replace('-', '_').replace(' ', '_');
+        while (normalized.contains("__")) {
+            normalized = normalized.replace("__", "_");
+        }
+        if (normalized.endsWith("_GROUP")) {
+            normalized = normalized.substring(0, normalized.length() - "_GROUP".length());
+        }
+        return normalized;
     }
 
     private String portalBase() {
