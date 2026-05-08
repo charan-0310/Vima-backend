@@ -18,11 +18,13 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.core.env.Environment;
 
+import com.vimainsurance.vimaadmin.dto.EmailResponse;
 import com.vimainsurance.vimaadmin.entity.AdminUser;
 import com.vimainsurance.vimaadmin.notification.config.NotificationsProperties;
 import com.vimainsurance.vimaadmin.notification.entity.AdminNotification;
 import com.vimainsurance.vimaadmin.notification.entity.NotificationDelivery;
 import com.vimainsurance.vimaadmin.notification.enums.NotificationChannelKind;
+import com.vimainsurance.vimaadmin.notification.enums.NotificationCategory;
 import com.vimainsurance.vimaadmin.notification.enums.NotificationDeliveryStatus;
 import com.vimainsurance.vimaadmin.notification.enums.NotificationEventType;
 import com.vimainsurance.vimaadmin.notification.repository.IAdminNotificationRepository;
@@ -119,6 +121,45 @@ class NotificationDispatcherTest {
         assertEquals(NotificationDeliveryStatus.SENT, notification.getDeliveries().get(0).getStatus());
     }
 
+    @Test
+    void emailTemporarilyDisabled_forVimaAdminOnConfiguredCategories() {
+        AdminNotification notification = emailNotification(NotificationEventType.ENDORSEMENT_COMPLETED, "VIMA_ADMIN");
+        when(notificationsFeatureGate.isNotificationsEnabled()).thenReturn(true);
+        when(notificationRepository.findByIdForDispatch(notification.getId())).thenReturn(Optional.of(notification));
+
+        dispatcher.dispatchDeliveriesFor(notification.getId());
+
+        verify(emailService, never()).sendTemplateEmail(any());
+        assertEquals(NotificationDeliveryStatus.SKIPPED, notification.getDeliveries().get(0).getStatus());
+    }
+
+    @Test
+    void emailStillEnabled_forHrAdminOnConfiguredEvents() {
+        AdminNotification notification = emailNotification(NotificationEventType.ENDORSEMENT_COMPLETED, "HR_ADMIN");
+        when(notificationsFeatureGate.isNotificationsEnabled()).thenReturn(true);
+        when(notificationRepository.findByIdForDispatch(notification.getId())).thenReturn(Optional.of(notification));
+        when(emailService.sendTemplateEmail(any())).thenReturn(EmailResponse.builder().success(true).build());
+
+        dispatcher.dispatchDeliveriesFor(notification.getId());
+
+        verify(emailService).sendTemplateEmail(any());
+        assertEquals(NotificationDeliveryStatus.SENT, notification.getDeliveries().get(0).getStatus());
+    }
+
+    @Test
+    void emailStillEnabled_forVimaAdminOnSystemCategory() {
+        AdminNotification notification = emailNotification(NotificationEventType.ENDORSEMENT_COMPLETED, "VIMA_ADMIN");
+        notification.setCategory(NotificationCategory.SYSTEM);
+        when(notificationsFeatureGate.isNotificationsEnabled()).thenReturn(true);
+        when(notificationRepository.findByIdForDispatch(notification.getId())).thenReturn(Optional.of(notification));
+        when(emailService.sendTemplateEmail(any())).thenReturn(EmailResponse.builder().success(true).build());
+
+        dispatcher.dispatchDeliveriesFor(notification.getId());
+
+        verify(emailService).sendTemplateEmail(any());
+        assertEquals(NotificationDeliveryStatus.SENT, notification.getDeliveries().get(0).getStatus());
+    }
+
     private static AdminNotification slackNotification(NotificationEventType type) {
         AdminUser recipient = new AdminUser();
         recipient.setId(UUID.randomUUID());
@@ -135,6 +176,32 @@ class NotificationDispatcherTest {
         NotificationDelivery delivery = new NotificationDelivery();
         delivery.setNotification(n);
         delivery.setChannel(NotificationChannelKind.SLACK);
+        delivery.setStatus(NotificationDeliveryStatus.PENDING);
+        List<NotificationDelivery> deliveries = new ArrayList<>();
+        deliveries.add(delivery);
+        n.setDeliveries(deliveries);
+        return n;
+    }
+
+    private static AdminNotification emailNotification(NotificationEventType type, String role) {
+        AdminUser recipient = new AdminUser();
+        recipient.setId(UUID.randomUUID());
+        recipient.setEmail("notify@example.com");
+        recipient.setRole(role);
+
+        AdminNotification n = new AdminNotification();
+        n.setId(UUID.randomUUID());
+        n.setRecipient(recipient);
+        n.setEventType(type);
+        n.setCategory(NotificationCategory.ENDORSEMENT);
+        n.setTitle("Sample Notification");
+        n.setBody("Sample body");
+        n.setDeepLinkUrl("https://portal.example.com/notifications/1");
+        n.setEmailTemplate("email/notification-endorsement-completed");
+
+        NotificationDelivery delivery = new NotificationDelivery();
+        delivery.setNotification(n);
+        delivery.setChannel(NotificationChannelKind.EMAIL);
         delivery.setStatus(NotificationDeliveryStatus.PENDING);
         List<NotificationDelivery> deliveries = new ArrayList<>();
         deliveries.add(delivery);
