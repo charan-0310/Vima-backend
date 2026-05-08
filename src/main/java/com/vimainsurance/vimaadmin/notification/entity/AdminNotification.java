@@ -99,6 +99,24 @@ public class AdminNotification {
     @Column(name = "is_starred", nullable = false)
     private Boolean isStarred = false;
 
+    @Column(name = "receiver_email", length = 255)
+    private String receiverEmail;
+
+    @Column(name = "receiver_name", length = 255)
+    private String receiverName;
+
+    @Column(name = "receiver_role", length = 80)
+    private String receiverRole;
+
+    @Column(name = "creator_email", length = 255)
+    private String creatorEmail;
+
+    @Column(name = "creator_name", length = 255)
+    private String creatorName;
+
+    @Column(name = "creator_role", length = 80)
+    private String creatorRole;
+
     @OneToMany(mappedBy = "notification", cascade = CascadeType.ALL, orphanRemoval = true)
     private List<NotificationDelivery> deliveries = new ArrayList<>();
 
