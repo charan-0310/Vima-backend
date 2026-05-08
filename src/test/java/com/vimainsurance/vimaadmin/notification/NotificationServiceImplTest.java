@@ -85,6 +85,7 @@ class NotificationServiceImplTest {
                 "dedup-1",
                 "subj",
                 "email/notification-endorsement-completed",
-                Map.of("organizationName", "Org"));
+                Map.of("organizationName", "Org"),
+                null);
     }
 }

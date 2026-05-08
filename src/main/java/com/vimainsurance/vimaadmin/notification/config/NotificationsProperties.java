@@ -13,6 +13,10 @@ public class NotificationsProperties {
      */
     private String slackWebhookUrl = "";
     /**
+     * Dedicated Slack Incoming Webhook for claim events.
+     */
+    private String claimsSlackWebhookUrl = "";
+    /**
      * Optional Slack Bot token used for chat.postMessage.
      */
     private String slackBotToken = "";
@@ -28,4 +32,11 @@ public class NotificationsProperties {
     private long retryMaxDelayMs = 3_600_000L;
 
     private int dispatchBatchSize = 50;
+
+    /**
+     * When true, HR routing for org-scoped events also includes active {@code HR_ADMIN} users with no
+     * {@code organization_id} (legacy/local accounts). Default false for multi-tenant safety; enable on localhost
+     * via {@code application-local.properties} when HR rows are not org-linked.
+     */
+    private boolean includeUnscopedHrAdmins = false;
 }
