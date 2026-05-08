@@ -6,6 +6,7 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -135,7 +136,9 @@ class NotificationDispatcherTest {
         delivery.setNotification(n);
         delivery.setChannel(NotificationChannelKind.SLACK);
         delivery.setStatus(NotificationDeliveryStatus.PENDING);
-        n.setDeliveries(List.of(delivery));
+        List<NotificationDelivery> deliveries = new ArrayList<>();
+        deliveries.add(delivery);
+        n.setDeliveries(deliveries);
         return n;
     }
 

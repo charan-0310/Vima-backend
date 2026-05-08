@@ -52,6 +52,7 @@ import com.vimainsurance.vimaadmin.entity.EnrollmentWindows;
 import com.vimainsurance.vimaadmin.entity.Organization;
 import com.vimainsurance.vimaadmin.enums.EnrollementStatus;
 import com.vimainsurance.vimaadmin.mapper.EnrollmentInvitationMapper;
+import com.vimainsurance.vimaadmin.notification.FlagshipNotificationService;
 import com.vimainsurance.vimaadmin.repository.IDealsRepository;
 import com.vimainsurance.vimaadmin.repository.IEnrollmentInvitationRepository;
 import com.vimainsurance.vimaadmin.repository.IEnrollmentSubmissionRepository;
@@ -148,6 +149,9 @@ public class EnrollmentInvitationServiceImpl implements IEnrollmentInvitation {
     @Autowired
     @Qualifier(AsyncConfig.ENROLLMENT_BULK_EXECUTOR)
     private Executor enrollmentBulkExecutor;
+
+    @Autowired(required = false)
+    private FlagshipNotificationService flagshipNotificationService;
 
     @Value("${app.base-url:http://localhost:8080}")
     private String baseUrl;
@@ -456,6 +460,17 @@ public class EnrollmentInvitationServiceImpl implements IEnrollmentInvitation {
                     skipped++;
                     continue;
                 }
+                if (finalReminderDue && flagshipNotificationService != null && window != null && window.getOrganization() != null) {
+                    String display = window.getOrganization().getOrganizationDisplayName() != null
+                            && !window.getOrganization().getOrganizationDisplayName().isBlank()
+                                    ? window.getOrganization().getOrganizationDisplayName()
+                                    : window.getOrganization().getOrganizationName();
+                    flagshipNotificationService.scheduleEnrollmentWindowClosingSoon(
+                            window.getOrganization().getOrganizationId(),
+                            window.getId(),
+                            display,
+                            window.getEndDate());
+                }
                 if (!freshSubmissionAllowsScheduledReminder(inv)) {
                     logger.debug("[correlationId:{}] Skipping scheduled reminder: submission not SENT/DRAFT for invitation {}",
                         MDC.get("correlationId"), inv.getId());
@@ -700,6 +715,16 @@ public class EnrollmentInvitationServiceImpl implements IEnrollmentInvitation {
             }
             window.setStatus(EnrollementStatus.ACTIVE);
             enrollmentWindowsRepository.save(window);
+            if (flagshipNotificationService != null && window.getOrganization() != null) {
+                String display = window.getOrganization().getOrganizationDisplayName() != null
+                        && !window.getOrganization().getOrganizationDisplayName().isBlank()
+                                ? window.getOrganization().getOrganizationDisplayName()
+                                : window.getOrganization().getOrganizationName();
+                flagshipNotificationService.scheduleEnrollmentWindowOpened(
+                        window.getOrganization().getOrganizationId(),
+                        window.getId(),
+                        display);
+            }
 
             List<Deals> employees = dealsRepository.findByEnrollmentWindow_Id(windowId);
             int totalEmployees = employees.size();

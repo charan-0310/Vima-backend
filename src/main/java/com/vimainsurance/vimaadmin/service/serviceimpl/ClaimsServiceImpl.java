@@ -33,6 +33,7 @@ import com.vimainsurance.vimaadmin.repository.IDocumentRepository;
 import com.vimainsurance.vimaadmin.repository.IOrganizationRepository;
 import com.vimainsurance.vimaadmin.repository.IDealsRepository;
 import com.vimainsurance.vimaadmin.repository.IAdminUserRepository;
+import com.vimainsurance.vimaadmin.notification.ClaimsNotificationEmitterService;
 import com.vimainsurance.vimaadmin.service.IClaimsService;
 import com.vimainsurance.vimaadmin.service.claim.ClaimAuditService;
 import com.vimainsurance.vimaadmin.service.claim.ClaimNumberGenerator;
@@ -40,7 +41,6 @@ import com.vimainsurance.vimaadmin.service.claim.ClaimStatusTransitionValidator;
 import com.vimainsurance.vimaadmin.service.claim.ClaimValidationService;
 import com.vimainsurance.vimaadmin.service.claim.notification.ClaimsNotificationService;
 import com.vimainsurance.vimaadmin.specification.ClaimSpecification;
-import com.vimainsurance.vimaadmin.util.SlackNotificationUtil;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -62,7 +62,7 @@ public class ClaimsServiceImpl implements IClaimsService {
     private final ClaimValidationService validationService;
     private final InsurerAdapterFactory adapterFactory;
     private final ClaimsNotificationService notificationService;
-    private final SlackNotificationUtil slackNotificationUtil;
+    private final ClaimsNotificationEmitterService claimsNotificationEmitterService;
 
     @Override
     @Transactional(rollbackFor = Exception.class)
@@ -94,10 +94,11 @@ public class ClaimsServiceImpl implements IClaimsService {
         auditService.logAction(claim.getId(), "CLAIM_SUBMITTED", ClaimStatus.DRAFT.getValue(), ClaimStatus.PENDING_REVIEW.getValue(),
                 employeeId, "EMPLOYEE", "Claim submitted for review", null, null, null);
         notificationService.notifyStatusChange(claim, ClaimStatus.DRAFT, ClaimStatus.PENDING_REVIEW);
-        slackNotificationUtil.sendSlackMessage(
-                "New employee claim",
-                slackNotificationUtil.buildEmployeeClaimSubmittedMessage(claim, org, employee),
-                false);
+        String actorName = employee != null ? employee.getFullName() : "Employee";
+        String actorOrg = employee != null && employee.getOrganization() != null
+                ? employee.getOrganization().getOrganizationName()
+                : null;
+        claimsNotificationEmitterService.scheduleClaimSubmitted(claim, actorName, actorOrg, "EMPLOYEE");
         return toDetailsWithDocuments(claim);
     }
 
@@ -200,6 +201,14 @@ public class ClaimsServiceImpl implements IClaimsService {
                 actorId, actorRole, auditDetails, null, null, null);
         log.info("[claimNumber={}] status {} -> {}", claim.getClaimNumber(), oldStatus, request.getNewStatus());
         notificationService.notifyStatusChange(claim, oldStatus, request.getNewStatus());
+        String actorName = resolveActorName(actorId);
+        String actorOrganization = resolveActorOrganizationName(actorId);
+        switch (request.getNewStatus()) {
+            case APPROVED -> claimsNotificationEmitterService.scheduleClaimApproved(claim, actorName, actorOrganization, actorRole);
+            case REJECTED, REJECTED_BY_ADMIN -> claimsNotificationEmitterService.scheduleClaimRejected(claim, actorName, actorOrganization, actorRole);
+            default -> {
+            }
+        }
         // Reload with associations so mapper does not trigger lazy-load (avoids 500 in some environments)
         Claim claimWithAssociations = claimRepository.findByIdWithOrganizationAndEmployeeAndSettlement(claimId)
                 .orElse(claim);
@@ -285,5 +294,29 @@ public class ClaimsServiceImpl implements IClaimsService {
         List<Document> documents = documentRepository.findByEntityTypeAndEntityId(
                 DocumentEntityType.CLAIM, claim.getId().toString());
         return ClaimMapper.toDetailsResponse(claim, documents);
+    }
+
+    private String resolveActorName(UUID actorId) {
+        if (actorId == null) {
+            return "System";
+        }
+        return adminUserRepository.findById(actorId).map(u -> {
+            if (u.getFullName() != null && !u.getFullName().isBlank()) {
+                return u.getFullName();
+            }
+            if (u.getUsername() != null && !u.getUsername().isBlank()) {
+                return u.getUsername();
+            }
+            return "System";
+        }).orElse("System");
+    }
+
+    private String resolveActorOrganizationName(UUID actorId) {
+        if (actorId == null) {
+            return null;
+        }
+        return adminUserRepository.findById(actorId)
+                .map(u -> u.getOrganization() != null ? u.getOrganization().getOrganizationName() : null)
+                .orElse(null);
     }
 }

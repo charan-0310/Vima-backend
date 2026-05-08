@@ -1,5 +1,6 @@
 package com.vimainsurance.vimaadmin.notification.repository;
 
+import java.util.Collection;
 import java.time.LocalDateTime;
 import java.util.Optional;
 import java.util.UUID;
@@ -46,6 +47,48 @@ public interface IAdminNotificationRepository extends JpaRepository<AdminNotific
             @Param("category") NotificationCategory category,
             @Param("companyId") UUID companyId,
             Pageable pageable);
+
+    @Query("""
+            SELECT n FROM AdminNotification n
+            WHERE n.recipient.role IN :roles
+              AND (:unreadOnly = false OR n.readAt IS NULL)
+              AND (:category IS NULL OR n.category = :category)
+              AND (:companyId IS NULL OR n.company IS NULL OR n.company.organizationId = :companyId)
+            """)
+    Page<AdminNotification> findInboxByRecipientRoles(
+            @Param("roles") Collection<String> roles,
+            @Param("unreadOnly") boolean unreadOnly,
+            @Param("category") NotificationCategory category,
+            @Param("companyId") UUID companyId,
+            Pageable pageable);
+
+    @Query("""
+            SELECT n FROM AdminNotification n
+            WHERE n.recipient.id IN :recipientIds
+              AND (:unreadOnly = false OR n.readAt IS NULL)
+              AND (:category IS NULL OR n.category = :category)
+              AND (:companyId IS NULL OR n.company IS NULL OR n.company.organizationId = :companyId)
+            """)
+    Page<AdminNotification> findInboxByRecipientIds(
+            @Param("recipientIds") Collection<UUID> recipientIds,
+            @Param("unreadOnly") boolean unreadOnly,
+            @Param("category") NotificationCategory category,
+            @Param("companyId") UUID companyId,
+            Pageable pageable);
+
+    @Query("""
+            SELECT COUNT(n) FROM AdminNotification n
+            WHERE n.recipient.role IN :roles
+              AND n.readAt IS NULL
+            """)
+    long countUnreadByRecipientRoles(@Param("roles") Collection<String> roles);
+
+    @Query("""
+            SELECT COUNT(n) FROM AdminNotification n
+            WHERE n.recipient.id IN :recipientIds
+              AND n.readAt IS NULL
+            """)
+    long countUnreadByRecipientIds(@Param("recipientIds") Collection<UUID> recipientIds);
 
     @Modifying
     @Query("UPDATE AdminNotification n SET n.readAt = :readAt, n.updatedAt = :readAt WHERE n.id = :id AND n.recipient.id = :recipientId AND n.readAt IS NULL")

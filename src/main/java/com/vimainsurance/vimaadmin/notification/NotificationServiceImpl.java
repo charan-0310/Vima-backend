@@ -73,11 +73,14 @@ public class NotificationServiceImpl implements NotificationService {
         email.setStatus(NotificationDeliveryStatus.PENDING);
         n.getDeliveries().add(email);
 
-        NotificationDelivery slack = new NotificationDelivery();
-        slack.setNotification(n);
-        slack.setChannel(NotificationChannelKind.SLACK);
-        slack.setStatus(NotificationDeliveryStatus.PENDING);
-        n.getDeliveries().add(slack);
+        boolean includeSlack = command.slackDeliveryEnabled() == null || Boolean.TRUE.equals(command.slackDeliveryEnabled());
+        if (includeSlack) {
+            NotificationDelivery slack = new NotificationDelivery();
+            slack.setNotification(n);
+            slack.setChannel(NotificationChannelKind.SLACK);
+            slack.setStatus(NotificationDeliveryStatus.PENDING);
+            n.getDeliveries().add(slack);
+        }
 
         try {
             AdminNotification saved = notificationRepository.saveAndFlush(n);

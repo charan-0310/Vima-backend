@@ -4,7 +4,6 @@ import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.HashMap;
-import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -111,32 +110,28 @@ public class NotificationDispatcher {
     }
 
     private void ensureRequiredDeliveries(AdminNotification n) {
-        // Tests (and some callers) may provide immutable lists (e.g., List.of(...)).
-        // Always normalize to a mutable list before adding missing channel deliveries.
-        List<NotificationDelivery> deliveries = n.getDeliveries() != null
-                ? new ArrayList<>(n.getDeliveries())
-                : new ArrayList<>();
-        n.setDeliveries(deliveries);
-        Set<NotificationChannelKind> existingChannels = new HashSet<>();
+        List<NotificationDelivery> deliveries = n.getDeliveries();
+        if (deliveries == null) {
+            deliveries = new ArrayList<>();
+            n.setDeliveries(deliveries);
+        }
+        boolean hasEmail = false;
         for (NotificationDelivery d : deliveries) {
-            if (d.getChannel() != null) {
-                existingChannels.add(d.getChannel());
+            if (d.getChannel() == NotificationChannelKind.EMAIL) {
+                hasEmail = true;
+                break;
             }
         }
-        if (!existingChannels.contains(NotificationChannelKind.EMAIL)) {
+        if (!hasEmail) {
             NotificationDelivery email = new NotificationDelivery();
             email.setNotification(n);
             email.setChannel(NotificationChannelKind.EMAIL);
             email.setStatus(NotificationDeliveryStatus.PENDING);
+            // Must use the same collection instance for loaded entities (Hibernate orphanRemoval bag).
             deliveries.add(email);
         }
-        if (!existingChannels.contains(NotificationChannelKind.SLACK)) {
-            NotificationDelivery slack = new NotificationDelivery();
-            slack.setNotification(n);
-            slack.setChannel(NotificationChannelKind.SLACK);
-            slack.setStatus(NotificationDeliveryStatus.PENDING);
-            deliveries.add(slack);
-        }
+        // Do not auto-add SLACK: NotificationServiceImpl omits it intentionally for fan-out recipients
+        // (single shared webhook). Re-injecting SLACK here caused duplicate channel posts.
         if (n.getId() != null) {
             notificationRepository.save(n);
         }
@@ -186,7 +181,9 @@ public class NotificationDispatcher {
         boolean ok = false;
         String route = "none";
         String url;
-        if (NotificationEventType.ENDORSEMENT_UPLOADED.equals(n.getEventType())) {
+        if (isClaimEvent(n.getEventType())) {
+            url = notificationsProperties.getClaimsSlackWebhookUrl();
+        } else if (NotificationEventType.ENDORSEMENT_UPLOADED.equals(n.getEventType())) {
             url = environment.getProperty("slack.reminder.channel.url", "");
             if (url == null || url.isBlank()) {
                 url = notificationsProperties.getSlackWebhookUrl();
@@ -224,5 +221,21 @@ public class NotificationDispatcher {
                 notificationsProperties.getRetryMaxDelayMs(),
                 notificationsProperties.getRetryInitialDelayMs() * (1L << Math.min(d.getAttemptCount(), 10)));
         d.setNextRetryAt(LocalDateTime.now().plus(Duration.ofMillis(delayMs)));
+    }
+
+    private static boolean isClaimEvent(NotificationEventType eventType) {
+        if (eventType == null) {
+            return false;
+        }
+        return switch (eventType) {
+            case EMPLOYEE_CLAIM_SUBMITTED,
+                    EMPLOYEE_CLAIM_QUERY_RAISED,
+                    EMPLOYEE_CLAIM_QUERY_RESPONDED,
+                    EMPLOYEE_CLAIM_QUERY_RESPONSE_SUBMITTED,
+                    EMPLOYEE_CLAIM_APPROVED,
+                    EMPLOYEE_CLAIM_REJECTED,
+                    EMPLOYEE_CLAIM_SETTLED -> true;
+            default -> false;
+        };
     }
 }
