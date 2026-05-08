@@ -151,8 +151,6 @@ class ClaimsServiceImplTest {
             return c;
         });
         when(documentRepository.findByEntityTypeAndEntityId(eq(DocumentEntityType.CLAIM), anyString())).thenReturn(Collections.emptyList());
-        when(slackNotificationUtil.buildEmployeeClaimSubmittedMessage(any(), any(), any()))
-                .thenReturn(":inbox_tray: test slack body");
 
         ClaimDetailsResponse response = claimsService.submitClaim(submissionRequest, employeeId);
 
