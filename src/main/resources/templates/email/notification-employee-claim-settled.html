@@ -2,17 +2,15 @@
 <html xmlns:th="http://www.thymeleaf.org" lang="en">
 <head>
     <meta charset="UTF-8"/>
-    <title th:text="${title}">Enrollment submitted for HR review</title>
+    <title th:text="${title}">Employee claim settled</title>
 </head>
 <body style="font-family: Arial, sans-serif; line-height: 1.5; color: #111;">
 <p>Hello,</p>
 <p>
-    Employee enrollment submission is complete for
-    <strong th:text="${organizationName}">Organization</strong>
-    and is ready for HR review in Vima.
+    Claim <strong th:text="${claimNumber}">CLM</strong> has been settled.
 </p>
 <p>
-    <a th:href="${deepLinkUrl}" th:text="${deepLinkUrl}">Open enrollment window</a>
+    <a th:href="${deepLinkUrl}" th:text="${deepLinkUrl}">Open claim</a>
 </p>
 <p style="color:#666;font-size:12px;">This is an automated message from Vima.</p>
 </body>
