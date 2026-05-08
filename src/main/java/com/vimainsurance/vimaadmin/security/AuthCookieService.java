@@ -62,12 +62,17 @@ public class AuthCookieService {
     }
 
     public ResponseCookie clearAccessCookie() {
-        return ResponseCookie.from(ACCESS_COOKIE_NAME, "")
-                .path("/").httpOnly(true).secure(secure).sameSite(sameSite).maxAge(0).build();
+        ResponseCookie.ResponseCookieBuilder b = ResponseCookie.from(ACCESS_COOKIE_NAME, "")
+                .path("/").httpOnly(true).secure(secure).sameSite(sameSite).maxAge(0);
+        // Match the domain set on the build path so the browser actually removes the cookie.
+        if (cookieDomain != null && !cookieDomain.isBlank()) b.domain(cookieDomain);
+        return b.build();
     }
 
     public ResponseCookie clearRefreshCookie() {
-        return ResponseCookie.from(REFRESH_COOKIE_NAME, "")
-                .path("/api/v1/auth").httpOnly(true).secure(secure).sameSite(sameSite).maxAge(0).build();
+        ResponseCookie.ResponseCookieBuilder b = ResponseCookie.from(REFRESH_COOKIE_NAME, "")
+                .path("/api/v1/auth").httpOnly(true).secure(secure).sameSite(sameSite).maxAge(0);
+        if (cookieDomain != null && !cookieDomain.isBlank()) b.domain(cookieDomain);
+        return b.build();
     }
 }
