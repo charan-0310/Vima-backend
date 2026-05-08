@@ -1,0 +1,22 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org" lang="en">
+<head>
+    <meta charset="UTF-8"/>
+    <title th:text="${title}">Enrollment window closing soon</title>
+</head>
+<body style="font-family: Arial, sans-serif; line-height: 1.5; color: #111;">
+<p>Hello,</p>
+<p>
+    Enrollment window for
+    <strong th:text="${organizationName}">Organization</strong>
+    will close soon.
+</p>
+<p th:if="${endDate != null and !#strings.isEmpty(endDate)}">
+    Closing date: <strong th:text="${endDate}">YYYY-MM-DD</strong>
+</p>
+<p>
+    <a th:href="${deepLinkUrl}" th:text="${deepLinkUrl}">Open enrollment window</a>
+</p>
+<p style="color:#666;font-size:12px;">This is an automated message from Vima.</p>
+</body>
+</html>

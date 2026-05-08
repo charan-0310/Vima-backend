@@ -19,15 +19,6 @@ jobs:
           java-version: 21
           cache: maven
 
-      - name: Install Zoho SDK JAR locally
-        run: |
-            mvn install:install-file \
-            -Dfile=lib/zohocrmsdk-5-0-6.0.0.jar \
-            -DgroupId=com.zoho.crm \
-            -DartifactId=zohocrmsdk-5-0 \
-            -Dversion=6.0.0 \
-            -Dpackaging=jar
-            
       - name: Build jar with Maven
         run: mvn clean verify
       - name: Debug paths
@@ -48,8 +39,27 @@ jobs:
           cp "$JAR_FILE" /home/ubuntu/vima-app-deployment/api/artifact/vimaadmin-0.0.1-SNAPSHOT.jar
           echo "✅ JAR moved to ~/vima-app-deployment/api/artifact/vimaadmin-0.0.1-SNAPSHOT.jar"
 
+      - name: Refresh secrets from AWS Secrets Manager (Prod)
+        # F-01: pulls vima/prod/backend into /etc/vima/prod.env, which docker-compose
+        # reads via env_file. The loader script must already exist on the host
+        # (one-time setup — see docs/prd/audit/IRDAI_P0_Manual_Env_Todo.md §1e).
+        run: |
+          if [ ! -x /usr/local/bin/load-vima-secrets.sh ]; then
+            echo "❌ /usr/local/bin/load-vima-secrets.sh not found on host."
+            echo "   One-time setup is required before this workflow can deploy."
+            echo "   Follow docs/prd/audit/IRDAI_P0_Manual_Env_Todo.md §1e."
+            exit 1
+          fi
+          sudo /usr/local/bin/load-vima-secrets.sh
+          echo "✅ Secrets refreshed into /etc/vima/prod.env"
+
       - name: Restart Docker Compose service (Prod)
         run: |
           cd ~/vima-app-deployment
+          if [ ! -f api/entrypoint.sh ]; then
+            printf '%s\n' '#!/usr/bin/env sh' 'set -e' 'exec java -jar /app/app.jar' > api/entrypoint.sh
+            chmod +x api/entrypoint.sh
+            echo "✅ Created missing api/entrypoint.sh"
+          fi
           docker compose up -d --build vima-api
-          echo "✅ Docker Compose service 'vima-api' restarted for PROD environment"     
+          echo "✅ Docker Compose service 'vima-api' restarted for PROD environment"

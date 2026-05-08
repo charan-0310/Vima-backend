@@ -14,7 +14,6 @@ import org.springframework.web.util.UriComponentsBuilder;
 import com.vimainsurance.vimaadmin.entity.AdminUser;
 import com.vimainsurance.vimaadmin.repository.IAdminUserRepository;
 import com.vimainsurance.vimaadmin.util.JwtUtil;
-import com.vimainsurance.vimaadmin.util.ZohoUtil;
 
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
@@ -22,16 +21,13 @@ import jakarta.servlet.http.HttpServletResponse;
 
 @Component
 public class VimaOAuth2SuccessHandler implements AuthenticationSuccessHandler {
-    
+
     @Value("${redirect.url}")
     private String uiRedirectUrl;
 
     @Autowired
     private JwtUtil jwtUtil;
 
-    @Autowired
-    private ZohoUtil zohoUtil;
-    
     @Autowired
     private IAdminUserRepository userRepository;
     @Override

@@ -19,15 +19,6 @@ jobs:
           java-version: 21
           cache: maven
 
-      - name: Install Zoho SDK JAR locally
-        run: |
-            mvn install:install-file \
-            -Dfile=lib/zohocrmsdk-5-0-6.0.0.jar \
-            -DgroupId=com.zoho.crm \
-            -DartifactId=zohocrmsdk-5-0 \
-            -Dversion=6.0.0 \
-            -Dpackaging=jar
-            
       - name: Build jar with Maven
         run: mvn clean verify
       - name: Debug paths
@@ -50,5 +41,10 @@ jobs:
       - name: Restart Docker Compose service (Dev)
         run: |
           cd ~/vima-app-deployment
+          if [ ! -f api-dev/entrypoint.sh ]; then
+            printf '%s\n' '#!/usr/bin/env sh' 'set -e' 'exec java -jar /app/app.jar' > api-dev/entrypoint.sh
+            chmod +x api-dev/entrypoint.sh
+            echo "✅ Created missing api-dev/entrypoint.sh"
+          fi
           docker compose up -d --build vima-api-dev
           echo "✅ Docker Compose service 'vima-api-dev' restarted for DEV environment"    

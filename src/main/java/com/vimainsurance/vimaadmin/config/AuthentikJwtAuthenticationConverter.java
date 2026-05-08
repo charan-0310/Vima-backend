@@ -16,16 +16,15 @@ import org.springframework.security.oauth2.server.resource.authentication.JwtGra
 import org.springframework.stereotype.Component;
 
 /**
- * JWT Authentication Converter for Authentik and Keycloak.
+ * JWT Authentication Converter for Keycloak.
  *
+ * Class name preserved for diff hygiene; Vima now uses Keycloak as its sole IdP.
  * Extracts roles/authorities from JWT tokens and converts them to Spring Security authorities.
- * Used for both Authentik (dev/prod) and Keycloak (UAT) - issuer-uri is profile-specific in application-*.properties.
  *
  * Looks for roles in:
- * - 'groups' claim (Authentik default)
- * - 'roles' claim
- * - 'realm_access.roles' (Keycloak)
+ * - 'realm_access.roles' (Keycloak realm roles)
  * - 'resource_access' client roles (Keycloak)
+ * - 'groups' / 'roles' fall-back claims for backwards compatibility
  *
  * Roles are mapped to authorities with the 'ROLE_' prefix for Spring Security compatibility.
  */

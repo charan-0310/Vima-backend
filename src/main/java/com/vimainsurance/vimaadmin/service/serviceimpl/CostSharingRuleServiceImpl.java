@@ -3,6 +3,7 @@ package com.vimainsurance.vimaadmin.service.serviceimpl;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.LocalDate;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -167,23 +168,84 @@ public class CostSharingRuleServiceImpl implements ICostSharingRuleService {
         LocalDate effectiveDate = date != null ? date : LocalDate.now();
         List<CostSharingRule> rules = cacheService.getRulesForCompany(companyId);
         CoverageCategory category = parseCoverageCategory(coverageCategory);
+
+        // All rules valid for this plan + date, sorted deterministically:
+        //   newest effective_from first → newest updated_at first → id (final tiebreaker).
+        // This ensures the lookup picks the most recently-configured rule even when
+        // duplicates or historical rows exist, and never returns different results across
+        // runs for the same input.
         List<CostSharingRule> forPlanAndDate = rules.stream()
                 .filter(r -> planTypeMatches(planType, r.getPlanType()))
                 .filter(r -> !r.getEffectiveFrom().isAfter(effectiveDate))
                 .filter(r -> r.getEffectiveTo() == null || !r.getEffectiveTo().isBefore(effectiveDate))
+                .sorted(Comparator
+                        .comparing(CostSharingRule::getEffectiveFrom).reversed()
+                        .thenComparing(Comparator.comparing(
+                                (CostSharingRule r) -> r.getUpdatedAt() == null
+                                        ? java.time.LocalDateTime.MIN : r.getUpdatedAt()).reversed())
+                        .thenComparing(r -> r.getId() == null ? "" : r.getId().toString()))
                 .toList();
+
+        if (forPlanAndDate.isEmpty()) {
+            return null;
+        }
+
+        // Resolution preference, in order:
+        //
+        //   1. Exact category match — HR explicitly configured this category.
+        //   2. DEFAULT — explicit catch-all rule HR set for "any family shape unless overridden".
+        //      This is the cleanest way for HR to express "for plan X, employer pays 80%".
+        //      New orgs should adopt this; existing orgs continue to work via legacy fallbacks below.
+        //   3. ALL_DEPENDENTS — legacy org-wide default for any dependent shape.
+        //   4. (Legacy) SPOUSE / CHILD — only when the lookup itself is ALL_DEPENDENTS.
+        //      The resolver returns ALL_DEPENDENTS specifically when the family has no
+        //      parent or parent-in-law, so we must NOT fall back to PARENT / PARENT_IN_LAW
+        //      here — that would wrongly apply a parent-only rule to a spouse-only family.
+        //   5. (Legacy) SELF — last resort.
+        //   6. null → applyCostSharing defaults to 100% employer.
+        //
+        // Steps 3–5 are kept for backwards compatibility with orgs that haven't migrated
+        // to a DEFAULT rule. Once an org sets DEFAULT, it shadows these legacy fallbacks
+        // entirely (DEFAULT is checked before them).
+        Optional<CostSharingRule> chosen = Optional.empty();
+
+        // 1. Exact category match
         if (category != null) {
-            Optional<CostSharingRule> exact = forPlanAndDate.stream()
+            chosen = forPlanAndDate.stream()
                     .filter(r -> r.getCoverageCategory() == category)
                     .findFirst();
-            if (exact.isPresent()) {
-                return exact.get();
+        }
+        // 2. DEFAULT — explicit catch-all
+        if (chosen.isEmpty()) {
+            chosen = forPlanAndDate.stream()
+                    .filter(r -> r.getCoverageCategory() == CoverageCategory.DEFAULT)
+                    .findFirst();
+        }
+        // 3. ALL_DEPENDENTS — legacy org-wide default
+        if (chosen.isEmpty()) {
+            chosen = forPlanAndDate.stream()
+                    .filter(r -> r.getCoverageCategory() == CoverageCategory.ALL_DEPENDENTS)
+                    .findFirst();
+        }
+        // 4. (Legacy) SPOUSE → CHILD when the lookup is ALL_DEPENDENTS.
+        //    Magic-link "you pay 0" fix path for orgs without DEFAULT.
+        if (chosen.isEmpty() && category == CoverageCategory.ALL_DEPENDENTS) {
+            for (CoverageCategory dep : new CoverageCategory[] {
+                    CoverageCategory.SPOUSE,
+                    CoverageCategory.CHILD }) {
+                chosen = forPlanAndDate.stream()
+                        .filter(r -> r.getCoverageCategory() == dep)
+                        .findFirst();
+                if (chosen.isPresent()) break;
             }
         }
-        return forPlanAndDate.stream()
-                .filter(r -> r.getCoverageCategory() == CoverageCategory.ALL_DEPENDENTS)
-                .findFirst()
-                .orElse(null);
+        // 5. (Legacy) SELF — HR's primary rule, last resort.
+        if (chosen.isEmpty()) {
+            chosen = forPlanAndDate.stream()
+                    .filter(r -> r.getCoverageCategory() == CoverageCategory.SELF)
+                    .findFirst();
+        }
+        return chosen.orElse(null);
     }
 
     @Override
@@ -224,6 +286,7 @@ public class CostSharingRuleServiceImpl implements ICostSharingRuleService {
                 .shareType(rule.getEmployerShareType())
                 .shareValue(rule.getEmployerShareValue())
                 .ruleId(rule.getId())
+                .appliedCategory(rule.getCoverageCategory())
                 .build();
     }
 
@@ -245,11 +308,24 @@ public class CostSharingRuleServiceImpl implements ICostSharingRuleService {
     }
 
     private static void validatePercentage(CostSharingRuleRequestDto dto) {
+        // Percentage must be in [0, 100].
         if (dto.getEmployerShareType() == EmployerShareType.PERCENTAGE
                 && (dto.getEmployerShareValue() == null
                 || dto.getEmployerShareValue().compareTo(BigDecimal.ZERO) < 0
                 || dto.getEmployerShareValue().compareTo(BigDecimal.valueOf(100)) > 0)) {
             throw new IllegalArgumentException("Employer share percentage must be between 0 and 100");
+        }
+        // Fixed amount must be non-negative. (A negative employer share would invert the
+        // split direction, charging the employee MORE than the premium — clearly an error.)
+        if (dto.getEmployerShareType() == EmployerShareType.FIXED_AMOUNT
+                && (dto.getEmployerShareValue() == null
+                || dto.getEmployerShareValue().compareTo(BigDecimal.ZERO) < 0)) {
+            throw new IllegalArgumentException("Employer share fixed amount must be zero or positive");
+        }
+        // Effective dates: effectiveTo must not be before effectiveFrom.
+        if (dto.getEffectiveFrom() != null && dto.getEffectiveTo() != null
+                && dto.getEffectiveTo().isBefore(dto.getEffectiveFrom())) {
+            throw new IllegalArgumentException("Effective-to date cannot be before effective-from date");
         }
     }
 

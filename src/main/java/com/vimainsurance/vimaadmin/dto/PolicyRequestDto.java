@@ -113,8 +113,6 @@ public class PolicyRequestDto {
     private String sumInsuredOptions;
     /** JSON array string of annual premiums; same length/order as sumInsuredOptions for TOP_UP / SUPER_TOP_UP. */
     private String topupPremiumOptions;
-    private String policyWording;
-    private String claimChecklist;
     private Boolean coversDependents;
     private Boolean coversParents;
     private Boolean isDeleted;
@@ -122,4 +120,12 @@ public class PolicyRequestDto {
     private LocalDate effectiveFrom;
     @JsonFormat(pattern = "yyyy-MM-dd")
     private LocalDate effectiveTo;
+
+    /** Admin-authored condensed wording shown to employees. HTML from rich text editor. */
+    @Size(max = 100_000, message = "Policy wording summary must not exceed 100000 characters")
+    private String policyWordingSummary;
+
+    /** Admin-authored "additional documents" rich text appended to the default claim checklist on the employee portal. */
+    @Size(max = 100_000, message = "Claim checklist additional docs must not exceed 100000 characters")
+    private String claimChecklistAdditionalDocs;
 }

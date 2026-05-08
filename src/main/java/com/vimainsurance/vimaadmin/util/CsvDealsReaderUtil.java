@@ -26,6 +26,7 @@ import com.opencsv.exceptions.CsvException;
 import com.vimainsurance.vimaadmin.entity.Deals;
 import com.vimainsurance.vimaadmin.enums.AccountStatus;
 import com.vimainsurance.vimaadmin.enums.AccountType;
+import com.vimainsurance.vimaadmin.enums.NomineeRelationship;
 
 import lombok.AllArgsConstructor;
 import lombok.Data;
@@ -394,9 +395,7 @@ public class CsvDealsReaderUtil {
             errors.add("Employee " + employeeId + " (Self): Invalid mobile number format. Expected 10-digit Indian mobile number (e.g., 9876543210)");
         }
         
-        if (row.dateOfJoining == null || row.dateOfJoining.trim().isEmpty()) {
-            errors.add("Employee " + employeeId + " (Self): Date of joining is required");
-        } else if (!isValidDate(row.dateOfJoining)) {
+        if (row.dateOfJoining != null && !row.dateOfJoining.trim().isEmpty() && !isValidDate(row.dateOfJoining)) {
             errors.add("Employee " + employeeId + " (Self): Invalid date format for date_of_joining. Expected YYYY-MM-DD");
         }
         
@@ -422,16 +421,16 @@ public class CsvDealsReaderUtil {
             }
             
             String relLower = relationship.trim().toLowerCase();
-            if (!relLower.equals("spouse") && !relLower.equals("child") && 
+            if (!relLower.equals("spouse") && !relLower.equals("wife") && !relLower.equals("husband") && !relLower.equals("child") &&
                 !relLower.equals("father") && !relLower.equals("mother") && 
                 !relLower.equals("parent-in-law")) {
                 errors.add("Employee " + employeeId + " (Row " + row.rowNumber + "): Invalid relationship '" + relationship + 
-                    "'. Allowed: Spouse, Child, Father, Mother, Parent-in-law");
+                    "'. Allowed: Spouse, Wife, Husband, Child, Father, Mother, Parent-in-law");
                 continue;
             }
             
             // Count spouses
-            if (relLower.equals("spouse")) {
+            if (relLower.equals("spouse") || relLower.equals("wife") || relLower.equals("husband")) {
                 spouseCount++;
             }
             
@@ -568,7 +567,12 @@ public class CsvDealsReaderUtil {
         
         deal.setDateOfBirth(parseDate(row.dateOfBirth));
         deal.setGender(row.gender.trim());
-        deal.setRelationship(row.relationship.trim());
+        String relationship = row.relationship != null ? row.relationship.trim() : "";
+        if ("wife".equalsIgnoreCase(relationship) || "husband".equalsIgnoreCase(relationship)
+                || "spouse".equalsIgnoreCase(relationship)) {
+            relationship = NomineeRelationship.SPOUSE.getValue();
+        }
+        deal.setRelationship(relationship);
         deal.setEmail(row.email != null && !row.email.trim().isEmpty() ? row.email.trim() : primaryDeal.getEmail());
         // Phone is required - use mobile from CSV or fallback to primary's phone
         deal.setPhone(row.mobile != null && !row.mobile.trim().isEmpty() ? row.mobile.trim() : primaryDeal.getPhone());

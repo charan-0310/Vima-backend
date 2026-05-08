@@ -4,8 +4,6 @@ import java.nio.charset.StandardCharsets;
 import java.security.InvalidKeyException;
 import java.security.NoSuchAlgorithmException;
 import java.time.LocalDateTime;
-import java.util.HashMap;
-import java.util.Map;
 
 import javax.crypto.Mac;
 import javax.crypto.spec.SecretKeySpec;
@@ -15,8 +13,6 @@ import org.slf4j.LoggerFactory;
 import org.slf4j.MDC;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.http.HttpEntity;
-import org.springframework.http.HttpHeaders;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.authentication.BadCredentialsException;
@@ -25,7 +21,6 @@ import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.stereotype.Service;
-import org.springframework.web.client.RestTemplate;
 
 import com.vimainsurance.vimaadmin.dto.BaseResponse;
 import com.vimainsurance.vimaadmin.dto.ChallengeLoginRequestDto;
@@ -38,11 +33,11 @@ import com.vimainsurance.vimaadmin.dto.RefreshTokenResponseDto;
 import com.vimainsurance.vimaadmin.dto.ResponseDto;
 import com.vimainsurance.vimaadmin.entity.AdminUser;
 import com.vimainsurance.vimaadmin.repository.IAdminUserRepository;
+import com.vimainsurance.vimaadmin.security.LoginAttemptService;
 import com.vimainsurance.vimaadmin.service.IAuthService;
 import com.vimainsurance.vimaadmin.util.Constants;
 import com.vimainsurance.vimaadmin.util.JwtUtil;
 import com.vimainsurance.vimaadmin.util.RSAKeyPairUtil;
-import com.vimainsurance.vimaadmin.util.ZohoUtil;
 
 @Service
 public class AuthServiceImpl implements IAuthService {
@@ -51,9 +46,6 @@ public class AuthServiceImpl implements IAuthService {
 
     @Autowired
     private JwtUtil jwtUtil;
-
-    @Autowired
-    private ZohoUtil zohoUtil;
 
     @Autowired
     private AuthenticationManager authenticationManager;
@@ -67,40 +59,34 @@ public class AuthServiceImpl implements IAuthService {
     @Autowired
     private RSAKeyPairUtil rsaKeyPairUtil;
 
-    @Value("${google.recaptcha.secret}")
-    private String secret;
-
-    @Value("${google.recaptcha.site}")
-    private String site;
-
-    // ✅ FIX: Inject singleton RestTemplate instead of creating new one per request
-    // This prevents memory leaks from per-request RestTemplate creation
     @Autowired
-    private RestTemplate restTemplate;
+    private LoginAttemptService loginAttemptService;
 
     // Database-based nonce storage (no longer using in-memory map)
-
-
-    // @Autowired
-    // private IZohoAuthService zohoAuthService;
 
     @Override
     public ResponseEntity<ResponseDto<LoginResponseDto>> login(LoginRequestDto requestDto) {
         logger.info("[correlationId:{}] login called", MDC.get("correlationId"));
         BaseResponse<LoginResponseDto> responseObj = new BaseResponse<>();
         try {
-            if(requestDto.getRecaptchaToken() == null || !verifyToken(requestDto.getRecaptchaToken())){
-                return responseObj.render(responseObj.formErrorResponse("Invalid Captcha!!"));
-            }          
-            
+            // F-16: per-username lockout replaces the reCAPTCHA layer that previously gated this endpoint.
+            // Combined with the per-IP rate limit in GlobalRateLimitFilter (5 req/min on /auth/**).
+            try {
+                loginAttemptService.assertNotLocked(requestDto.getUsername());
+            } catch (LoginAttemptService.AccountLockedException locked) {
+                logger.warn("[correlationId:{}] Login refused — account locked: {}",
+                        MDC.get("correlationId"), requestDto.getUsername());
+                return responseObj.render(responseObj.formErrorResponse(locked.getMessage()));
+            }
+
             Authentication authentication = authenticationManager.authenticate(
                     new UsernamePasswordAuthenticationToken(
                         requestDto.getUsername(),
                         requestDto.getPassword()
                     )
             );
-            
-            AdminUser adminUser = adminUserRepository.findByUsername(requestDto.getUsername()).orElseThrow();    
+
+            AdminUser adminUser = adminUserRepository.findByUsername(requestDto.getUsername()).orElseThrow();
             SecurityContextHolder.getContext().setAuthentication(authentication);
             String organizationId = "";
             if (adminUser.getOrganization() != null && adminUser.getOrganization().getOrganizationId() != null) {
@@ -108,16 +94,17 @@ public class AuthServiceImpl implements IAuthService {
             }
             String token = jwtUtil.generateToken(requestDto.getUsername(), authentication.getAuthorities().iterator().next().getAuthority(), adminUser.getEmail(), adminUser.getAgentId(), organizationId );
             String refreshToken = jwtUtil.generateRefreshToken(requestDto.getUsername(), authentication.getAuthorities().iterator().next().getAuthority());
-            // Initialize Zoho CRM after successful authentication
 
+            loginAttemptService.onSuccess(requestDto.getUsername());
             return responseObj.render(responseObj.formSuccessResponse(Constants.SUCCESS, new LoginResponseDto(token, refreshToken)));
         } catch (BadCredentialsException ex) {
+            loginAttemptService.onFailure(requestDto.getUsername());
             logger.error("Bad credentials provided for user: {}", requestDto.getUsername());
             return responseObj.render(responseObj.formErrorResponse("Invalid username or password!!"));
         } catch (Exception ex) {
             logger.error("Error in login: {}", ex.getMessage());
             return responseObj.render(responseObj.formErrorResponse("Internal Server Error!!"));
-        }    
+        }
     }
 
     @Override
@@ -132,16 +119,8 @@ public class AuthServiceImpl implements IAuthService {
             }
 
             String username = jwtUtil.extractUsername(refreshToken);
-            AdminUser adminUser = adminUserRepository.findByUsername(username).orElseThrow();    
+            AdminUser adminUser = adminUserRepository.findByUsername(username).orElseThrow();
 
-            // Refresh Zoho token along with JWT token
-            try {
-                // zohoAuthService.refreshZohoToken();
-                // zohoUtil.refreshZohoAccessToken();
-            } catch (Exception e) {
-                // Log the error but don't fail the token refresh
-                logger.error("Failed to refresh Zoho token", e);
-            }
             String organizationId = "";
             if (adminUser.getOrganization() != null && adminUser.getOrganization().getOrganizationId() != null) {
                 organizationId = adminUser.getOrganization().getOrganizationId().toString();
@@ -155,42 +134,6 @@ public class AuthServiceImpl implements IAuthService {
         }
     }
 
-    public boolean verifyToken(String token) {
-        final String projectId = "vimaadmin";
-        final String expectedAction = "login"; // match frontend action
-    
-        String url = "https://recaptchaenterprise.googleapis.com/v1/projects/" 
-                   + projectId + "/assessments?key=" + secret;
-    
-        try {
-            // Prepare request body
-            Map<String, Object> event = new HashMap<>();
-            event.put("token", token);
-            event.put("siteKey", site);
-    
-            Map<String, Object> requestBody = new HashMap<>();
-            requestBody.put("event", event);
-    
-            HttpHeaders headers = new HttpHeaders();
-            // headers.setContentType(MediaType.APPLICATION_JSON);
-    
-            HttpEntity<Map<String, Object>> request = new HttpEntity<>(requestBody, headers);
-    
-            ResponseEntity<Map> response = restTemplate.postForEntity(url, request, Map.class);
-    
-            Map<String, Object> responseBody = response.getBody();
-            if (responseBody == null) return false;
-    
-            Map<String, Object> tokenProps = (Map<String, Object>) responseBody.get("tokenProperties");
-    
-            return tokenProps != null &&
-                   Boolean.TRUE.equals(tokenProps.get("valid"));
-    
-        } catch (Exception e) {
-            e.printStackTrace();
-            return false;
-        }
-    }
     
     @Override
     public ResponseEntity<ResponseDto<ChallengeResponseDto>> getChallenge(ChallengeRequestDto requestDto) {
@@ -239,27 +182,30 @@ public class AuthServiceImpl implements IAuthService {
         try {
             String username = requestDto.getUsername(); // Keep existing field name for compatibility
             String clientProof = requestDto.getClientproof(); // This will contain the client proof
-            String hashedPassword = requestDto.getHashedPassword(); // Temporarily use recaptchaToken field for hashedPassword
-            String recaptchaToken = requestDto.getRecaptchaToken(); // We'll need to add a new field later
-            
+            String hashedPassword = requestDto.getHashedPassword();
+
             logger.info("[correlationId:{}] Received username: {}", MDC.get("correlationId"), username);
-            // logger.info("[correlationId:{}] Received client proof: {}", MDC.get("correlationId"), clientProof);
-            logger.info("[correlationId:{}] Received hashed password: {}", MDC.get("correlationId"), hashedPassword);
-            
+            // recaptchaToken field on the DTO is retained for wire-compat but no longer verified.
+
             if (username == null || username.trim().isEmpty() ||
                 hashedPassword == null || hashedPassword.trim().isEmpty()) {
                 return responseObj.render(responseObj.formErrorResponse("Username, client proof, and hashed password are required"));
             }
-            
-            // Verify reCAPTCHA token
-            if (recaptchaToken == null || !verifyToken(recaptchaToken)) {
-                return responseObj.render(responseObj.formErrorResponse("Invalid Captcha!!"));
+
+            // F-16: per-username lockout (replaces removed reCAPTCHA layer).
+            try {
+                loginAttemptService.assertNotLocked(username);
+            } catch (LoginAttemptService.AccountLockedException locked) {
+                logger.warn("[correlationId:{}] challengeLogin refused — account locked: {}",
+                        MDC.get("correlationId"), username);
+                return responseObj.render(responseObj.formErrorResponse(locked.getMessage()));
             }
-            
+
             // Find user by username
             AdminUser adminUser = adminUserRepository.findByUsername(username).orElse(null);
             if (adminUser == null) {
                 logger.warn("[correlationId:{}] User not found: {}", MDC.get("correlationId"), username);
+                loginAttemptService.onFailure(username);
                 return responseObj.render(responseObj.formErrorResponse("Invalid username"));
             }
             
@@ -287,20 +233,24 @@ public class AuthServiceImpl implements IAuthService {
             // Verify bcrypt(SHA-256(password)) against stored hash
             if (!passwordEncoder.matches(hashedPassword, adminUser.getPasswordHash())) {
                 logger.warn("[correlationId:{}] Invalid password for user: {}", MDC.get("correlationId"), username);
+                loginAttemptService.onFailure(username);
                 return responseObj.render(responseObj.formErrorResponse("Invalid credentials"));
             }
-            
+
             // Recompute expected proof: HMAC_SHA256(hashedPassword, nonce)
             String expectedProof = computeHmacSha256(hashedPassword, nonce);
             logger.info("[correlationId:{}] Expected proof: {}", MDC.get("correlationId"), expectedProof);
             logger.info("[correlationId:{}] Client proof: {}", MDC.get("correlationId"), clientProof);
-            
+
             // Compare client proof with expected proof
             if (!clientProof.equals(expectedProof)) {
                 logger.warn("[correlationId:{}] Invalid client proof for user: {}", MDC.get("correlationId"), username);
                 logger.warn("[correlationId:{}] Expected: {}, Received: {}", MDC.get("correlationId"), expectedProof, clientProof);
+                loginAttemptService.onFailure(username);
                 return responseObj.render(responseObj.formErrorResponse("Invalid credentials"));
             }
+
+            loginAttemptService.onSuccess(username);
 
             String organizationId = "";
             if (adminUser.getOrganization() != null && adminUser.getOrganization().getOrganizationId() != null) {
@@ -308,7 +258,6 @@ public class AuthServiceImpl implements IAuthService {
             }
             String token = jwtUtil.generateToken(requestDto.getUsername(), adminUser.getRole(), adminUser.getEmail(), adminUser.getAgentId(), organizationId);
             String refreshToken = jwtUtil.generateRefreshToken(requestDto.getUsername(), adminUser.getRole());
-            // Initialize Zoho CRM after successful authentication
 
             return responseObj.render(responseObj.formSuccessResponse(Constants.SUCCESS, new LoginResponseDto(token, refreshToken)));
         } catch (BadCredentialsException ex) {

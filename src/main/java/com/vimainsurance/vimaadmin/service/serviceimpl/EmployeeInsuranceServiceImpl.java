@@ -204,8 +204,8 @@ public class EmployeeInsuranceServiceImpl implements IEmployeeInsuranceService {
                 .policyId(policy.getPolicyId())
                 .policyNumber(policy.getPolicyNumber())
                 .productType(policy.getProductType() != null ? policy.getProductType().getValue() : null)
-                .policyWording(policy.getPolicyWording())
-                .claimChecklist(policy.getClaimChecklist())
+                .policyWordingSummary(blankToNull(policy.getPolicyWordingSummary()))
+                .claimChecklistAdditionalDocs(blankToNull(policy.getClaimChecklistAdditionalDocs()))
                 .updatedAt(policy.getUpdatedAt())
                 .build();
     }

@@ -7,11 +7,15 @@ alwaysApply: true
 
 Before finalizing substantive changes:
 
-- Run relevant validation when feasible (`mvnd test` or targeted tests).
-- Prefer targeted validation when full-suite runtime is high.
+- Run relevant tests for the changed scope while developing (example: class-level or package-level test command).
+- For backend Java code changes, finish with a full verification command before declaring completion:
+  - `./mvnw clean verify`
+- Prefer targeted validation early for fast feedback, then full verification at the end.
 - If tests cannot be run, explicitly state:
   - what was not validated,
   - why it was skipped,
   - recommended follow-up command.
+
+Do not treat test failures as informational. Failing tests block completion until fixed or explicitly approved by the user.
 
 Minor documentation-only or comment-only edits can skip test execution.

@@ -76,6 +76,8 @@ import com.vimainsurance.vimaadmin.enums.DocumentEntityType;
 import com.vimainsurance.vimaadmin.enums.DocumentType;
 import com.vimainsurance.vimaadmin.enums.EmployerShareType;
 import com.vimainsurance.vimaadmin.enums.Industry;
+import com.vimainsurance.vimaadmin.enums.PolicyStatus;
+import com.vimainsurance.vimaadmin.enums.ProductType;
 import com.vimainsurance.vimaadmin.enums.UserRole;
 import com.vimainsurance.vimaadmin.repository.IAdminUserRepository;
 import com.vimainsurance.vimaadmin.repository.IDealEndorsementRepository;
@@ -408,8 +410,7 @@ public class OrganizationServiceImpl implements IOrganizationService {
         logger.info("[correlationId:{}] uploadDocument called for organization {}", MDC.get("correlationId"), organizationId);
         BaseResponse<String> responseObj = new BaseResponse<>();
         try {
-            String uploadedBy = jwtUserExtractor.getCurrentUsername();
-            Optional<AdminUser> adminUser = adminUserRepository.findByUsername(uploadedBy);
+            Optional<AdminUser> adminUser = jwtUserExtractor.resolveCurrentAdminUser();
             if (adminUser.isEmpty()) {
                 return responseObj.render(responseObj.formErrorResponse("Agent not found"));
             }
@@ -1021,8 +1022,8 @@ public class OrganizationServiceImpl implements IOrganizationService {
                 .sorted()
                 .findFirst()
                 .orElse(null);
-            if (fallbackDoj == null && endorsement != null && endorsement.getPolicy() != null) {
-                fallbackDoj = endorsement.getPolicy().getStartDate();
+            if (fallbackDoj == null) {
+                fallbackDoj = safeEndorsementPolicyStartDate(endorsement);
             }
             dto.setDateOfJoining(fallbackDoj);
         }
@@ -1046,8 +1047,8 @@ public class OrganizationServiceImpl implements IOrganizationService {
                 .orElse(null);
 
             BigDecimal resolvedSi = gmcOrGhi != null ? gmcOrGhi : anyCoverSi;
-            if (resolvedSi == null && endorsement != null && endorsement.getPolicy() != null) {
-                resolvedSi = endorsement.getPolicy().getSumInsured();
+            if (resolvedSi == null) {
+                resolvedSi = safeEndorsementPolicySumInsured(endorsement);
             }
             if (resolvedSi != null) {
                 dto.setSumInsured(resolvedSi.stripTrailingZeros().toPlainString());
@@ -1067,12 +1068,52 @@ public class OrganizationServiceImpl implements IOrganizationService {
         dto.setEndorsementType(endorsement.getEndorsementType() != null ? endorsement.getEndorsementType().name() : null);
         dto.setEndorsementStatus(endorsement.getStatus() != null ? endorsement.getStatus().name() : null);
         dto.setEndorsementSource(endorsement.getSource() != null ? endorsement.getSource().name() : null);
-        dto.setEndorsementPolicyId(endorsement.getPolicy() != null ? endorsement.getPolicy().getPolicyId() : null);
-        dto.setEndorsementPolicyNumber(endorsement.getPolicy() != null ? endorsement.getPolicy().getPolicyNumber() : null);
+        dto.setEndorsementPolicyId(safeEndorsementPolicyId(endorsement));
+        dto.setEndorsementPolicyNumber(safeEndorsementPolicyNumber(endorsement));
         dto.setSplitGroupId(endorsement.getSplitGroupId());
         dto.setInsurerRefNumber(endorsement.getInsurerRefNumber());
         dto.setApprovedAt(endorsement.getApprovedAt());
         dto.setApprovedBy(endorsement.getApprovedBy());
+    }
+
+    private LocalDate safeEndorsementPolicyStartDate(Endorsement endorsement) {
+        try {
+            return endorsement != null && endorsement.getPolicy() != null ? endorsement.getPolicy().getStartDate() : null;
+        } catch (RuntimeException ex) {
+            logger.warn("[correlationId:{}] Could not load endorsement policy startDate for {}: {}",
+                    MDC.get("correlationId"), endorsement != null ? endorsement.getEndorsementId() : null, ex.getMessage());
+            return null;
+        }
+    }
+
+    private BigDecimal safeEndorsementPolicySumInsured(Endorsement endorsement) {
+        try {
+            return endorsement != null && endorsement.getPolicy() != null ? endorsement.getPolicy().getSumInsured() : null;
+        } catch (RuntimeException ex) {
+            logger.warn("[correlationId:{}] Could not load endorsement policy sumInsured for {}: {}",
+                    MDC.get("correlationId"), endorsement != null ? endorsement.getEndorsementId() : null, ex.getMessage());
+            return null;
+        }
+    }
+
+    private Long safeEndorsementPolicyId(Endorsement endorsement) {
+        try {
+            return endorsement != null && endorsement.getPolicy() != null ? endorsement.getPolicy().getPolicyId() : null;
+        } catch (RuntimeException ex) {
+            logger.warn("[correlationId:{}] Could not load endorsement policyId for {}: {}",
+                    MDC.get("correlationId"), endorsement != null ? endorsement.getEndorsementId() : null, ex.getMessage());
+            return null;
+        }
+    }
+
+    private String safeEndorsementPolicyNumber(Endorsement endorsement) {
+        try {
+            return endorsement != null && endorsement.getPolicy() != null ? endorsement.getPolicy().getPolicyNumber() : null;
+        } catch (RuntimeException ex) {
+            logger.warn("[correlationId:{}] Could not load endorsement policyNumber for {}: {}",
+                    MDC.get("correlationId"), endorsement != null ? endorsement.getEndorsementId() : null, ex.getMessage());
+            return null;
+        }
     }
 
     private Sort createSort(String sortBy, String sortDirection) {
@@ -1544,6 +1585,8 @@ public class OrganizationServiceImpl implements IOrganizationService {
             // All validation passed - proceed with processing
             logger.info("[correlationId:{}] CSV validation passed. Proceeding with upload of {} records.", 
                 MDC.get("correlationId"), parseResult.getDeals().size());
+
+            applyDefaultPrimaryDateOfJoiningFromPolicy(parseResult.getDeals(), organization.getOrganizationId());
             
             // Prepare deals for batch save
             List<Deals> dealsToSave = new ArrayList<>();
@@ -1992,8 +2035,8 @@ public class OrganizationServiceImpl implements IOrganizationService {
 
             jwtUserExtractor.validateOrganizationAccess(organizationId);
             Organization organization = organizationRepository.findByOrganizationId(organizationId).orElseThrow(() -> new RuntimeException("Organization not found"));
-            String username = jwtUserExtractor.getCurrentUsername();
-            AdminUser adminUser = adminUserRepository.findByUsername(username).orElseThrow(() -> new RuntimeException("Admin user not found"));
+            AdminUser adminUser = jwtUserExtractor.resolveCurrentAdminUser()
+                    .orElseThrow(() -> new RuntimeException("Admin user not found"));
 
             EmployeeUploadResponse result = employeeService.deleteEmployeeManual(requestDto.getEmployeeIds(), organization, adminUser);
 
@@ -2036,9 +2079,8 @@ public class OrganizationServiceImpl implements IOrganizationService {
         com.vimainsurance.vimaadmin.audit.AuditContextSupplier.setActionSource(com.vimainsurance.vimaadmin.audit.ActionSource.BULK);
         Organization organization = organizationRepository.findByOrganizationId(organizationId).orElseThrow(() -> new RuntimeException("Organization not found"));
         EmployeeUploadResponse employeeUploadResponse = new EmployeeUploadResponse();
-        AdminUser adminuser = null;
-            String username = jwtUserExtractor.getCurrentUsername();
-            adminuser = adminUserRepository.findByUsername(username).orElseThrow(() -> new RuntimeException("Admin user not found"));
+        AdminUser adminuser = jwtUserExtractor.resolveCurrentAdminUser()
+                .orElseThrow(() -> new RuntimeException("Admin user not found"));
         com.vimainsurance.vimaadmin.audit.AuditContextSupplier.setCurrentUserId(adminuser != null ? adminuser.getId() : null);
         employeeUploadResponse = employeeService.uploadEmployees(employeeUploadDtoList, organization, adminuser, file, uploadType, policyIds);
         String responseMessage = (employeeUploadResponse.getMessage() != null && !employeeUploadResponse.getMessage().isEmpty())
@@ -2062,7 +2104,8 @@ public class OrganizationServiceImpl implements IOrganizationService {
         try {
             jwtUserExtractor.validateOrganizationAccess(organizationId);
             Organization organization = organizationRepository.findByOrganizationId(organizationId).orElseThrow(() -> new RuntimeException("Organization not found"));
-            AdminUser adminUser = adminUserRepository.findByUsername(jwtUserExtractor.getCurrentUsername()).orElseThrow(() -> new RuntimeException("Admin user not found"));
+            AdminUser adminUser = jwtUserExtractor.resolveCurrentAdminUser()
+                    .orElseThrow(() -> new RuntimeException("Admin user not found"));
             List<EmployeeUploadDto> employees = requestDto != null && requestDto.getEmployees() != null ? requestDto.getEmployees() : List.of();
             if (employees.isEmpty()) {
                 return responseObj.render(responseObj.formErrorResponse("At least one employee is required"));
@@ -2107,7 +2150,8 @@ public class OrganizationServiceImpl implements IOrganizationService {
         BaseResponse<EmployeeUploadResponse> responseObj = new BaseResponse<>();
         try {
             Organization organization = organizationRepository.findByOrganizationId(organizationId).orElseThrow(() -> new RuntimeException("Organization not found"));
-            AdminUser adminuser = adminUserRepository.findByUsername(jwtUserExtractor.getCurrentUsername()).orElseThrow(() -> new RuntimeException("Admin user not found"));
+            AdminUser adminuser = jwtUserExtractor.resolveCurrentAdminUser()
+                    .orElseThrow(() -> new RuntimeException("Admin user not found"));
             EmployeeUploadResponse employeeUploadResponse = employeeService.deleteEmployee(bulkEmployeeDeletionRequestDtoList, organization, adminuser, file, uploadType);
             return responseObj.render(responseObj.formSuccessResponse(Constants.SUCCESS, employeeUploadResponse));
         } catch (Exception e) {
@@ -2142,6 +2186,43 @@ public class OrganizationServiceImpl implements IOrganizationService {
             logger.error("[correlationId:{}] Exception in getEmployeesByEndorsementId: {}", MDC.get("correlationId"), e.getMessage(), e);
             return responseObj.render(responseObj.formErrorResponse("Error Occured while getting employees by endorsement id"));
         }
+    }
+
+    /**
+     * Grouped CSV may omit primary {@code date_of_joining}; align with portal bulk upload by using the
+     * organization's default active policy start date (GMC first, else first active policy).
+     */
+    private void applyDefaultPrimaryDateOfJoiningFromPolicy(List<Deals> deals, UUID organizationId) {
+        if (deals == null || deals.isEmpty() || organizationId == null) {
+            return;
+        }
+        Optional<Policy> policyOpt = resolveDefaultActivePolicyForCsvFallback(organizationId);
+        if (policyOpt.isEmpty()) {
+            return;
+        }
+        LocalDate start = policyOpt.get().getStartDate();
+        if (start == null) {
+            return;
+        }
+        for (Deals deal : deals) {
+            if (deal == null || !Boolean.TRUE.equals(deal.getIsPrimaryMember())) {
+                continue;
+            }
+            if (deal.getDateOfJoining() == null) {
+                deal.setDateOfJoining(start);
+            }
+        }
+    }
+
+    private Optional<Policy> resolveDefaultActivePolicyForCsvFallback(UUID organizationId) {
+        List<Policy> active = policyRepository.findByOrganizationIdAndStatus(organizationId, PolicyStatus.ACTIVE);
+        if (active == null || active.isEmpty()) {
+            return Optional.empty();
+        }
+        return active.stream()
+                .filter(p -> ProductType.GMC.equals(p.getProductType()))
+                .findFirst()
+                .or(() -> Optional.of(active.get(0)));
     }
   
 }

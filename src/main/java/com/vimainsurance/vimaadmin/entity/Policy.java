@@ -167,11 +167,37 @@ public class Policy {
     @Column(name = "topup_premium_options", columnDefinition = "jsonb")
     private String topupPremiumOptions;
 
-    @Column(name = "policy_wording", columnDefinition = "TEXT")
-    private String policyWording;
+    /**
+     * Uploaded PDF for the policy wording document. Stored for admin reference
+     * and insurer copy; never exposed to employees.
+     */
+    @OneToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "policy_wording_document_id")
+    private Document policyWordingDocument;
 
-    @Column(name = "claim_checklist", columnDefinition = "TEXT")
-    private String claimChecklist;
+    /**
+     * Uploaded PDF for the claim checklist document. Stored for admin
+     * reference; never exposed to employees.
+     */
+    @OneToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "claim_checklist_document_id")
+    private Document claimChecklistDocument;
+
+    /**
+     * Admin-authored condensed policy wording (HTML from the rich text editor).
+     * This is what the employee portal shows on the policy wording screen,
+     * NOT the uploaded PDF. See V79.
+     */
+    @Column(name = "policy_wording_summary", columnDefinition = "TEXT")
+    private String policyWordingSummary;
+
+    /**
+     * Admin-authored extra-documents notes (HTML). Appended to the default
+     * 5-section claim checklist on the employee portal as an "Additional
+     * Documents" card. See V79.
+     */
+    @Column(name = "claim_checklist_additional_docs", columnDefinition = "TEXT")
+    private String claimChecklistAdditionalDocs;
 
     @Column(name = "covers_dependents")
     private Boolean coversDependents;

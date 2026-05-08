@@ -1,0 +1,36 @@
+-- VIMA-465: master toggle for unified notification emit + dispatch
+INSERT INTO admin.feature_flags (flag_id, flag_key, description, is_active)
+VALUES (
+    'c001face-0001-4000-8000-0000000000f1',
+    'notifications.enabled',
+    'Unified notification system: emit, persist, email/slack dispatch, and admin inbox',
+    TRUE
+)
+ON CONFLICT (flag_key) DO UPDATE SET
+    description = EXCLUDED.description;
+
+INSERT INTO admin.feature_flag_roles (id, flag_id, role_name, is_active, actions)
+SELECT
+    gen_random_uuid(),
+    ff.flag_id,
+    'ROLE_VIMA_ADMIN',
+    TRUE,
+    ARRAY['READ', 'WRITE']::permission_action[]
+FROM admin.feature_flags ff
+WHERE ff.flag_key = 'notifications.enabled'
+ON CONFLICT (role_name, flag_id) DO UPDATE SET
+    is_active = EXCLUDED.is_active,
+    actions = EXCLUDED.actions;
+
+INSERT INTO admin.feature_flag_roles (id, flag_id, role_name, is_active, actions)
+SELECT
+    gen_random_uuid(),
+    ff.flag_id,
+    'ROLE_HR_ADMIN',
+    TRUE,
+    ARRAY['READ']::permission_action[]
+FROM admin.feature_flags ff
+WHERE ff.flag_key = 'notifications.enabled'
+ON CONFLICT (role_name, flag_id) DO UPDATE SET
+    is_active = EXCLUDED.is_active,
+    actions = EXCLUDED.actions;
