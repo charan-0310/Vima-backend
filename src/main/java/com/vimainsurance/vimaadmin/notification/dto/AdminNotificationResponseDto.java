@@ -27,4 +27,10 @@ public class AdminNotificationResponseDto {
     private Boolean starred;
     private String actorName;
     private String organizationName;
+    private String receiverEmail;
+    private String receiverName;
+    private String receiverRole;
+    private String creatorEmail;
+    private String creatorName;
+    private String creatorRole;
 }

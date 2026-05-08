@@ -189,6 +189,9 @@ public class FlagshipNotificationService {
             vars.put("title", "Endorsement uploaded — " + orgName);
             vars.put("organizationName", orgName);
             vars.put("uploadedByName", uploader);
+            vars.put("creatorName", uploader);
+            vars.put("creatorRole", uploadedBy != null ? uploadedBy.getRole() : null);
+            vars.put("creatorEmail", uploadedBy != null ? uploadedBy.getEmail() : null);
             vars.put("endorsementType", endorsement.getEndorsementType() != null ? endorsement.getEndorsementType().name() : "");
             vars.put("deepLinkUrl", deepLink);
             vars.put("totalEmployees", counts.totalEmployees());
@@ -308,6 +311,8 @@ public class FlagshipNotificationService {
             vars.put("organizationName", orgName);
             vars.put("deepLinkUrl", deepLink);
             vars.put("actedByName", actor);
+            vars.put("creatorName", actor);
+            vars.put("creatorRole", "HR_ADMIN");
             Boolean slackDeliveryEnabled = (i == slackRecipientIndex) ? null : Boolean.FALSE;
             CreateNotificationCommand cmd = new CreateNotificationCommand(
                     admin.getId(),
@@ -472,6 +477,8 @@ public class FlagshipNotificationService {
             vars.put("organizationName", orgName);
             vars.put("deepLinkUrl", deepLink);
             vars.put("actedByName", actor);
+            vars.put("creatorName", actor);
+            vars.put("creatorRole", "HR_ADMIN");
             vars.put("totalEmployees", employees);
             vars.put("totalDependents", dependents);
             Boolean slackDeliveryEnabled = (i == slackRecipientIndex) ? null : Boolean.FALSE;
@@ -516,12 +523,15 @@ public class FlagshipNotificationService {
             return;
         }
         String orgName = organization.getOrganizationName();
+        String displayOrgName = (displayOrganizationName != null && !displayOrganizationName.isBlank())
+                ? displayOrganizationName
+                : "Vima";
         String deepLink = portalBase() + "/endorsements/" + endorsementId;
         EndorsementMemberCounts counts = resolveMemberCountsForEndorsement(endorsementId);
         String bodyText = buildEndorsementCompletedBody(
                 counts,
                 actedByName,
-                orgName);
+                displayOrgName);
         int slackRecipientIndex = resolveEnrollmentSlackRecipientIndex(recipients);
         for (int i = 0; i < recipients.size(); i++) {
             AdminUser admin = recipients.get(i);
@@ -530,10 +540,12 @@ public class FlagshipNotificationService {
             vars.put("title", "Endorsement completed — " + orgName);
             vars.put("organizationName", orgName);
             vars.put("displayOrganizationName",
-                    displayOrganizationName != null && !displayOrganizationName.isBlank() ? displayOrganizationName : "Vima Admin");
+                    displayOrgName);
             if (actedByName != null && !actedByName.isBlank()) {
                 vars.put("actedByName", actedByName);
             }
+            vars.put("creatorName", actedByName != null && !actedByName.isBlank() ? actedByName : "Vima Admin");
+            vars.put("creatorRole", "VIMA_ADMIN");
             vars.put("deepLinkUrl", deepLink);
             vars.put("totalEmployees", counts.totalEmployees());
             vars.put("totalDependents", counts.totalDependents());
