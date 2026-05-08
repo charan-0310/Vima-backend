@@ -282,6 +282,14 @@ try {
 ✅ Keep controllers thin (delegate to services)  
 ✅ Use Bean Validation in DTOs (@NotNull, @Valid)
 
+## Test-First Validation Workflow
+
+- For backend code changes, add or update tests with the implementation whenever possible.
+- Run targeted tests while developing (single class/package) for fast feedback.
+- Before considering backend work complete, run full verification: `./mvnw clean verify`.
+- Do not ignore failing tests by default (no `-DskipTests` / `-Dmaven.test.failure.ignore=true`) unless explicitly requested by the user for a temporary exception.
+- If execution is blocked (environment/time/dependency issue), report exactly what was not run and provide the follow-up command.
+
 ## Creating New Features
 
 1. Create Flyway migration for new table
