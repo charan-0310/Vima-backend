@@ -9,6 +9,7 @@ import org.springframework.scheduling.annotation.EnableScheduling;
 import com.vimainsurance.vimaadmin.config.AuditReplayConfig;
 import com.vimainsurance.vimaadmin.config.CsvDealsHeaderProperties;
 import com.vimainsurance.vimaadmin.config.EndorsementSchedulerConfig;
+import com.vimainsurance.vimaadmin.config.MantraCareProperties;
 import com.vimainsurance.vimaadmin.config.VendorMasterDataConfig;
 import com.vimainsurance.vimaadmin.notification.config.NotificationsProperties;
 
@@ -20,7 +21,8 @@ import com.vimainsurance.vimaadmin.notification.config.NotificationsProperties;
 		CsvDealsHeaderProperties.class,
 		EndorsementSchedulerConfig.class,
 		AuditReplayConfig.class,
-		NotificationsProperties.class
+		NotificationsProperties.class,
+		MantraCareProperties.class
 })
 public class VimaadminApplication {
 

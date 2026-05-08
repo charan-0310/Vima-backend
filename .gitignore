@@ -45,3 +45,4 @@ application-local.properties
 # Cursor local-only overrides
 CLAUDE.local.md
 .cursor/settings.local.json
+src/main/resources/partner-private-key.pem

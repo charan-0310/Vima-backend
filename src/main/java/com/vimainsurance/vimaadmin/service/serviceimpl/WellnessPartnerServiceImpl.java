@@ -3,6 +3,7 @@ package com.vimainsurance.vimaadmin.service.serviceimpl;
 import java.time.LocalDateTime;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
@@ -15,6 +16,13 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import com.vimainsurance.vimaadmin.config.MantraCareProperties;
+import com.vimainsurance.vimaadmin.service.wellness.exception.MantraCareException;
+import com.vimainsurance.vimaadmin.service.wellness.exception.MantraCareSigningUnavailableException;
+import com.vimainsurance.vimaadmin.service.wellness.exception.WellnessConfigException;
+import com.vimainsurance.vimaadmin.service.wellness.mantra.MantraCareClient;
+import com.vimainsurance.vimaadmin.service.wellness.mantra.MantraCareSigningService;
+
 import com.vimainsurance.vimaadmin.dto.BaseResponse;
 import com.vimainsurance.vimaadmin.dto.ResponseDto;
 import com.vimainsurance.vimaadmin.dto.WellnessOrgAssignmentResponseDto;
@@ -24,12 +32,14 @@ import com.vimainsurance.vimaadmin.dto.WellnessPartnerReorderRequestDto;
 import com.vimainsurance.vimaadmin.dto.WellnessPartnerRequestDto;
 import com.vimainsurance.vimaadmin.dto.WellnessPartnerResponseDto;
 import com.vimainsurance.vimaadmin.dto.WellnessRedirectResponseDto;
+import com.vimainsurance.vimaadmin.entity.Deals;
 import com.vimainsurance.vimaadmin.entity.Organization;
 import com.vimainsurance.vimaadmin.entity.WellnessPartner;
 import com.vimainsurance.vimaadmin.entity.WellnessPartnerOrganization;
 import com.vimainsurance.vimaadmin.enums.WellnessCategory;
 import com.vimainsurance.vimaadmin.enums.WellnessRedirectType;
 import com.vimainsurance.vimaadmin.mapper.WellnessPartnerMapper;
+import com.vimainsurance.vimaadmin.repository.IDealsRepository;
 import com.vimainsurance.vimaadmin.repository.IOrganizationRepository;
 import com.vimainsurance.vimaadmin.repository.IWellnessPartnerRepository;
 import com.vimainsurance.vimaadmin.repository.IWellnessPartnerOrganizationRepository;
@@ -46,12 +56,17 @@ public class WellnessPartnerServiceImpl implements IWellnessPartnerService {
 
     private static final Logger logger = LoggerFactory.getLogger(WellnessPartnerServiceImpl.class);
     private static final Pattern SLUG_PATTERN = Pattern.compile("^[a-z0-9]+(?:-[a-z0-9]+)*$");
+    private static final Pattern MANTRACARE_STATUS_PATTERN = Pattern.compile("MantraCare API error:\\s*(\\d{3})");
 
     private final IWellnessPartnerRepository wellnessPartnerRepository;
     private final IWellnessPartnerOrganizationRepository wellnessPartnerOrganizationRepository;
     private final IOrganizationRepository organizationRepository;
+    private final IDealsRepository dealsRepository;
     private final JwtUserExtractor jwtUserExtractor;
     private final IWellnessAccessService wellnessAccessService;
+    private final MantraCareProperties mantraCareProperties;
+    private final MantraCareSigningService mantraCareSigningService;
+    private final MantraCareClient mantraCareClient;
 
     @Override
     public ResponseEntity<ResponseDto<List<WellnessPartnerResponseDto>>> getAllPartners() {
@@ -490,11 +505,93 @@ public class WellnessPartnerServiceImpl implements IWellnessPartnerService {
                 return responseObj.render(responseObj.formErrorResponse(404, "Wellness partner is not active"));
             }
 
-            String redirectUrl = mapping.getCustomRedirectUrl();
-            if (redirectUrl == null || redirectUrl.isBlank()) {
-                redirectUrl = partner.getRedirectUrl();
+            if (employeeId == null) {
+                wellnessAccessService.logAccess(
+                        organizationId,
+                        partnerId,
+                        null,
+                        userIdentifier,
+                        accessType,
+                        "FAILED",
+                        "Employee context not found");
+                return responseObj.render(responseObj.formErrorResponse(400, "Employee context not found"));
             }
-            if (redirectUrl == null || redirectUrl.isBlank()) {
+
+            try {
+                String redirectUrl;
+
+                if ("mantracare".equalsIgnoreCase(partner.getSlug())
+                        && "BACKEND_TOKEN".equalsIgnoreCase(partner.getRedirectType())) {
+                    Deals employee = dealsRepository
+                            .findById(employeeId)
+                            .orElseThrow(() -> new WellnessConfigException("Employee record not found"));
+
+                    String wellnessUserId = employee.getWellnessUserId();
+                    if (wellnessUserId == null || wellnessUserId.isBlank()) {
+                        wellnessUserId = UUID.randomUUID().toString();
+                        employee.setWellnessUserId(wellnessUserId);
+                        dealsRepository.save(employee);
+                    }
+
+                    Map<String, Object> meta = partner.getMetadata() != null ? partner.getMetadata() : Map.of();
+                    Map<String, Object> orgCfg = mapping.getConfig() != null ? mapping.getConfig() : Map.of();
+
+                    String apiBaseUrl = stringValue(meta.get("api_base_url"), "https://api.mantracare.com");
+                    if (apiBaseUrl.endsWith("/")) {
+                        apiBaseUrl = apiBaseUrl.substring(0, apiBaseUrl.length() - 1);
+                    }
+                    String setUserPath = stringValue(meta.get("set_user_path"), "/partner/user");
+                    if (!setUserPath.startsWith("/")) {
+                        setUserPath = "/" + setUserPath;
+                    }
+                    String inviteCode = stringOrNull(orgCfg.get("invite_code"));
+                    String requestCookie = stringOrNull(meta.get("request_cookie"));
+                    long tokenValidityMillis = numberValue(meta.get("token_validity_seconds"), 3600) * 1000L;
+                    int connectTimeoutMs = Math.max(numberValue(meta.get("connect_timeout_ms"), 5000), 1000);
+                    // Guardrail: partner API has shown frequent >30s responses; keep a safer floor.
+                    int readTimeoutMs = Math.max(numberValue(meta.get("read_timeout_ms"), 60000), 60000);
+
+                    if (inviteCode == null || inviteCode.isBlank()) {
+                        throw new WellnessConfigException("Wellness partner is not configured for token issuance");
+                    }
+
+                    String jws = mantraCareSigningService.signForEmployee(
+                            mantraCareProperties.getKeyId(),
+                            inviteCode,
+                            tokenValidityMillis,
+                            wellnessUserId);
+                    redirectUrl = mantraCareClient.exchangeTokenForRedirectUrl(
+                            apiBaseUrl,
+                            setUserPath,
+                            connectTimeoutMs,
+                            readTimeoutMs,
+                            requestCookie,
+                            jws);
+                    userIdentifier = wellnessUserId;
+                } else {
+                    redirectUrl = mapping.getCustomRedirectUrl();
+                    if (redirectUrl == null || redirectUrl.isBlank()) {
+                        redirectUrl = partner.getRedirectUrl();
+                    }
+                    if (redirectUrl == null || redirectUrl.isBlank()) {
+                        throw new WellnessConfigException("Redirect URL not configured for this partner");
+                    }
+                }
+
+                WellnessRedirectResponseDto payload = WellnessRedirectResponseDto.builder()
+                        .redirectUrl(redirectUrl)
+                        .opensIn("new_tab")
+                        .build();
+                wellnessAccessService.logAccess(
+                        organizationId,
+                        partnerId,
+                        employeeId,
+                        userIdentifier,
+                        accessType,
+                        "SUCCESS",
+                        null);
+                return responseObj.render(responseObj.formSuccessResponse("Wellness redirect generated successfully", payload));
+            } catch (WellnessConfigException e) {
                 wellnessAccessService.logAccess(
                         organizationId,
                         partnerId,
@@ -502,23 +599,32 @@ public class WellnessPartnerServiceImpl implements IWellnessPartnerService {
                         userIdentifier,
                         accessType,
                         "FAILED",
-                        "Redirect URL not configured for this partner");
-                return responseObj.render(responseObj.formErrorResponse(400, "Redirect URL not configured for this partner"));
+                        e.getMessage());
+                return responseObj.render(responseObj.formErrorResponse(400, e.getMessage()));
+            } catch (MantraCareSigningUnavailableException e) {
+                wellnessAccessService.logAccess(
+                        organizationId,
+                        partnerId,
+                        employeeId,
+                        userIdentifier,
+                        accessType,
+                        "FAILED",
+                        "Wellness partner integration unavailable");
+                return responseObj.render(responseObj.formErrorResponse(503, "Wellness partner integration unavailable"));
+            } catch (MantraCareException e) {
+                int partnerStatus = extractMantraStatusCode(e.getMessage());
+                int apiStatus = partnerStatus >= 400 && partnerStatus < 500 ? partnerStatus : 502;
+                String apiMessage = apiStatus == 502 ? "Wellness partner is unreachable" : e.getMessage();
+                wellnessAccessService.logAccess(
+                        organizationId,
+                        partnerId,
+                        employeeId,
+                        userIdentifier,
+                        accessType,
+                        "FAILED",
+                        apiMessage);
+                return responseObj.render(responseObj.formErrorResponse(apiStatus, apiMessage));
             }
-
-            WellnessRedirectResponseDto payload = WellnessRedirectResponseDto.builder()
-                    .redirectUrl(redirectUrl)
-                    .opensIn("new_tab")
-                    .build();
-            wellnessAccessService.logAccess(
-                    organizationId,
-                    partnerId,
-                    employeeId,
-                    userIdentifier,
-                    accessType,
-                    "SUCCESS",
-                    null);
-            return responseObj.render(responseObj.formSuccessResponse("Wellness redirect generated successfully", payload));
         } catch (Exception e) {
             logger.error("[correlationId:{}] getEmployeeRedirectUrl failed: {}", MDC.get("correlationId"), e.getMessage(), e);
             wellnessAccessService.logAccess(
@@ -621,14 +727,58 @@ public class WellnessPartnerServiceImpl implements IWellnessPartnerService {
         if (!WellnessRedirectType.BACKEND_TOKEN.getValue().equalsIgnoreCase(partner.getRedirectType())) {
             return;
         }
-        Object keyId = config != null ? config.get("key_id") : null;
         Object inviteCode = config != null ? config.get("invite_code") : null;
-        if (keyId == null || inviteCode == null) {
+        if (inviteCode == null) {
             logger.warn(
-                    "[correlationId:{}] BACKEND_TOKEN partner '{}' assigned/updated without full config for organization {}. Missing key_id or invite_code",
+                    "[correlationId:{}] BACKEND_TOKEN partner '{}' assigned/updated without invite_code for organization {}",
                     MDC.get("correlationId"),
                     partner.getSlug(),
                     organizationId);
+        }
+    }
+
+    private static String stringValue(Object value, String defaultValue) {
+        if (value == null) {
+            return defaultValue;
+        }
+        String out = value.toString().trim();
+        return out.isEmpty() ? defaultValue : out;
+    }
+
+    private static String stringOrNull(Object value) {
+        if (value == null) {
+            return null;
+        }
+        String out = value.toString().trim();
+        return out.isEmpty() ? null : out;
+    }
+
+    private static int numberValue(Object value, int defaultValue) {
+        if (value instanceof Number n) {
+            return n.intValue();
+        }
+        if (value == null) {
+            return defaultValue;
+        }
+        try {
+            return Integer.parseInt(value.toString().trim());
+        } catch (NumberFormatException ignored) {
+            return defaultValue;
+        }
+    }
+
+    private static int extractMantraStatusCode(String message) {
+        if (message == null || message.isBlank()) {
+            return 502;
+        }
+        var matcher = MANTRACARE_STATUS_PATTERN.matcher(message);
+        if (!matcher.find()) {
+            return 502;
+        }
+        try {
+            return Integer.parseInt(matcher.group(1));
+        } catch (NumberFormatException ignored) {
+            return 502;
         }
     }
 
