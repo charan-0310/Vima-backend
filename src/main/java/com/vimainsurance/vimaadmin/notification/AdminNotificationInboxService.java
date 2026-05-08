@@ -68,6 +68,22 @@ public class AdminNotificationInboxService {
                     effectiveCompanyFilter,
                     PageRequest.of(0, Math.max(size * 20, 500), Sort.by(Sort.Direction.DESC, "createdAt")));
             p = dedupeSharedAudiencePage(raw, page, size);
+        } else if (isHrAdminRole(me.getRole())) {
+            String receiverEmail = resolveCurrentUserEmail(me);
+            if (receiverEmail == null || receiverEmail.isBlank()) {
+                return AdminNotificationPageResponseDto.builder()
+                        .content(List.of())
+                        .totalElements(0)
+                        .page(page)
+                        .size(size)
+                        .build();
+            }
+            Page<AdminNotification> raw = notificationRepository.findInboxByReceiverEmail(
+                    receiverEmail,
+                    unreadOnly,
+                    category,
+                    PageRequest.of(0, Math.max(size * 20, 500), Sort.by(Sort.Direction.DESC, "createdAt")));
+            p = strictFilterByReceiverEmail(raw, receiverEmail, page, size);
         } else {
             UUID recipientId = me.getId();
             p = notificationRepository.findInbox(
@@ -78,7 +94,7 @@ public class AdminNotificationInboxService {
                     PageRequest.of(page, size, Sort.by(Sort.Direction.DESC, "createdAt")));
         }
         return AdminNotificationPageResponseDto.builder()
-                .content(p.map(this::toDto).toList())
+                .content(p.map(n -> toDto(n, me)).toList())
                 .totalElements(p.getTotalElements())
                 .page(p.getNumber())
                 .size(p.getSize())
@@ -104,6 +120,13 @@ public class AdminNotificationInboxService {
                     .distinct()
                     .count();
         }
+        if (isHrAdminRole(me.getRole())) {
+            String receiverEmail = resolveCurrentUserEmail(me);
+            if (receiverEmail == null || receiverEmail.isBlank()) {
+                return 0L;
+            }
+            return notificationRepository.countUnreadByReceiverEmail(receiverEmail);
+        }
         return notificationRepository.countByRecipient_IdAndReadAtIsNull(me.getId());
     }
 
@@ -117,6 +140,13 @@ public class AdminNotificationInboxService {
     @Transactional
     public int markAllRead(UUID companyIdFilter) {
         AdminUser me = jwtUserExtractor.resolveCurrentAdminUser().orElseThrow();
+        if (isHrAdminRole(me.getRole())) {
+            String receiverEmail = resolveCurrentUserEmail(me);
+            if (receiverEmail == null || receiverEmail.isBlank()) {
+                return 0;
+            }
+            return notificationRepository.markAllReadByReceiverEmail(receiverEmail, LocalDateTime.now());
+        }
         UUID effectiveCompanyFilter = resolveCompanyFilter(me, companyIdFilter);
         return notificationRepository.markAllReadForRecipient(me.getId(), effectiveCompanyFilter, LocalDateTime.now());
     }
@@ -176,6 +206,7 @@ public class AdminNotificationInboxService {
                 .anyMatch(normalized::equals);
     }
 
+    @SuppressWarnings("null")
     private Page<AdminNotification> dedupeSharedAudiencePage(Page<AdminNotification> raw, int page, int size) {
         LinkedHashMap<String, AdminNotification> unique = new LinkedHashMap<>();
         for (AdminNotification n : raw.getContent()) {
@@ -212,7 +243,36 @@ public class AdminNotificationInboxService {
         return normalized;
     }
 
-    private AdminNotificationResponseDto toDto(AdminNotification n) {
+    private String resolveCurrentUserEmail(AdminUser me) {
+        String jwtEmail = jwtUserExtractor.getCurrentEmail();
+        if (jwtEmail != null && !jwtEmail.isBlank()) {
+            return jwtEmail.trim();
+        }
+        if (me != null && me.getEmail() != null && !me.getEmail().isBlank()) {
+            return me.getEmail().trim();
+        }
+        return null;
+    }
+
+    @SuppressWarnings("null")
+    private Page<AdminNotification> strictFilterByReceiverEmail(
+            Page<AdminNotification> raw,
+            String expectedReceiverEmail,
+            int page,
+            int size) {
+        if (raw == null || expectedReceiverEmail == null || expectedReceiverEmail.isBlank()) {
+            return new PageImpl<>(List.of(), PageRequest.of(page, size), 0);
+        }
+        String expected = expectedReceiverEmail.trim().toLowerCase();
+        List<AdminNotification> filtered = raw.getContent().stream()
+                .filter(n -> n != null && n.getReceiverEmail() != null && n.getReceiverEmail().trim().equalsIgnoreCase(expected))
+                .toList();
+        int from = Math.min(page * size, filtered.size());
+        int to = Math.min(from + size, filtered.size());
+        return new PageImpl<>(filtered.subList(from, to), PageRequest.of(page, size), filtered.size());
+    }
+
+    private AdminNotificationResponseDto toDto(AdminNotification n, AdminUser viewer) {
         return AdminNotificationResponseDto.builder()
                 .id(n.getId())
                 .createdAt(n.getCreatedAt())
@@ -220,13 +280,52 @@ public class AdminNotificationInboxService {
                 .category(n.getCategory())
                 .title(n.getTitle())
                 .body(n.getBody())
-                .deepLinkUrl(n.getDeepLinkUrl())
+                .deepLinkUrl(resolveDeepLinkForViewer(n, viewer))
                 .readAt(n.getReadAt())
                 .companyId(n.getCompany() != null ? n.getCompany().getOrganizationId() : null)
                 .starred(Boolean.TRUE.equals(n.getIsStarred()))
                 .actorName(resolveActorName(n))
                 .organizationName(resolveOrganizationName(n))
+                .receiverEmail(n.getReceiverEmail())
+                .receiverName(n.getReceiverName())
+                .receiverRole(n.getReceiverRole())
+                .creatorEmail(n.getCreatorEmail())
+                .creatorName(n.getCreatorName())
+                .creatorRole(n.getCreatorRole())
                 .build();
+    }
+
+    private String resolveDeepLinkForViewer(AdminNotification n, AdminUser viewer) {
+        String deepLink = n != null ? n.getDeepLinkUrl() : null;
+        if (deepLink == null || deepLink.isBlank() || n == null || n.getEventType() == null) {
+            return deepLink;
+        }
+        if (!isClaimEvent(n.getEventType())) {
+            return deepLink;
+        }
+        String normalizedRole = normalizeRole(viewer != null ? viewer.getRole() : null);
+        if ("VIMA_ADMIN".equals(normalizedRole)
+                || "ADMIN".equals(normalizedRole)
+                || "SUPER_ADMIN".equals(normalizedRole)) {
+            return deepLink.replace("/hr/claims/", "/admin/claims/");
+        }
+        if ("HR_ADMIN".equals(normalizedRole)) {
+            return deepLink.replace("/admin/claims/", "/hr/claims/");
+        }
+        return deepLink;
+    }
+
+    private boolean isClaimEvent(com.vimainsurance.vimaadmin.notification.enums.NotificationEventType eventType) {
+        return switch (eventType) {
+            case EMPLOYEE_CLAIM_SUBMITTED,
+                    EMPLOYEE_CLAIM_QUERY_RAISED,
+                    EMPLOYEE_CLAIM_QUERY_RESPONDED,
+                    EMPLOYEE_CLAIM_QUERY_RESPONSE_SUBMITTED,
+                    EMPLOYEE_CLAIM_APPROVED,
+                    EMPLOYEE_CLAIM_REJECTED,
+                    EMPLOYEE_CLAIM_SETTLED -> true;
+            default -> false;
+        };
     }
 
     private String resolveActorName(AdminNotification n) {

@@ -77,6 +77,35 @@ public interface IAdminNotificationRepository extends JpaRepository<AdminNotific
             Pageable pageable);
 
     @Query("""
+            SELECT n FROM AdminNotification n
+            WHERE LOWER(n.receiverEmail) = LOWER(:receiverEmail)
+              AND (:unreadOnly = false OR n.readAt IS NULL)
+              AND (:category IS NULL OR n.category = :category)
+            """)
+    Page<AdminNotification> findInboxByReceiverEmail(
+            @Param("receiverEmail") String receiverEmail,
+            @Param("unreadOnly") boolean unreadOnly,
+            @Param("category") NotificationCategory category,
+            Pageable pageable);
+
+    @Query("""
+            SELECT COUNT(n) FROM AdminNotification n
+            WHERE LOWER(n.receiverEmail) = LOWER(:receiverEmail)
+              AND n.readAt IS NULL
+            """)
+    long countUnreadByReceiverEmail(@Param("receiverEmail") String receiverEmail);
+
+    @Modifying
+    @Query("""
+            UPDATE AdminNotification n SET n.readAt = :readAt, n.updatedAt = :readAt
+            WHERE n.readAt IS NULL
+              AND LOWER(n.receiverEmail) = LOWER(:receiverEmail)
+            """)
+    int markAllReadByReceiverEmail(
+            @Param("receiverEmail") String receiverEmail,
+            @Param("readAt") LocalDateTime readAt);
+
+    @Query("""
             SELECT COUNT(n) FROM AdminNotification n
             WHERE n.recipient.role IN :roles
               AND n.readAt IS NULL

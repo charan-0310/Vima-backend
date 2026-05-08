@@ -20,6 +20,7 @@ import com.vimainsurance.vimaadmin.entity.AdminUser;
 import com.vimainsurance.vimaadmin.notification.config.NotificationsProperties;
 import com.vimainsurance.vimaadmin.notification.entity.AdminNotification;
 import com.vimainsurance.vimaadmin.notification.entity.NotificationDelivery;
+import com.vimainsurance.vimaadmin.notification.enums.NotificationCategory;
 import com.vimainsurance.vimaadmin.notification.enums.NotificationChannelKind;
 import com.vimainsurance.vimaadmin.notification.enums.NotificationDeliveryStatus;
 import com.vimainsurance.vimaadmin.notification.enums.NotificationEventType;
@@ -34,6 +35,10 @@ import lombok.extern.slf4j.Slf4j;
 @Service
 @RequiredArgsConstructor
 public class NotificationDispatcher {
+    private static final Set<NotificationCategory> TEMP_EMAIL_DISABLED_FOR_VIMA_ADMIN_CATEGORIES = Set.of(
+            NotificationCategory.ENDORSEMENT,
+            NotificationCategory.ENROLLMENT,
+            NotificationCategory.CLAIM);
 
     private final IAdminNotificationRepository notificationRepository;
     private final INotificationDeliveryRepository deliveryRepository;
@@ -127,6 +132,7 @@ public class NotificationDispatcher {
             email.setNotification(n);
             email.setChannel(NotificationChannelKind.EMAIL);
             email.setStatus(NotificationDeliveryStatus.PENDING);
+            applyDeliverySnapshot(email, n);
             // Must use the same collection instance for loaded entities (Hibernate orphanRemoval bag).
             deliveries.add(email);
         }
@@ -139,6 +145,13 @@ public class NotificationDispatcher {
 
     private void sendEmail(AdminNotification n, NotificationDelivery d) {
         AdminUser recipient = n.getRecipient();
+        if (shouldTemporarilySkipEmailForVimaAdmin(recipient, n)) {
+            d.setStatus(NotificationDeliveryStatus.SKIPPED);
+            d.setLastError("Email temporarily disabled for VIMA_ADMIN on this event");
+            log.info("notification_delivery_skipped channel=EMAIL notificationId={} reason=vima_admin_temp_email_disabled eventType={}",
+                    n.getId(), n.getEventType());
+            return;
+        }
         if (recipient.getEmail() == null || recipient.getEmail().isBlank()) {
             d.setStatus(NotificationDeliveryStatus.SKIPPED);
             d.setLastError("Recipient email missing");
@@ -237,5 +250,46 @@ public class NotificationDispatcher {
                     EMPLOYEE_CLAIM_SETTLED -> true;
             default -> false;
         };
+    }
+
+    private static boolean shouldTemporarilySkipEmailForVimaAdmin(AdminUser recipient, AdminNotification notification) {
+        if (recipient == null || notification == null || notification.getCategory() == null) {
+            return false;
+        }
+        if (!TEMP_EMAIL_DISABLED_FOR_VIMA_ADMIN_CATEGORIES.contains(notification.getCategory())) {
+            return false;
+        }
+        String normalizedRole = normalizeRole(recipient.getRole());
+        return "VIMA_ADMIN".equals(normalizedRole);
+    }
+
+    private static String normalizeRole(String role) {
+        if (role == null) {
+            return null;
+        }
+        String normalized = role.trim().toUpperCase();
+        if (normalized.startsWith("ROLE_")) {
+            normalized = normalized.substring("ROLE_".length());
+        }
+        normalized = normalized.replace('-', '_').replace(' ', '_');
+        while (normalized.contains("__")) {
+            normalized = normalized.replace("__", "_");
+        }
+        if (normalized.endsWith("_GROUP")) {
+            normalized = normalized.substring(0, normalized.length() - "_GROUP".length());
+        }
+        return normalized;
+    }
+
+    private static void applyDeliverySnapshot(NotificationDelivery delivery, AdminNotification notification) {
+        if (delivery == null || notification == null) {
+            return;
+        }
+        delivery.setReceiverEmail(notification.getReceiverEmail());
+        delivery.setReceiverName(notification.getReceiverName());
+        delivery.setReceiverRole(notification.getReceiverRole());
+        delivery.setCreatorEmail(notification.getCreatorEmail());
+        delivery.setCreatorName(notification.getCreatorName());
+        delivery.setCreatorRole(notification.getCreatorRole());
     }
 }

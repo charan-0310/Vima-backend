@@ -67,6 +67,24 @@ public class NotificationDelivery {
     @Column(name = "external_message_id", length = 255)
     private String externalMessageId;
 
+    @Column(name = "receiver_email", length = 255)
+    private String receiverEmail;
+
+    @Column(name = "receiver_name", length = 255)
+    private String receiverName;
+
+    @Column(name = "receiver_role", length = 80)
+    private String receiverRole;
+
+    @Column(name = "creator_email", length = 255)
+    private String creatorEmail;
+
+    @Column(name = "creator_name", length = 255)
+    private String creatorName;
+
+    @Column(name = "creator_role", length = 80)
+    private String creatorRole;
+
     @PrePersist
     void onCreate() {
         LocalDateTime now = LocalDateTime.now();
