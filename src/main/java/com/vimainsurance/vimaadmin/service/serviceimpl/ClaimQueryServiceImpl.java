@@ -24,6 +24,7 @@ import com.vimainsurance.vimaadmin.entity.ClaimQuery;
 import com.vimainsurance.vimaadmin.enums.ClaimStatus;
 import com.vimainsurance.vimaadmin.enums.QueryStatus;
 import com.vimainsurance.vimaadmin.exception.BadRequestException;
+import com.vimainsurance.vimaadmin.notification.ClaimsNotificationEmitterService;
 import com.vimainsurance.vimaadmin.repository.IClaimQueryRepository;
 import com.vimainsurance.vimaadmin.repository.IClaimRepository;
 import com.vimainsurance.vimaadmin.repository.IAdminUserRepository;
@@ -46,6 +47,7 @@ public class ClaimQueryServiceImpl implements IClaimQueryService {
     private final ClaimAuditService auditService;
     private final InsurerAdapterFactory adapterFactory;
     private final ClaimsNotificationService notificationService;
+    private final ClaimsNotificationEmitterService claimsNotificationEmitterService;
     private final JwtUserExtractor jwtUserExtractor;
 
     /**
@@ -85,6 +87,14 @@ public class ClaimQueryServiceImpl implements IClaimQueryService {
                 jwtUserExtractor.getCurrentUserId(), jwtUserExtractor.getCurrentUserRole() != null ? jwtUserExtractor.getCurrentUserRole().getValue() : "ADMIN",
                 "Query: " + detail);
         notificationService.notifyQueryRaised(claim, query);
+        UUID actorId = jwtUserExtractor.getCurrentUserId();
+        String actorRole = jwtUserExtractor.getCurrentUserRole() != null ? jwtUserExtractor.getCurrentUserRole().getValue() : "ADMIN";
+        claimsNotificationEmitterService.scheduleClaimQueryRaised(
+                claim,
+                query,
+                resolveActorName(actorId),
+                resolveActorOrganizationName(actorId),
+                actorRole);
 
         QueryCreateResponse response = QueryCreateResponse.builder()
                 .id(query.getId())
@@ -134,6 +144,13 @@ public class ClaimQueryServiceImpl implements IClaimQueryService {
                 adminId, jwtUserExtractor.getCurrentUserRole() != null ? jwtUserExtractor.getCurrentUserRole().getValue() : "ADMIN",
                 "Query response recorded");
         notificationService.notifyQueryResponded(claim, query);
+        String actorRole = jwtUserExtractor.getCurrentUserRole() != null ? jwtUserExtractor.getCurrentUserRole().getValue() : "ADMIN";
+        claimsNotificationEmitterService.scheduleClaimQueryResponded(
+                claim,
+                query,
+                resolveActorName(adminId),
+                resolveActorOrganizationName(adminId),
+                actorRole);
 
         return ResponseEntity.ok(new ResponseDto<>("Success", null));
     }
@@ -158,6 +175,16 @@ public class ClaimQueryServiceImpl implements IClaimQueryService {
         query.setEmployeeRemarks(request.getRemarks());
         query.setEmployeeResponseAt(LocalDateTime.now());
         claimQueryRepository.save(query);
+        String actorName = claim.getEmployee() != null ? claim.getEmployee().getFullName() : "Employee";
+        String actorOrg = claim.getEmployee() != null && claim.getEmployee().getOrganization() != null
+                ? claim.getEmployee().getOrganization().getOrganizationName()
+                : null;
+        claimsNotificationEmitterService.scheduleEmployeeClaimQueryResponseSubmitted(
+                claim,
+                query,
+                actorName,
+                actorOrg,
+                "EMPLOYEE");
         return ResponseEntity.ok(new ResponseDto<>("Success", null));
     }
 
@@ -200,5 +227,23 @@ public class ClaimQueryServiceImpl implements IClaimQueryService {
                 .createdAt(q.getCreatedAt())
                 .updatedAt(q.getUpdatedAt())
                 .build();
+    }
+
+    private String resolveActorName(UUID actorId) {
+        if (actorId == null) {
+            return "System";
+        }
+        return adminUserRepository.findById(actorId)
+                .map(u -> u.getFullName() != null && !u.getFullName().isBlank() ? u.getFullName() : u.getUsername())
+                .orElse("System");
+    }
+
+    private String resolveActorOrganizationName(UUID actorId) {
+        if (actorId == null) {
+            return null;
+        }
+        return adminUserRepository.findById(actorId)
+                .map(u -> u.getOrganization() != null ? u.getOrganization().getOrganizationName() : null)
+                .orElse(null);
     }
 }

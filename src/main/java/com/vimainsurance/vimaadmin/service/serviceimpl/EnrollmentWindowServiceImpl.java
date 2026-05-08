@@ -53,12 +53,14 @@ import com.vimainsurance.vimaadmin.dto.SelfEmployeeEnrollmentRequestDto;
 import com.vimainsurance.vimaadmin.entity.AdminUser;
 import com.vimainsurance.vimaadmin.entity.Deals;
 import com.vimainsurance.vimaadmin.entity.EmployeePolicyMap;
+import com.vimainsurance.vimaadmin.entity.Endorsement;
 import com.vimainsurance.vimaadmin.entity.EnrollmentSubmission;
 import com.vimainsurance.vimaadmin.entity.EnrollmentWindows;
 import com.vimainsurance.vimaadmin.entity.Organization;
 import com.vimainsurance.vimaadmin.entity.Policy;
 import com.vimainsurance.vimaadmin.enums.AccountStatus;
 import com.vimainsurance.vimaadmin.enums.DocumentCategory;
+import com.vimainsurance.vimaadmin.enums.EndorsementSource;
 import com.vimainsurance.vimaadmin.enums.EnrollementStatus;
 import com.vimainsurance.vimaadmin.enums.NomineeRelationship;
 import com.vimainsurance.vimaadmin.enums.PolicyStatus;
@@ -67,12 +69,14 @@ import com.vimainsurance.vimaadmin.enums.ProductType;
 import com.vimainsurance.vimaadmin.audit.AuditContextSupplier;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.vimainsurance.vimaadmin.mapper.EnrollmentWindowMapper;
+import com.vimainsurance.vimaadmin.notification.FlagshipNotificationService;
 import com.vimainsurance.vimaadmin.repository.IAdminUserRepository;
 import com.vimainsurance.vimaadmin.repository.IDealsRepository;
 import com.vimainsurance.vimaadmin.repository.IEmployeePolicyMapRepository;
 import com.vimainsurance.vimaadmin.repository.IEnrollmentInvitationRepository;
 import com.vimainsurance.vimaadmin.repository.IEnrollmentSubmissionRepository;
 import com.vimainsurance.vimaadmin.repository.IEnrollmentWindowsRepository;
+import com.vimainsurance.vimaadmin.repository.IEndorsementRepository;
 import com.vimainsurance.vimaadmin.repository.IOrganizationRepository;
 import com.vimainsurance.vimaadmin.repository.IPolicyRepository;
 import com.vimainsurance.vimaadmin.service.IEnrollmentWindowService;
@@ -137,6 +141,11 @@ public class EnrollmentWindowServiceImpl implements IEnrollmentWindowService {
 
     @Autowired
     private IPolicyRepository policyRepository;
+    @Autowired
+    private IEndorsementRepository endorsementRepository;
+
+    @Autowired(required = false)
+    private FlagshipNotificationService flagshipNotificationService;
 
     private static final String POLICY_MAP_STATUS_ACTIVE = "ACTIVE";
 
@@ -173,8 +182,7 @@ public class EnrollmentWindowServiceImpl implements IEnrollmentWindowService {
             if (orgOpt.isEmpty()) {
                 return responseObj.render(responseObj.formErrorResponse("Organization not found"));
             }
-            String username = jwtUserExtractor.getCurrentUsername();
-            Optional<AdminUser> createdByOpt = adminUserRepository.findByUsername(username);
+            Optional<AdminUser> createdByOpt = jwtUserExtractor.resolveCurrentAdminUser();
             if (createdByOpt.isEmpty()) {
                 return responseObj.render(responseObj.formErrorResponse("Current user not found"));
             }
@@ -679,6 +687,16 @@ public class EnrollmentWindowServiceImpl implements IEnrollmentWindowService {
             entity.setStatus(EnrollementStatus.ACTIVE);
             entity.setClosedAt(null);
             enrollmentWindowsRepository.save(entity);
+            if (flagshipNotificationService != null && entity.getOrganization() != null) {
+                String display = entity.getOrganization().getOrganizationDisplayName() != null
+                        && !entity.getOrganization().getOrganizationDisplayName().isBlank()
+                                ? entity.getOrganization().getOrganizationDisplayName()
+                                : entity.getOrganization().getOrganizationName();
+                flagshipNotificationService.scheduleEnrollmentWindowOpened(
+                        entity.getOrganization().getOrganizationId(),
+                        entity.getId(),
+                        display);
+            }
             AuditContextSupplier.setNewSnapshotEntity(entity);
             return responseObj.render(responseObj.formSuccessResponse(Constants.SUCCESS, "Enrollment window activated successfully"));
         } catch (Exception e) {
@@ -708,6 +726,9 @@ public class EnrollmentWindowServiceImpl implements IEnrollmentWindowService {
             if (entity.getStatus() == EnrollementStatus.CANCELLED) {
                 return responseObj.render(responseObj.formErrorResponse("Window is already cancelled"));
             }
+            if (entity.getStatus() == EnrollementStatus.CLOSED) {
+                return responseObj.render(responseObj.formSuccessResponse(Constants.SUCCESS, "Enrollment window is already closed"));
+            }
 
             ResponseEntity<ResponseDto<String>> finalizeResult = hrApprovalService.finalizeEnrollmentWindow(id);
             if (finalizeResult.getBody() != null && finalizeResult.getBody().getErrorCode() != null) {
@@ -717,6 +738,35 @@ public class EnrollmentWindowServiceImpl implements IEnrollmentWindowService {
             entity.setStatus(EnrollementStatus.CLOSED);
             entity.setClosedAt(LocalDateTime.now());
             enrollmentWindowsRepository.save(entity);
+            if (flagshipNotificationService != null && entity.getOrganization() != null) {
+                String display = entity.getOrganization().getOrganizationDisplayName() != null
+                        && !entity.getOrganization().getOrganizationDisplayName().isBlank()
+                                ? entity.getOrganization().getOrganizationDisplayName()
+                                : entity.getOrganization().getOrganizationName();
+                String closedByName = null;
+                if (jwtUserExtractor != null) {
+                    String username = jwtUserExtractor.getCurrentUsername();
+                    if (username != null && !username.isBlank()) {
+                        closedByName = adminUserRepository.findByUsername(username)
+                                .map(AdminUser::getFullName)
+                                .orElse(username);
+                    }
+                }
+                Endorsement latestWindowEndorsement = endorsementRepository
+                        .findFirstByOrganization_OrganizationIdAndEnrollmentWindow_IdAndSourceOrderByCreatedAtDesc(
+                                entity.getOrganization().getOrganizationId(),
+                                entity.getId(),
+                                EndorsementSource.SELF_ENROLLMENT)
+                        .orElse(null);
+                flagshipNotificationService.scheduleEnrollmentWindowClosed(
+                        entity.getOrganization().getOrganizationId(),
+                        entity.getId(),
+                        display,
+                        closedByName,
+                        latestWindowEndorsement != null ? latestWindowEndorsement.getEndorsementId() : null,
+                        latestWindowEndorsement != null ? latestWindowEndorsement.getTotalEmployees() : null,
+                        latestWindowEndorsement != null ? latestWindowEndorsement.getTotalDependents() : null);
+            }
             AuditContextSupplier.setNewSnapshotEntity(entity);
             return responseObj.render(responseObj.formSuccessResponse(Constants.SUCCESS, "Enrollment window closed successfully"));
         } catch (IllegalStateException e) {

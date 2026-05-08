@@ -179,13 +179,17 @@ public class CorrelationIdFilter extends OncePerRequestFilter {
                 boolean canSync = !roles.contains("ROLE_EMPLOYEE") && hasEmail && hasUsername;
 
                 if (canSync) {
-                    // Check if user exists by email or oauthProviderId
+                    // Check if user exists by email, oauthProviderId, or username to avoid duplicate-key inserts.
                     Optional<AdminUser> userByEmail = adminUserRepository.findByEmail(email);
                     Optional<AdminUser> userByOAuthId = subject != null 
                         ? adminUserRepository.findByOauthProviderId(subject)
                         : Optional.empty();
-                    
-                    AdminUser user = userByEmail.orElse(userByOAuthId.orElse(null));
+                    String normalizedUsername = preferredUsername != null ? preferredUsername.trim().toLowerCase() : null;
+                    Optional<AdminUser> userByUsername = (normalizedUsername != null && !normalizedUsername.isBlank())
+                            ? adminUserRepository.findByUsernameIgnoreCase(normalizedUsername)
+                            : Optional.empty();
+
+                    AdminUser user = userByEmail.orElse(userByOAuthId.orElse(userByUsername.orElse(null)));
                     
                     if (user == null) {
                         // User doesn't exist - create new AdminUser

@@ -65,6 +65,7 @@ import com.vimainsurance.vimaadmin.enums.EndorsementType;
 import com.vimainsurance.vimaadmin.enums.EnrollementStatus;
 import com.vimainsurance.vimaadmin.enums.PolicyStatus;
 import com.vimainsurance.vimaadmin.enums.ProductType;
+import com.vimainsurance.vimaadmin.notification.FlagshipNotificationService;
 import com.vimainsurance.vimaadmin.repository.IAdminUserRepository;
 import com.vimainsurance.vimaadmin.repository.IDealEndorsementRepository;
 import com.vimainsurance.vimaadmin.repository.IDealsRepository;
@@ -138,6 +139,8 @@ public class HRApprovalServiceImpl implements IHRApprovalService {
     private IPayrollDeductionScheduleRepository payrollDeductionScheduleRepository;
     @Autowired
     private TokenSecurityService tokenSecurityService;
+    @Autowired(required = false)
+    private FlagshipNotificationService flagshipNotificationService;
     @Value("${app.base-url:http://localhost:8080}")
     private String baseUrl;
 
@@ -239,6 +242,7 @@ public class HRApprovalServiceImpl implements IHRApprovalService {
             }
 
             sendApprovalEmail(sub);
+            maybeEmitEnrollmentSubmissionApproved(sub, reviewer);
 
             SubmissionDetailDto dto = toDetailDto(enrollmentSubmissionRepository.findById(id).orElse(sub));
 
@@ -819,6 +823,7 @@ public class HRApprovalServiceImpl implements IHRApprovalService {
                 updateDealEnrollmentStatusForSubmission(id, EnrollementStatus.APPROVED);
 
                 sendApprovalEmail(sub);
+                maybeEmitEnrollmentSubmissionApproved(sub, reviewer);
                 approved.add(toListItemDto(sub));
             }
 
@@ -905,8 +910,7 @@ public class HRApprovalServiceImpl implements IHRApprovalService {
         }
 
         // Phase 2: create ONE endorsement per policy, aggregate all employees + dependents
-        String username = jwtUserExtractor.extractCurrentUsername();
-        AdminUser uploadedBy = adminUserRepository.findByUsername(username).orElse(null);
+        AdminUser uploadedBy = jwtUserExtractor.resolveCurrentAdminUser().orElse(null);
         EnrollmentWindows window = approved.isEmpty() ? null : approved.get(0).getEnrollmentWindow();
         Endorsement primaryEndorsement = null;
 
@@ -1240,6 +1244,33 @@ public class HRApprovalServiceImpl implements IHRApprovalService {
         } catch (Exception e) {
             log.warn("[correlationId:{}] Failed to send approval email: {}", MDC.get("correlationId"), e.getMessage());
         }
+    }
+
+    private void maybeEmitEnrollmentSubmissionApproved(EnrollmentSubmission sub, AdminUser reviewer) {
+        if (flagshipNotificationService == null || sub == null) {
+            return;
+        }
+        UUID orgId = sub.getEmployee() != null && sub.getEmployee().getOrganization() != null
+                ? sub.getEmployee().getOrganization().getOrganizationId()
+                : null;
+        UUID windowId = sub.getEnrollmentWindow() != null ? sub.getEnrollmentWindow().getId() : null;
+        UUID submissionId = sub.getId();
+        if (orgId == null || windowId == null || submissionId == null) {
+            return;
+        }
+        Organization org = sub.getEmployee() != null ? sub.getEmployee().getOrganization() : null;
+        String display = (org != null && org.getOrganizationDisplayName() != null && !org.getOrganizationDisplayName().isBlank())
+                ? org.getOrganizationDisplayName()
+                : (org != null && org.getOrganizationName() != null && !org.getOrganizationName().isBlank()
+                        ? org.getOrganizationName()
+                        : "Your organization");
+        flagshipNotificationService.scheduleEnrollmentSubmissionApproved(
+                orgId,
+                windowId,
+                submissionId,
+                reviewer != null ? reviewer.getId() : null,
+                display,
+                reviewer != null ? reviewer.getFullName() : null);
     }
 
 

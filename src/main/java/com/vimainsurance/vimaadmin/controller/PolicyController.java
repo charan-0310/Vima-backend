@@ -25,7 +25,10 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
+import org.springframework.web.multipart.MultipartFile;
+
 import com.vimainsurance.vimaadmin.annotation.CurrentOrganization;
+import com.vimainsurance.vimaadmin.dto.PolicyDocumentRefDto;
 import com.vimainsurance.vimaadmin.dto.PolicyRequestDto;
 import com.vimainsurance.vimaadmin.dto.PolicyResponseDto;
 import com.vimainsurance.vimaadmin.dto.PolicyUploadRequestDto;
@@ -187,5 +190,58 @@ public class PolicyController {
     @GetMapping("/statistics")
     public ResponseEntity<ResponseDto<Object>> getPolicyStatistics() {
         return policyService.getPolicyStatistics();
+    }
+
+    /**
+     * Upload (or replace) the policy wording PDF for the given policy.
+     * The {@code @CurrentOrganization} parameter scopes the operation to the
+     * caller's organization; the service refuses if the policy belongs to a
+     * different org.
+     */
+    @PostMapping(value = "/{policyId}/wording-document",
+            consumes = MediaType.MULTIPART_FORM_DATA_VALUE,
+            produces = MediaType.APPLICATION_JSON_VALUE)
+    public ResponseEntity<ResponseDto<PolicyDocumentRefDto>> uploadPolicyWordingDocument(
+            @CurrentOrganization UUID organizationId,
+            @PathVariable Long policyId,
+            @RequestParam("file") MultipartFile file) {
+        logger.info("[correlationId:{}] /policies/{}/wording-document (POST) endpoint called", MDC.get("correlationId"), policyId);
+        return policyService.attachPolicyWordingDocument(organizationId, policyId, file);
+    }
+
+    /**
+     * Remove the policy wording PDF for the given policy (no-op if none attached).
+     */
+    @DeleteMapping("/{policyId}/wording-document")
+    public ResponseEntity<ResponseDto<String>> deletePolicyWordingDocument(
+            @CurrentOrganization UUID organizationId,
+            @PathVariable Long policyId) {
+        logger.info("[correlationId:{}] /policies/{}/wording-document (DELETE) endpoint called", MDC.get("correlationId"), policyId);
+        return policyService.removePolicyWordingDocument(organizationId, policyId);
+    }
+
+    /**
+     * Upload (or replace) the claim checklist PDF for the given policy.
+     */
+    @PostMapping(value = "/{policyId}/claim-checklist-document",
+            consumes = MediaType.MULTIPART_FORM_DATA_VALUE,
+            produces = MediaType.APPLICATION_JSON_VALUE)
+    public ResponseEntity<ResponseDto<PolicyDocumentRefDto>> uploadClaimChecklistDocument(
+            @CurrentOrganization UUID organizationId,
+            @PathVariable Long policyId,
+            @RequestParam("file") MultipartFile file) {
+        logger.info("[correlationId:{}] /policies/{}/claim-checklist-document (POST) endpoint called", MDC.get("correlationId"), policyId);
+        return policyService.attachClaimChecklistDocument(organizationId, policyId, file);
+    }
+
+    /**
+     * Remove the claim checklist PDF for the given policy (no-op if none attached).
+     */
+    @DeleteMapping("/{policyId}/claim-checklist-document")
+    public ResponseEntity<ResponseDto<String>> deleteClaimChecklistDocument(
+            @CurrentOrganization UUID organizationId,
+            @PathVariable Long policyId) {
+        logger.info("[correlationId:{}] /policies/{}/claim-checklist-document (DELETE) endpoint called", MDC.get("correlationId"), policyId);
+        return policyService.removeClaimChecklistDocument(organizationId, policyId);
     }
 }

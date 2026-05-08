@@ -50,5 +50,10 @@ jobs:
       - name: Restart Docker Compose service (Dev)
         run: |
           cd ~/vima-app-deployment
+          if [ ! -f release/entrypoint.sh ]; then
+            printf '%s\n' '#!/usr/bin/env sh' 'set -e' 'exec java -jar /app/app.jar' > release/entrypoint.sh
+            chmod +x release/entrypoint.sh
+            echo "✅ Created missing release/entrypoint.sh"
+          fi
           docker compose up -d --build vima-stage
           echo "✅ Docker Compose service '-vima-stage' restarted for STAGE environment"    

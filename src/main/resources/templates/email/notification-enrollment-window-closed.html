@@ -1,0 +1,18 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org" lang="en">
+<head>
+    <meta charset="UTF-8"/>
+    <title th:text="${title}">Enrollment window closed</title>
+</head>
+<body style="font-family: Arial, sans-serif; line-height: 1.5; color: #111;">
+<p>Hello,</p>
+<p>
+    Enrollment window is now closed for
+    <strong th:text="${organizationName}">Organization</strong>.
+</p>
+<p>
+    <a th:href="${deepLinkUrl}" th:text="${deepLinkUrl}">Open enrollment window</a>
+</p>
+<p style="color:#666;font-size:12px;">This is an automated message from Vima.</p>
+</body>
+</html>

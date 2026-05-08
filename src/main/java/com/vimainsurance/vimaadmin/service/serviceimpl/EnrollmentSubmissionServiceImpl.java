@@ -26,6 +26,7 @@ import com.vimainsurance.vimaadmin.dto.EmailRequest;
 import com.vimainsurance.vimaadmin.dto.ResponseDto;
 import com.vimainsurance.vimaadmin.entity.AdminUser;
 import com.vimainsurance.vimaadmin.entity.Deals;
+import com.vimainsurance.vimaadmin.entity.Organization;
 import com.vimainsurance.vimaadmin.entity.EnrollmentInvitation;
 import com.vimainsurance.vimaadmin.entity.EnrollmentSubmission;
 import com.vimainsurance.vimaadmin.entity.EnrollmentWindows;
@@ -34,6 +35,7 @@ import com.vimainsurance.vimaadmin.entity.Endorsement;
 import com.vimainsurance.vimaadmin.mapper.EnrollmentSubmissionMapper;
 import com.vimainsurance.vimaadmin.repository.IAdminUserRepository;
 import com.vimainsurance.vimaadmin.repository.IDealsRepository;
+import com.vimainsurance.vimaadmin.notification.FlagshipNotificationService;
 import com.vimainsurance.vimaadmin.repository.IEnrollmentInvitationRepository;
 import com.vimainsurance.vimaadmin.repository.IEnrollmentSubmissionRepository;
 import com.vimainsurance.vimaadmin.repository.IEnrollmentWindowsRepository;
@@ -69,6 +71,9 @@ public class EnrollmentSubmissionServiceImpl implements IEnrollmentSubmissionSer
 
     @Autowired
     private IEmailService emailService;
+
+    @Autowired(required = false)
+    private FlagshipNotificationService flagshipNotificationService;
 
     @Override
     @Transactional
@@ -176,6 +181,7 @@ public class EnrollmentSubmissionServiceImpl implements IEnrollmentSubmissionSer
         if (entity.getStatus() == EnrollementStatus.SUBMITTED
                 && statusBeforeUpdate != EnrollementStatus.SUBMITTED) {
             sendSubmissionEmail(entity);
+            maybeEmitEnrollmentAllSubmitted(entity);
         }
 
         employee.setEnrollmentStatus(entity.getStatus());
@@ -240,6 +246,9 @@ public class EnrollmentSubmissionServiceImpl implements IEnrollmentSubmissionSer
         if (id == null) {
             logger.warn("[correlationId:{}] EnrollmentSubmission insert returned entity with null id", MDC.get("correlationId"));
             return responseObj.render(responseObj.formErrorResponse("Failed to create submission: ID not assigned"));
+        }
+        if (saved.getStatus() == EnrollementStatus.SUBMITTED) {
+            maybeEmitEnrollmentAllSubmitted(saved);
         }
         return responseObj.render(responseObj.formSuccessResponse(Constants.SUCCESS, id.toString()));
     }
@@ -335,5 +344,37 @@ public class EnrollmentSubmissionServiceImpl implements IEnrollmentSubmissionSer
         } catch (IllegalArgumentException ex) {
             return false;
         }
+    }
+
+    /**
+     * When every employee on the enrollment window has a submission in SUBMITTED status, notify HR once (deduped).
+     */
+    private void maybeEmitEnrollmentAllSubmitted(EnrollmentSubmission submission) {
+        if (flagshipNotificationService == null) {
+            return;
+        }
+        if (submission.getEnrollmentWindow() == null || submission.getEmployee() == null) {
+            return;
+        }
+        Organization org = submission.getEmployee().getOrganization();
+        if (org == null) {
+            return;
+        }
+        UUID windowId = submission.getEnrollmentWindow().getId();
+        java.util.List<Deals> employees = dealsRepository.findByEnrollmentWindow_Id(windowId);
+        if (employees.isEmpty()) {
+            return;
+        }
+        for (Deals e : employees) {
+            java.util.Optional<EnrollmentSubmission> subOpt = enrollmentSubmissionRepository
+                    .findByEmployee_IndividualIdAndEnrollmentWindow_Id(e.getIndividualId(), windowId);
+            if (subOpt.isEmpty() || subOpt.get().getStatus() != EnrollementStatus.SUBMITTED) {
+                return;
+            }
+        }
+        String display = org.getOrganizationDisplayName() != null && !org.getOrganizationDisplayName().isBlank()
+                ? org.getOrganizationDisplayName()
+                : org.getOrganizationName();
+        flagshipNotificationService.scheduleEnrollmentAllSubmitted(org.getOrganizationId(), windowId, display);
     }
 }

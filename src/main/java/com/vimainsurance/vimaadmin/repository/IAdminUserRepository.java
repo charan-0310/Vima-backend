@@ -30,6 +30,8 @@ public interface IAdminUserRepository extends JpaRepository<AdminUser, UUID> {
     Optional<AdminUser> findByOauthProviderId(String oauthProviderId);
     List<AdminUser> findByIsActiveTrue();
     List<AdminUser> findByRole(String role);
+
+    List<AdminUser> findByRoleInAndIsActiveTrue(Collection<String> roles);
     @Query("SELECT MAX(CAST(SUBSTRING(c.agentId, 5) AS INTEGER))  FROM AdminUser c WHERE c.agentId LIKE 'VIMA%'")
     String findMaxAgentId();
     @Query(value = "SELECT nextval('admin.agent_id_seq')", nativeQuery = true)

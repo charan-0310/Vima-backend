@@ -299,11 +299,11 @@ class CustomerServiceImplTest {
     void testGetByCustId_Success() {
         when(customerRepository.findByCustId(any())).thenReturn(Optional.of(customer));
         
-        // Mock admin user repository
+        // Mock resolved admin user
         AdminUser adminUser = new AdminUser();
         adminUser.setUsername("test-agent");
         adminUser.setRole("SALES_AGENT");
-        when(adminUserRepository.findByUsername("test-agent")).thenReturn(Optional.of(adminUser));
+        when(jwtUserExtractor.resolveCurrentAdminUser()).thenReturn(Optional.of(adminUser));
         
         // Mock JwtUserExtractor
         when(jwtUserExtractor.extractCurrentUsername()).thenReturn("test-agent");
@@ -475,12 +475,12 @@ class CustomerServiceImplTest {
         
         when(customerRepository.findByCustId(any())).thenReturn(Optional.of(customerWithDifferentOwner));
         
-        // Mock admin user repository - user is not admin and doesn't own the customer
+        // Mock resolved admin user - user is not admin and doesn't own the customer
         AdminUser testAgent = new AdminUser();
         testAgent.setUsername("test-agent");
         testAgent.setRole("SALES_AGENT");
         testAgent.setId(UUID.randomUUID());
-        when(adminUserRepository.findByUsername("test-agent")).thenReturn(Optional.of(testAgent));
+        when(jwtUserExtractor.resolveCurrentAdminUser()).thenReturn(Optional.of(testAgent));
         
         // Mock JwtUserExtractor
         when(jwtUserExtractor.extractCurrentUsername()).thenReturn("test-agent");
@@ -505,12 +505,12 @@ class CustomerServiceImplTest {
         
         when(customerRepository.findByCustId(any())).thenReturn(Optional.of(customerWithDifferentOwner));
         
-        // Mock admin user repository - user is ADMIN and should have access
+        // Mock resolved admin user - user is ADMIN and should have access
         AdminUser adminUser = new AdminUser();
         adminUser.setUsername("admin-user");
         adminUser.setRole("ADMIN");
         adminUser.setId(UUID.randomUUID());
-        when(adminUserRepository.findByUsername("admin-user")).thenReturn(Optional.of(adminUser));
+        when(jwtUserExtractor.resolveCurrentAdminUser()).thenReturn(Optional.of(adminUser));
         
         // Mock JwtUserExtractor
         when(jwtUserExtractor.extractCurrentUsername()).thenReturn("admin-user");
