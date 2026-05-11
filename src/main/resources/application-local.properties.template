@@ -24,7 +24,7 @@ jwt.refreshexpiration=604800000
 # CORS for the local SPA
 cors.allowed-origins=http://localhost:5173,http://localhost:8080
 cors.allowed-methods=GET,POST,PUT,PATCH,DELETE,OPTIONS
-cors.allowed-headers=Authorization,Content-Type,X-Requested-With,X-Correlation-Id,X-CSRF-Token,Accept,Origin
+cors.allowed-headers=Authorization,Content-Type,X-Requested-With,X-Correlation-Id,X-CSRF-Token,Accept,Origin,X-Organization-ID
 cors.allow-credentials=true
 
 redirect.url=http://localhost:5173
