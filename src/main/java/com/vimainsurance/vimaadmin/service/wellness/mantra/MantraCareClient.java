@@ -1,5 +1,7 @@
 package com.vimainsurance.vimaadmin.service.wellness.mantra;
 
+import java.net.SocketTimeoutException;
+import java.util.Locale;
 import java.util.Map;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -48,6 +50,16 @@ public class MantraCareClient {
                     System.currentTimeMillis() - startedAt);
             return url;
         } catch (ResourceAccessException first) {
+            if (isLikelyReadTimeout(first)) {
+                logger.warn(
+                        "[correlationId:{}] MantraCare read timed out (no retry; repeating same token can yield HTTP 400 from partner): endpoint={}{} elapsedMs={} reason={}",
+                        correlationId,
+                        apiBaseUrl,
+                        setUserPath,
+                        System.currentTimeMillis() - startedAt,
+                        first.getMessage());
+                throw new MantraCareException("MantraCare read timed out", first);
+            }
             logger.warn(
                     "[correlationId:{}] MantraCare request failed (attempt=1, retrying): endpoint={}{} elapsedMs={} reason={}",
                     correlationId,
@@ -196,5 +208,25 @@ public class MantraCareClient {
             return "none";
         }
         return "configured";
+    }
+
+    /**
+     * Retrying the same JWT after a read timeout often yields HTTP 400 from MantraCare (token/session
+     * consumed while the client stopped waiting). Used to skip automatic retry for read timeouts only.
+     */
+    static boolean isLikelyReadTimeout(ResourceAccessException ex) {
+        for (Throwable t = ex; t != null; t = t.getCause()) {
+            if (t instanceof SocketTimeoutException ste) {
+                String m = ste.getMessage();
+                if (m != null && m.toLowerCase(Locale.ROOT).contains("read")) {
+                    return true;
+                }
+            }
+            String msg = t.getMessage();
+            if (msg != null && msg.toLowerCase(Locale.ROOT).contains("read timed out")) {
+                return true;
+            }
+        }
+        return false;
     }
 }
