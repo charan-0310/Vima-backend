@@ -551,7 +551,7 @@ public class WellnessPartnerServiceImpl implements IWellnessPartnerService {
                     // Respect metadata read_timeout_ms (e.g. Flyway seed 8000ms). Cap so two client attempts + employee-app
                     // HTTP timeout (~20s) are not dominated by an artificial 60s floor (which caused XHR cancel).
                     int readTimeoutMs = numberValue(meta.get("read_timeout_ms"), 8000);
-                    // Client allows ~45s for this call; MantraCareClient may retry once on I/O failure — keep 2× cap under that.
+                    // Client allows ~45s for this call; MantraCareClient may retry once on non-read I/O failure — keep 2× cap under that.
                     readTimeoutMs = Math.min(18_000, Math.max(readTimeoutMs, 3_000));
 
                     if (inviteCode == null || inviteCode.isBlank()) {
