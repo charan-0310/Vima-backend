@@ -22,4 +22,11 @@ public class MantraCareProperties {
 
     /** Inline PKCS#8 PEM (optional if {@link #privateKeyPath} is set). */
     private String privateKeyPem = "";
+
+    /**
+     * When true, employee wellness redirect returns a signed JWT + partner POST URL for the SPA to call
+     * (use a same-origin reverse proxy in production, or Vite dev proxy). When false (default), the server
+     * exchanges with MantraCare and returns only {@code redirectUrl} (no CORS, no token in the browser).
+     */
+    private boolean employeeRedirectBrowserExchange = false;
 }
