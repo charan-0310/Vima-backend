@@ -1,3 +1,0 @@
--- Intentionally left blank.
--- Version 81 already exists in shared DB history with a different checksum.
--- New snapshot columns are applied in V82__notifications_actor_receiver_snapshots.sql.
