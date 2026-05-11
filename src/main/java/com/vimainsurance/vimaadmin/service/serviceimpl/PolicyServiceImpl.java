@@ -147,27 +147,6 @@ public class PolicyServiceImpl implements IPolicyService {
      */
     private static final long POLICY_DOCUMENT_MAX_BYTES = 50L * 1024L * 1024L;
 
-    @Autowired
-    private IEndorsementRepository endorsementRepository;
-
-    @Autowired
-    private ICdBalanceTransactionRepository cdBalanceTransactionRepository;
-
-    @Autowired
-    private com.vimainsurance.vimaadmin.service.IS3Service s3Service;
-
-    @Autowired
-    private com.vimainsurance.vimaadmin.config.S3Config s3Config;
-
-    /**
-     * Maximum size for a wording / claim-checklist PDF upload — 50 MB.
-     * Wording PDFs typically run 60–70 pages with embedded images, which can
-     * exceed 25 MB; keep this aligned with {@code spring.servlet.multipart.max-file-size}
-     * (currently 50 MB on prod). Anything larger should be rejected at the
-     * Spring layer first; this constant is a defensive secondary guard.
-     */
-    private static final long POLICY_DOCUMENT_MAX_BYTES = 50L * 1024L * 1024L;
-
     @Override
     @Transactional(rollbackFor = Exception.class)
     @AuditedOperation(schemaName = "cpc", tableName = "policies", entityType = "POLICY", action = "CREATE")
