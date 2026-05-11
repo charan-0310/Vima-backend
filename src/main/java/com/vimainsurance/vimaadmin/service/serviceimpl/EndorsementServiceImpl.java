@@ -1441,7 +1441,6 @@ public class EndorsementServiceImpl implements IEndorsementService {
         }
     }
 
-    
     /** Accepts {@code yyyy-MM-dd} or ISO-8601 instant/offset (frontend sends UTC instants). */
     private static LocalDateTime parseFilterDateStart(String raw) {
         try {

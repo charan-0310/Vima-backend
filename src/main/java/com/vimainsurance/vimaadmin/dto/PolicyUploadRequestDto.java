@@ -62,7 +62,6 @@ public class PolicyUploadRequestDto {
     private String sumInsuredOptions;
     /** Comma-separated or JSON array string; same count as sumInsuredOptions for TOP_UP / SUPER_TOP_UP. */
     private String topupPremiumOptions;
-
     /** Optional policy wording PDF uploaded alongside the policy on the create flow. Admin-only; not shown to employees. */
     private MultipartFile policyWordingFile;
 

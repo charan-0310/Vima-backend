@@ -15,7 +15,7 @@ import io.jsonwebtoken.SignatureAlgorithm;
  * Builds RS256-signed JWTs for MantraCare {@code POST /partner/user} ({@code token} field).
  * <p>
  * MantraCare expects a {@code kid} (key id) in the JWT <strong>header</strong> and
- * {@code key_id}, {@code user_identifier}, and {@code invite_code} in the payload.
+ * {@code user_identifier} and {@code invite_code} in the payload.
  * If MantraCare later requires JWE wrapping with their public key, add a separate step
  * (e.g. Nimbus JOSE) — this class only produces the inner signed JWT.
  */
@@ -47,7 +47,6 @@ public final class MantraCareTokenGenerator {
 
         return Jwts.builder()
                 .setHeaderParam(HEADER_KID, kid)
-                .claim("key_id", claims.keyId())
                 .claim("user_identifier", claims.userIdentifier())
                 .claim("invite_code", claims.inviteCode())
                 .setIssuedAt(now)
@@ -92,7 +91,7 @@ public final class MantraCareTokenGenerator {
     /**
      * Claims for MantraCare partner JWT.
      *
-     * @param keyId          Registered partner key id (payload {@code key_id}).
+     * @param keyId          Registered partner key id used to derive {@code kid} header when explicit {@code kid} is absent.
      * @param userIdentifier Stable user id at the partner (e.g. phone E.164).
      * @param inviteCode     Partner invite code.
      * @param kid            Optional header {@code kid}; if null, {@link #generateSignedJwt(MantraCareTokenClaims, RSAPrivateKey)} uses {@code String.valueOf(keyId)}.
@@ -105,7 +104,7 @@ public final class MantraCareTokenGenerator {
             String kid,
             Long validityMillis) {
 
-        public static final long DEFAULT_VALIDITY_MILLIS = 5 * 60 * 1000L;
+        public static final long DEFAULT_VALIDITY_MILLIS = 60 * 60 * 1000L;
 
         public MantraCareTokenClaims(int keyId, String userIdentifier, String inviteCode) {
             this(keyId, userIdentifier, inviteCode, null, null);
