@@ -185,7 +185,7 @@ public class OrganizationController {
     }
 
     @GetMapping("/organization/{organizationId}/employees/logins/preview")
-    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'VIMA_ADMIN', 'HR_ADMIN')")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'VIMA_ADMIN')")
     public ResponseEntity<ResponseDto<OrganizationEmployeeLoginPreviewDto>> previewEmployeeLogins(
             @CurrentOrganization UUID organizationId) {
         logger.info("[correlationId:{}] /organization/{}/employees/logins/preview (GET) endpoint called",
@@ -194,7 +194,7 @@ public class OrganizationController {
     }
 
     @PostMapping("/organization/{organizationId}/employees/logins/create")
-    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'VIMA_ADMIN', 'HR_ADMIN')")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'VIMA_ADMIN')")
     public ResponseEntity<ResponseDto<EmployeeOnboardingResponseDto>> createEmployeeLogins(
             @CurrentOrganization UUID organizationId,
             @RequestBody OrganizationCreateLoginsRequestDto requestDto) {
@@ -204,7 +204,7 @@ public class OrganizationController {
     }
 
     @PostMapping("/organization/{organizationId}/employees/{individualId}/logins/resend-welcome")
-    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'VIMA_ADMIN', 'HR_ADMIN')")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'VIMA_ADMIN')")
     public ResponseEntity<ResponseDto<String>> resendEmployeeWelcomeEmail(
             @CurrentOrganization UUID organizationId,
             @PathVariable UUID individualId) {
@@ -214,7 +214,7 @@ public class OrganizationController {
     }
 
     @PostMapping("/organization/{organizationId}/employees/{individualId}/logins/send-password-reset")
-    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'VIMA_ADMIN', 'HR_ADMIN')")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'VIMA_ADMIN')")
     public ResponseEntity<ResponseDto<String>> sendEmployeePasswordResetEmail(
             @CurrentOrganization UUID organizationId,
             @PathVariable UUID individualId) {
