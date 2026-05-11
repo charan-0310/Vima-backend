@@ -47,6 +47,7 @@ public final class MantraCareTokenGenerator {
 
         return Jwts.builder()
                 .setHeaderParam(HEADER_KID, kid)
+                .claim("key_id", claims.keyId())
                 .claim("user_identifier", claims.userIdentifier())
                 .claim("invite_code", claims.inviteCode())
                 .setIssuedAt(now)
