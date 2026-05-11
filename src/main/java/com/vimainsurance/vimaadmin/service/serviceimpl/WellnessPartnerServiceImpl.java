@@ -548,8 +548,11 @@ public class WellnessPartnerServiceImpl implements IWellnessPartnerService {
                     String requestCookie = stringOrNull(meta.get("request_cookie"));
                     long tokenValidityMillis = numberValue(meta.get("token_validity_seconds"), 3600) * 1000L;
                     int connectTimeoutMs = Math.max(numberValue(meta.get("connect_timeout_ms"), 5000), 1000);
-                    // Guardrail: partner API has shown frequent >30s responses; keep a safer floor.
-                    int readTimeoutMs = Math.max(numberValue(meta.get("read_timeout_ms"), 60000), 60000);
+                    // Respect metadata read_timeout_ms (e.g. Flyway seed 8000ms). Cap so two client attempts + employee-app
+                    // HTTP timeout (~20s) are not dominated by an artificial 60s floor (which caused XHR cancel).
+                    int readTimeoutMs = numberValue(meta.get("read_timeout_ms"), 8000);
+                    // Client allows ~45s for this call; MantraCareClient may retry once on I/O failure — keep 2× cap under that.
+                    readTimeoutMs = Math.min(18_000, Math.max(readTimeoutMs, 3_000));
 
                     if (inviteCode == null || inviteCode.isBlank()) {
                         throw new WellnessConfigException("Wellness partner is not configured for token issuance");

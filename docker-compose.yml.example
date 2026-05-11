@@ -32,6 +32,10 @@ services:
     environment:
       - JAVA_TOOL_OPTIONS=-XX:NativeMemoryTracking=summary -Xmx512m -Xms256m
       - SPRING_PROFILES_ACTIVE=prod
+      # One shared MantraCare PEM on the host at /etc/vima/mantra-partner-private-key.pem (same path inside the container).
+      - MANTRACARE_PRIVATE_KEY_PATH=/etc/vima/mantra-partner-private-key.pem
+    volumes:
+      - /etc/vima/mantra-partner-private-key.pem:/etc/vima/mantra-partner-private-key.pem:ro
     networks:
       - vima_net
 
@@ -43,6 +47,9 @@ services:
     environment:
       - JAVA_TOOL_OPTIONS=-XX:NativeMemoryTracking=summary -Xmx512m -Xms256m
       - SPRING_PROFILES_ACTIVE=dev
+      - MANTRACARE_PRIVATE_KEY_PATH=/etc/vima/mantra-partner-private-key.pem
+    volumes:
+      - /etc/vima/mantra-partner-private-key.pem:/etc/vima/mantra-partner-private-key.pem:ro
     networks:
       - vima_net
 

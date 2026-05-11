@@ -45,6 +45,9 @@ services:
     environment:
       - JAVA_TOOL_OPTIONS=-XX:NativeMemoryTracking=summary -Xmx512m -Xms256m
       - SPRING_PROFILES_ACTIVE=prod  # ← ADD THIS LINE
+      - MANTRACARE_PRIVATE_KEY_PATH=/etc/vima/mantra-partner-private-key.pem
+    volumes:
+      - /etc/vima/mantra-partner-private-key.pem:/etc/vima/mantra-partner-private-key.pem:ro
     networks:
       - vima_net
 
@@ -56,6 +59,9 @@ services:
     environment:
       - JAVA_TOOL_OPTIONS=-XX:NativeMemoryTracking=summary -Xmx512m -Xms256m
       - SPRING_PROFILES_ACTIVE=dev  # ← ADD THIS LINE
+      - MANTRACARE_PRIVATE_KEY_PATH=/etc/vima/mantra-partner-private-key.pem
+    volumes:
+      - /etc/vima/mantra-partner-private-key.pem:/etc/vima/mantra-partner-private-key.pem:ro
     networks:
       - vima_net
 
@@ -78,6 +84,18 @@ networks:
 - ⚠️ **You need to manually add** `SPRING_PROFILES_ACTIVE` environment variable to your `docker-compose.yml`:
   - `vima-api` service → `SPRING_PROFILES_ACTIVE=prod`
   - `vima-api-dev` service → `SPRING_PROFILES_ACTIVE=dev`
+
+### MantraCare private key (one file for prod + dev)
+
+Install the partner PEM once on the host as **`/etc/vima/mantra-partner-private-key.pem`** (same path `application-{profile}.properties` uses by default). Example:
+
+`sudo install -m 600 mantra-partner-private-key.pem /etc/vima/mantra-partner-private-key.pem`
+
+Use **`sudo chown`** so the JVM process can read it (e.g. `ubuntu:ubuntu` on EC2, or the UID your container runs as).
+
+When the API runs **in Docker**, bind-mount **`/etc/vima/mantra-partner-private-key.pem`** to the same path in the container and set **`MANTRACARE_PRIVATE_KEY_PATH=/etc/vima/mantra-partner-private-key.pem`** (see `docker-compose.yml.example`).
+
+If you omit the mount, use **`MANTRACARE_PRIVATE_KEY_PEM`** (env with the PEM body) instead.
 
 ## How It Works
 
