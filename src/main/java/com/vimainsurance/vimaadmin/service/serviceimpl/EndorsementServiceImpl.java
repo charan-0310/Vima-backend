@@ -215,7 +215,7 @@ public class EndorsementServiceImpl implements IEndorsementService {
                     && (endorsement.getEndorsementType() == EndorsementType.BULK_UPLOAD
                             || endorsement.getEndorsementType() == EndorsementType.INITIAL_UPLOAD
                             || endorsement.getEndorsementType() == EndorsementType.ADDITION)) {
-                flagshipNotificationService.scheduleEndorsementUploaded(endorsement, organization, uploadedBy);
+                flagshipNotificationService.scheduleEndorsementUploaded(endorsement, organization, uploadedBy, Collections.emptyList());
             }
 
             return responseObj.render(responseObj.formSuccessResponse(Constants.SUCCESS, Constants.SAVE_SUCCESS));
