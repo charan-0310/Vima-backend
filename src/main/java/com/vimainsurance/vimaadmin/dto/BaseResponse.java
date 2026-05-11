@@ -77,6 +77,12 @@ public class BaseResponse<T> {
 				case 500:
 					httpStatus = HttpStatus.INTERNAL_SERVER_ERROR;
 					break;
+				case 502:
+					httpStatus = HttpStatus.BAD_GATEWAY;
+					break;
+				case 503:
+					httpStatus = HttpStatus.SERVICE_UNAVAILABLE;
+					break;
 				default:
 					// Default to 400 for other error codes
 					httpStatus = HttpStatus.BAD_REQUEST;
