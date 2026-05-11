@@ -151,15 +151,17 @@ public class JwtUserExtractor {
                 }
             }
             Map<String, Object> resourceAccess = jwt.getClaimAsMap("resource_access");
-            Map<String, Object> clientAccess = (Map<String, Object>) resourceAccess.get(keycloakClientId);
-            if (clientAccess != null) {
-                Object clientRoles = clientAccess.get("roles");
-                if (clientRoles instanceof List) {
-                    ((List<?>) clientRoles).forEach(item -> {
-                        if (item instanceof String) {
-                            groups.add((String) item);
-                        }
-                    });
+            if (resourceAccess != null) {
+                Map<String, Object> clientAccess = (Map<String, Object>) resourceAccess.get(keycloakClientId);
+                if (clientAccess != null) {
+                    Object clientRoles = clientAccess.get("roles");
+                    if (clientRoles instanceof List) {
+                        ((List<?>) clientRoles).forEach(item -> {
+                            if (item instanceof String) {
+                                groups.add((String) item);
+                            }
+                        });
+                    }
                 }
             }
         }
@@ -469,10 +471,31 @@ public class JwtUserExtractor {
      * @throws OrganizationAccessDeniedException if the user is not authorized to access the organization
      */
     public void validateOrganizationAccess(UUID organizationId) {
+        if (organizationId == null) {
+            return;
+        }
+        // Platform operators receive cross-org notifications (e.g. endorsement uploads) but JWT
+        // organization_ids may still list only a subset — allow access without tenant restriction.
+        UserRole role = getCurrentUserRole();
+        if (role != null && bypassesOrganizationTenantRestriction(role)) {
+            return;
+        }
         List<String> allowedOrganizations = getCurrentOrganizations();
         if (!allowedOrganizations.isEmpty() && !allowedOrganizations.contains(organizationId.toString())) {
             throw new OrganizationAccessDeniedException("You are not authorized to access this organization");
         }
+    }
+
+    /**
+     * Roles that manage multiple organizations and must open endorsements/deals outside JWT scope.
+     * Keep aligned with {@link com.vimainsurance.vimaadmin.notification.NotificationRoutingResolver}
+     * VIMA-side recipients for flagship notifications.
+     */
+    private static boolean bypassesOrganizationTenantRestriction(UserRole role) {
+        return role == UserRole.SUPER_ADMIN
+                || role == UserRole.ADMIN
+                || role == UserRole.VIMA_ADMIN
+                || role == UserRole.SALES_ADMIN;
     }
 }
 

@@ -15,7 +15,9 @@ Detailed implementation conventions live in `.cursor/rules/`.
 
 - Follow existing backend architecture conventions before introducing new patterns.
 - Prefer minimal, scoped changes over broad refactors unless explicitly requested.
-- Validate substantive changes before finalizing (`mvnd test` or targeted module tests).
+- Run relevant targeted tests during development for each substantive backend code change.
+- Before finalizing backend code changes, run full verification: `./mvnw clean verify`.
+- Treat failing tests as blocking issues (do not mark work complete while tests fail unless the user explicitly approves a temporary exception).
 - If validation cannot run, state what was not validated and why.
 
 ## Safety And Collaboration Defaults

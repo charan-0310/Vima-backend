@@ -23,6 +23,7 @@ import com.vimainsurance.vimaadmin.entity.Organization;
 import com.vimainsurance.vimaadmin.entity.InsuranceProvider;
 import com.vimainsurance.vimaadmin.entity.Nominee;
 import com.vimainsurance.vimaadmin.entity.Policy;
+import com.vimainsurance.vimaadmin.enums.CoverageType;
 import com.vimainsurance.vimaadmin.enums.PolicyStatus;
 import com.vimainsurance.vimaadmin.enums.ProductType;
 import com.vimainsurance.vimaadmin.exception.BadRequestException;
@@ -204,8 +205,8 @@ public class EmployeeInsuranceServiceImpl implements IEmployeeInsuranceService {
                 .policyId(policy.getPolicyId())
                 .policyNumber(policy.getPolicyNumber())
                 .productType(policy.getProductType() != null ? policy.getProductType().getValue() : null)
-                .policyWording(policy.getPolicyWording())
-                .claimChecklist(policy.getClaimChecklist())
+                .policyWordingSummary(blankToNull(policy.getPolicyWordingSummary()))
+                .claimChecklistAdditionalDocs(blankToNull(policy.getClaimChecklistAdditionalDocs()))
                 .updatedAt(policy.getUpdatedAt())
                 .build();
     }
@@ -233,8 +234,11 @@ public class EmployeeInsuranceServiceImpl implements IEmployeeInsuranceService {
     }
 
     /**
-     * Covered members per policy: GMC/GHI floater (employee + spouse + children, no parents);
-     * PARENT_GMC only parent/in-law rows; GPA/GTL return empty (nominees used for accident/life).
+     * Covered members per policy:
+     * - PARENT_GMC: only parent/in-law rows
+     * - GMC/GHI with ESCP: include all members (parents are on base floater)
+     * - GMC/GHI otherwise: employee + non-parent dependents
+     * - GPA/GTL: empty (nominees used for accident/life)
      */
     private List<EmployeeInsuranceResponseDto.CoveredMemberDto> coveredMembersForPolicy(List<Deals> allMembers, Policy policy) {
         if (policy.getProductType() == null) {
@@ -252,12 +256,28 @@ public class EmployeeInsuranceServiceImpl implements IEmployeeInsuranceService {
                     .collect(Collectors.toList());
         }
         if (pt == ProductType.GMC || pt == ProductType.GHI) {
+            if (baseGmcGhiFloaterIncludesParents(policy)) {
+                return allMembers.stream()
+                        .map(d -> mapToCoveredMember(d, policyId, policy))
+                        .collect(Collectors.toList());
+            }
             return allMembers.stream()
                     .filter(d -> !isParentRelationshipForPolicy(d.getRelationship()))
                     .map(d -> mapToCoveredMember(d, policyId, policy))
                     .collect(Collectors.toList());
         }
         return Collections.emptyList();
+    }
+
+    private boolean baseGmcGhiFloaterIncludesParents(Policy policy) {
+        if (policy == null) {
+            return false;
+        }
+        ProductType pt = policy.getProductType();
+        if (pt != ProductType.GMC && pt != ProductType.GHI) {
+            return false;
+        }
+        return policy.getCoverageType() == CoverageType.ESCP;
     }
 
     private boolean isParentRelationshipForPolicy(String relationship) {

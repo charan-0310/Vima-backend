@@ -73,10 +73,10 @@ import com.vimainsurance.vimaadmin.repository.IPolicyRepository;
 import com.vimainsurance.vimaadmin.repository.IDocumentRepository;
 import com.vimainsurance.vimaadmin.repository.IEmployeePolicyMapRepository;
 import com.vimainsurance.vimaadmin.exception.DocumentUploadException;
-import com.vimainsurance.vimaadmin.util.SlackNotificationUtil;
 import com.vimainsurance.vimaadmin.util.TopupPremiumOptionsUtil;
 import com.vimainsurance.vimaadmin.util.GmcCoverageUploadValidationUtil;
 import com.vimainsurance.vimaadmin.service.policy.PolicyMemberMappingHelper;
+import com.vimainsurance.vimaadmin.notification.FlagshipNotificationService;
 
 @Slf4j
 @Service
@@ -113,8 +113,8 @@ public class EmployeeService {
     @Autowired
     private Javers javers;
 
-    @Autowired
-    private SlackNotificationUtil slackNotificationUtil;
+    @Autowired(required = false)
+    private FlagshipNotificationService flagshipNotificationService;
 
     @Autowired
     private IPolicyRepository policyRepository;
@@ -459,7 +459,7 @@ public class EmployeeService {
                 .filter(e -> e != null && EmployeeToDeals.isPrimaryMemberRelationship(e.getRelationship()))
                 .count();
             long spouseCount = employeeUploadDtoListByEmployeeId.stream()
-                .filter(e -> "Spouse".equalsIgnoreCase(e.getRelationship()))
+                .filter(e -> isSpouseRelationship(e.getRelationship()))
                 .count();
             long fatherCount = employeeUploadDtoListByEmployeeId.stream()
                 .filter(e -> "Father".equalsIgnoreCase(e.getRelationship()))
@@ -651,7 +651,7 @@ public class EmployeeService {
                     }
                 }
                 }
-                else if ("Spouse".equalsIgnoreCase(relationship) || 
+                else if (isSpouseRelationship(relationship) ||
                         (relationship.toUpperCase().startsWith("SPOUSE"))) {
                     LocalDate dateOfBirth = parseDobToLocalDateForValidation(employeeUploadDto.getDateOfBirth());
                     if (dateOfBirth == null) {
@@ -890,6 +890,11 @@ public class EmployeeService {
                 employeeUploadDtoList,
                 List.of("No policies found for provided policyIds"));
           }
+          List<Policy> orderedSelectedPolicies = (policyIds == null ? List.<Long>of() : policyIds).stream()
+              .map(selectedPolicyMap::get)
+              .filter(Objects::nonNull)
+              .toList();
+          applyPolicyDefaultsForMissingFields(employeeUploadDtoList, orderedSelectedPolicies);
           List<String> coverageErrors = GmcCoverageUploadValidationUtil.validateBulkUploadRows(employeeUploadDtoList, selectedPolicies);
           if (!coverageErrors.isEmpty()) {
             return buildValidationFailureResponse(employeeUploadDtoList, coverageErrors);
@@ -1175,6 +1180,11 @@ public class EmployeeService {
           UUID splitGroupId = UUID.randomUUID();
           Endorsement primaryEndorsement = null;
           Map<Long, List<Deals>> dealsByPolicy = mapDealsByPolicyForUpload(allSavedDeals, groupedByEmployeeId, selectedPolicyMap);
+          boolean hasAnyPolicyBucket = dealsByPolicy.values().stream().anyMatch(bucket -> bucket != null && !bucket.isEmpty());
+          if (!hasAnyPolicyBucket) {
+              throw new IllegalStateException(
+                  "No endorsements were created for selected policies. Ensure uploaded rows contain coverage values for at least one selected policy.");
+          }
           for (Map.Entry<Long, List<Deals>> entry : dealsByPolicy.entrySet()) {
               if (entry.getValue().isEmpty()) {
                   continue;
@@ -1255,8 +1265,21 @@ public class EmployeeService {
           if(createdCount == 0 && updatedCount == 0) {
             response.setMessage("No changes detected!");
           }
-          if(savedEndorsement != null) {
-            slackNotificationUtil.sendSlackMessage(slackNotificationUtil.buildEndorsementNotificationMessage(savedEndorsement), false);
+          if (savedEndorsement != null) {
+            log.info("endorsement_upload_saved endorsementId={} uploadType={} orgId={} createdCount={} updatedCount={}",
+                savedEndorsement.getEndorsementId(), uploadType,
+                organization != null ? organization.getOrganizationId() : null, createdCount, updatedCount);
+            if (flagshipNotificationService != null
+                    && uploadType != null
+                    && (uploadType.equalsIgnoreCase("addition") || uploadType.equalsIgnoreCase("bulk-upload"))) {
+              List<String> selfEmployeeIds = extractSelfEmployeeIdsFromUpload(employeeUploadDtoList);
+              log.info("endorsement_upload_notification_schedule endorsementId={} uploadType={} uploadedBy={} selfEmployeeIdCount={}",
+                  savedEndorsement.getEndorsementId(), uploadType, adminUser != null ? adminUser.getId() : null, selfEmployeeIds.size());
+              flagshipNotificationService.scheduleEndorsementUploaded(savedEndorsement, organization, adminUser, selfEmployeeIds);
+            }
+          } else {
+            log.info("endorsement_upload_no_endorsement_created uploadType={} orgId={} createdCount={} updatedCount={}",
+                uploadType, organization != null ? organization.getOrganizationId() : null, createdCount, updatedCount);
           }
           return response;
         } catch (Exception e) {
@@ -1294,6 +1317,25 @@ public class EmployeeService {
             .count();
     }
 
+    /**
+     * Employee IDs from sheet rows marked as Self / primary ({@link EmployeeToDeals#isPrimaryMemberRelationship}), preserving first-seen order.
+     */
+    private List<String> extractSelfEmployeeIdsFromUpload(List<EmployeeUploadDto> rows) {
+        if (rows == null || rows.isEmpty()) {
+            return List.of();
+        }
+        LinkedHashSet<String> seen = new LinkedHashSet<>();
+        for (EmployeeUploadDto dto : rows) {
+            if (dto == null || !EmployeeToDeals.isPrimaryMemberRelationship(dto.getRelationship())) {
+                continue;
+            }
+            String employeeId = dto.getEmployeeId();
+            if (employeeId != null && !employeeId.isBlank()) {
+                seen.add(employeeId.trim());
+            }
+        }
+        return new ArrayList<>(seen);
+    }
 
     public List<String> getEmployeeIds(List<EmployeeUploadDto> employeeUploadDtoList) {
         return employeeUploadDtoList.stream().distinct().map(EmployeeUploadDto::getEmployeeId).collect(Collectors.toList());
@@ -1476,7 +1518,9 @@ public class EmployeeService {
             }
             deletedCount = dealsToDelete.size();
             if (primaryEndorsement != null) {
-                slackNotificationUtil.sendSlackMessage(slackNotificationUtil.buildEndorsementNotificationMessage(primaryEndorsement), false);
+                log.info("endorsement_delete_saved endorsementId={} orgId={}",
+                        primaryEndorsement.getEndorsementId(),
+                        organization != null ? organization.getOrganizationId() : null);
             }
         }
             return new EmployeeUploadResponse(deletedCount, deletedCount, 0, new ArrayList<>(), "Employees" + "(" + employeeCount + ")" + " and dependents" + "(" + dependentCount + ")" + " deleted successfully", employeeCount, dependentCount);
@@ -1551,6 +1595,59 @@ public class EmployeeService {
         return NomineeRelationship.MOTHER_IN_LAW.getValue().equals(normalizeInLawRelationship(relationship));
     }
 
+    private boolean isSpouseRelationship(String relationship) {
+        if (relationship == null) return false;
+        String rel = relationship.trim();
+        return "SPOUSE".equalsIgnoreCase(rel)
+                || "WIFE".equalsIgnoreCase(rel)
+                || "HUSBAND".equalsIgnoreCase(rel);
+    }
+
+    private void applyPolicyDefaultsForMissingFields(List<EmployeeUploadDto> rows, List<Policy> selectedPolicies) {
+        if (rows == null || rows.isEmpty()) {
+            return;
+        }
+        Optional<Policy> defaultPolicyOpt = resolveDefaultPolicyForFallbacks(selectedPolicies);
+        if (defaultPolicyOpt.isEmpty()) {
+            return;
+        }
+        Policy defaultPolicy = defaultPolicyOpt.get();
+        String defaultDateOfJoining = defaultPolicy.getStartDate() != null ? defaultPolicy.getStartDate().toString() : null;
+        String defaultSumInsured = defaultPolicy.getSumInsured() != null ? defaultPolicy.getSumInsured().toPlainString() : null;
+        for (EmployeeUploadDto row : rows) {
+            if (row == null) continue;
+            if (!EmployeeToDeals.isPrimaryMemberRelationship(row.getRelationship())) {
+                continue;
+            }
+            if ((row.getDateOfJoining() == null || row.getDateOfJoining().trim().isEmpty()) && defaultDateOfJoining != null) {
+                row.setDateOfJoining(defaultDateOfJoining);
+            }
+            if ((row.getSumInsured() == null || row.getSumInsured().trim().isEmpty()) && defaultSumInsured != null) {
+                row.setSumInsured(defaultSumInsured);
+            }
+        }
+    }
+
+    private Optional<Policy> resolveDefaultPolicyForFallbacks(List<Policy> selectedPolicies) {
+        if (selectedPolicies == null || selectedPolicies.isEmpty()) {
+            return Optional.empty();
+        }
+        List<Policy> activePolicies = selectedPolicies.stream()
+                .filter(Objects::nonNull)
+                .filter(p -> PolicyStatus.ACTIVE.equals(p.getStatus()))
+                .toList();
+        Optional<Policy> gmcPolicy = activePolicies.stream()
+                .filter(p -> ProductType.GMC.equals(p.getProductType()))
+                .findFirst();
+        if (gmcPolicy.isPresent()) {
+            return gmcPolicy;
+        }
+        if (!activePolicies.isEmpty()) {
+            return Optional.of(activePolicies.get(0));
+        }
+        return selectedPolicies.stream().filter(Objects::nonNull).findFirst();
+    }
+
     private boolean isParentRelationship(String relationship) {
         if (relationship == null) return false;
         return "FATHER".equalsIgnoreCase(relationship)
@@ -1614,7 +1711,7 @@ public class EmployeeService {
         
         if ("Self".equalsIgnoreCase(rel)) {
             return NomineeRelationship.SELF.getValue();
-        } else if ("Spouse".equalsIgnoreCase(rel)) {
+        } else if (isSpouseRelationship(rel)) {
             return NomineeRelationship.SPOUSE.getValue();
         } else if ("Father".equalsIgnoreCase(rel)) {
             return NomineeRelationship.FATHER.getValue();
@@ -1670,7 +1767,7 @@ public class EmployeeService {
         // Check for allowed relationships
         if ("Self".equalsIgnoreCase(rel) || "Employee".equalsIgnoreCase(rel) || "EMPLOYEE".equals(rel)) {
             return true;
-        } else if ("Spouse".equalsIgnoreCase(rel)) {
+        } else if (isSpouseRelationship(rel)) {
             return true;
         } else if ("Father".equalsIgnoreCase(rel)) {
             return true;
@@ -1919,7 +2016,9 @@ public class EmployeeService {
             }
 
             if (primaryEndorsement != null) {
-                slackNotificationUtil.sendSlackMessage(slackNotificationUtil.buildEndorsementNotificationMessage(primaryEndorsement), false);
+                log.info("endorsement_delete_manual_saved endorsementId={} orgId={}",
+                        primaryEndorsement.getEndorsementId(),
+                        organization != null ? organization.getOrganizationId() : null);
             }
 
             String message = String.format("Employees (%d) and dependents (%d) submitted for deletion successfully. Endorsement created with status Pending.", employeeCount, dependentCount);

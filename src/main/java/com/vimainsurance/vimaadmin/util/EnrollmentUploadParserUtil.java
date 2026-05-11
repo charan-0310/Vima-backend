@@ -27,6 +27,7 @@ import com.opencsv.CSVReader;
 import com.opencsv.CSVReaderBuilder;
 import com.opencsv.exceptions.CsvException;
 import com.vimainsurance.vimaadmin.dto.SelfEmployeeEnrollmentRequestDto;
+import com.vimainsurance.vimaadmin.enums.NomineeRelationship;
 
 import lombok.AllArgsConstructor;
 import lombok.Data;
@@ -257,8 +258,11 @@ public final class EnrollmentUploadParserUtil {
                 .replaceAll("[\\s_-]+", "")
                 .toUpperCase(Locale.ROOT);
 
-        if ("FATHERINLAW".equals(compact)) return "FATHER_IN_LAW";
-        if ("MOTHERINLAW".equals(compact)) return "MOTHER_IN_LAW";
+        if ("FATHERINLAW".equals(compact)) return NomineeRelationship.FATHER_IN_LAW.getValue();
+        if ("MOTHERINLAW".equals(compact)) return NomineeRelationship.MOTHER_IN_LAW.getValue();
+        if ("WIFE".equals(compact) || "HUSBAND".equals(compact) || "SPOUSE".equals(compact)) {
+            return NomineeRelationship.SPOUSE.getValue();
+        }
 
         return relationship.trim();
     }

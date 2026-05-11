@@ -44,13 +44,6 @@
 		</dependencies>
 	</dependencyManagement>
 
-	<repositories>
-    <repository>
-        <id>local-lib</id>
-        <url>file://${project.basedir}/lib</url>
-    </repository>
-</repositories>
-
 	<dependencies>
 		<dependency>
 			<groupId>org.springframework.boot</groupId>
@@ -136,7 +129,7 @@
 			<artifactId>spring-boot-starter-oauth2-client</artifactId>
 		</dependency>
 		
-		<!-- OAuth2 Resource Server for JWT validation with Authentik -->
+		<!-- OAuth2 Resource Server for JWT validation (Keycloak) -->
 		<dependency>
 			<groupId>org.springframework.boot</groupId>
 			<artifactId>spring-boot-starter-oauth2-resource-server</artifactId>
@@ -156,19 +149,6 @@
 			<artifactId>opencsv</artifactId>
 			<version>5.7.1</version>
 		</dependency>
-		<dependency>
-			<groupId>com.zoho.crm</groupId>
-        	<artifactId>zohocrmsdk-5-0</artifactId>
-			<version>6.0.0</version>
-			<scope>system</scope>
-  			<systemPath>${project.basedir}/lib/zohocrmsdk-5-0-6.0.0.jar</systemPath>
-		</dependency>
-		<!-- https://mvnrepository.com/artifact/org.apache.commons/commons-lang3 -->
-	<!-- <dependency>
-		<groupId>org.apache.commons</groupId>
-		<artifactId>commons-lang3</artifactId>
-		<version>3.9</version>
-	</dependency> -->
 		<dependency>
 			<groupId>org.json</groupId>
 			<artifactId>json</artifactId>
@@ -254,6 +234,13 @@
             <version>8.7.0</version>
         </dependency>
 
+        <!-- Caffeine — bounded cache for rate-limit buckets (F-04) and other in-memory caches -->
+        <dependency>
+            <groupId>com.github.ben-manes.caffeine</groupId>
+            <artifactId>caffeine</artifactId>
+            <version>3.1.8</version>
+        </dependency>
+
         <!-- KeyCloak-->
 		<dependency>
 			<groupId>org.keycloak</groupId>
@@ -278,7 +265,6 @@
 				<artifactId>spring-boot-maven-plugin</artifactId>
 				<configuration>
 					<jvmArguments>-agentlib:jdwp=transport=dt_socket,server=y,suspend=n,address=*:5005</jvmArguments>
-					<includeSystemScope>true</includeSystemScope>
 				</configuration>
 			</plugin>
 			<plugin>

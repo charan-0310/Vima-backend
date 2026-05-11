@@ -16,4 +16,14 @@ public class OrganizationEmployeeLoginItemDto {
     private String status;
     private Instant lastLoginAt;
     private String detail;
+    /**
+     * Total number of non-blank Health IDs across the primary employee and their active dependents.
+     * Used by the Logins page to enable/disable the "Email health cards" action without an extra round trip.
+     */
+    private int healthIdCount;
+    /**
+     * Health ID on the primary employee record (non-blank), if any. Dependents may still have IDs
+     * when this is null; see {@link #healthIdCount}.
+     */
+    private String primaryHealthId;
 }

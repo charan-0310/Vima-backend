@@ -123,10 +123,15 @@ Insurance policies issued to organizations/individuals.
 | policy_category | VARCHAR | |
 | sum_insured_multiplier | NUMERIC | |
 | applies_to_employees | BOOLEAN | |
+| policy_wording_document_id | UUID | FK → `document.documents`. Admin-only reference to the uploaded policy wording PDF (V78). Never surfaced to employees. |
+| claim_checklist_document_id | UUID | FK → `document.documents`. Admin-only reference to the uploaded claim checklist PDF (V78). Never surfaced to employees. |
+| policy_wording_summary | TEXT | Admin-authored condensed wording HTML (V79). Drives the employee Policy Wording page. |
+| claim_checklist_additional_docs | TEXT | Admin-authored "additional documents" HTML (V79). Appended to the default 5-section claim checklist on the employee portal. |
 
 **Relationships:**
 - Belongs to → `organizations`, `customers` (primary_individual_id), `insurance_providers`
 - Has many → `nominees`, `motor_policy_details`
+- References (admin-only) → `document.documents` via `policy_wording_document_id` / `claim_checklist_document_id` (`ON DELETE SET NULL`)
 - Referenced by → claims (claims.claims)
 
 ---

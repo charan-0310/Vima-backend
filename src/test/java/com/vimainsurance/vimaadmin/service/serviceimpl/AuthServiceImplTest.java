@@ -1,9 +1,9 @@
 package com.vimainsurance.vimaadmin.service.serviceimpl;
 
-import java.lang.reflect.Field;
+import java.nio.charset.StandardCharsets;
+import java.security.InvalidKeyException;
+import java.security.NoSuchAlgorithmException;
 import java.time.LocalDateTime;
-import java.util.HashMap;
-import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -31,8 +31,8 @@ import org.springframework.security.authentication.UsernamePasswordAuthenticatio
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
-import org.springframework.web.client.RestTemplate;
-import org.springframework.http.ResponseEntity;
+import javax.crypto.Mac;
+import javax.crypto.spec.SecretKeySpec;
 
 import com.vimainsurance.vimaadmin.dto.ChallengeLoginRequestDto;
 import com.vimainsurance.vimaadmin.dto.ChallengeRequestDto;
@@ -44,6 +44,7 @@ import com.vimainsurance.vimaadmin.dto.RefreshTokenResponseDto;
 import com.vimainsurance.vimaadmin.dto.ResponseDto;
 import com.vimainsurance.vimaadmin.entity.AdminUser;
 import com.vimainsurance.vimaadmin.repository.IAdminUserRepository;
+import com.vimainsurance.vimaadmin.security.LoginAttemptService;
 import com.vimainsurance.vimaadmin.util.Constants;
 import com.vimainsurance.vimaadmin.util.JwtUtil;
 
@@ -64,7 +65,7 @@ class AuthServiceImplTest {
     private BCryptPasswordEncoder passwordEncoder;
 
     @Mock
-    private RestTemplate restTemplate;
+    private LoginAttemptService loginAttemptService;
 
     @InjectMocks
     private AuthServiceImpl authService;
@@ -75,26 +76,6 @@ class AuthServiceImplTest {
     private ChallengeLoginRequestDto challengeLoginRequestDto;
     private AdminUser adminUser;
     private Authentication authentication;
-
-    // Helper method to mock reCAPTCHA verification
-    private void mockRecaptchaVerification(boolean isValid) {
-        try {
-            // Use reflection to replace the RestTemplate field in the service
-            Field restTemplateField = AuthServiceImpl.class.getDeclaredField("restTemplate");
-            restTemplateField.setAccessible(true);
-            restTemplateField.set(authService, restTemplate);
-        } catch (Exception e) {
-            throw new RuntimeException("Failed to inject mock RestTemplate", e);
-        }
-        
-        Map<String, Object> responseBody = new HashMap<>();
-        Map<String, Object> tokenProps = new HashMap<>();
-        tokenProps.put("valid", isValid);
-        responseBody.put("tokenProperties", tokenProps);
-        
-        ResponseEntity<Map> mockResponse = new ResponseEntity<>(responseBody, HttpStatus.OK);
-        when(restTemplate.postForEntity(anyString(), any(), eq(Map.class))).thenReturn(mockResponse);
-    }
 
     @BeforeEach
     void setUp() {
@@ -137,9 +118,6 @@ class AuthServiceImplTest {
             "password",
             java.util.Collections.singletonList(new SimpleGrantedAuthority("ROLE_ADMIN"))
         );
-
-        // Mock reCAPTCHA verification as successful by default
-        mockRecaptchaVerification(true);
     }
 
     // ========== LOGIN TESTS ==========
@@ -170,8 +148,8 @@ class AuthServiceImplTest {
 
     @Test
     void testLogin_InvalidRecaptcha() {
-        // Mock reCAPTCHA verification failure
-        mockRecaptchaVerification(false);
+        when(authenticationManager.authenticate(any(UsernamePasswordAuthenticationToken.class)))
+            .thenThrow(new BadCredentialsException("Invalid credentials"));
 
         // Perform login
         ResponseEntity<ResponseDto<LoginResponseDto>> response = authService.login(loginRequestDto);
@@ -179,13 +157,15 @@ class AuthServiceImplTest {
         // Verify response
         assertEquals(HttpStatus.BAD_REQUEST, response.getStatusCode());
         assertNotNull(response.getBody());
-        assertEquals("Invalid Captcha!!", response.getBody().getMessage());
+        assertEquals("Invalid username or password!!", response.getBody().getMessage());
     }
 
     @Test
     void testLogin_NullRecaptcha() {
         // Set null reCAPTCHA token
         loginRequestDto.setRecaptchaToken(null);
+        when(authenticationManager.authenticate(any(UsernamePasswordAuthenticationToken.class)))
+            .thenThrow(new BadCredentialsException("Invalid credentials"));
 
         // Perform login
         ResponseEntity<ResponseDto<LoginResponseDto>> response = authService.login(loginRequestDto);
@@ -193,7 +173,7 @@ class AuthServiceImplTest {
         // Verify response
         assertEquals(HttpStatus.BAD_REQUEST, response.getStatusCode());
         assertNotNull(response.getBody());
-        assertEquals("Invalid Captcha!!", response.getBody().getMessage());
+        assertEquals("Invalid username or password!!", response.getBody().getMessage());
     }
 
     @Test
@@ -383,25 +363,21 @@ class AuthServiceImplTest {
         when(jwtUtil.generateRefreshToken(anyString(), anyString()))
             .thenReturn("test-refresh-token");
 
-        // Set up the client proof to match what the service expects
-        // The service computes HMAC_SHA256(hashedPassword, nonce)
-        // We need to compute the expected HMAC value based on our test data
-        // For this test, we'll use a known HMAC value that matches our test setup
-        challengeLoginRequestDto.setClientproof("expected-hmac-value");
+        challengeLoginRequestDto.setClientproof(computeHmacSha256("hashed-password", "test-nonce"));
 
         // Perform challenge login
         ResponseEntity<ResponseDto<LoginResponseDto>> response = authService.challengeLogin(challengeLoginRequestDto);
 
-        // Verify response - this will fail due to HMAC mismatch, which is expected
-        assertEquals(HttpStatus.BAD_REQUEST, response.getStatusCode());
+        // Verify response
+        assertEquals(HttpStatus.OK, response.getStatusCode());
         assertNotNull(response.getBody());
-        assertEquals("Invalid credentials", response.getBody().getMessage());
+        assertEquals(Constants.SUCCESS, response.getBody().getMessage());
     }
 
     @Test
     void testChallengeLogin_InvalidRecaptcha() {
-        // Mock reCAPTCHA verification failure
-        mockRecaptchaVerification(false);
+        when(adminUserRepository.findByUsername(anyString())).thenReturn(Optional.of(adminUser));
+        when(adminUserRepository.save(any(AdminUser.class))).thenReturn(adminUser);
 
         // Perform challenge login
         ResponseEntity<ResponseDto<LoginResponseDto>> response = authService.challengeLogin(challengeLoginRequestDto);
@@ -409,7 +385,7 @@ class AuthServiceImplTest {
         // Verify response
         assertEquals(HttpStatus.BAD_REQUEST, response.getStatusCode());
         assertNotNull(response.getBody());
-        assertEquals("Invalid Captcha!!", response.getBody().getMessage());
+        assertEquals("Invalid credentials", response.getBody().getMessage());
     }
 
     @Test
@@ -523,6 +499,26 @@ class AuthServiceImplTest {
         assertEquals(HttpStatus.BAD_REQUEST, response.getStatusCode());
         assertNotNull(response.getBody());
         assertEquals("Internal Server Error", response.getBody().getMessage());
+    }
+
+    private String computeHmacSha256(String data, String salt) {
+        try {
+            Mac mac = Mac.getInstance("HmacSHA256");
+            SecretKeySpec secretKeySpec = new SecretKeySpec(data.getBytes(StandardCharsets.UTF_8), "HmacSHA256");
+            mac.init(secretKeySpec);
+            byte[] hash = mac.doFinal(salt.getBytes(StandardCharsets.UTF_8));
+            return bytesToHex(hash);
+        } catch (NoSuchAlgorithmException | InvalidKeyException e) {
+            throw new RuntimeException("Failed to compute HMAC for test setup", e);
+        }
+    }
+
+    private String bytesToHex(byte[] bytes) {
+        StringBuilder result = new StringBuilder();
+        for (byte b : bytes) {
+            result.append(String.format("%02x", b));
+        }
+        return result.toString();
     }
 
 } 

@@ -23,6 +23,8 @@ import com.vimainsurance.vimaadmin.entity.ClaimSettlement;
 import com.vimainsurance.vimaadmin.enums.ClaimStatus;
 import com.vimainsurance.vimaadmin.enums.DocumentType;
 import com.vimainsurance.vimaadmin.exception.BadRequestException;
+import com.vimainsurance.vimaadmin.notification.ClaimsNotificationEmitterService;
+import com.vimainsurance.vimaadmin.repository.IAdminUserRepository;
 import com.vimainsurance.vimaadmin.repository.IClaimDeductionRepository;
 import com.vimainsurance.vimaadmin.repository.IClaimRepository;
 import com.vimainsurance.vimaadmin.repository.IClaimSettlementRepository;
@@ -50,6 +52,8 @@ public class ClaimSettlementServiceImpl implements IClaimSettlementService {
     private final ClaimStatusTransitionValidator statusValidator;
     private final ClaimAuditService auditService;
     private final ClaimsNotificationService notificationService;
+    private final ClaimsNotificationEmitterService claimsNotificationEmitterService;
+    private final IAdminUserRepository adminUserRepository;
     private final IClaimsDocumentService claimsDocumentService;
     private final JwtUserExtractor jwtUserExtractor;
 
@@ -103,6 +107,13 @@ public class ClaimSettlementServiceImpl implements IClaimSettlementService {
                 "Settlement amountPaid=" + amountPaid);
 
         notificationService.notifySettlement(claim, settlement);
+        UUID actorId = jwtUserExtractor.getCurrentUserId();
+        String actorRole = jwtUserExtractor.getCurrentUserRole() != null ? jwtUserExtractor.getCurrentUserRole().getValue() : "ADMIN";
+        claimsNotificationEmitterService.scheduleClaimSettled(
+                claim,
+                resolveActorName(actorId),
+                resolveActorOrganizationName(actorId),
+                actorRole);
 
         SettlementResponse response = SettlementResponse.builder()
                 .id(settlement.getId())
@@ -236,5 +247,23 @@ public class ClaimSettlementServiceImpl implements IClaimSettlementService {
                 .deductionAmount(d.getDeductionAmount())
                 .createdAt(d.getCreatedAt())
                 .build();
+    }
+
+    private String resolveActorName(UUID actorId) {
+        if (actorId == null) {
+            return "System";
+        }
+        return adminUserRepository.findById(actorId)
+                .map(u -> u.getFullName() != null && !u.getFullName().isBlank() ? u.getFullName() : u.getUsername())
+                .orElse("System");
+    }
+
+    private String resolveActorOrganizationName(UUID actorId) {
+        if (actorId == null) {
+            return null;
+        }
+        return adminUserRepository.findById(actorId)
+                .map(u -> u.getOrganization() != null ? u.getOrganization().getOrganizationName() : null)
+                .orElse(null);
     }
 }

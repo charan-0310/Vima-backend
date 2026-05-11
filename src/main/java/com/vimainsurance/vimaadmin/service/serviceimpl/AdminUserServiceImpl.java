@@ -38,7 +38,6 @@ import com.vimainsurance.vimaadmin.enums.UserRole;
 import com.vimainsurance.vimaadmin.repository.IAdminUserRepository;
 import com.vimainsurance.vimaadmin.service.IAdminUserService;
 import com.vimainsurance.vimaadmin.service.IEmailService;
-import com.vimainsurance.vimaadmin.util.AuthentikUtil;
 import com.vimainsurance.vimaadmin.util.KeyCloakUtil;
 import com.vimainsurance.vimaadmin.util.Constants;
 import com.vimainsurance.vimaadmin.util.IdGenerator;
@@ -55,14 +54,11 @@ public class AdminUserServiceImpl implements IAdminUserService {
     @Autowired
     private IdGenerator idGenerator;
 
-    // @Value("${admin.default.password:ChangeMe123!}")
-    // private String defaultPassword;
+    // F-06: bootstrap admin password removed — admin accounts are now provisioned in Keycloak
+    // and the seed admin lands with a one-shot random password from Secrets Manager.
 
     @Autowired
     private IEmailService emailService;
-
-    @Autowired
-    private AuthentikUtil authentikUtil;
 
     @Autowired
     private KeyCloakUtil keyCloakUtil;
@@ -99,16 +95,16 @@ public class AdminUserServiceImpl implements IAdminUserService {
     );
 
     /**
-     * Extracts user-friendly error message from Authentik API exceptions.
+     * Extracts user-friendly error message from Keycloak API exceptions.
      * Uses JSON parsing and standard Map lookups (no regex or string search).
      */
-    private String getAuthentikUserFriendlyMessage(Exception e) {
+    private String getIdpUserFriendlyMessage(Exception e) {
         HttpStatusCodeException httpEx = findHttpStatusCodeException(e);
         if (httpEx != null) {
             int statusCode = httpEx.getStatusCode().value();
             String statusMessage = HTTP_STATUS_MESSAGES.get(statusCode);
             if (statusCode == 400) {
-                String fieldMessage = parseAuthentikValidationErrors(httpEx.getResponseBodyAsString());
+                String fieldMessage = parseIdpValidationErrors(httpEx.getResponseBodyAsString());
                 return fieldMessage != null ? fieldMessage : (statusMessage != null ? statusMessage : "Invalid request. Please check the provided data and try again.");
             }
             if (statusCode == 409) {
@@ -127,10 +123,10 @@ public class AdminUserServiceImpl implements IAdminUserService {
     }
 
     /**
-     * Parses Authentik validation error JSON and returns user-friendly message.
+     * Parses Keycloak validation error JSON and returns user-friendly message.
      * Expects format: {"fieldName":["error message"], ...}
      */
-    private String parseAuthentikValidationErrors(String responseBody) {
+    private String parseIdpValidationErrors(String responseBody) {
         if (responseBody == null || responseBody.isBlank()) {
             return null;
         }
@@ -177,7 +173,7 @@ public class AdminUserServiceImpl implements IAdminUserService {
     }
 
     private void mapRequestToEntity(AdminUserRequestDto dto, AdminUser user) {
-        // Store username/email in lowercase to match identity provider (Keycloak/Authentik) and avoid login mismatch
+        // Store username/email in lowercase to match Keycloak and avoid login mismatch
         user.setUsername(dto.getUsername() != null ? dto.getUsername().trim().toLowerCase() : null);
         user.setEmail(dto.getEmail() != null ? dto.getEmail().trim().toLowerCase() : null);
         user.setFullName(dto.getFullName());
@@ -185,7 +181,8 @@ public class AdminUserServiceImpl implements IAdminUserService {
         user.setIsActive(dto.getIsActive() != null ? dto.getIsActive() : true);
         user.setOauthProvider(dto.getOauthProvider());
         user.setOauthProviderId(dto.getOauthProviderId());
-        user.setZohoCrmId(dto.getZohoCrmId());
+        // zoho_crm_id is kept on the AdminUser entity for historic-data preservation;
+        // Vima no longer integrates with Zoho so we no longer write to it from inbound requests.
         user.setLastLogin(dto.getLastLogin());
         String reportingToUsername = dto.getReportingTo() != null ? dto.getReportingTo().trim().toLowerCase() : null;
         user.setReportingTo(reportingToUsername != null ? adminUserRepository.findByUsername(reportingToUsername).orElse(null) : null);
@@ -228,7 +225,7 @@ public class AdminUserServiceImpl implements IAdminUserService {
             String password = saved.getFullName().trim().toLowerCase() + "@" + dateStr;
             
 
-            // Create in Keycloak/Authentik with same lowercase username/email as stored in DB
+            // Create in Keycloak with same lowercase username/email as stored in DB
             try {
                 password = keyCloakUtil.createUser(
                     requestDto.getFullName(),
@@ -248,7 +245,7 @@ public class AdminUserServiceImpl implements IAdminUserService {
                     // No active transaction (e.g. in unit tests) - ignore
                 }
                 logger.error("[correlationId:{}] Error creating user in Ke: {}", MDC.get("correlationId"), e.getMessage(), e);
-                String userMessage = getAuthentikUserFriendlyMessage(e);
+                String userMessage = getIdpUserFriendlyMessage(e);
                 return responseObj.render(responseObj.formErrorResponse(userMessage));
             }
             
@@ -385,7 +382,7 @@ public class AdminUserServiceImpl implements IAdminUserService {
         BaseResponse<AdminUsersFilteredResponseDto> responseObj = new BaseResponse<>();
         try {
             // Map sortBy to ordering field name (Keycloak ignores; used for API compatibility)
-            String ordering = mapSortByToAuthentikOrdering(sortBy, sortDirection);
+            String ordering = mapSortByToIdpOrdering(sortBy, sortDirection);
 
             // Prepare groups list (Keycloak getUsersWithFilters ignores groupsByName; role/org filter applied in-memory below)
             List<String> groupsByName = new ArrayList<>();
@@ -507,7 +504,7 @@ public class AdminUserServiceImpl implements IAdminUserService {
         
         String searchLower = search.toLowerCase();
         
-        // Check standard fields (username, email, fullName, agentId) - these are already searched by Authentik
+        // Check standard fields (username, email, fullName, agentId) - these are already searched by Keycloak
         // But we also check here to ensure consistency
         boolean matchesStandardFields = 
             (user.getUsername() != null && user.getUsername().toLowerCase().contains(searchLower)) ||
@@ -515,7 +512,7 @@ public class AdminUserServiceImpl implements IAdminUserService {
             (user.getFullName() != null && user.getFullName().toLowerCase().contains(searchLower)) ||
             (user.getAgentId() != null && user.getAgentId().toLowerCase().contains(searchLower));
         
-        // Check organization names (not searched by Authentik, so we do it here)
+        // Check organization names (not searched by Keycloak, so we do it here)
         boolean matchesOrganization = false;
         if (user.getOrganizations() != null && !user.getOrganizations().isEmpty()) {
             matchesOrganization = user.getOrganizations().stream()
@@ -597,9 +594,9 @@ public class AdminUserServiceImpl implements IAdminUserService {
     }
 
     /**
-     * Get all users with filters from Authentik by fetching all pages
+     * Get all users with filters from Keycloak by fetching all pages
      */
-    private List<AdminUserResponseDto> getAllUsersWithFiltersFromAuthentik(
+    private List<AdminUserResponseDto> getAllUsersWithFiltersFromIdp(
             String search, Boolean isActive, String ordering, List<String> groupsByName, String originalSearch) {
         List<AdminUserResponseDto> allUsers = new ArrayList<>();
         int currentPage = 1;
@@ -607,7 +604,7 @@ public class AdminUserServiceImpl implements IAdminUserService {
         
         while (true) {
             AuthentikPaginatedResponse<AdminUserResponseDto> response = 
-                authentikUtil.getUsersWithFilters(search, isActive, ordering, groupsByName, currentPage, pageSize);
+                keyCloakUtil.getUsersWithFilters(search, isActive, ordering, groupsByName, currentPage, pageSize);
             if (response.getResults() == null || response.getResults().isEmpty()) {
                 break;
             }
@@ -637,11 +634,11 @@ public class AdminUserServiceImpl implements IAdminUserService {
     }
 
     /**
-     * Map sortBy field to Authentik ordering parameter
-     * Authentik uses field names like "username", "email", "name", "is_active", "date_joined", "last_login"
+     * Map sortBy field to Keycloak ordering parameter
+     * Keycloak ordering uses field names like "username", "email", "name", "is_active", "date_joined", "last_login"
      * Prefix with "-" for descending order
      */
-    private String mapSortByToAuthentikOrdering(String sortBy, String sortDirection) {
+    private String mapSortByToIdpOrdering(String sortBy, String sortDirection) {
         if (sortBy == null || sortBy.trim().isEmpty()) {
             sortBy = "date_joined"; // Default sort field
         }
@@ -653,11 +650,11 @@ public class AdminUserServiceImpl implements IAdminUserService {
             case "isactive", "is_active" -> "is_active";
             case "lastlogin", "last_login" -> "last_login";
             case "createdat", "created_at", "created" -> "date_joined";
-            case "agentid", "agent_id" -> "username"; // Fallback to username if agentId not available in Authentik
+            case "agentid", "agent_id" -> "username"; // Fallback to username if agentId not available in Keycloak
             default -> "date_joined"; // Default fallback
         };
         
-        // Authentik uses "-" prefix for descending order
+        // Keycloak ordering uses "-" prefix for descending order
         boolean isDesc = "desc".equalsIgnoreCase(sortDirection);
         return isDesc ? "-" + authenticField : authenticField;
     }
@@ -720,8 +717,8 @@ public class AdminUserServiceImpl implements IAdminUserService {
             
             return responseObj.render(responseObj.formSuccessResponse(Constants.SUCCESS, groups));
         } catch (Exception e) {
-            logger.error("Error fetching roles and organizations from Authentik", e);
-            return responseObj.render(responseObj.formErrorResponse("Error Occured while fetching roles and organizations from Authentik"));
+            logger.error("Error fetching roles and organizations from Keycloak", e);
+            return responseObj.render(responseObj.formErrorResponse("Error fetching roles and organizations from Keycloak"));
         }
     }
 
@@ -733,7 +730,7 @@ public class AdminUserServiceImpl implements IAdminUserService {
             List<RoleDto> roles = keyCloakUtil.getRoles();
             return responseObj.render(responseObj.formSuccessResponse(Constants.SUCCESS, roles));
         } catch (Exception e) {
-            logger.error("Error fetching roles from Authentik", e);
+            logger.error("Error fetching roles from Keycloak", e);
             return responseObj.render(responseObj.formErrorResponse(e.getMessage()));
         }
     }
@@ -746,7 +743,7 @@ public class AdminUserServiceImpl implements IAdminUserService {
             List<OrganizationDto> organizations = keyCloakUtil.getOrganizations();
             return responseObj.render(responseObj.formSuccessResponse(Constants.SUCCESS, organizations));
         } catch (Exception e) {
-            logger.error("Error fetching organizations from Authentik", e);
+            logger.error("Error fetching organizations from Keycloak", e);
             return responseObj.render(responseObj.formErrorResponse(e.getMessage()));
         }
     }
