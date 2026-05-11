@@ -518,8 +518,7 @@ public class WellnessPartnerServiceImpl implements IWellnessPartnerService {
             }
 
             try {
-                String redirectUrl;
-
+                WellnessRedirectResponseDto payload;
                 if ("mantracare".equalsIgnoreCase(partner.getSlug())
                         && "BACKEND_TOKEN".equalsIgnoreCase(partner.getRedirectType())) {
                     Deals employee = dealsRepository
@@ -547,14 +546,6 @@ public class WellnessPartnerServiceImpl implements IWellnessPartnerService {
                     String inviteCode = stringOrNull(orgCfg.get("invite_code"));
                     String requestCookie = stringOrNull(meta.get("request_cookie"));
                     long tokenValidityMillis = numberValue(meta.get("token_validity_seconds"), 3600) * 1000L;
-                    int connectTimeoutMs = numberValue(meta.get("connect_timeout_ms"), 5000);
-                    // TLS + TCP connect should finish quickly; metadata mistakes (e.g. 60000) should not stall threads.
-                    connectTimeoutMs = Math.min(10_000, Math.max(connectTimeoutMs, 1_000));
-                    // Respect metadata read_timeout_ms (e.g. Flyway seed 8000ms). Cap so employee-app HTTP timeout (~45s)
-                    // is not dominated by an artificial 60s floor (which caused XHR cancel).
-                    int readTimeoutMs = numberValue(meta.get("read_timeout_ms"), 8000);
-                    // Client allows ~45s for this call; MantraCareClient may retry once on non-read I/O failure — keep 2× cap under that.
-                    readTimeoutMs = Math.min(18_000, Math.max(readTimeoutMs, 3_000));
 
                     if (inviteCode == null || inviteCode.isBlank()) {
                         throw new WellnessConfigException("Wellness partner is not configured for token issuance");
@@ -565,28 +556,51 @@ public class WellnessPartnerServiceImpl implements IWellnessPartnerService {
                             inviteCode,
                             tokenValidityMillis,
                             wellnessUserId);
-                    redirectUrl = mantraCareClient.exchangeTokenForRedirectUrl(
-                            apiBaseUrl,
-                            setUserPath,
-                            connectTimeoutMs,
-                            readTimeoutMs,
-                            requestCookie,
-                            jws);
                     userIdentifier = wellnessUserId;
+                    if (mantraCareProperties.isEmployeeRedirectBrowserExchange()) {
+                        String postUrl = apiBaseUrl + setUserPath;
+                        payload = WellnessRedirectResponseDto.builder()
+                                .redirectUrl(null)
+                                .opensIn("new_tab")
+                                .partnerExchangeToken(jws)
+                                .partnerExchangePostUrl(postUrl)
+                                .partnerSessionCookie(requestCookie)
+                                .build();
+                    } else {
+                        int connectTimeoutMs = numberValue(meta.get("connect_timeout_ms"), 5000);
+                        connectTimeoutMs = Math.min(15_000, Math.max(connectTimeoutMs, 1_000));
+                        int readTimeoutMs = numberValue(meta.get("read_timeout_ms"), 120_000);
+                        readTimeoutMs = Math.min(240_000, Math.max(readTimeoutMs, 120_000));
+                        logger.info(
+                                "[correlationId:{}] MantraCare server exchange timeouts: connectTimeoutMs={} readTimeoutMs={}",
+                                MDC.get("correlationId"),
+                                connectTimeoutMs,
+                                readTimeoutMs);
+                        String redirectFromPartner = mantraCareClient.exchangeTokenForRedirectUrl(
+                                apiBaseUrl,
+                                setUserPath,
+                                connectTimeoutMs,
+                                readTimeoutMs,
+                                requestCookie,
+                                jws);
+                        payload = WellnessRedirectResponseDto.builder()
+                                .redirectUrl(redirectFromPartner)
+                                .opensIn("new_tab")
+                                .build();
+                    }
                 } else {
-                    redirectUrl = mapping.getCustomRedirectUrl();
+                    String redirectUrl = mapping.getCustomRedirectUrl();
                     if (redirectUrl == null || redirectUrl.isBlank()) {
                         redirectUrl = partner.getRedirectUrl();
                     }
                     if (redirectUrl == null || redirectUrl.isBlank()) {
                         throw new WellnessConfigException("Redirect URL not configured for this partner");
                     }
+                    payload = WellnessRedirectResponseDto.builder()
+                            .redirectUrl(redirectUrl)
+                            .opensIn("new_tab")
+                            .build();
                 }
-
-                WellnessRedirectResponseDto payload = WellnessRedirectResponseDto.builder()
-                        .redirectUrl(redirectUrl)
-                        .opensIn("new_tab")
-                        .build();
                 wellnessAccessService.logAccess(
                         organizationId,
                         partnerId,
