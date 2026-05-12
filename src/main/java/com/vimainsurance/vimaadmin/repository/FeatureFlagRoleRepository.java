@@ -1,5 +1,6 @@
 package com.vimainsurance.vimaadmin.repository;
 
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -21,4 +22,7 @@ public interface FeatureFlagRoleRepository extends JpaRepository<FeatureFlagRole
 
     @Query("SELECT r FROM FeatureFlagRole r WHERE r.featureFlag.flagId = :flagId AND r.roleName = :roleName")
     Optional<FeatureFlagRole> findByFlagIdAndRoleName(@Param("flagId") UUID flagId, @Param("roleName") String roleName);
+
+    @Query("SELECT ffr FROM FeatureFlagRole ffr WHERE ffr.featureFlag.flagId IN :flagIds")
+    List<FeatureFlagRole> findByFeatureFlagFlagIdIn(@Param("flagIds") Collection<UUID> flagIds);
 }

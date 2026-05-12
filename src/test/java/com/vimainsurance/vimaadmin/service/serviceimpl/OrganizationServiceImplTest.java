@@ -42,6 +42,7 @@ import com.vimainsurance.vimaadmin.repository.IDealsRepository;
 import com.vimainsurance.vimaadmin.repository.IDocumentRepository;
 import com.vimainsurance.vimaadmin.repository.IOrganizationRepository;
 import com.vimainsurance.vimaadmin.repository.IPolicyRepository;
+import com.vimainsurance.vimaadmin.audit.PlatformAuditPublisher;
 import com.vimainsurance.vimaadmin.service.IDocumentService;
 import com.vimainsurance.vimaadmin.service.IEmailService;
 import com.vimainsurance.vimaadmin.service.IS3Service;
@@ -81,6 +82,8 @@ class OrganizationServiceImplTest {
     private ICostSharingRuleRepository costSharingRuleRepository;
     @Mock
     private IEmailService emailService;
+    @Mock
+    private PlatformAuditPublisher platformAuditPublisher;
 
     @InjectMocks
     private OrganizationServiceImpl service;

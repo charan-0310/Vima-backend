@@ -4,6 +4,8 @@ import java.nio.charset.StandardCharsets;
 import java.security.InvalidKeyException;
 import java.security.NoSuchAlgorithmException;
 import java.time.LocalDateTime;
+import java.util.Map;
+import java.util.UUID;
 
 import javax.crypto.Mac;
 import javax.crypto.spec.SecretKeySpec;
@@ -12,7 +14,6 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.slf4j.MDC;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.authentication.BadCredentialsException;
@@ -32,6 +33,7 @@ import com.vimainsurance.vimaadmin.dto.RefreshTokenRequestDto;
 import com.vimainsurance.vimaadmin.dto.RefreshTokenResponseDto;
 import com.vimainsurance.vimaadmin.dto.ResponseDto;
 import com.vimainsurance.vimaadmin.entity.AdminUser;
+import com.vimainsurance.vimaadmin.audit.PlatformAuditPublisher;
 import com.vimainsurance.vimaadmin.repository.IAdminUserRepository;
 import com.vimainsurance.vimaadmin.security.LoginAttemptService;
 import com.vimainsurance.vimaadmin.service.IAuthService;
@@ -62,6 +64,9 @@ public class AuthServiceImpl implements IAuthService {
     @Autowired
     private LoginAttemptService loginAttemptService;
 
+    @Autowired
+    private PlatformAuditPublisher platformAuditPublisher;
+
     // Database-based nonce storage (no longer using in-memory map)
 
     @Override
@@ -76,6 +81,18 @@ public class AuthServiceImpl implements IAuthService {
             } catch (LoginAttemptService.AccountLockedException locked) {
                 logger.warn("[correlationId:{}] Login refused — account locked: {}",
                         MDC.get("correlationId"), requestDto.getUsername());
+                publishAudit(
+                        "admin",
+                        "admin_users",
+                        "LOGIN",
+                        "FAILED",
+                        null,
+                        null,
+                        null,
+                        null,
+                        null,
+                        null,
+                        Map.of("username", requestDto.getUsername(), "reason", "LOCKED"));
                 return responseObj.render(responseObj.formErrorResponse(locked.getMessage()));
             }
 
@@ -96,13 +113,50 @@ public class AuthServiceImpl implements IAuthService {
             String refreshToken = jwtUtil.generateRefreshToken(requestDto.getUsername(), authentication.getAuthorities().iterator().next().getAuthority());
 
             loginAttemptService.onSuccess(requestDto.getUsername());
+            UUID orgId = adminUser.getOrganization() != null ? adminUser.getOrganization().getOrganizationId() : null;
+            publishAudit(
+                    "admin",
+                    "admin_users",
+                    "LOGIN",
+                    "SUCCESS",
+                    adminUser.getId().toString(),
+                    orgId,
+                    adminUser.getId(),
+                    adminUser.getEmail(),
+                    adminUser.getRole(),
+                    null,
+                    Map.of("flow", "PASSWORD", "username", adminUser.getUsername()));
             return responseObj.render(responseObj.formSuccessResponse(Constants.SUCCESS, new LoginResponseDto(token, refreshToken)));
         } catch (BadCredentialsException ex) {
             loginAttemptService.onFailure(requestDto.getUsername());
             logger.error("Bad credentials provided for user: {}", requestDto.getUsername());
+            publishAudit(
+                    "admin",
+                    "admin_users",
+                    "LOGIN",
+                    "FAILED",
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    Map.of("username", requestDto.getUsername(), "reason", "BAD_CREDENTIALS"));
             return responseObj.render(responseObj.formErrorResponse("Invalid username or password!!"));
         } catch (Exception ex) {
             logger.error("Error in login: {}", ex.getMessage());
+            publishAudit(
+                    "admin",
+                    "admin_users",
+                    "LOGIN",
+                    "FAILED",
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    Map.of("username", requestDto.getUsername(), "reason", "ERROR"));
             return responseObj.render(responseObj.formErrorResponse("Internal Server Error!!"));
         }
     }
@@ -115,6 +169,18 @@ public class AuthServiceImpl implements IAuthService {
             String refreshToken = requestDto.getRefreshToken();
 
             if (!jwtUtil.validateToken(refreshToken)) {
+                publishAudit(
+                        "admin",
+                        "admin_users",
+                        "LOGIN",
+                        "REFRESH_FAILED",
+                        null,
+                        null,
+                        null,
+                        null,
+                        null,
+                        null,
+                        Map.of("reason", "INVALID_REFRESH_TOKEN"));
                 return responseObj.render(responseObj.formErrorResponse(Constants.RECORD_NOT_FOUND_MESSAGE));
             }
 
@@ -127,14 +193,38 @@ public class AuthServiceImpl implements IAuthService {
             }
             String newAccessToken = jwtUtil.generateToken(username, adminUser.getRole(), adminUser.getEmail(), adminUser.getAgentId(), organizationId);
 
+            UUID orgUuid = adminUser.getOrganization() != null ? adminUser.getOrganization().getOrganizationId() : null;
+            publishAudit(
+                    "admin",
+                    "admin_users",
+                    "LOGIN",
+                    "REFRESH_TOKEN",
+                    adminUser.getId().toString(),
+                    orgUuid,
+                    adminUser.getId(),
+                    adminUser.getEmail(),
+                    adminUser.getRole(),
+                    null,
+                    Map.of("username", username));
             return responseObj.render(responseObj.formSuccessResponse(Constants.SUCCESS, new RefreshTokenResponseDto(newAccessToken)));
 
         } catch (Exception ex) {
+            publishAudit(
+                    "admin",
+                    "admin_users",
+                    "LOGIN",
+                    "REFRESH_FAILED",
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    Map.of("reason", "ERROR"));
             return responseObj.render(responseObj.formErrorResponse(ex.getMessage()));
         }
     }
 
-    
     @Override
     public ResponseEntity<ResponseDto<ChallengeResponseDto>> getChallenge(ChallengeRequestDto requestDto) {
         logger.info("[correlationId:{}] getChallenge called for username", MDC.get("correlationId"));
@@ -189,6 +279,18 @@ public class AuthServiceImpl implements IAuthService {
 
             if (username == null || username.trim().isEmpty() ||
                 hashedPassword == null || hashedPassword.trim().isEmpty()) {
+                publishAudit(
+                        "admin",
+                        "admin_users",
+                        "LOGIN",
+                        "FAILED",
+                        null,
+                        null,
+                        null,
+                        null,
+                        null,
+                        null,
+                        Map.of("flow", "CHALLENGE", "reason", "VALIDATION"));
                 return responseObj.render(responseObj.formErrorResponse("Username, client proof, and hashed password are required"));
             }
 
@@ -198,6 +300,18 @@ public class AuthServiceImpl implements IAuthService {
             } catch (LoginAttemptService.AccountLockedException locked) {
                 logger.warn("[correlationId:{}] challengeLogin refused — account locked: {}",
                         MDC.get("correlationId"), username);
+                publishAudit(
+                        "admin",
+                        "admin_users",
+                        "LOGIN",
+                        "FAILED",
+                        null,
+                        null,
+                        null,
+                        null,
+                        null,
+                        null,
+                        Map.of("username", username, "flow", "CHALLENGE", "reason", "LOCKED"));
                 return responseObj.render(responseObj.formErrorResponse(locked.getMessage()));
             }
 
@@ -206,6 +320,18 @@ public class AuthServiceImpl implements IAuthService {
             if (adminUser == null) {
                 logger.warn("[correlationId:{}] User not found: {}", MDC.get("correlationId"), username);
                 loginAttemptService.onFailure(username);
+                publishAudit(
+                        "admin",
+                        "admin_users",
+                        "LOGIN",
+                        "FAILED",
+                        null,
+                        null,
+                        null,
+                        null,
+                        null,
+                        null,
+                        Map.of("username", username, "flow", "CHALLENGE", "reason", "USER_NOT_FOUND"));
                 return responseObj.render(responseObj.formErrorResponse("Invalid username"));
             }
             
@@ -215,12 +341,36 @@ public class AuthServiceImpl implements IAuthService {
             
             if (nonce == null || nonceExpiresAt == null) {
                 logger.warn("[correlationId:{}] No nonce found for user: {}", MDC.get("correlationId"), username);
+                publishAudit(
+                        "admin",
+                        "admin_users",
+                        "LOGIN",
+                        "FAILED",
+                        null,
+                        null,
+                        null,
+                        null,
+                        null,
+                        null,
+                        Map.of("username", username, "flow", "CHALLENGE", "reason", "NONCE_MISSING"));
                 return responseObj.render(responseObj.formErrorResponse("Invalid Credentials"));
             }
             
             // Check if nonce has expired
             if (LocalDateTime.now().isAfter(nonceExpiresAt)) {
                 logger.warn("[correlationId:{}] Expired nonce for user: {}", MDC.get("correlationId"), username);
+                publishAudit(
+                        "admin",
+                        "admin_users",
+                        "LOGIN",
+                        "FAILED",
+                        null,
+                        null,
+                        null,
+                        null,
+                        null,
+                        null,
+                        Map.of("username", username, "flow", "CHALLENGE", "reason", "NONCE_EXPIRED"));
                 return responseObj.render(responseObj.formErrorResponse("Invalid Credentials"));
             }
             
@@ -234,6 +384,18 @@ public class AuthServiceImpl implements IAuthService {
             if (!passwordEncoder.matches(hashedPassword, adminUser.getPasswordHash())) {
                 logger.warn("[correlationId:{}] Invalid password for user: {}", MDC.get("correlationId"), username);
                 loginAttemptService.onFailure(username);
+                publishAudit(
+                        "admin",
+                        "admin_users",
+                        "LOGIN",
+                        "FAILED",
+                        null,
+                        null,
+                        null,
+                        null,
+                        null,
+                        null,
+                        Map.of("username", username, "flow", "CHALLENGE", "reason", "BAD_PASSWORD"));
                 return responseObj.render(responseObj.formErrorResponse("Invalid credentials"));
             }
 
@@ -247,6 +409,18 @@ public class AuthServiceImpl implements IAuthService {
                 logger.warn("[correlationId:{}] Invalid client proof for user: {}", MDC.get("correlationId"), username);
                 logger.warn("[correlationId:{}] Expected: {}, Received: {}", MDC.get("correlationId"), expectedProof, clientProof);
                 loginAttemptService.onFailure(username);
+                publishAudit(
+                        "admin",
+                        "admin_users",
+                        "LOGIN",
+                        "FAILED",
+                        null,
+                        null,
+                        null,
+                        null,
+                        null,
+                        null,
+                        Map.of("username", username, "flow", "CHALLENGE", "reason", "BAD_CLIENT_PROOF"));
                 return responseObj.render(responseObj.formErrorResponse("Invalid credentials"));
             }
 
@@ -256,17 +430,72 @@ public class AuthServiceImpl implements IAuthService {
             if (adminUser.getOrganization() != null && adminUser.getOrganization().getOrganizationId() != null) {
                 organizationId = adminUser.getOrganization().getOrganizationId().toString();
             }
+            UUID orgUuid = adminUser.getOrganization() != null ? adminUser.getOrganization().getOrganizationId() : null;
+            publishAudit(
+                    "admin",
+                    "admin_users",
+                    "LOGIN",
+                    "SUCCESS",
+                    adminUser.getId().toString(),
+                    orgUuid,
+                    adminUser.getId(),
+                    adminUser.getEmail(),
+                    adminUser.getRole(),
+                    null,
+                    Map.of("flow", "CHALLENGE", "username", adminUser.getUsername()));
             String token = jwtUtil.generateToken(requestDto.getUsername(), adminUser.getRole(), adminUser.getEmail(), adminUser.getAgentId(), organizationId);
             String refreshToken = jwtUtil.generateRefreshToken(requestDto.getUsername(), adminUser.getRole());
 
             return responseObj.render(responseObj.formSuccessResponse(Constants.SUCCESS, new LoginResponseDto(token, refreshToken)));
         } catch (BadCredentialsException ex) {
             logger.error("Bad credentials provided for user");
+            String u = requestDto.getUsername();
+            publishAudit(
+                    "admin",
+                    "admin_users",
+                    "LOGIN",
+                    "FAILED",
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    Map.of("username", u != null ? u : "", "flow", "CHALLENGE", "reason", "BAD_CREDENTIALS"));
             return responseObj.render(responseObj.formErrorResponse("Invalid username or password!!"));
         } catch (Exception ex) {
             logger.error("Error in challengeLogin: {}", ex.getMessage());
+            String u = requestDto.getUsername();
+            publishAudit(
+                    "admin",
+                    "admin_users",
+                    "LOGIN",
+                    "FAILED",
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    Map.of("username", u != null ? u : "", "flow", "CHALLENGE", "reason", "ERROR"));
             return responseObj.render(responseObj.formErrorResponse("Internal Server Error"));
         }
+    }
+
+    private void publishAudit(
+            String schemaName,
+            String tableName,
+            String entityType,
+            String action,
+            String entityId,
+            UUID organizationId,
+            UUID actorUserIdOverride,
+            String actorEmailOverride,
+            String actorRoleOverride,
+            String oldSnapshot,
+            Object newSnapshot) {
+        platformAuditPublisher.publish(schemaName, tableName, entityType, action, entityId, organizationId,
+                actorUserIdOverride, actorEmailOverride, actorRoleOverride, oldSnapshot, newSnapshot);
     }
     
    

@@ -55,6 +55,14 @@ public class NotificationServiceImpl implements NotificationService {
         UUID companyId = command.companyId();
         if (companyId != null) {
             company = organizationRepository.findById(companyId).orElse(null);
+            if (company == null && organizationRepository.existsById(companyId)) {
+                company = organizationRepository.getReferenceById(companyId);
+                log.warn("notification_create_org_reference_only companyId={} recipientId={}", companyId, recipientId);
+            }
+            if (company == null) {
+                log.warn("notification_create_missing_org companyId={} recipientId={} event={}",
+                        companyId, recipientId, command.eventType());
+            }
         }
         AdminNotification n = new AdminNotification();
         n.setRecipient(recipient);

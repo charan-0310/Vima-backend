@@ -474,9 +474,22 @@ public class JwtUserExtractor {
         if (organizationId == null) {
             return;
         }
+        UserRole role = getCurrentUserRole();
+        // Org-scoped VIMA_ADMIN: enforce admin_users.organization_id regardless of extra JWT groups.
+        if (role == UserRole.VIMA_ADMIN) {
+            Optional<AdminUser> admin = resolveCurrentAdminUser();
+            if (admin.isPresent()
+                    && admin.get().getRole() != null && "VIMA_ADMIN".equalsIgnoreCase(admin.get().getRole().trim())
+                    && admin.get().getOrganization() != null && admin.get().getOrganization().getOrganizationId() != null) {
+                UUID allowed = admin.get().getOrganization().getOrganizationId();
+                if (!allowed.equals(organizationId)) {
+                    throw new OrganizationAccessDeniedException("You are not authorized to access this organization");
+                }
+                return;
+            }
+        }
         // Platform operators receive cross-org notifications (e.g. endorsement uploads) but JWT
         // organization_ids may still list only a subset — allow access without tenant restriction.
-        UserRole role = getCurrentUserRole();
         if (role != null && bypassesOrganizationTenantRestriction(role)) {
             return;
         }
@@ -491,10 +504,9 @@ public class JwtUserExtractor {
      * Keep aligned with {@link com.vimainsurance.vimaadmin.notification.NotificationRoutingResolver}
      * VIMA-side recipients for flagship notifications.
      */
-    private static boolean bypassesOrganizationTenantRestriction(UserRole role) {
+    private boolean bypassesOrganizationTenantRestriction(UserRole role) {
         return role == UserRole.SUPER_ADMIN
                 || role == UserRole.ADMIN
-                || role == UserRole.VIMA_ADMIN
                 || role == UserRole.SALES_ADMIN;
     }
 }

@@ -116,7 +116,7 @@ public class OrganizationEmployeeLoginServiceImpl implements IOrganizationEmploy
     }
 
     @Override
-    @AuditedOperation(schemaName = "cpc", tableName = "customers", entityType = "ORG_EMPLOYEE_LOGIN", action = "SUBMIT")
+    @AuditedOperation(schemaName = "cpc", tableName = "customers", entityType = "ORG_EMPLOYEE_LOGIN", action = "CREATE_LOGIN")
     public ResponseEntity<ResponseDto<EmployeeOnboardingResponseDto>> createEmployeeLogins(
             UUID organizationId,
             OrganizationCreateLoginsRequestDto request) {
@@ -275,7 +275,7 @@ public class OrganizationEmployeeLoginServiceImpl implements IOrganizationEmploy
     }
 
     @Override
-    @AuditedOperation(schemaName = "cpc", tableName = "customers", entityType = "ORG_EMPLOYEE_LOGIN", action = "SUBMIT")
+    @AuditedOperation(schemaName = "cpc", tableName = "customers", entityType = "ORG_EMPLOYEE_LOGIN", action = "RESEND_WELCOME")
     public ResponseEntity<ResponseDto<String>> resendWelcomeEmail(UUID organizationId, UUID individualId) {
         BaseResponse<String> responseObj = new BaseResponse<>();
         try {
@@ -312,7 +312,7 @@ public class OrganizationEmployeeLoginServiceImpl implements IOrganizationEmploy
     }
 
     @Override
-    @AuditedOperation(schemaName = "cpc", tableName = "customers", entityType = "ORG_EMPLOYEE_LOGIN", action = "SUBMIT")
+    @AuditedOperation(schemaName = "cpc", tableName = "customers", entityType = "ORG_EMPLOYEE_LOGIN", action = "SEND_PASSWORD_RESET")
     public ResponseEntity<ResponseDto<String>> sendPasswordResetEmail(UUID organizationId, UUID individualId) {
         BaseResponse<String> responseObj = new BaseResponse<>();
         try {
@@ -360,7 +360,7 @@ public class OrganizationEmployeeLoginServiceImpl implements IOrganizationEmploy
     }
 
     @Override
-    @AuditedOperation(schemaName = "cpc", tableName = "customers", entityType = "ORG_EMPLOYEE_HEALTH_CARD_EMAIL", action = "SUBMIT")
+    @AuditedOperation(schemaName = "cpc", tableName = "customers", entityType = "ORG_EMPLOYEE_HEALTH_CARD_EMAIL", action = "SEND_HEALTH_CARD_EMAIL")
     public ResponseEntity<ResponseDto<String>> sendHealthCardsByEmail(
             UUID organizationId,
             UUID individualId,
@@ -636,18 +636,16 @@ public class OrganizationEmployeeLoginServiceImpl implements IOrganizationEmploy
         }
 
         boolean eventsOk = keycloakUtil.isRealmLoginEventsEnabled();
-        if (eventsOk) {
-            List<String> existingEmails = items.stream()
-                    .filter(r -> "EXISTING_KEYCLOAK_USER".equals(r.getStatus()))
-                    .map(OrganizationEmployeeLoginItemDto::getEmail)
-                    .filter(Objects::nonNull)
-                    .collect(Collectors.toList());
-            if (!existingEmails.isEmpty()) {
-                Map<String, Instant> lastLogin = keycloakUtil.getLastLoginForEmails(existingEmails);
-                for (OrganizationEmployeeLoginItemDto row : items) {
-                    if (row.getEmail() != null && lastLogin.containsKey(row.getEmail())) {
-                        row.setLastLoginAt(lastLogin.get(row.getEmail()));
-                    }
+        List<String> existingEmails = items.stream()
+                .filter(r -> "EXISTING_KEYCLOAK_USER".equals(r.getStatus()))
+                .map(OrganizationEmployeeLoginItemDto::getEmail)
+                .filter(Objects::nonNull)
+                .collect(Collectors.toList());
+        if (!existingEmails.isEmpty()) {
+            Map<String, Instant> lastLogin = keycloakUtil.getLastLoginForEmails(existingEmails);
+            for (OrganizationEmployeeLoginItemDto row : items) {
+                if (row.getEmail() != null && lastLogin.containsKey(row.getEmail())) {
+                    row.setLastLoginAt(lastLogin.get(row.getEmail()));
                 }
             }
         }

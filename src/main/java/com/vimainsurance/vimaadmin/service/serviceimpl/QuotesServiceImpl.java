@@ -15,6 +15,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import com.vimainsurance.vimaadmin.audit.AuditedOperation;
 import com.vimainsurance.vimaadmin.dto.BaseResponse;
 import com.vimainsurance.vimaadmin.dto.QuoteStatusUpdateDto;
 import com.vimainsurance.vimaadmin.dto.QuotesRequestDto;
@@ -44,6 +45,7 @@ public class QuotesServiceImpl implements IQuoteService{
     private IdGenerator idGenerator;
 
     @Override
+    @AuditedOperation(schemaName = "admin", tableName = "quotes", entityType = "QUOTE", action = "CREATE")
     public ResponseEntity<ResponseDto<String>>  create(QuotesRequestDto requestDto) {
         logger.info("[correlationId:{}] create called", MDC.get("correlationId"));
         BaseResponse<String> responseObj = new BaseResponse<>();
@@ -75,6 +77,7 @@ public class QuotesServiceImpl implements IQuoteService{
 
     @Override
     @Transactional
+    @AuditedOperation(schemaName = "admin", tableName = "quotes", entityType = "QUOTE", action = "BULK_CREATE")
     public ResponseEntity<ResponseDto<String>> createBulk(List<QuotesRequestDto> requestDtos) {
         logger.info("[correlationId:{}] createBulk called with {} quotes", MDC.get("correlationId"), requestDtos.size());
         BaseResponse<String> responseObj = new BaseResponse<>();
@@ -134,6 +137,7 @@ public class QuotesServiceImpl implements IQuoteService{
     }
 
     @Override
+    @AuditedOperation(schemaName = "admin", tableName = "quotes", entityType = "QUOTE", action = "UPDATE")
     public ResponseEntity<ResponseDto<String>> update(QuotesRequestDto requestDto) {
         logger.info("[correlationId:{}] update called", MDC.get("correlationId"));
         BaseResponse<String> responseObj = new BaseResponse<>();
@@ -159,6 +163,7 @@ public class QuotesServiceImpl implements IQuoteService{
     }
 
     @Override
+    @AuditedOperation(schemaName = "admin", tableName = "quotes", entityType = "QUOTE", action = "DELETE")
     public ResponseEntity<ResponseDto<String>> delete(QuotesRequestDto requestDto) {
         logger.info("[correlationId:{}] delete called", MDC.get("correlationId"));
         BaseResponse<String> responseObj = new BaseResponse<>();
@@ -216,6 +221,7 @@ public class QuotesServiceImpl implements IQuoteService{
     }
 
     @Override
+    @AuditedOperation(schemaName = "admin", tableName = "quotes", entityType = "QUOTE", action = "UPDATE_STATUS")
     public ResponseEntity<ResponseDto<String>> updateQuoteStatus(QuoteStatusUpdateDto statusUpdateDto) {
         logger.info("[correlationId:{}] updateQuoteStatus called for quoteId: {} to status: {}", 
                 MDC.get("correlationId"), statusUpdateDto.getQuoteId(), statusUpdateDto.getStatus());

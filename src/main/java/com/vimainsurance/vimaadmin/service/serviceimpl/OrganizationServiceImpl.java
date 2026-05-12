@@ -39,6 +39,7 @@ import org.springframework.web.multipart.MultipartFile;
 
 import com.vimainsurance.vimaadmin.audit.AuditContextSupplier;
 import com.vimainsurance.vimaadmin.audit.AuditedOperation;
+import com.vimainsurance.vimaadmin.audit.PlatformAuditPublisher;
 import com.vimainsurance.vimaadmin.dto.BaseResponse;
 import com.vimainsurance.vimaadmin.dto.BulkEmployeeDeletionRequestDto;
 import com.vimainsurance.vimaadmin.dto.CsvValidationResponseDto;
@@ -164,6 +165,9 @@ public class OrganizationServiceImpl implements IOrganizationService {
     @Autowired
     private IEmailService emailService;
 
+    @Autowired
+    private PlatformAuditPublisher platformAuditPublisher;
+
     @Override
     @Transactional(rollbackFor = Exception.class)
     @AuditedOperation(schemaName = "cpc", tableName = "organizations", entityType = "ORGANIZATION", action = "CREATE")
@@ -201,12 +205,12 @@ public class OrganizationServiceImpl implements IOrganizationService {
             seedDefaultCostSharingRules(savedOrg.getOrganizationId());
             String orgGroupName = "ORG_" + savedOrg.getOrganizationName().trim().toUpperCase().replaceAll("[^A-Z0-9]", "_");
             keycloakUtil.createGroup(orgGroupName, Map.of("organization_id", List.of(savedOrg.getOrganizationId().toString())));
-            try {
-                featureFlagService.seedOrganizationFeaturesFromHrAdminRole(savedOrg.getOrganizationId().toString());
-            } catch (Exception seedEx) {
-                logger.warn("[correlationId:{}] Could not seed default org feature flags for {}: {}",
-                        MDC.get("correlationId"), savedOrg.getOrganizationId(), seedEx.getMessage());
-            }
+            // try {
+            //     featureFlagService.seedOrganizationFeaturesFromHrAdminRole(savedOrg.getOrganizationId().toString());
+            // } catch (Exception seedEx) {
+            //     logger.warn("[correlationId:{}] Could not seed default org feature flags for {}: {}",
+            //             MDC.get("correlationId"), savedOrg.getOrganizationId(), seedEx.getMessage());
+            // }
             return responseObj.render(responseObj.formSuccessResponse(Constants.SUCCESS, Constants.SAVE_SUCCESS));
         } catch (Exception e) {
             logger.error("[correlationId:{}] Exception in Organization create: {}", MDC.get("correlationId"), e.getMessage(), e);
@@ -731,6 +735,22 @@ public class OrganizationServiceImpl implements IOrganizationService {
                     payload.getSentCount(),
                     payload.getFailedCount(),
                     LocalDateTime.now());
+
+            Map<String, Object> broadcastSnap = new HashMap<>();
+            broadcastSnap.put("subject", subject.length() > 200 ? subject.substring(0, 200) : subject);
+            broadcastSnap.put("dryRun", requestDto.isDryRun());
+            broadcastSnap.put("sendToAll", requestDto.isSendToAll());
+            broadcastSnap.put("totalRecipients", payload.getTotalRecipients());
+            broadcastSnap.put("sentCount", payload.getSentCount());
+            broadcastSnap.put("failedCount", payload.getFailedCount());
+            platformAuditPublisher.publishAuthenticated(
+                    "cpc",
+                    "organizations",
+                    "ORG_BROADCAST_EMAIL",
+                    "SEND",
+                    organizationId.toString(),
+                    organizationId,
+                    broadcastSnap);
 
             return responseObj.render(responseObj.formSuccessResponse(Constants.SUCCESS, payload));
         } catch (Exception e) {
@@ -2049,6 +2069,18 @@ public class OrganizationServiceImpl implements IOrganizationService {
             }
 
             String message = result.getMessage() != null ? result.getMessage() : Constants.SUCCESS;
+            platformAuditPublisher.publishAuthenticated(
+                    "cpc",
+                    "customers",
+                    "EMPLOYEE",
+                    "MANUAL_DELETE",
+                    organizationId.toString(),
+                    organizationId,
+                    Map.of(
+                            "successCount", result.getSuccessCount(),
+                            "totalEmployees", result.getTotalEmployees(),
+                            "totalDependents", result.getTotalDependents(),
+                            "message", message));
             logger.info("[correlationId:{}] Manual deletion (endorsement) completed: {} employees, {} dependents",
                 MDC.get("correlationId"), result.getTotalEmployees(), result.getTotalDependents());
             return responseObj.render(responseObj.formSuccessResponse(Constants.SUCCESS, message));
@@ -2116,6 +2148,18 @@ public class OrganizationServiceImpl implements IOrganizationService {
             }
             EmployeeUploadResponse result = employeeService.manualAddEmployees(employees, organization, adminUser, policyIds);
             String responseMessage = result.getMessage() != null && !result.getMessage().isEmpty() ? result.getMessage() : Constants.SUCCESS;
+            platformAuditPublisher.publishAuthenticated(
+                    "cpc",
+                    "customers",
+                    "EMPLOYEE",
+                    "MANUAL_ADD",
+                    organizationId.toString(),
+                    organizationId,
+                    Map.of(
+                            "successCount", result.getSuccessCount(),
+                            "totalEmployees", result.getTotalEmployees(),
+                            "totalDependents", result.getTotalDependents(),
+                            "message", responseMessage));
             return responseObj.render(responseObj.formSuccessResponse(responseMessage, result));
         } catch (OrganizationAccessDeniedException e) {
             logger.warn("[correlationId:{}] Organization access denied for organizationId: {}", MDC.get("correlationId"), organizationId);
