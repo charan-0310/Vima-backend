@@ -8,6 +8,7 @@ import java.util.UUID;
 
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
+import org.springframework.data.jpa.repository.EntityGraph;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
@@ -29,6 +30,14 @@ public interface IAdminUserRepository extends JpaRepository<AdminUser, UUID> {
     Optional<AdminUser> findFirstByEmailIgnoreCaseOrderByCreatedAtAsc(String email);
     Optional<AdminUser> findByOauthProviderId(String oauthProviderId);
     List<AdminUser> findByIsActiveTrue();
+
+    /**
+     * Loads {@code organization} in the same round-trip (HR notification inbox and similar).
+     */
+    @EntityGraph(attributePaths = { "organization" })
+    @Query("SELECT u FROM AdminUser u WHERE u.id = :id")
+    Optional<AdminUser> findWithOrganizationById(@Param("id") UUID id);
+
     List<AdminUser> findByRole(String role);
 
     List<AdminUser> findByRoleInAndIsActiveTrue(Collection<String> roles);

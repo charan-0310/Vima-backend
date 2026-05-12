@@ -34,9 +34,18 @@ public class NotificationsProperties {
     private int dispatchBatchSize = 50;
 
     /**
-     * When true, HR routing for org-scoped events also includes active {@code HR_ADMIN} users with no
-     * {@code organization_id} (legacy/local accounts). Default false for multi-tenant safety; enable on localhost
-     * via {@code application-local.properties} when HR rows are not org-linked.
+     * Ignored for recipient resolution: org-scoped notifications only target HR users with
+     * {@code admin_users.organization_id} matching the event organization (multi-tenant safe).
+     * Retained for backward-compatible YAML keys only.
+     *
+     * @deprecated No longer applied; ensure HR admins have {@code organization_id} set in provisioning/Keycloak sync.
      */
+    @Deprecated
     private boolean includeUnscopedHrAdmins = false;
+
+    /**
+     * When true and no HR admins are linked to the event organization, recipient resolution falls back to
+     * all active {@code HR_ADMIN} users (legacy, cross-tenant). Default {@code false}; do not enable in production.
+     */
+    private boolean allowGlobalHrRecipientFallback = false;
 }
