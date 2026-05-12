@@ -88,12 +88,41 @@ public interface IAdminNotificationRepository extends JpaRepository<AdminNotific
             @Param("category") NotificationCategory category,
             Pageable pageable);
 
+    /**
+     * HR admin inbox: this recipient plus organization scope.
+     * Includes rows with {@code company_id} null (legacy) for this recipient only, or rows whose company matches {@code organizationId}.
+     */
+    @EntityGraph(attributePaths = { "deliveries", "recipient", "company" })
+    @Query("""
+            SELECT n FROM AdminNotification n
+            WHERE n.recipient.id = :recipientId
+              AND (:unreadOnly = false OR n.readAt IS NULL)
+              AND (:category IS NULL OR n.category = :category)
+              AND (n.company IS NULL OR n.company.organizationId = :organizationId)
+            """)
+    Page<AdminNotification> findInboxForHrAdminByOrganization(
+            @Param("recipientId") UUID recipientId,
+            @Param("unreadOnly") boolean unreadOnly,
+            @Param("category") NotificationCategory category,
+            @Param("organizationId") UUID organizationId,
+            Pageable pageable);
+
     @Query("""
             SELECT COUNT(n) FROM AdminNotification n
             WHERE LOWER(n.receiverEmail) = LOWER(:receiverEmail)
               AND n.readAt IS NULL
             """)
     long countUnreadByReceiverEmail(@Param("receiverEmail") String receiverEmail);
+
+    @Query("""
+            SELECT COUNT(n) FROM AdminNotification n
+            WHERE n.recipient.id = :recipientId
+              AND n.readAt IS NULL
+              AND (n.company IS NULL OR n.company.organizationId = :organizationId)
+            """)
+    long countUnreadForHrAdminByOrganization(
+            @Param("recipientId") UUID recipientId,
+            @Param("organizationId") UUID organizationId);
 
     @Modifying
     @Query("""
@@ -103,6 +132,18 @@ public interface IAdminNotificationRepository extends JpaRepository<AdminNotific
             """)
     int markAllReadByReceiverEmail(
             @Param("receiverEmail") String receiverEmail,
+            @Param("readAt") LocalDateTime readAt);
+
+    @Modifying
+    @Query("""
+            UPDATE AdminNotification n SET n.readAt = :readAt, n.updatedAt = :readAt
+            WHERE n.recipient.id = :recipientId
+              AND n.readAt IS NULL
+              AND (n.company IS NULL OR n.company.organizationId = :organizationId)
+            """)
+    int markAllReadForHrAdminByOrganization(
+            @Param("recipientId") UUID recipientId,
+            @Param("organizationId") UUID organizationId,
             @Param("readAt") LocalDateTime readAt);
 
     @Query("""
