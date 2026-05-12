@@ -1,5 +1,6 @@
 package com.vimainsurance.vimaadmin.repository;
 
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -21,6 +22,9 @@ public interface IFeatureFlagRepository extends JpaRepository<FeatureFlag, UUID>
 
     @Query("select featureFlag from FeatureFlag featureFlag where featureFlag.parentFeatureFlag.id = :parentId")
     List<FeatureFlag> findSubFeatureFlagsByParentId(@Param("parentId") UUID parentId);
+
+    @Query("select featureFlag from FeatureFlag featureFlag where featureFlag.parentFeatureFlag.id in :parentIds")
+    List<FeatureFlag> findSubFeatureFlagsByParentIds(@Param("parentIds") Collection<UUID> parentIds);
 
     @Query("select f from FeatureFlag f where f.flagId in :flagIds")
     List<FeatureFlag> findAllByFlagIds(@Param("flagIds") List<UUID> flagIds);

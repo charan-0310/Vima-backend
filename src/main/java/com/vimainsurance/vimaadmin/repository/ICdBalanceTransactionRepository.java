@@ -1,6 +1,7 @@
 package com.vimainsurance.vimaadmin.repository;
 
 import java.math.BigDecimal;
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.UUID;
 
@@ -17,6 +18,37 @@ public interface ICdBalanceTransactionRepository
         extends JpaRepository<CdBalanceTransaction, UUID>, JpaSpecificationExecutor<CdBalanceTransaction> {
 
     List<CdBalanceTransaction> findByEndorsement_EndorsementId(UUID endorsementId);
+
+    /**
+     * Single-row aggregates for ledger filters (same semantics as
+     * {@link com.vimainsurance.vimaadmin.specification.CdBalanceTransactionSpecification#ledgerByCdAccount}).
+     * Columns: totalDeposited, totalUtilized, endorsementCreditAbsSum, endorsementDebitAbsSum,
+     * endorsementRowCount.
+     */
+    @Query(value = """
+            SELECT
+                coalesce(sum(case when t.amount > 0 then t.amount else 0 end), 0),
+                coalesce(sum(case when t.amount < 0 then -t.amount else 0 end), 0),
+                coalesce(sum(case when t.transaction_type::text = 'ENDORSEMENT_CREDIT' then abs(t.amount) else 0 end), 0),
+                coalesce(sum(case when t.transaction_type::text = 'ENDORSEMENT_DEBIT' then abs(t.amount) else 0 end), 0),
+                coalesce(sum(case when t.transaction_type::text in ('ENDORSEMENT_CREDIT', 'ENDORSEMENT_DEBIT') then 1 else 0 end), 0)
+            FROM cpc.cd_balance_transactions t
+            WHERE t.cd_account_id = :cdAccountId
+              AND (NOT :applyPolicyFilter OR t.policy_id = :policyId)
+              AND (NOT :applyTypeFilter OR t.transaction_type::text = :txTypeStr)
+              AND (NOT :applyFromFilter OR t.created_at >= :dateFrom)
+              AND (NOT :applyToFilter OR t.created_at <= :dateTo)
+            """, nativeQuery = true)
+    List<Object[]> aggregateLedgerFiltered(
+            @Param("cdAccountId") UUID cdAccountId,
+            @Param("applyPolicyFilter") boolean applyPolicyFilter,
+            @Param("policyId") Long policyId,
+            @Param("applyTypeFilter") boolean applyTypeFilter,
+            @Param("txTypeStr") String txTypeStr,
+            @Param("applyFromFilter") boolean applyFromFilter,
+            @Param("dateFrom") LocalDateTime dateFrom,
+            @Param("applyToFilter") boolean applyToFilter,
+            @Param("dateTo") LocalDateTime dateTo);
 
     @Query("SELECT COALESCE(SUM(t.amount), 0) FROM CdBalanceTransaction t WHERE t.cdAccountId = :cdAccountId")
     BigDecimal sumAmountByCdAccountId(@Param("cdAccountId") UUID cdAccountId);

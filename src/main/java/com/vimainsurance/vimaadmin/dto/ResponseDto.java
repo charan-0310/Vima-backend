@@ -1,4 +1,7 @@
 package com.vimainsurance.vimaadmin.dto;
+
+import java.util.List;
+
 public class ResponseDto<T> {
 
 	private String message;
@@ -8,6 +11,18 @@ public class ResponseDto<T> {
 	private T payload;
 
 	private long totalRecords = 0;
+
+	/**
+	 * Optional. Populated by {@code GET /auth/me} when the provisioned user is an org-scoped VIMA_ADMIN:
+	 * UI should restrict organization picker / {@code X-Organization-ID} to these UUID strings.
+	 */
+	private List<String> allowedOrganizationIds;
+
+	/**
+	 * Optional. Populated by {@code GET /cd-balance/cd-account/{id}/ledger}: dashboard totals
+	 * for the same filters as {@link #payload}, across all pages (not just the current slice).
+	 */
+	private CdBalanceLedgerSummaryDto ledgerSummary;
 
 	public ResponseDto() {
 		// Default constructor for serialization
@@ -74,6 +89,22 @@ public class ResponseDto<T> {
 
 	public void setTotalRecords(long totalRecords) {
 		this.totalRecords = totalRecords;
+	}
+
+	public List<String> getAllowedOrganizationIds() {
+		return allowedOrganizationIds;
+	}
+
+	public void setAllowedOrganizationIds(List<String> allowedOrganizationIds) {
+		this.allowedOrganizationIds = allowedOrganizationIds;
+	}
+
+	public CdBalanceLedgerSummaryDto getLedgerSummary() {
+		return ledgerSummary;
+	}
+
+	public void setLedgerSummary(CdBalanceLedgerSummaryDto ledgerSummary) {
+		this.ledgerSummary = ledgerSummary;
 	}
 
 }

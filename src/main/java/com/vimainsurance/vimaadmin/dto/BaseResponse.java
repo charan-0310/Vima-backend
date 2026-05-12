@@ -41,8 +41,9 @@ public class BaseResponse<T> {
 			ResponseDto<T> errorResponse = new ResponseDto<>(response.getErrorCode(), response.getMessage(), response.getPayload());
 			return renderError(errorResponse);
 		}
-		ResponseDto<T> successResponse = new ResponseDto<>(response.getMessage(), response.getPayload(), response.getTotalRecords());
-		return renderSuccess(successResponse);
+		// Return the same instance so optional fields (e.g. ledgerSummary, allowedOrganizationIds)
+		// are not dropped when serializing success responses.
+		return renderSuccess(response);
 	}
 
 	private ResponseEntity<ResponseDto<T>> renderSuccess(ResponseDto<T> response) {
