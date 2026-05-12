@@ -65,5 +65,23 @@ public interface IFeatureFlagCompanyRepository extends JpaRepository<FeatureFlag
     Optional<FeatureFlagCompany> findByFlagIdAndOrganizationId(
             @Param("flagId") UUID flagId,
             @Param("organizationId") UUID organizationId);
+
+    /**
+     * All company rows for the given flags (any org). Used to batch-load org overrides for auth/me.
+     */
+    @Query("SELECT ffc FROM FeatureFlagCompany ffc " +
+            "JOIN FETCH ffc.featureFlag ff " +
+            "JOIN FETCH ffc.organization org " +
+            "WHERE ff.flagId IN :flagIds")
+    List<FeatureFlagCompany> findAllByFeatureFlagIdsWithOrg(@Param("flagIds") List<UUID> flagIds);
+
+    /**
+     * Distinct parent-level feature assignments per organization (for sidebar counts).
+     */
+    @Query("SELECT o.organizationId, COUNT(DISTINCT ff.flagId) FROM FeatureFlagCompany ffc " +
+            "JOIN ffc.organization o JOIN ffc.featureFlag ff " +
+            "WHERE ff.parentFeatureFlag IS NULL " +
+            "GROUP BY o.organizationId")
+    List<Object[]> countDistinctParentFeaturesByOrganization();
 }
 

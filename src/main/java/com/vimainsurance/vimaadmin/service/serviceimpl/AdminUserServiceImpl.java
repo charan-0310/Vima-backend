@@ -26,6 +26,7 @@ import com.vimainsurance.vimaadmin.audit.AuditedOperation;
 import com.vimainsurance.vimaadmin.dto.AdminUserRequestDto;
 import com.vimainsurance.vimaadmin.dto.AdminUserResponseDto;
 import com.vimainsurance.vimaadmin.dto.AdminUsersFilteredResponseDto;
+import com.vimainsurance.vimaadmin.dto.UserManagementStatsDto;
 import com.vimainsurance.vimaadmin.dto.AuthentikGroupsResponseDto;
 import com.vimainsurance.vimaadmin.dto.AuthentikPaginatedResponse;
 import com.vimainsurance.vimaadmin.dto.BaseResponse;
@@ -424,28 +425,59 @@ public class AdminUserServiceImpl implements IAdminUserService {
                 }
             }
 
-            // All filtered users for statistics (Keycloak)
-            List<AdminUserResponseDto> allFilteredUsers = getAllUsersWithFiltersFromKeycloak(keycloakSearch, isActive, ordering, groupsByName, search);
-            
-            // Calculate statistics based on filtered results
-            Long totalUsers = (long) allFilteredUsers.size();
-            Long totalVimaAdmins = calculateTotalVimaAdmins(allFilteredUsers);
-            Long totalHRAdmins = calculateTotalHRAdmins(allFilteredUsers);
-            Long totalOrganizations = calculateTotalOrganizations(allFilteredUsers);
-            
-            // Create response DTO with users and statistics
+            List<AdminUserResponseDto> allFilteredUsers = getAllUsersWithFiltersFromKeycloak(
+                    keycloakSearch, isActive, ordering, groupsByName, search);
+            UserManagementStatsDto stats = buildStatsFromUserList(allFilteredUsers);
+
             AdminUsersFilteredResponseDto responseDto = new AdminUsersFilteredResponseDto();
             responseDto.setUsers(dtos);
-            responseDto.setTotalUsers(totalUsers);
-            responseDto.setTotalVimaAdmins(totalVimaAdmins);
-            responseDto.setTotalOrganizations(totalOrganizations);
-            responseDto.setTotalHRAdmins(totalHRAdmins);
+            responseDto.setTotalUsers(stats.getTotalUsers());
+            responseDto.setTotalVimaAdmins(stats.getTotalVimaAdmins());
+            responseDto.setTotalOrganizations(stats.getTotalOrganizations());
+            responseDto.setTotalHRAdmins(stats.getTotalHRAdmins());
             
             return responseObj.render(responseObj.formSuccessResponse(Constants.SUCCESS, responseDto, totalRecords));
         } catch (Exception e) {
             logger.error("Error fetching admin users with filters", e);
             return responseObj.render(responseObj.formErrorResponse(e.getMessage()));
         }
+    }
+
+    @Override
+    public ResponseEntity<ResponseDto<UserManagementStatsDto>> getUserManagementStats(
+            String search, String role, String organization, Boolean isActive, String sortBy, String sortDirection) {
+        logger.info("getUserManagementStats called with search={}, role={}, organization={}, isActive={}, sortBy={}, sortDirection={}",
+                search, role, organization, isActive, sortBy, sortDirection);
+        BaseResponse<UserManagementStatsDto> responseObj = new BaseResponse<>();
+        try {
+            String ordering = mapSortByToIdpOrdering(sortBy, sortDirection);
+            List<String> groupsByName = new ArrayList<>();
+            if (role != null && !role.trim().isEmpty()) {
+                String roleName = role.trim();
+                groupsByName.add(roleName.startsWith("ROLE_") ? roleName : "ROLE_" + roleName);
+            }
+            if (organization != null && !organization.trim().isEmpty()) {
+                String orgName = organization.trim();
+                groupsByName.add(orgName.startsWith("ORG_") ? orgName : "ORG_" + orgName);
+            }
+            String keycloakSearch = search != null ? search.trim() : null;
+            List<AdminUserResponseDto> allFilteredUsers = getAllUsersWithFiltersFromKeycloak(
+                    keycloakSearch, isActive, ordering, groupsByName, search);
+            UserManagementStatsDto stats = buildStatsFromUserList(allFilteredUsers);
+            return responseObj.render(responseObj.formSuccessResponse(Constants.SUCCESS, stats));
+        } catch (Exception e) {
+            logger.error("Error fetching user management stats", e);
+            return responseObj.render(responseObj.formErrorResponse(e.getMessage()));
+        }
+    }
+
+    private UserManagementStatsDto buildStatsFromUserList(List<AdminUserResponseDto> allFilteredUsers) {
+        UserManagementStatsDto stats = new UserManagementStatsDto();
+        stats.setTotalUsers((long) allFilteredUsers.size());
+        stats.setTotalVimaAdmins(calculateTotalVimaAdmins(allFilteredUsers));
+        stats.setTotalHRAdmins(calculateTotalHRAdmins(allFilteredUsers));
+        stats.setTotalOrganizations(calculateTotalOrganizations(allFilteredUsers));
+        return stats;
     }
 
     /**

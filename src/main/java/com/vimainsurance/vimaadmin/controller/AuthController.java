@@ -113,6 +113,7 @@ public class AuthController {
         List<FeatureFlagResponseDto> response = featureFlagService.findAllMatchedFeatureFlags();
         ResponseDto<List<FeatureFlagResponseDto>> dto = new ResponseDto<>();
         dto.setPayload(response);
+        dto.setAllowedOrganizationIds(featureFlagService.resolveAllowedOrganizationIdsForAuthMe());
         return ResponseEntity.ok(dto);
     }
 

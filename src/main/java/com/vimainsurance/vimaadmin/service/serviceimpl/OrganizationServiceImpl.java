@@ -201,12 +201,12 @@ public class OrganizationServiceImpl implements IOrganizationService {
             seedDefaultCostSharingRules(savedOrg.getOrganizationId());
             String orgGroupName = "ORG_" + savedOrg.getOrganizationName().trim().toUpperCase().replaceAll("[^A-Z0-9]", "_");
             keycloakUtil.createGroup(orgGroupName, Map.of("organization_id", List.of(savedOrg.getOrganizationId().toString())));
-            try {
-                featureFlagService.seedOrganizationFeaturesFromHrAdminRole(savedOrg.getOrganizationId().toString());
-            } catch (Exception seedEx) {
-                logger.warn("[correlationId:{}] Could not seed default org feature flags for {}: {}",
-                        MDC.get("correlationId"), savedOrg.getOrganizationId(), seedEx.getMessage());
-            }
+            // try {
+            //     featureFlagService.seedOrganizationFeaturesFromHrAdminRole(savedOrg.getOrganizationId().toString());
+            // } catch (Exception seedEx) {
+            //     logger.warn("[correlationId:{}] Could not seed default org feature flags for {}: {}",
+            //             MDC.get("correlationId"), savedOrg.getOrganizationId(), seedEx.getMessage());
+            // }
             return responseObj.render(responseObj.formSuccessResponse(Constants.SUCCESS, Constants.SAVE_SUCCESS));
         } catch (Exception e) {
             logger.error("[correlationId:{}] Exception in Organization create: {}", MDC.get("correlationId"), e.getMessage(), e);
