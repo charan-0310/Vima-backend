@@ -3,7 +3,6 @@ package com.vimainsurance.vimaadmin.service.serviceimpl;
 import java.util.List;
 import java.util.Optional;
 import java.util.stream.Collectors;
-import java.util.List;
 import java.util.ArrayList;
 
 import org.slf4j.Logger;
@@ -11,6 +10,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Service;
 
+import com.vimainsurance.vimaadmin.audit.AuditedOperation;
 import com.vimainsurance.vimaadmin.dto.AgentTargetRequestDto;
 import com.vimainsurance.vimaadmin.dto.AgentTargetResponseDto;
 import com.vimainsurance.vimaadmin.dto.BaseResponse;
@@ -35,6 +35,7 @@ public class AgentTargetServiceImpl implements AgentTargetService {
     private final IAdminUserRepository adminUserRepository;
 
     @Override
+    @AuditedOperation(schemaName = "admin", tableName = "agent_targets", entityType = "AGENT_TARGET", action = "CREATE")
     public ResponseEntity<String> create(AgentTargetRequestDto dto) {
         try {
             Optional<IncentivePackage> pkgOpt = incentivePackageRepository.findById(dto.getPackageId());
@@ -61,6 +62,7 @@ public class AgentTargetServiceImpl implements AgentTargetService {
     }
 
     @Override
+    @AuditedOperation(schemaName = "admin", tableName = "agent_targets", entityType = "AGENT_TARGET", action = "UPDATE")
     public ResponseEntity<ResponseDto<AgentTargetResponseDto>> update(Long id, AgentTargetRequestDto dto) {
         BaseResponse<AgentTargetResponseDto> responseObj = new BaseResponse<>();
         try {
@@ -123,6 +125,7 @@ public class AgentTargetServiceImpl implements AgentTargetService {
     }
 
     @Override
+    @AuditedOperation(schemaName = "admin", tableName = "agent_targets", entityType = "AGENT_TARGET", action = "DELETE")
     public ResponseEntity<ResponseDto<String>> delete(Long id) {
         BaseResponse<String> responseObj = new BaseResponse<>();
         try {

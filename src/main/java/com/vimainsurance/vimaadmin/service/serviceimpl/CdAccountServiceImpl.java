@@ -7,6 +7,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import com.vimainsurance.vimaadmin.audit.AuditedOperation;
 import com.vimainsurance.vimaadmin.entity.CdAccount;
 import com.vimainsurance.vimaadmin.entity.Policy;
 import com.vimainsurance.vimaadmin.enums.CdAccountStatus;
@@ -52,6 +53,7 @@ public class CdAccountServiceImpl implements ICdAccountService {
 
     @Override
     @Transactional(rollbackFor = Exception.class)
+    @AuditedOperation(schemaName = "cpc", tableName = "cd_accounts", entityType = "CD_ACCOUNT", action = "CREATE_AND_LINK_POLICY")
     public CdAccount createDefaultAccountAndLinkPolicy(Long policyId) {
         Policy policy = policyRepository.findByIdForUpdate(policyId)
                 .orElseThrow(() -> new RuntimeException("Policy not found"));
@@ -92,6 +94,7 @@ public class CdAccountServiceImpl implements ICdAccountService {
 
     @Override
     @Transactional(rollbackFor = Exception.class)
+    @AuditedOperation(schemaName = "cpc", tableName = "cd_accounts", entityType = "CD_ACCOUNT", action = "LINK_POLICY")
     public void linkPolicyToAccount(Long policyId, UUID cdAccountId) {
         Policy policy = policyRepository.findByIdForUpdate(policyId)
                 .orElseThrow(() -> new RuntimeException("Policy not found"));

@@ -48,7 +48,7 @@ public class AdminNotificationInboxService {
     @Transactional(readOnly = true)
     public AdminNotificationPageResponseDto list(boolean unreadOnly, NotificationCategory category, UUID companyIdFilter,
             int page, int size) {
-        AdminUser me = jwtUserExtractor.resolveCurrentAdminUser().orElseThrow();
+        AdminUser me = currentAdminForNotificationInbox();
         UUID effectiveCompanyFilter = resolveCompanyFilter(me, companyIdFilter);
         Page<AdminNotification> p;
         if (isVimaAudienceRole(me.getRole())) {
@@ -69,8 +69,8 @@ public class AdminNotificationInboxService {
                     PageRequest.of(0, Math.max(size * 20, 500), Sort.by(Sort.Direction.DESC, "createdAt")));
             p = dedupeSharedAudiencePage(raw, page, size);
         } else if (isHrAdminRole(me.getRole())) {
-            String receiverEmail = resolveCurrentUserEmail(me);
-            if (receiverEmail == null || receiverEmail.isBlank()) {
+            UUID hrOrgId = resolveHrAdminOrganizationId(me);
+            if (hrOrgId == null) {
                 return AdminNotificationPageResponseDto.builder()
                         .content(List.of())
                         .totalElements(0)
@@ -78,12 +78,12 @@ public class AdminNotificationInboxService {
                         .size(size)
                         .build();
             }
-            Page<AdminNotification> raw = notificationRepository.findInboxByReceiverEmail(
-                    receiverEmail,
+            p = notificationRepository.findInboxForHrAdminByOrganization(
+                    me.getId(),
                     unreadOnly,
                     category,
-                    PageRequest.of(0, Math.max(size * 20, 500), Sort.by(Sort.Direction.DESC, "createdAt")));
-            p = strictFilterByReceiverEmail(raw, receiverEmail, page, size);
+                    hrOrgId,
+                    PageRequest.of(page, size, Sort.by(Sort.Direction.DESC, "createdAt")));
         } else {
             UUID recipientId = me.getId();
             p = notificationRepository.findInbox(
@@ -103,7 +103,7 @@ public class AdminNotificationInboxService {
 
     @Transactional(readOnly = true)
     public long unreadCount() {
-        AdminUser me = jwtUserExtractor.resolveCurrentAdminUser().orElseThrow();
+        AdminUser me = currentAdminForNotificationInbox();
         if (isVimaAudienceRole(me.getRole())) {
             Set<UUID> sharedRecipientIds = resolveSharedAudienceRecipientIds();
             if (sharedRecipientIds.isEmpty()) {
@@ -121,41 +121,96 @@ public class AdminNotificationInboxService {
                     .count();
         }
         if (isHrAdminRole(me.getRole())) {
-            String receiverEmail = resolveCurrentUserEmail(me);
-            if (receiverEmail == null || receiverEmail.isBlank()) {
+            UUID hrOrgId = resolveHrAdminOrganizationId(me);
+            if (hrOrgId == null) {
                 return 0L;
             }
-            return notificationRepository.countUnreadByReceiverEmail(receiverEmail);
+            return notificationRepository.countUnreadForHrAdminByOrganization(me.getId(), hrOrgId);
         }
         return notificationRepository.countByRecipient_IdAndReadAtIsNull(me.getId());
     }
 
     @Transactional
     public boolean markRead(UUID id) {
-        UUID recipientId = jwtUserExtractor.resolveCurrentAdminUser().orElseThrow().getId();
-        int updated = notificationRepository.markReadIfOwned(id, recipientId, LocalDateTime.now());
+        AdminUser me = currentAdminForNotificationInbox();
+        LocalDateTime now = LocalDateTime.now();
+        if (isVimaAudienceRole(me.getRole())) {
+            return markReadSharedLogicalGroup(id, me, now);
+        }
+        int updated = notificationRepository.markReadIfOwned(id, me.getId(), now);
         return updated > 0;
+    }
+
+    /**
+     * Vima shared inbox dedupes by logical dedup key across many recipient rows. Marking read must clear
+     * all matching fan-out rows so {@link #unreadCount()} (distinct logical keys) and the bell drop correctly.
+     */
+    private boolean markReadSharedLogicalGroup(UUID notificationId, AdminUser me, LocalDateTime readAt) {
+        Set<UUID> sharedRecipientIds = resolveSharedAudienceRecipientIds();
+        if (sharedRecipientIds.isEmpty()) {
+            return false;
+        }
+        return notificationRepository.findById(notificationId).map((n) -> {
+            if (n.getRecipient() == null || n.getRecipient().getId() == null) {
+                return false;
+            }
+            if (!sharedRecipientIds.contains(n.getRecipient().getId())) {
+                return false;
+            }
+            String dk = n.getDedupKey();
+            if (dk == null || dk.isBlank()) {
+                int owned = notificationRepository.markReadIfOwned(notificationId, me.getId(), readAt);
+                return owned > 0;
+            }
+            String logical = logicalDedupKey(n);
+            if (logical.isBlank()) {
+                return false;
+            }
+            String dedupPrefix = logical + ":";
+            int updated = notificationRepository.markReadLogicalGroupForRecipients(
+                    sharedRecipientIds, logical, dedupPrefix, readAt);
+            return updated > 0;
+        }).orElse(false);
     }
 
     @Transactional
     public int markAllRead(UUID companyIdFilter) {
-        AdminUser me = jwtUserExtractor.resolveCurrentAdminUser().orElseThrow();
+        AdminUser me = currentAdminForNotificationInbox();
         if (isHrAdminRole(me.getRole())) {
-            String receiverEmail = resolveCurrentUserEmail(me);
-            if (receiverEmail == null || receiverEmail.isBlank()) {
+            UUID hrOrgId = resolveHrAdminOrganizationId(me);
+            if (hrOrgId == null) {
                 return 0;
             }
-            return notificationRepository.markAllReadByReceiverEmail(receiverEmail, LocalDateTime.now());
+            return notificationRepository.markAllReadForHrAdminByOrganization(me.getId(), hrOrgId, LocalDateTime.now());
         }
         UUID effectiveCompanyFilter = resolveCompanyFilter(me, companyIdFilter);
+        if (isVimaAudienceRole(me.getRole())) {
+            Set<UUID> sharedRecipientIds = resolveSharedAudienceRecipientIds();
+            if (sharedRecipientIds.isEmpty()) {
+                return 0;
+            }
+            return notificationRepository.markAllReadForRecipientIds(
+                    sharedRecipientIds, effectiveCompanyFilter, LocalDateTime.now());
+        }
         return notificationRepository.markAllReadForRecipient(me.getId(), effectiveCompanyFilter, LocalDateTime.now());
     }
 
     @Transactional
     public boolean markStarred(UUID id, boolean starred) {
-        UUID recipientId = jwtUserExtractor.resolveCurrentAdminUser().orElseThrow().getId();
+        UUID recipientId = currentAdminForNotificationInbox().getId();
         int updated = notificationRepository.markStarredIfOwned(id, recipientId, starred, LocalDateTime.now());
         return updated > 0;
+    }
+
+    /**
+     * HR inbox needs {@code admin_users.organization_id}; re-load with {@code organization} graph when role is HR.
+     */
+    private AdminUser currentAdminForNotificationInbox() {
+        AdminUser me = jwtUserExtractor.resolveCurrentAdminUser().orElseThrow();
+        if (isHrAdminRole(me.getRole()) && me.getId() != null) {
+            return adminUserRepository.findWithOrganizationById(me.getId()).orElse(me);
+        }
+        return me;
     }
 
     private UUID resolveCompanyFilter(AdminUser me, UUID companyIdFilter) {
@@ -165,9 +220,7 @@ public class AdminNotificationInboxService {
             return null;
         }
         if (isHrAdminRole(me.getRole())) {
-            // Do not filter HR inbox by company: rows are already scoped to recipient_admin_user_id.
-            // Filtering by me.organization_id hid enrollment (and other) notifications when the HR user's
-            // linked org in admin_users did not match notifications.company_id (common with legacy/null org linkage).
+            // HR inbox list/mark-all-read use {@link #resolveHrAdminOrganizationId} and dedicated repository queries.
             return null;
         }
         return companyIdFilter;
@@ -243,33 +296,26 @@ public class AdminNotificationInboxService {
         return normalized;
     }
 
-    private String resolveCurrentUserEmail(AdminUser me) {
-        String jwtEmail = jwtUserExtractor.getCurrentEmail();
-        if (jwtEmail != null && !jwtEmail.isBlank()) {
-            return jwtEmail.trim();
+    /**
+     * Organization used to scope HR notification inbox; must align with {@code notifications.company_id} when set.
+     * When {@code admin_users.organization_id} is missing, uses the first valid UUID from the JWT {@code organization_ids}
+     * claim (Keycloak) so HR users still see tenant-scoped rows after provisioning gaps.
+     */
+    private UUID resolveHrAdminOrganizationId(AdminUser me) {
+        if (me != null && me.getOrganization() != null && me.getOrganization().getOrganizationId() != null) {
+            return me.getOrganization().getOrganizationId();
         }
-        if (me != null && me.getEmail() != null && !me.getEmail().isBlank()) {
-            return me.getEmail().trim();
+        for (String idStr : jwtUserExtractor.getCurrentOrganizations()) {
+            if (idStr == null || idStr.isBlank()) {
+                continue;
+            }
+            try {
+                return UUID.fromString(idStr.trim());
+            } catch (IllegalArgumentException ignored) {
+                // skip malformed claim entries
+            }
         }
         return null;
-    }
-
-    @SuppressWarnings("null")
-    private Page<AdminNotification> strictFilterByReceiverEmail(
-            Page<AdminNotification> raw,
-            String expectedReceiverEmail,
-            int page,
-            int size) {
-        if (raw == null || expectedReceiverEmail == null || expectedReceiverEmail.isBlank()) {
-            return new PageImpl<>(List.of(), PageRequest.of(page, size), 0);
-        }
-        String expected = expectedReceiverEmail.trim().toLowerCase();
-        List<AdminNotification> filtered = raw.getContent().stream()
-                .filter(n -> n != null && n.getReceiverEmail() != null && n.getReceiverEmail().trim().equalsIgnoreCase(expected))
-                .toList();
-        int from = Math.min(page * size, filtered.size());
-        int to = Math.min(from + size, filtered.size());
-        return new PageImpl<>(filtered.subList(from, to), PageRequest.of(page, size), filtered.size());
     }
 
     private AdminNotificationResponseDto toDto(AdminNotification n, AdminUser viewer) {

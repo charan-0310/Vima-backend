@@ -9,12 +9,13 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
 import com.vimainsurance.vimaadmin.dto.claim.ClaimNotification;
+import com.vimainsurance.vimaadmin.entity.AdminUser;
 import com.vimainsurance.vimaadmin.entity.Claim;
 import com.vimainsurance.vimaadmin.entity.ClaimQuery;
 import com.vimainsurance.vimaadmin.entity.ClaimSettlement;
 import com.vimainsurance.vimaadmin.entity.Deals;
 import com.vimainsurance.vimaadmin.enums.ClaimStatus;
-import com.vimainsurance.vimaadmin.repository.IAdminUserRepository;
+import com.vimainsurance.vimaadmin.notification.NotificationRoutingResolver;
 import com.vimainsurance.vimaadmin.repository.IClaimRepository;
 
 import lombok.RequiredArgsConstructor;
@@ -27,7 +28,7 @@ public class ClaimsNotificationService {
 
     private final List<ClaimsNotificationChannel> channels;
     private final IClaimRepository claimRepository;
-    private final IAdminUserRepository adminUserRepository;
+    private final NotificationRoutingResolver notificationRoutingResolver;
     private final ClaimsNotificationDispatcher notificationDispatcher;
 
     @Value("${app.base-url:http://localhost:8080}")
@@ -138,27 +139,75 @@ public class ClaimsNotificationService {
     public void notifyAdminManualSubmission(Claim claim) {
         Claim loaded = claimRepository.findByIdWithOrganizationAndEmployeeAndSettlement(claim.getId()).orElse(claim);
         UUID employeeId = loaded.getEmployee() != null ? loaded.getEmployee().getIndividualId() : null;
+        UUID organizationId = loaded.getOrganization() != null ? loaded.getOrganization().getOrganizationId() : null;
+        List<AdminUser> recipients = notificationRoutingResolver.resolveClaimsTeamRecipients(organizationId);
+        if (recipients.isEmpty()) {
+            log.info("claims_notification_manual_submission_skip claimId={} reason=no_recipients orgId={}",
+                    loaded.getId(), organizationId);
+            return;
+        }
 
         List<ClaimNotification> notifications = new ArrayList<>();
-        adminUserRepository.findByIsActiveTrue().stream()
-                .filter(admin -> admin.getEmail() != null && !admin.getEmail().isBlank())
-                .forEach(admin -> notifications.add(ClaimNotification.builder()
-                        .claimNumber(loaded.getClaimNumber())
-                        .memberName(loaded.getMemberName())
-                        .status(loaded.getInternalStatus())
-                        .displayStatus(getDisplayStatus(loaded.getInternalStatus()))
-                        .message("Claim " + loaded.getClaimNumber() + " is ready for manual submission to the insurer.")
-                        .recipientEmail(admin.getEmail())
-                        .recipientName(admin.getFullName())
-                        .actionUrl(baseUrl + "/admin/claims/" + loaded.getId())
-                        .templateId("claim_manual_submission_admin")
-                        .claimAmount(loaded.getClaimAmount())
-                        .hospitalName(loaded.getHospitalName())
-                        .build()));
+        for (AdminUser admin : recipients) {
+            if (admin.getEmail() == null || admin.getEmail().isBlank()) {
+                continue;
+            }
+            String actionUrl = manualSubmissionClaimUrl(loaded.getId(), admin.getRole());
+            notifications.add(ClaimNotification.builder()
+                    .claimNumber(loaded.getClaimNumber())
+                    .memberName(loaded.getMemberName())
+                    .status(loaded.getInternalStatus())
+                    .displayStatus(getDisplayStatus(loaded.getInternalStatus()))
+                    .message("Claim " + loaded.getClaimNumber() + " is ready for manual submission to the insurer.")
+                    .recipientEmail(admin.getEmail())
+                    .recipientName(admin.getFullName())
+                    .actionUrl(actionUrl)
+                    .templateId("claim_manual_submission_admin")
+                    .claimAmount(loaded.getClaimAmount())
+                    .hospitalName(loaded.getHospitalName())
+                    .build());
+        }
 
         if (!notifications.isEmpty()) {
             notificationDispatcher.dispatch(channels, notifications, employeeId);
         }
+    }
+
+    private String manualSubmissionClaimUrl(UUID claimId, String recipientRole) {
+        String base = baseUrl != null ? baseUrl.trim().replaceAll("/$", "") : "";
+        if (claimId == null) {
+            return base + "/admin/claims";
+        }
+        if (isVimaPlatformAudienceRole(recipientRole)) {
+            return base + "/admin/claims/" + claimId;
+        }
+        return base + "/hr/claims/" + claimId;
+    }
+
+    private static boolean isVimaPlatformAudienceRole(String role) {
+        String normalized = normalizeRoleForClaimUrl(role);
+        return "VIMA_ADMIN".equals(normalized)
+                || "ADMIN".equals(normalized)
+                || "SUPER_ADMIN".equals(normalized)
+                || "SALES_ADMIN".equals(normalized);
+    }
+
+    private static String normalizeRoleForClaimUrl(String role) {
+        if (role == null) {
+            return null;
+        }
+        String normalized = role.trim().toUpperCase();
+        if (normalized.startsWith("ROLE_")) {
+            normalized = normalized.substring("ROLE_".length());
+        }
+        normalized = normalized.replace('-', '_').replace(' ', '_');
+        while (normalized.contains("__")) {
+            normalized = normalized.replace("__", "_");
+        }
+        if (normalized.endsWith("_GROUP")) {
+            normalized = normalized.substring(0, normalized.length() - "_GROUP".length());
+        }
+        return normalized;
     }
 
     private String resolveTemplateId(ClaimStatus oldStatus, ClaimStatus newStatus) {

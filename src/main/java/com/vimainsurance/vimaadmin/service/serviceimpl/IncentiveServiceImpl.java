@@ -15,6 +15,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import com.vimainsurance.vimaadmin.audit.AuditedOperation;
 import com.vimainsurance.vimaadmin.dto.BaseResponse;
 import com.vimainsurance.vimaadmin.dto.IncentiveEvaluationRequestDto;
 import com.vimainsurance.vimaadmin.dto.IncentiveEvaluationResponseDto;
@@ -71,6 +72,7 @@ public class IncentiveServiceImpl implements IIncentiveService {
 
     @Override
     @Transactional
+    @AuditedOperation(schemaName = "admin", tableName = "incentive_packages", entityType = "INCENTIVE_PACKAGE", action = "CREATE")
     public ResponseEntity<ResponseDto<IncentivePackageDto>> createFullPackage(IncentivePackageFullRequestDto requestDto) {
         String correlationId = MDC.get("correlationId");
         logger.info("[correlationId:{}] createFullPackage called", correlationId);
@@ -117,6 +119,7 @@ public class IncentiveServiceImpl implements IIncentiveService {
 
     @Override
     @Transactional
+    @AuditedOperation(schemaName = "admin", tableName = "incentive_packages", entityType = "INCENTIVE_PACKAGE", action = "UPDATE")
     public ResponseEntity<ResponseDto<IncentivePackageDto>> updateFullPackage(Long packageId, IncentivePackageFullRequestDto requestDto) {
         String correlationId = MDC.get("correlationId");
         logger.info("[correlationId:{}] updateFullPackage called with id={}", correlationId, packageId);
@@ -173,6 +176,7 @@ public class IncentiveServiceImpl implements IIncentiveService {
 
     @Override
     @Transactional
+    @AuditedOperation(schemaName = "admin", tableName = "incentive_packages", entityType = "INCENTIVE_PACKAGE", action = "DELETE")
     public ResponseEntity<ResponseDto<String>> deletePackage(Long packageId) {
         String correlationId = MDC.get("correlationId");
         logger.info("[correlationId:{}] deletePackage called with id={}", correlationId, packageId);
@@ -191,6 +195,7 @@ public class IncentiveServiceImpl implements IIncentiveService {
 
     @Override
     @Transactional
+    @AuditedOperation(schemaName = "admin", tableName = "incentive_rules", entityType = "INCENTIVE_RULE", action = "CREATE")
     public ResponseEntity<ResponseDto<IncentiveRuleDto>> createRule(IncentiveRuleRequestDto ruleDto) {
         String correlationId = MDC.get("correlationId");
         logger.info("[correlationId:{}] createRule called", correlationId);
@@ -226,6 +231,7 @@ public class IncentiveServiceImpl implements IIncentiveService {
 
     @Override
     @Transactional
+    @AuditedOperation(schemaName = "admin", tableName = "incentive_rules", entityType = "INCENTIVE_RULE", action = "UPDATE")
     public ResponseEntity<ResponseDto<IncentiveRuleDto>> updateRule(Long ruleId, IncentiveRuleRequestDto ruleDto) {
         String correlationId = MDC.get("correlationId");
         logger.info("[correlationId:{}] updateRule called with id={}", correlationId, ruleId);
@@ -259,6 +265,7 @@ public class IncentiveServiceImpl implements IIncentiveService {
 
     @Override
     @Transactional
+    @AuditedOperation(schemaName = "admin", tableName = "incentive_rules", entityType = "INCENTIVE_RULE", action = "DELETE")
     public ResponseEntity<ResponseDto<String>> deleteRule(Long ruleId) {
         String correlationId = MDC.get("correlationId");
         logger.info("[correlationId:{}] deleteRule called with id={}", correlationId, ruleId);
@@ -277,6 +284,7 @@ public class IncentiveServiceImpl implements IIncentiveService {
 
     @Override
     @Transactional
+    @AuditedOperation(schemaName = "admin", tableName = "incentive_rule_slabs", entityType = "INCENTIVE_SLAB", action = "CREATE")
     public ResponseEntity<ResponseDto<IncentiveRuleSlabDto>> createSlab(Long ruleId, IncentiveRuleSlabRequestDto slabDto) {
         String correlationId = MDC.get("correlationId");
         logger.info("[correlationId:{}] createSlab called for ruleId={}", correlationId, ruleId);
@@ -299,6 +307,7 @@ public class IncentiveServiceImpl implements IIncentiveService {
 
     @Override
     @Transactional
+    @AuditedOperation(schemaName = "admin", tableName = "incentive_rule_slabs", entityType = "INCENTIVE_SLAB", action = "UPDATE")
     public ResponseEntity<ResponseDto<IncentiveRuleSlabDto>> updateSlab(Long slabId, IncentiveRuleSlabRequestDto slabDto) {
         String correlationId = MDC.get("correlationId");
         logger.info("[correlationId:{}] updateSlab called with id={}", correlationId, slabId);
@@ -319,6 +328,7 @@ public class IncentiveServiceImpl implements IIncentiveService {
 
     @Override
     @Transactional
+    @AuditedOperation(schemaName = "admin", tableName = "incentive_rule_slabs", entityType = "INCENTIVE_SLAB", action = "DELETE")
     public ResponseEntity<ResponseDto<String>> deleteSlab(Long slabId) {
         String correlationId = MDC.get("correlationId");
         logger.info("[correlationId:{}] deleteSlab called with id={}", correlationId, slabId);

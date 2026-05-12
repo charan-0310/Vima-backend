@@ -35,6 +35,7 @@ import com.vimainsurance.vimaadmin.dto.AuthentikPaginatedResponse;
 import com.vimainsurance.vimaadmin.dto.PasswordChangeRequestDto;
 import com.vimainsurance.vimaadmin.dto.ResponseDto;
 import com.vimainsurance.vimaadmin.entity.AdminUser;
+import com.vimainsurance.vimaadmin.audit.PlatformAuditPublisher;
 import com.vimainsurance.vimaadmin.repository.IAdminUserRepository;
 import com.vimainsurance.vimaadmin.service.IEmailService;
 import com.vimainsurance.vimaadmin.util.Constants;
@@ -59,6 +60,9 @@ class AdminUserServiceImplTest {
 
     @Mock
     private KeyCloakUtil keyCloakUtil;
+
+    @Mock
+    private PlatformAuditPublisher platformAuditPublisher;
 
     @InjectMocks
     private AdminUserServiceImpl adminUserService;

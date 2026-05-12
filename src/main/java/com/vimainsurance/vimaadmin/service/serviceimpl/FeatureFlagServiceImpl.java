@@ -9,6 +9,7 @@ import com.vimainsurance.vimaadmin.dto.FeatureFlagsOrganizationDto;
 import com.vimainsurance.vimaadmin.dto.FeatureFlagsOrganizationResponse;
 import com.vimainsurance.vimaadmin.dto.FeatureFlagUpdateDto;
 import com.vimainsurance.vimaadmin.dto.FeatureFlagUpdateItemDto;
+import com.vimainsurance.vimaadmin.dto.OrganizationFeatureCountDto;
 import com.vimainsurance.vimaadmin.entity.FeatureFlag;
 import com.vimainsurance.vimaadmin.entity.FeatureFlagCompany;
 import com.vimainsurance.vimaadmin.entity.FeatureFlagRole;
@@ -27,7 +28,6 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import com.vimainsurance.vimaadmin.util.JwtUserExtractor;
 import com.vimainsurance.vimaadmin.entity.AdminUser;
-import java.util.Optional;
 import com.vimainsurance.vimaadmin.exception.OrganizationAccessDeniedException;
 
 @Slf4j
@@ -91,9 +91,32 @@ public class FeatureFlagServiceImpl implements FeatureFlagService {
             throw new OrganizationAccessDeniedException("No admin user found for username: " + hint);
         }
 
+        final boolean provisionedVimaAdmin = isProvisionedVimaAdmin(adminUser.get());
 
-        // Fetch flags with roles and companies to avoid N+1
+        // Batch-load role and company rows to avoid N+1 on lazy collections
         List<FeatureFlag> featureFlags = featureFlagRepository.findAll();
+        if (featureFlags.isEmpty()) {
+            return List.of();
+        }
+        List<UUID> allFlagIds = featureFlags.stream()
+                .map(FeatureFlag::getFlagId)
+                .filter(Objects::nonNull)
+                .distinct()
+                .toList();
+
+        List<FeatureFlagRole> allRolesForFlags = allFlagIds.isEmpty()
+                ? List.of()
+                : featureFlagRoleRepository.findByFeatureFlagFlagIdIn(allFlagIds);
+        Map<UUID, List<FeatureFlagRole>> rolesByFlagId = allRolesForFlags.stream()
+                .filter(r -> r.getFeatureFlag() != null && r.getFeatureFlag().getFlagId() != null)
+                .collect(Collectors.groupingBy(r -> r.getFeatureFlag().getFlagId()));
+
+        List<FeatureFlagCompany> allCompaniesForFlags = allFlagIds.isEmpty()
+                ? List.of()
+                : featureFlagCompanyRepository.findAllByFeatureFlagIdsWithOrg(allFlagIds);
+        Map<UUID, List<FeatureFlagCompany>> companiesByFlagId = allCompaniesForFlags.stream()
+                .filter(c -> c.getFeatureFlag() != null && c.getFeatureFlag().getFlagId() != null)
+                .collect(Collectors.groupingBy(c -> c.getFeatureFlag().getFlagId()));
 
         Map<String, List<String>> currentTenant = TenantContext.getCurrentTenant();
         // Support both keys "ROLES" and "roles" (tenant source may vary)
@@ -111,16 +134,21 @@ public class FeatureFlagServiceImpl implements FeatureFlagService {
 
         // SUPER_ADMIN has no feature_flag_roles entries; resolve using ROLE_VIMA_ADMIN
         // so feature flag DB state is respected instead of force-enabling everything.
-        final boolean isSuperAdmin = normalizedRoles.stream().anyMatch(r ->
+        final boolean isSuperAdmin = !provisionedVimaAdmin && normalizedRoles.stream().anyMatch(r ->
                 r.equalsIgnoreCase("ROLE_SUPER_ADMIN") || r.equalsIgnoreCase("SUPER_ADMIN"));
         if (isSuperAdmin && ("ROLE_SUPER_ADMIN".equalsIgnoreCase(resolvedPrimaryRole)
                 || "ROLE_ADMIN".equalsIgnoreCase(resolvedPrimaryRole))) {
             resolvedPrimaryRole = "ROLE_VIMA_ADMIN";
         }
         final String primaryRole = resolvedPrimaryRole;
+        final OrgFeatureResolution orgResolution = resolveOrgFeatureResolution(primaryRole);
 
         final List<String> organizationIds = (currentTenant != null) ? currentTenant.getOrDefault("organizationIds", List.of()) : List.of();
-        final Set<String> orgIdSet = organizationIds.stream().filter(id -> id != null && !id.isBlank()).collect(Collectors.toCollection(LinkedHashSet::new));
+        Set<String> orgIdSet = organizationIds.stream().filter(id -> id != null && !id.isBlank()).collect(Collectors.toCollection(LinkedHashSet::new));
+        if (provisionedVimaAdmin && adminUser.get().getOrganization() != null
+                && adminUser.get().getOrganization().getOrganizationId() != null) {
+            orgIdSet = new LinkedHashSet<>(List.of(adminUser.get().getOrganization().getOrganizationId().toString()));
+        }
 
         log.info("############  Organization IDs from TenantContext: {}", organizationIds);
         List<FeatureFlagResponseDto> responseDtos = new ArrayList<>();
@@ -128,10 +156,10 @@ public class FeatureFlagServiceImpl implements FeatureFlagService {
         for (FeatureFlag flag : featureFlags) {
             if (flag == null) continue;
 
-            // Match only primary role; organization rows narrow role grants in createDto() when present.
+            // Match only primary role; org rows interact per OrgFeatureResolution (VIMA = role only, HR = org overrides).
             List<FeatureFlagRole> matchedRoles = new ArrayList<>();
-            List<FeatureFlagRole> flagRoles = flag.getRoles();
-            if (flagRoles != null && primaryRole != null) {
+            List<FeatureFlagRole> flagRoles = rolesByFlagId.getOrDefault(flag.getFlagId(), List.of());
+            if (primaryRole != null) {
                 for (FeatureFlagRole role : flagRoles) {
                     if (role == null || role.getRoleName() == null) continue;
                     if (primaryRole.equalsIgnoreCase(role.getRoleName())) {
@@ -143,9 +171,8 @@ public class FeatureFlagServiceImpl implements FeatureFlagService {
 
             // Collect matching companies by organization id
             List<FeatureFlagCompany> matchedCompanies = new ArrayList<>();
-            List<FeatureFlagCompany> companies = flag.getCompanies();
-            if (companies != null) {
-                for (FeatureFlagCompany comp : companies) {
+            List<FeatureFlagCompany> companies = companiesByFlagId.getOrDefault(flag.getFlagId(), List.of());
+            for (FeatureFlagCompany comp : companies) {
                     if (comp == null) continue;
                     if (comp.getOrganization() == null || comp.getOrganization().getOrganizationId() == null) continue;
                     String orgId = comp.getOrganization().getOrganizationId().toString();
@@ -153,13 +180,55 @@ public class FeatureFlagServiceImpl implements FeatureFlagService {
                         matchedCompanies.add(comp);
                     }
                 }
-            }
 
-            FeatureFlagResponseDto dto = createDto(flag, matchedRoles, matchedCompanies, isSuperAdmin);
+            FeatureFlagResponseDto dto = createDto(flag, matchedRoles, matchedCompanies, isSuperAdmin, orgResolution);
             responseDtos.add(dto);
         }
 
         return responseDtos;
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public List<String> resolveAllowedOrganizationIdsForAuthMe() {
+        Optional<AdminUser> adminUser = jwtUserExtractor.resolveCurrentAdminUser();
+        if (adminUser.isEmpty()) {
+            return null;
+        }
+        AdminUser u = adminUser.get();
+        if (isProvisionedVimaAdmin(u) && u.getOrganization() != null && u.getOrganization().getOrganizationId() != null) {
+            return List.of(u.getOrganization().getOrganizationId().toString());
+        }
+        return null;
+    }
+
+    private static boolean isProvisionedVimaAdmin(AdminUser adminUser) {
+        return adminUser.getRole() != null && "VIMA_ADMIN".equalsIgnoreCase(adminUser.getRole().trim());
+    }
+
+    private static OrgFeatureResolution resolveOrgFeatureResolution(String primaryRole) {
+        if (primaryRole == null || primaryRole.isBlank()) {
+            return OrgFeatureResolution.STANDARD;
+        }
+        if ("ROLE_VIMA_ADMIN".equalsIgnoreCase(primaryRole)) {
+            return OrgFeatureResolution.VIMA_USE_ROLE_BASELINE;
+        }
+        if ("ROLE_HR_ADMIN".equalsIgnoreCase(primaryRole)) {
+            return OrgFeatureResolution.HR_ORG_OVERRIDES;
+        }
+        return OrgFeatureResolution.STANDARD;
+    }
+
+    /**
+     * How {@code feature_flag_companies} rows interact with {@code feature_flag_roles} for /auth/me.
+     */
+    private enum OrgFeatureResolution {
+        /** Role baseline intersected with org actions (org cannot expand beyond role). */
+        STANDARD,
+        /** VIMA Admin: use ROLE_VIMA_ADMIN row only; org rows are informational in the payload but do not narrow. */
+        VIMA_USE_ROLE_BASELINE,
+        /** HR Admin: org rows control enablement and replace actions when present for the tenant org(s). */
+        HR_ORG_OVERRIDES
     }
 
     private static String normalizeRoleKey(String r) {
@@ -176,6 +245,11 @@ public class FeatureFlagServiceImpl implements FeatureFlagService {
      * an outdated {@code HR_ADMIN} value in the database.
      */
     private String resolvePrimaryRoleForFeatureFlags(AdminUser adminUser, Set<String> normalizedRoles) {
+        // Provisioned VIMA_ADMIN: auth/me and permission checks must use ROLE_VIMA_ADMIN only,
+        // not higher-precedence roles that may still appear in the identity token.
+        if (isProvisionedVimaAdmin(adminUser)) {
+            return "ROLE_VIMA_ADMIN";
+        }
         LinkedHashSet<String> candidates = new LinkedHashSet<>();
         for (String r : normalizedRoles) {
             String k = normalizeRoleKey(r);
@@ -195,48 +269,75 @@ public class FeatureFlagServiceImpl implements FeatureFlagService {
     }
 
     @Override
-    public List<FeatureFlagsManagementResponse> getFeatureFlagsGroupedByType() {
+    @Transactional(readOnly = true)
+    public List<FeatureFlagsManagementResponse> getFeatureFlagsGroupedByType(String roleNameFilter) {
 
         List<FeatureFlag> flags = featureFlagRepository.findAllWithRoles();
+        if (flags.isEmpty()) {
+            return List.of();
+        }
+
+        Set<UUID> parentIdSet = flags.stream()
+                .map(FeatureFlag::getFlagId)
+                .filter(Objects::nonNull)
+                .collect(Collectors.toCollection(LinkedHashSet::new));
+
+        List<FeatureFlag> allSubs = parentIdSet.isEmpty()
+                ? List.of()
+                : featureFlagRepository.findSubFeatureFlagsByParentIds(new ArrayList<>(parentIdSet));
+        Map<UUID, List<FeatureFlag>> subsByParentId = allSubs.stream()
+                .filter(sub -> sub.getParentFeatureFlag() != null && sub.getParentFeatureFlag().getFlagId() != null)
+                .collect(Collectors.groupingBy(sub -> sub.getParentFeatureFlag().getFlagId()));
+
+        List<UUID> subFlagIds = allSubs.stream()
+                .map(FeatureFlag::getFlagId)
+                .filter(Objects::nonNull)
+                .distinct()
+                .toList();
+        List<FeatureFlagRole> allSubRoles = subFlagIds.isEmpty()
+                ? List.of()
+                : featureFlagRoleRepository.findByFeatureFlagFlagIdIn(subFlagIds);
+        Map<String, Map<UUID, FeatureFlagRole>> subRoleByRoleNameAndSubFlagId = new HashMap<>();
+        for (FeatureFlagRole ffr : allSubRoles) {
+            if (ffr.getRoleName() == null || ffr.getFeatureFlag() == null || ffr.getFeatureFlag().getFlagId() == null) {
+                continue;
+            }
+            subRoleByRoleNameAndSubFlagId
+                    .computeIfAbsent(ffr.getRoleName(), k -> new HashMap<>())
+                    .put(ffr.getFeatureFlag().getFlagId(), ffr);
+        }
+
         Map<String, List<FeatureFlagResponseDto>> grouped = new HashMap<>();
         for (FeatureFlag flag : flags) {
             List<FeatureFlagRole> roles = flag.getRoles();
-            if (roles != null) {
+            if (roles == null) {
+                log.warn("Feature flag with ID {} has no associated roles, skipping parent row...", flag.getFlagId());
+                continue;
+            }
 
-                for (FeatureFlagRole role : roles) {
-                    String roleName = role.getRoleName();
+            List<FeatureFlag> subFlags = subsByParentId.getOrDefault(flag.getFlagId(), List.of());
 
-                    // Include parent feature flag
-                    FeatureFlagResponseDto parentDto = createDto(flag, role);
-                    // Include subfeatures explicitly
-                    List<FeatureFlagResponseDto> subFeatures = new ArrayList<>();
+            for (FeatureFlagRole role : roles) {
+                String roleName = role.getRoleName();
 
-                    // Create a defensive copy to avoid ConcurrentModificationException during lazy loading
-                    List<FeatureFlag> subFeatureFlags = featureFlagRepository.findSubFeatureFlagsByParentId(flag.getFlagId());
-                    List<FeatureFlag> subFlags = (subFeatureFlags != null)
-                            ? new ArrayList<>(subFeatureFlags).stream().filter(Objects::nonNull).toList()
-                            : Collections.emptyList();
+                FeatureFlagResponseDto parentDto = createDto(flag, role);
+                List<FeatureFlagResponseDto> subFeatures = new ArrayList<>();
 
-                    for (FeatureFlag sub : subFlags) {
-                        Optional<FeatureFlagRole> featureFlagRoleOptional= featureFlagRoleRepository.findByFlagIdAndRoleName(sub.getFlagId(), role.getRoleName());
-                        if (featureFlagRoleOptional.isEmpty()) {
-                            continue;
-                        }
-                        FeatureFlagResponseDto subDto = createDto(sub, featureFlagRoleOptional.get());
-                        subFeatures.add(subDto);
+                Map<UUID, FeatureFlagRole> roleSubMap =
+                        subRoleByRoleNameAndSubFlagId.getOrDefault(roleName, Map.of());
+                for (FeatureFlag sub : subFlags) {
+                    FeatureFlagRole subRole = roleSubMap.get(sub.getFlagId());
+                    if (subRole == null) {
+                        continue;
                     }
-                    parentDto.setSubFeatures(subFeatures);
-                    grouped.computeIfAbsent(roleName, k -> new ArrayList<>()).add(parentDto);
+                    subFeatures.add(createDto(sub, subRole));
                 }
-            } else {
-                log.warn("Feature flag with ID {} has no associated roles, adding to UNMAPPED group...", flag.getFlagId());
-
-           }
-
+                parentDto.setSubFeatures(subFeatures);
+                grouped.computeIfAbsent(roleName, k -> new ArrayList<>()).add(parentDto);
+            }
         }
 
         // Fill missing flags per role with disabled DTOs
-        // Build universe of role names from existing map and flags
         Set<String> allRoleNames = new LinkedHashSet<>(grouped.keySet());
         for (FeatureFlag f : flags) {
             if (f.getRoles() != null) {
@@ -248,7 +349,6 @@ public class FeatureFlagServiceImpl implements FeatureFlagService {
             }
         }
 
-        // For each role, ensure every flag has an entry; if missing, add disabled parent and subfeatures
         for (String roleName : allRoleNames) {
             List<FeatureFlagResponseDto> roleList = grouped.computeIfAbsent(roleName, k -> new ArrayList<>());
             Set<String> presentFlagIds = roleList.stream()
@@ -263,18 +363,15 @@ public class FeatureFlagServiceImpl implements FeatureFlagService {
                 }
                 FeatureFlagResponseDto disabledParent = createDisabledDto(f);
 
-                List<FeatureFlag> subFeatureFlags = featureFlagRepository.findSubFeatureFlagsByParentId(f.getFlagId());
+                List<FeatureFlag> subFeatureFlags = subsByParentId.getOrDefault(f.getFlagId(), List.of());
                 List<FeatureFlagResponseDto> disabledSubs = new ArrayList<>();
-                if (subFeatureFlags != null) {
-                    for (FeatureFlag sub : subFeatureFlags) {
-                        disabledSubs.add(createDisabledDto(sub));
-                    }
+                for (FeatureFlag sub : subFeatureFlags) {
+                    disabledSubs.add(createDisabledDto(sub));
                 }
                 disabledParent.setSubFeatures(disabledSubs);
                 grouped.computeIfAbsent(roleName, k -> new ArrayList<>()).add(disabledParent);
             }
         }
-
 
         List<FeatureFlagsManagementResponse> result = new ArrayList<>();
         for (Map.Entry<String, List<FeatureFlagResponseDto>> e : grouped.entrySet()) {
@@ -284,15 +381,21 @@ public class FeatureFlagServiceImpl implements FeatureFlagService {
             m.setFeatures(e.getValue());
             result.add(m);
         }
+
+        if (roleNameFilter != null && !roleNameFilter.isBlank()) {
+            String want = roleNameFilter.trim();
+            return result.stream()
+                    .filter(m -> m.getIdentifier() != null && m.getIdentifier().equalsIgnoreCase(want))
+                    .collect(Collectors.toList());
+        }
         return result;
     }
 
     @Override
     @Transactional(readOnly = true)
-    public List<FeatureFlagsOrganizationResponse> getFeatureFlagsGroupedByOrganization() {
-        log.info("Fetching feature flags grouped by organization");
+    public List<FeatureFlagsOrganizationResponse> getFeatureFlagsGroupedByOrganization(String organizationIdFilter) {
+        log.info("Fetching feature flags grouped by organization (organizationIdFilter={})", organizationIdFilter);
 
-        // Get role name from TenantContext
         Map<String, List<String>> currentTenant = TenantContext.getCurrentTenant();
         final List<String> rolesFromContext = new ArrayList<>();
         if (currentTenant != null) {
@@ -311,12 +414,39 @@ public class FeatureFlagServiceImpl implements FeatureFlagService {
                         || "ROLE_SUPER_ADMIN".equalsIgnoreCase(r)
                         || "SUPER_ADMIN".equalsIgnoreCase(r));
 
+        String orgFilter = organizationIdFilter != null ? organizationIdFilter.trim() : null;
         List<FeatureFlagCompany> matchedCompanies;
-        if (canManageAllOrganizations) {
+
+        if (orgFilter != null && !orgFilter.isBlank()) {
+            UUID orgUuid;
+            try {
+                orgUuid = UUID.fromString(orgFilter);
+            } catch (IllegalArgumentException e) {
+                log.warn("Invalid organizationId filter: {}", organizationIdFilter);
+                return List.of();
+            }
+            List<FeatureFlagCompany> forOrg = featureFlagCompanyRepository.findByOrganizationId(orgUuid);
+            if (canManageAllOrganizations) {
+                matchedCompanies = forOrg;
+            } else {
+                Map<UUID, FeatureFlagCompany> allowedByRow = new LinkedHashMap<>();
+                for (String roleName : rolesFromContext) {
+                    if (roleName != null && !roleName.isBlank()) {
+                        for (FeatureFlagCompany ffc : featureFlagCompanyRepository.findByRoleName(roleName.toUpperCase())) {
+                            if (ffc != null && ffc.getId() != null) {
+                                allowedByRow.putIfAbsent(ffc.getId(), ffc);
+                            }
+                        }
+                    }
+                }
+                Set<UUID> allowedIds = allowedByRow.keySet();
+                matchedCompanies = forOrg.stream()
+                        .filter(c -> c.getId() != null && allowedIds.contains(c.getId()))
+                        .collect(Collectors.toList());
+            }
+        } else if (canManageAllOrganizations) {
             matchedCompanies = featureFlagCompanyRepository.findAllParentFeaturesWithOrganization();
         } else {
-            // Same FeatureFlagCompany row can match multiple roles (e.g. flag has both VIMA_ADMIN and HR_ADMIN
-            // in feature_flag_roles). addAll per role would duplicate entries and repeat parents in the API.
             Map<UUID, FeatureFlagCompany> uniqueCompaniesByRowId = new LinkedHashMap<>();
             for (String roleName : rolesFromContext) {
                 if (roleName != null && !roleName.isBlank()) {
@@ -331,15 +461,27 @@ public class FeatureFlagServiceImpl implements FeatureFlagService {
             matchedCompanies = new ArrayList<>(uniqueCompaniesByRowId.values());
         }
 
-        log.info("Found {} unique FeatureFlagCompany record(s) after de-duplicating by role query overlap",
-                matchedCompanies.size());
+        log.info("Resolved {} FeatureFlagCompany row(s) for organization feature response", matchedCompanies.size());
 
-        // Group by organization
         Map<String, List<FeatureFlagCompany>> groupedByOrg = matchedCompanies.stream()
                 .filter(c -> c.getOrganization() != null && c.getOrganization().getOrganizationId() != null)
                 .collect(Collectors.groupingBy(
                         c -> c.getOrganization().getOrganizationId().toString()
                 ));
+
+        Set<UUID> parentFlagIdsForSubs = matchedCompanies.stream()
+                .map(FeatureFlagCompany::getFeatureFlag)
+                .filter(Objects::nonNull)
+                .map(FeatureFlag::getFlagId)
+                .filter(Objects::nonNull)
+                .collect(Collectors.toCollection(LinkedHashSet::new));
+
+        List<FeatureFlag> allSubsBatch = parentFlagIdsForSubs.isEmpty()
+                ? List.of()
+                : featureFlagRepository.findSubFeatureFlagsByParentIds(new ArrayList<>(parentFlagIdsForSubs));
+        Map<UUID, List<FeatureFlag>> subsByParentId = allSubsBatch.stream()
+                .filter(sub -> sub.getParentFeatureFlag() != null && sub.getParentFeatureFlag().getFlagId() != null)
+                .collect(Collectors.groupingBy(sub -> sub.getParentFeatureFlag().getFlagId()));
 
         List<FeatureFlagsOrganizationResponse> result = new ArrayList<>();
 
@@ -347,59 +489,77 @@ public class FeatureFlagServiceImpl implements FeatureFlagService {
             String organizationId = entry.getKey();
             List<FeatureFlagCompany> companyFeatures = entry.getValue();
 
-            if (companyFeatures.isEmpty()) continue;
+            if (companyFeatures.isEmpty()) {
+                continue;
+            }
 
-            // Get organization name from first entry
             String organizationName = companyFeatures.get(0).getOrganization().getOrganizationName();
+            UUID currentOrgUuid = companyFeatures.get(0).getOrganization().getOrganizationId();
 
-            // Build feature DTOs (guard: one DTO per parent flag per org)
+            Set<UUID> parentSeenForSubs = new HashSet<>();
+            Set<UUID> subFlagIdsNeeded = new LinkedHashSet<>();
+            for (FeatureFlagCompany ffc : companyFeatures) {
+                FeatureFlag flag = ffc.getFeatureFlag();
+                if (flag == null || flag.getFlagId() == null) {
+                    continue;
+                }
+                if (!parentSeenForSubs.add(flag.getFlagId())) {
+                    continue;
+                }
+                for (FeatureFlag sub : subsByParentId.getOrDefault(flag.getFlagId(), List.of())) {
+                    if (sub.getFlagId() != null) {
+                        subFlagIdsNeeded.add(sub.getFlagId());
+                    }
+                }
+            }
+
+            Map<UUID, FeatureFlagCompany> subCompanyByFlagId = new HashMap<>();
+            if (!subFlagIdsNeeded.isEmpty()) {
+                List<UUID> subIdList = new ArrayList<>(subFlagIdsNeeded);
+                for (FeatureFlagCompany sc : featureFlagCompanyRepository.findByOrganizationIdAndFlagIds(currentOrgUuid, subIdList)) {
+                    if (sc.getFeatureFlag() != null && sc.getFeatureFlag().getFlagId() != null) {
+                        subCompanyByFlagId.put(sc.getFeatureFlag().getFlagId(), sc);
+                    }
+                }
+            }
+
             List<FeatureFlagsOrganizationDto> features = new ArrayList<>();
             Set<UUID> parentFlagIdsSeen = new HashSet<>();
             for (FeatureFlagCompany ffc : companyFeatures) {
                 FeatureFlag flag = ffc.getFeatureFlag();
-                if (flag == null || flag.getFlagId() == null) continue;
+                if (flag == null || flag.getFlagId() == null) {
+                    continue;
+                }
                 if (!parentFlagIdsSeen.add(flag.getFlagId())) {
                     continue;
                 }
 
                 FeatureFlagsOrganizationDto dto = new FeatureFlagsOrganizationDto();
-                dto.setFlagId(flag.getFlagId() != null ? flag.getFlagId().toString() : null);
+                dto.setFlagId(flag.getFlagId().toString());
                 dto.setFlagKey(flag.getFlagKey());
                 dto.setDescription(flag.getDescription());
                 dto.setIsActive(true);
                 dto.setIsEnabled(ffc.getIsActive());
                 dto.setActions(ffc.getActions() != null ? Arrays.asList(ffc.getActions()) : List.of());
-                List<FeatureFlag> subFeatureFlags = featureFlagRepository.findSubFeatureFlagsByParentId(flag.getFlagId());
+
                 List<FeatureFlagsOrganizationDto> subFeatures = new ArrayList<>();
-                UUID currentOrgId = ffc.getOrganization().getOrganizationId();
+                for (FeatureFlag sub : subsByParentId.getOrDefault(flag.getFlagId(), List.of())) {
+                    FeatureFlagsOrganizationDto subDto = new FeatureFlagsOrganizationDto();
+                    subDto.setFlagId(sub.getFlagId() != null ? sub.getFlagId().toString() : null);
+                    subDto.setFlagKey(sub.getFlagKey());
+                    subDto.setDescription(sub.getDescription());
 
-                if (subFeatureFlags != null) {
-                    // Build a map of subfeature company states for the current org to avoid repeated lookups
-                    Map<UUID, FeatureFlagCompany> subCompanyByFlagId = new HashMap<>();
-                    for (FeatureFlag sub : subFeatureFlags) {
-                        Optional<FeatureFlagCompany> subCompanyOpt =
-                                featureFlagCompanyRepository.findByFlagIdAndOrganizationId(sub.getFlagId(), currentOrgId);
-                        subCompanyOpt.ifPresent(sc -> subCompanyByFlagId.put(sub.getFlagId(), sc));
+                    FeatureFlagCompany subFfc = subCompanyByFlagId.get(sub.getFlagId());
+                    if (subFfc != null) {
+                        subDto.setIsActive(true);
+                        subDto.setIsEnabled(subFfc.getIsActive());
+                        subDto.setActions(subFfc.getActions() != null ? Arrays.asList(subFfc.getActions()) : List.of());
+                    } else {
+                        subDto.setIsActive(true);
+                        subDto.setIsEnabled(false);
+                        subDto.setActions(List.of());
                     }
-
-                    for (FeatureFlag sub : subFeatureFlags) {
-                        FeatureFlagsOrganizationDto subDto = new FeatureFlagsOrganizationDto();
-                        subDto.setFlagId(sub.getFlagId() != null ? sub.getFlagId().toString() : null);
-                        subDto.setFlagKey(sub.getFlagKey());
-                        subDto.setDescription(sub.getDescription());
-
-                        FeatureFlagCompany subFfc = subCompanyByFlagId.get(sub.getFlagId());
-                        if (subFfc != null) {
-                            subDto.setIsActive(true);
-                            subDto.setIsEnabled(subFfc.getIsActive());
-                            subDto.setActions(subFfc.getActions() != null ? Arrays.asList(subFfc.getActions()) : List.of());
-                        } else {
-                            subDto.setIsActive(true);
-                            subDto.setIsEnabled(false);
-                            subDto.setActions(List.of());
-                        }
-                        subFeatures.add(subDto);
-                    }
+                    subFeatures.add(subDto);
                 }
                 dto.setSubFeatures(subFeatures);
                 features.add(dto);
@@ -417,16 +577,31 @@ public class FeatureFlagServiceImpl implements FeatureFlagService {
         return result;
     }
 
+    @Override
+    @Transactional(readOnly = true)
+    public List<OrganizationFeatureCountDto> getOrganizationParentFeatureCounts() {
+        List<Object[]> rows = featureFlagCompanyRepository.countDistinctParentFeaturesByOrganization();
+        List<OrganizationFeatureCountDto> out = new ArrayList<>();
+        for (Object[] row : rows) {
+            if (row == null || row.length < 2 || row[0] == null) {
+                continue;
+            }
+            UUID orgId = (UUID) row[0];
+            long cnt = row[1] instanceof Number ? ((Number) row[1]).longValue() : 0L;
+            out.add(new OrganizationFeatureCountDto(orgId.toString(), cnt));
+        }
+        return out;
+    }
+
     private FeatureFlagResponseDto createDto(FeatureFlag flag,
                                              List<FeatureFlagRole> matchedRoles,
                                              List<FeatureFlagCompany> matchedCompanies,
-                                             boolean isSuperAdmin) {
+                                             boolean isSuperAdmin,
+                                             OrgFeatureResolution orgResolution) {
         FeatureFlagResponseDto dto = new FeatureFlagResponseDto();
         dto.setFlagId(flag.getFlagId() != null ? flag.getFlagId().toString() : null);
         dto.setFlagKey(flag.getFlagKey());
         dto.setDescription(flag.getDescription());
-        // Role is always the baseline. Organization rows (when present) can only narrow what the role already allows —
-        // they must not enable a flag the role has disabled, or grant actions the role does not have.
         List<FeatureFlagCompany> safeMatchedCompanies = matchedCompanies != null ? matchedCompanies : List.of();
         boolean hasOrgOverride = !safeMatchedCompanies.isEmpty();
         boolean roleActive = matchedRoles.stream().anyMatch(r -> Boolean.TRUE.equals(r.getIsActive()));
@@ -434,33 +609,65 @@ public class FeatureFlagServiceImpl implements FeatureFlagService {
                 .filter(Objects::nonNull)
                 .map(FeatureFlagCompany::getIsActive)
                 .anyMatch(Boolean.TRUE::equals);
-        boolean isEnabled = roleActive && (!hasOrgOverride || companyActive);
-        dto.setIsActive(isEnabled);
-        dto.setIsEnabled(isEnabled);
 
-        // Actions: start from role; if org has rows, intersect with org-granted actions (org cannot expand beyond role).
+        boolean isEnabled;
         Set<String> actionsSet = new LinkedHashSet<>();
-        for (FeatureFlagRole r : matchedRoles) {
-            if (r.getActions() != null) {
-                actionsSet.addAll(List.of(r.getActions()));
-            }
-        }
-        if (hasOrgOverride) {
-            Set<String> orgActionsUnion = new LinkedHashSet<>();
-            for (FeatureFlagCompany c : safeMatchedCompanies) {
-                if (c.getActions() != null) {
-                    orgActionsUnion.addAll(Arrays.asList(c.getActions()));
+
+        if (orgResolution == OrgFeatureResolution.VIMA_USE_ROLE_BASELINE) {
+            // VIMA Admin: organization assignments do not narrow the VIMA role grant.
+            isEnabled = roleActive;
+            for (FeatureFlagRole r : matchedRoles) {
+                if (r.getActions() != null) {
+                    actionsSet.addAll(List.of(r.getActions()));
                 }
             }
-            if (!orgActionsUnion.isEmpty()) {
-                actionsSet.retainAll(orgActionsUnion);
+        } else if (orgResolution == OrgFeatureResolution.HR_ORG_OVERRIDES) {
+            // HR Admin: when org rows exist for this tenant, they override role enablement and actions.
+            if (hasOrgOverride) {
+                isEnabled = companyActive;
+                Set<String> orgActionsUnion = new LinkedHashSet<>();
+                for (FeatureFlagCompany c : safeMatchedCompanies) {
+                    if (c.getActions() != null) {
+                        orgActionsUnion.addAll(Arrays.asList(c.getActions()));
+                    }
+                }
+                actionsSet.addAll(orgActionsUnion);
+            } else {
+                isEnabled = roleActive;
+                for (FeatureFlagRole r : matchedRoles) {
+                    if (r.getActions() != null) {
+                        actionsSet.addAll(List.of(r.getActions()));
+                    }
+                }
+            }
+        } else {
+            // STANDARD: role baseline; organization rows can only narrow (intersect actions).
+            isEnabled = roleActive && (!hasOrgOverride || companyActive);
+            for (FeatureFlagRole r : matchedRoles) {
+                if (r.getActions() != null) {
+                    actionsSet.addAll(List.of(r.getActions()));
+                }
+            }
+            if (hasOrgOverride) {
+                Set<String> orgActionsUnion = new LinkedHashSet<>();
+                for (FeatureFlagCompany c : safeMatchedCompanies) {
+                    if (c.getActions() != null) {
+                        orgActionsUnion.addAll(Arrays.asList(c.getActions()));
+                    }
+                }
+                if (!orgActionsUnion.isEmpty()) {
+                    actionsSet.retainAll(orgActionsUnion);
+                }
             }
         }
+
         // SUPER_ADMIN with no matched actions: grant all standard actions so
         // endpoint-level access isn't accidentally blocked.
         if (isSuperAdmin && actionsSet.isEmpty() && isEnabled) {
             actionsSet.addAll(List.of("READ", "WRITE", "APPROVE"));
         }
+        dto.setIsActive(isEnabled);
+        dto.setIsEnabled(isEnabled);
         dto.setActions(new ArrayList<>(actionsSet));
 
         List<FeatureFlagResponseDto.CompanyDto> companyDtos = new ArrayList<>();
@@ -714,6 +921,7 @@ public class FeatureFlagServiceImpl implements FeatureFlagService {
 
     @Override
     @Transactional
+    @AuditedOperation(schemaName = "admin", tableName = "feature_flag_companies", entityType = "FEATURE_FLAG_COMPANY", action = "SYNC_FROM_HR_ADMIN_DEFAULTS")
     public void seedOrganizationFeaturesFromHrAdminRole(String organizationId) {
         UUID orgUuid;
         try {
