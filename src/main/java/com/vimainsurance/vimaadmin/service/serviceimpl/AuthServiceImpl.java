@@ -225,7 +225,6 @@ public class AuthServiceImpl implements IAuthService {
         }
     }
 
-    
     @Override
     public ResponseEntity<ResponseDto<ChallengeResponseDto>> getChallenge(ChallengeRequestDto requestDto) {
         logger.info("[correlationId:{}] getChallenge called for username", MDC.get("correlationId"));

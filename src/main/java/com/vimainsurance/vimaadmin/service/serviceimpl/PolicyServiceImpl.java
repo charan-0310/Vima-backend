@@ -1616,6 +1616,16 @@ public class PolicyServiceImpl implements IPolicyService {
                 attachPolicyDocument(savedPolicy, requestDto.getClaimChecklistFile(), DocumentType.CLAIM_CHECKLIST);
             }
 
+            // Optional policy wording PDF + claim checklist PDF uploaded as multipart parts
+            // alongside the policy. Each is independent — failure to upload one shouldn't
+            // block policy creation, but we surface validation errors cleanly.
+            if (requestDto.getPolicyWordingFile() != null && !requestDto.getPolicyWordingFile().isEmpty()) {
+                attachPolicyDocument(savedPolicy, requestDto.getPolicyWordingFile(), DocumentType.POLICY_WORDING);
+            }
+            if (requestDto.getClaimChecklistFile() != null && !requestDto.getClaimChecklistFile().isEmpty()) {
+                attachPolicyDocument(savedPolicy, requestDto.getClaimChecklistFile(), DocumentType.CLAIM_CHECKLIST);
+            }
+
             // Upload documents if provided (agent already looked up above when files present)
             if (requestDto.getFiles() != null && requestDto.getFiles().length > 0 && agent != null) {
                 DocumentRequestDto documentRequest = new DocumentRequestDto();

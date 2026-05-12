@@ -196,6 +196,10 @@ public class Deals {
     @Column(name = "health_id", length = 100)
     private String healthId;
 
+    /** Stable UUID string for wellness partner JWT {@code user_identifier} (e.g. MantraCare). */
+    @Column(name = "wellness_user_id", length = 36)
+    private String wellnessUserId;
+
     // Many-to-Many relationship with Endorsement through DealEndorsement join table
     // Note: No orphanRemoval to preserve endorsement history - relationships are managed manually
     @DiffIgnore
