@@ -7,6 +7,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.UUID;
 import java.util.stream.Collectors;
 
 import com.fasterxml.jackson.core.type.TypeReference;
@@ -23,6 +24,7 @@ import org.springframework.web.client.HttpStatusCodeException;
 
 import com.vimainsurance.vimaadmin.audit.AuditContextSupplier;
 import com.vimainsurance.vimaadmin.audit.AuditedOperation;
+import com.vimainsurance.vimaadmin.audit.PlatformAuditPublisher;
 import com.vimainsurance.vimaadmin.dto.AdminUserRequestDto;
 import com.vimainsurance.vimaadmin.dto.AdminUserResponseDto;
 import com.vimainsurance.vimaadmin.dto.AdminUsersFilteredResponseDto;
@@ -62,6 +64,9 @@ public class AdminUserServiceImpl implements IAdminUserService {
 
     @Autowired
     private KeyCloakUtil keyCloakUtil;
+
+    @Autowired
+    private PlatformAuditPublisher platformAuditPublisher;
 
     private AdminUserResponseDto mapToResponseDto(AdminUser user) {
         AdminUserResponseDto dto = new AdminUserResponseDto();
@@ -694,6 +699,16 @@ public class AdminUserServiceImpl implements IAdminUserService {
             user.setPasswordHash(PasswordEncoder.encodePassword(requestDto.getNewPassword()));
             adminUserRepository.save(user);
             
+            UUID orgId = user.getOrganization() != null ? user.getOrganization().getOrganizationId() : null;
+            platformAuditPublisher.publishAuthenticated(
+                    "admin",
+                    "admin_users",
+                    "ADMIN_USER",
+                    "PASSWORD_SELF_CHANGE",
+                    user.getId().toString(),
+                    orgId,
+                    Map.of("username", user.getUsername()));
+
             logger.info("Password changed successfully for user: {}", username);
             return responseObj.render(responseObj.formSuccessResponse(Constants.SUCCESS, "Password changed successfully"));
         } catch (Exception e) {
@@ -763,7 +778,7 @@ public class AdminUserServiceImpl implements IAdminUserService {
             String randomPassword = PasswordGenerator.generateRandomPassword();
             user.setPasswordHash(PasswordEncoder.encodePassword(randomPassword));
             user.setCreatedAt(LocalDateTime.now());
-            AdminUser saved = adminUserRepository.save(user);
+            adminUserRepository.save(user);
             
             // Send welcome email with the generated password
             try {
@@ -773,7 +788,17 @@ public class AdminUserServiceImpl implements IAdminUserService {
                 logger.error("[correlationId:{}] Failed to send welcome email to: {}", MDC.get("correlationId"), user.getEmail(), emailException);
                 // Don't fail user creation if email fails
             }
-            
+
+            UUID orgId = user.getOrganization() != null ? user.getOrganization().getOrganizationId() : null;
+            platformAuditPublisher.publishAuthenticated(
+                    "admin",
+                    "admin_users",
+                    "ADMIN_USER",
+                    "PASSWORD_ADMIN_RESET",
+                    user.getId().toString(),
+                    orgId,
+                    Map.of("targetUsername", username));
+
             logger.info("[correlationId:{}] Admin password change successful for user: {}", MDC.get("correlationId"), username);
             return responseObj.render(responseObj.formSuccessResponse(Constants.SUCCESS, "User password changed successfully by admin"));
         } catch (Exception e) {

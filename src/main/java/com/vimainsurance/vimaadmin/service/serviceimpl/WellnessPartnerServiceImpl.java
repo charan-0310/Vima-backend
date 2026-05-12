@@ -15,6 +15,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import com.vimainsurance.vimaadmin.audit.AuditedOperation;
 import com.vimainsurance.vimaadmin.dto.BaseResponse;
 import com.vimainsurance.vimaadmin.dto.ResponseDto;
 import com.vimainsurance.vimaadmin.dto.WellnessOrgAssignmentResponseDto;
@@ -91,6 +92,7 @@ public class WellnessPartnerServiceImpl implements IWellnessPartnerService {
 
     @Override
     @Transactional
+    @AuditedOperation(schemaName = "admin", tableName = "wellness_partners", entityType = "WELLNESS_PARTNER", action = "CREATE")
     public ResponseEntity<ResponseDto<WellnessPartnerResponseDto>> createPartner(WellnessPartnerRequestDto requestDto) {
         BaseResponse<WellnessPartnerResponseDto> responseObj = new BaseResponse<>();
         logger.info("[correlationId:{}] createPartner called for slug {}", MDC.get("correlationId"), requestDto.getSlug());
@@ -119,6 +121,7 @@ public class WellnessPartnerServiceImpl implements IWellnessPartnerService {
 
     @Override
     @Transactional
+    @AuditedOperation(schemaName = "admin", tableName = "wellness_partners", entityType = "WELLNESS_PARTNER", action = "UPDATE")
     public ResponseEntity<ResponseDto<WellnessPartnerResponseDto>> updatePartner(UUID id, WellnessPartnerRequestDto requestDto) {
         BaseResponse<WellnessPartnerResponseDto> responseObj = new BaseResponse<>();
         logger.info("[correlationId:{}] updatePartner called for id {}", MDC.get("correlationId"), id);
@@ -155,6 +158,7 @@ public class WellnessPartnerServiceImpl implements IWellnessPartnerService {
 
     @Override
     @Transactional
+    @AuditedOperation(schemaName = "admin", tableName = "wellness_partners", entityType = "WELLNESS_PARTNER", action = "ACTIVATE")
     public ResponseEntity<ResponseDto<WellnessPartnerResponseDto>> activatePartner(UUID id) {
         logger.info("[correlationId:{}] activatePartner called for id {}", MDC.get("correlationId"), id);
         return setPartnerActiveState(id, true);
@@ -162,6 +166,7 @@ public class WellnessPartnerServiceImpl implements IWellnessPartnerService {
 
     @Override
     @Transactional
+    @AuditedOperation(schemaName = "admin", tableName = "wellness_partners", entityType = "WELLNESS_PARTNER", action = "DEACTIVATE")
     public ResponseEntity<ResponseDto<WellnessPartnerResponseDto>> deactivatePartner(UUID id) {
         logger.info("[correlationId:{}] deactivatePartner called for id {}", MDC.get("correlationId"), id);
         return setPartnerActiveState(id, false);
@@ -169,6 +174,7 @@ public class WellnessPartnerServiceImpl implements IWellnessPartnerService {
 
     @Override
     @Transactional
+    @AuditedOperation(schemaName = "admin", tableName = "wellness_partners", entityType = "WELLNESS_PARTNER", action = "DELETE")
     public ResponseEntity<ResponseDto<String>> deletePartner(UUID id) {
         BaseResponse<String> responseObj = new BaseResponse<>();
         logger.info("[correlationId:{}] deletePartner called for id {}", MDC.get("correlationId"), id);
@@ -234,6 +240,7 @@ public class WellnessPartnerServiceImpl implements IWellnessPartnerService {
 
     @Override
     @Transactional
+    @AuditedOperation(schemaName = "admin", tableName = "wellness_partner_organizations", entityType = "WELLNESS_PARTNER_ORG", action = "CREATE")
     public ResponseEntity<ResponseDto<WellnessPartnerOrgResponseDto>> assignPartnerToOrg(WellnessPartnerOrgRequestDto requestDto) {
         BaseResponse<WellnessPartnerOrgResponseDto> responseObj = new BaseResponse<>();
         logger.info("[correlationId:{}] assignPartnerToOrg called for partnerId {} and orgId {}",
@@ -282,6 +289,7 @@ public class WellnessPartnerServiceImpl implements IWellnessPartnerService {
 
     @Override
     @Transactional
+    @AuditedOperation(schemaName = "admin", tableName = "wellness_partner_organizations", entityType = "WELLNESS_PARTNER_ORG", action = "UPDATE")
     public ResponseEntity<ResponseDto<WellnessPartnerOrgResponseDto>> updateOrgMapping(UUID id, WellnessPartnerOrgRequestDto requestDto) {
         BaseResponse<WellnessPartnerOrgResponseDto> responseObj = new BaseResponse<>();
         logger.info("[correlationId:{}] updateOrgMapping called for id {}", MDC.get("correlationId"), id);
@@ -334,6 +342,7 @@ public class WellnessPartnerServiceImpl implements IWellnessPartnerService {
 
     @Override
     @Transactional
+    @AuditedOperation(schemaName = "admin", tableName = "wellness_partner_organizations", entityType = "WELLNESS_PARTNER_ORG", action = "REORDER")
     public ResponseEntity<ResponseDto<List<WellnessPartnerOrgResponseDto>>> reorderPartnersForOrg(WellnessPartnerReorderRequestDto requestDto) {
         BaseResponse<List<WellnessPartnerOrgResponseDto>> responseObj = new BaseResponse<>();
         logger.info("[correlationId:{}] reorderPartnersForOrg called for orgId {}", MDC.get("correlationId"), requestDto.getOrganizationId());
@@ -380,6 +389,7 @@ public class WellnessPartnerServiceImpl implements IWellnessPartnerService {
 
     @Override
     @Transactional
+    @AuditedOperation(schemaName = "admin", tableName = "wellness_partner_organizations", entityType = "WELLNESS_PARTNER_ORG", action = "DELETE")
     public ResponseEntity<ResponseDto<String>> removePartnerFromOrg(UUID id) {
         BaseResponse<String> responseObj = new BaseResponse<>();
         logger.info("[correlationId:{}] removePartnerFromOrg called for id {}", MDC.get("correlationId"), id);

@@ -21,6 +21,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import com.vimainsurance.vimaadmin.audit.AuditedOperation;
 import com.vimainsurance.vimaadmin.dto.BaseResponse;
 import com.vimainsurance.vimaadmin.dto.DemoSetupRequestDto;
 import com.vimainsurance.vimaadmin.dto.DemoSetupResponseDto;
@@ -133,6 +134,7 @@ public class DemoSetupServiceImpl implements IDemoSetupService {
 
     @Override
     @Transactional(rollbackFor = Exception.class)
+    @AuditedOperation(schemaName = "cpc", tableName = "organizations", entityType = "DEMO_SETUP", action = "PROVISION")
     public ResponseEntity<ResponseDto<DemoSetupResponseDto>> provisionDemo(DemoSetupRequestDto requestDto) {
         BaseResponse<DemoSetupResponseDto> responseObj = new BaseResponse<>();
         try {
@@ -261,6 +263,7 @@ public class DemoSetupServiceImpl implements IDemoSetupService {
 
     @Override
     @Transactional(rollbackFor = Exception.class)
+    @AuditedOperation(schemaName = "cpc", tableName = "organizations", entityType = "DEMO_SETUP", action = "REVOKE_ACCESS")
     public ResponseEntity<ResponseDto<String>> revokeDemoAccess(UUID organizationId) {
         BaseResponse<String> responseObj = new BaseResponse<>();
         try {
@@ -283,6 +286,7 @@ public class DemoSetupServiceImpl implements IDemoSetupService {
 
     @Override
     @Transactional(rollbackFor = Exception.class)
+    @AuditedOperation(schemaName = "cpc", tableName = "organizations", entityType = "DEMO_SETUP", action = "EXTEND_ACCESS")
     public ResponseEntity<ResponseDto<String>> extendDemoAccess(UUID organizationId, int days) {
         BaseResponse<String> responseObj = new BaseResponse<>();
         try {
@@ -309,6 +313,7 @@ public class DemoSetupServiceImpl implements IDemoSetupService {
 
     @Override
     @Transactional(rollbackFor = Exception.class)
+    @AuditedOperation(schemaName = "cpc", tableName = "organizations", entityType = "DEMO_SETUP", action = "DELETE_ORG")
     public ResponseEntity<ResponseDto<String>> deleteDemoOrganization(UUID organizationId) {
         BaseResponse<String> responseObj = new BaseResponse<>();
         try {

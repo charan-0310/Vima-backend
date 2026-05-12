@@ -22,12 +22,15 @@ import org.keycloak.OAuth2Constants;
 import org.keycloak.admin.client.CreatedResponseUtil;
 import org.keycloak.admin.client.Keycloak;
 import org.keycloak.admin.client.KeycloakBuilder;
+import org.keycloak.admin.client.resource.RealmResource;
 import org.keycloak.admin.client.resource.UserResource;
 import org.keycloak.representations.idm.CredentialRepresentation;
 import org.keycloak.representations.idm.EventRepresentation;
 import org.keycloak.representations.idm.GroupRepresentation;
+import org.keycloak.representations.idm.RealmEventsConfigRepresentation;
 import org.keycloak.representations.idm.RealmRepresentation;
 import org.keycloak.representations.idm.RoleRepresentation;
+import org.keycloak.representations.idm.UserSessionRepresentation;
 import org.keycloak.representations.idm.UserRepresentation;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -57,6 +60,8 @@ import jakarta.ws.rs.NotFoundException;
  * → Service account roles tab → assign realm-management roles: <b>view-realm</b>, <b>view-groups</b>
  * (and optionally query-groups, manage-groups). For getRoles() the service account needs
  * <b>view-realm</b> (realm roles are visible with view-realm).
+ * For employee login preview (events + sessions): add <b>query-users</b>, <b>view-users</b>,
+ * and <b>query-events</b> (or view-events) so {@link #getLastLoginForEmails} can read LOGIN events and user sessions.
  */
 @Component
 public class KeyCloakUtil {
@@ -957,31 +962,158 @@ public class KeyCloakUtil {
     }
 
     /**
-     * Whether realm saves LOGIN events (needed for last-login lookups).
+     * Whether realm is configured to record LOGIN events (used for UI hint only).
+     * <p>Keycloak 26+ may leave {@link RealmRepresentation#isEventsEnabled()} null; we also read
+     * {@link RealmResource#getRealmEventsConfig()} and treat LOGIN type case-insensitively.
      */
     public boolean isRealmLoginEventsEnabled() {
         if (!isConfigPresent()) {
             return false;
         }
         try (Keycloak kc = getKeycloakClient()) {
-            RealmRepresentation r = kc.realm(realm).toRepresentation();
-            if (!Boolean.TRUE.equals(r.isEventsEnabled())) {
-                return false;
+            RealmResource realmRes = kc.realm(realm);
+            try {
+                RealmEventsConfigRepresentation cfg = realmRes.getRealmEventsConfig();
+                if (cfg != null && realmEventsConfigAllowsLoginEvents(cfg)) {
+                    return true;
+                }
+            } catch (Exception e) {
+                logger.debug("getRealmEventsConfig: {}", e.getMessage());
             }
-            List<String> types = r.getEnabledEventTypes();
-            if (types == null || types.isEmpty()) {
-                return true;
-            }
-            return types.contains("LOGIN");
+            RealmRepresentation r = realmRes.toRepresentation();
+            return realmRepresentationAllowsLoginEvents(r);
         } catch (Exception e) {
             logger.warn("Could not read Keycloak realm events config: {}", e.getMessage());
             return false;
         }
     }
 
+    private static boolean realmEventsConfigAllowsLoginEvents(RealmEventsConfigRepresentation cfg) {
+        if (!cfg.isEventsEnabled()) {
+            return false;
+        }
+        return enabledEventTypesAllowLogin(cfg.getEnabledEventTypes());
+    }
+
+    private static boolean realmRepresentationAllowsLoginEvents(RealmRepresentation r) {
+        Boolean enabled = r.isEventsEnabled();
+        if (Boolean.FALSE.equals(enabled)) {
+            return false;
+        }
+        if (Boolean.TRUE.equals(enabled)) {
+            return enabledEventTypesAllowLogin(r.getEnabledEventTypes());
+        }
+        // enabled == null (common on newer Keycloak exports): infer from saved types only
+        return enabledEventTypesAllowLogin(r.getEnabledEventTypes());
+    }
+
+    private static boolean enabledEventTypesAllowLogin(List<String> types) {
+        if (types == null || types.isEmpty()) {
+            return true;
+        }
+        for (String t : types) {
+            if (t != null && "LOGIN".equalsIgnoreCase(t.trim())) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static boolean isLoginEventType(String type) {
+        return type != null && "LOGIN".equalsIgnoreCase(type.trim());
+    }
+
+    private static Instant later(Instant a, Instant b) {
+        if (a == null) {
+            return b;
+        }
+        if (b == null) {
+            return a;
+        }
+        return a.isAfter(b) ? a : b;
+    }
+
     /**
-     * Latest LOGIN event time per normalized email (only emails that exist in the realm).
-     * Parallel batching matches {@link #checkEmailsExistInRealmBatched}; returns empty map when Keycloak is unavailable.
+     * Best known last activity from LOGIN events (several query shapes) and active user sessions.
+     */
+    private Instant resolveLastLoginOrSessionActivity(RealmResource realmResource, String userId) {
+        UserResource userResource = realmResource.users().get(userId);
+        Instant fromEvents = latestLoginEventInstant(realmResource, userId);
+        Instant fromSessions = latestUserSessionInstant(userResource, userId);
+        return later(fromEvents, fromSessions);
+    }
+
+    private Instant latestLoginEventInstant(RealmResource realmResource, String userId) {
+        long maxMillis = 0L;
+        for (List<String> types : List.of(List.of("LOGIN"), List.of("login"))) {
+            try {
+                List<EventRepresentation> ev = realmResource.getEvents(
+                        types, null, userId, null, null, null, 0, 50);
+                maxMillis = Math.max(maxMillis, maxEventTimeMillis(ev, false));
+            } catch (Exception ex) {
+                logger.debug("Keycloak getEvents typed {} for user {}: {}", types, userId, ex.getMessage());
+            }
+        }
+        if (maxMillis == 0L) {
+            try {
+                List<EventRepresentation> ev = realmResource.getEvents(
+                        null, null, userId, null, null, null, 0, 100);
+                maxMillis = maxEventTimeMillis(ev, true);
+            } catch (Exception ex) {
+                logger.debug("Keycloak getEvents (untyped) for user {}: {}", userId, ex.getMessage());
+            }
+        }
+        return maxMillis > 0L ? Instant.ofEpochMilli(maxMillis) : null;
+    }
+
+    private static long maxEventTimeMillis(List<EventRepresentation> ev, boolean filterLoginTypeOnly) {
+        if (ev == null) {
+            return 0L;
+        }
+        long max = 0L;
+        for (EventRepresentation er : ev) {
+            if (er == null) {
+                continue;
+            }
+            if (filterLoginTypeOnly && !isLoginEventType(er.getType())) {
+                continue;
+            }
+            long t = er.getTime();
+            if (t > max) {
+                max = t;
+            }
+        }
+        return max;
+    }
+
+    private Instant latestUserSessionInstant(UserResource userResource, String userId) {
+        try {
+            List<UserSessionRepresentation> sessions = userResource.getUserSessions();
+            if (sessions == null || sessions.isEmpty()) {
+                return null;
+            }
+            long max = 0L;
+            for (UserSessionRepresentation s : sessions) {
+                if (s == null) {
+                    continue;
+                }
+                long row = Math.max(s.getLastAccess(), s.getStart());
+                if (row > max) {
+                    max = row;
+                }
+            }
+            return max > 0L ? Instant.ofEpochMilli(max) : null;
+        } catch (Exception e) {
+            logger.debug("Keycloak getUserSessions failed for user {}: {}", userId, e.getMessage());
+            return null;
+        }
+    }
+
+    /**
+     * Latest LOGIN event or user-session activity per normalized email (realm users only).
+     * Uses LOGIN events when returned by Keycloak, and falls back to {@link UserResource#getUserSessions()}
+     * so the admin UI can show recent logins even when the events API is empty or permission-limited.
+     * Parallel batching matches {@link #checkEmailsExistInRealmBatched}.
      */
     public Map<String, Instant> getLastLoginForEmails(List<String> normalizedEmails) {
         if (!isConfigPresent() || normalizedEmails == null || normalizedEmails.isEmpty()) {
@@ -1006,42 +1138,15 @@ public class KeyCloakUtil {
             for (List<String> slice : slices) {
                 futures.add(pool.submit(() -> {
                     try (Keycloak kc = getKeycloakClient()) {
-                        var realmResource = kc.realm(realm);
+                        RealmResource realmResource = kc.realm(realm);
                         for (String email : slice) {
                             UserRepresentation user = findUserByEmail(kc, email);
                             if (user == null || user.getId() == null) {
                                 continue;
                             }
-                            List<EventRepresentation> ev;
-                            try {
-                                ev = realmResource.getEvents(
-                                        List.of("LOGIN"),
-                                        null,
-                                        user.getId(),
-                                        null,
-                                        null,
-                                        null,
-                                        0,
-                                        25);
-                            } catch (Exception ex) {
-                                logger.debug("Keycloak getEvents failed for {}: {}", email, ex.getMessage());
-                                continue;
-                            }
-                            if (ev == null || ev.isEmpty()) {
-                                continue;
-                            }
-                            long maxMillis = 0L;
-                            for (EventRepresentation er : ev) {
-                                if (er == null) {
-                                    continue;
-                                }
-                                long t = er.getTime();
-                                if (t > maxMillis) {
-                                    maxMillis = t;
-                                }
-                            }
-                            if (maxMillis > 0) {
-                                result.put(email, Instant.ofEpochMilli(maxMillis));
+                            Instant activity = resolveLastLoginOrSessionActivity(realmResource, user.getId());
+                            if (activity != null) {
+                                result.put(email, activity);
                             }
                         }
                     }

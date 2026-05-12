@@ -4,6 +4,7 @@ import java.io.InputStream;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
@@ -20,6 +21,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
 
+import com.vimainsurance.vimaadmin.audit.PlatformAuditPublisher;
 import com.vimainsurance.vimaadmin.config.S3Config;
 import com.vimainsurance.vimaadmin.dto.ResponseDto;
 import com.vimainsurance.vimaadmin.dto.claim.ClaimDocumentDto;
@@ -98,6 +100,7 @@ public class ClaimsDocumentServiceImpl implements IClaimsDocumentService {
     private final IS3Service s3Service;
     private final S3Config s3Config;
     private final ClaimAuditService claimAuditService;
+    private final PlatformAuditPublisher platformAuditPublisher;
 
     @Override
     @Transactional(rollbackFor = Exception.class)
@@ -179,6 +182,18 @@ public class ClaimsDocumentServiceImpl implements IClaimsDocumentService {
         }
         claimAuditService.logAction(claimId, "DOCUMENT_UPLOADED", null, null, uploadedBy, isAdmin ? role : "EMPLOYEE",
                 "Uploaded " + uploaded.size() + " document(s)");
+        UUID orgId = claim.getOrganization() != null ? claim.getOrganization().getOrganizationId() : null;
+        platformAuditPublisher.publishAuthenticated(
+                "claims",
+                "documents",
+                "CLAIM_DOCUMENT",
+                "UPLOAD",
+                claimId.toString(),
+                orgId,
+                Map.of(
+                        "documentCount", uploaded.size(),
+                        "documentType", documentType != null ? documentType.name() : "",
+                        "isAdmin", isAdmin));
         long total = currentCount + uploaded.size();
         DocumentUploadResponse response = DocumentUploadResponse.builder()
                 .uploaded(uploaded)
@@ -274,10 +289,20 @@ public class ClaimsDocumentServiceImpl implements IClaimsDocumentService {
         if (!DocumentEntityType.CLAIM.equals(doc.getEntityType()) || !claimId.toString().equals(doc.getEntityId())) {
             return ResponseEntity.badRequest().body(new ResponseDto<>(400, "Document does not belong to this claim"));
         }
+        UUID orgDel = claim.getOrganization() != null ? claim.getOrganization().getOrganizationId() : null;
+        String origName = doc.getOriginalFilename();
         s3Service.deleteFile(doc.getS3Key());
         documentRepository.delete(doc);
         claimAuditService.logAction(claimId, "DOCUMENT_REMOVED", null, null, actorId, "ADMIN",
                 "Document removed: " + doc.getOriginalFilename());
+        platformAuditPublisher.publishAuthenticated(
+                "claims",
+                "documents",
+                "CLAIM_DOCUMENT",
+                "DELETE",
+                claimId.toString(),
+                orgDel,
+                Map.of("documentId", docId.toString(), "fileName", origName != null ? origName : ""));
         return ResponseEntity.ok(new ResponseDto<>("Document removed successfully", "OK"));
     }
 

@@ -714,6 +714,7 @@ public class FeatureFlagServiceImpl implements FeatureFlagService {
 
     @Override
     @Transactional
+    @AuditedOperation(schemaName = "admin", tableName = "feature_flag_companies", entityType = "FEATURE_FLAG_COMPANY", action = "SYNC_FROM_HR_ADMIN_DEFAULTS")
     public void seedOrganizationFeaturesFromHrAdminRole(String organizationId) {
         UUID orgUuid;
         try {

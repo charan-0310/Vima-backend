@@ -43,6 +43,7 @@ import com.vimainsurance.vimaadmin.dto.RefreshTokenRequestDto;
 import com.vimainsurance.vimaadmin.dto.RefreshTokenResponseDto;
 import com.vimainsurance.vimaadmin.dto.ResponseDto;
 import com.vimainsurance.vimaadmin.entity.AdminUser;
+import com.vimainsurance.vimaadmin.audit.PlatformAuditPublisher;
 import com.vimainsurance.vimaadmin.repository.IAdminUserRepository;
 import com.vimainsurance.vimaadmin.security.LoginAttemptService;
 import com.vimainsurance.vimaadmin.util.Constants;
@@ -66,6 +67,9 @@ class AuthServiceImplTest {
 
     @Mock
     private LoginAttemptService loginAttemptService;
+
+    @Mock
+    private PlatformAuditPublisher platformAuditPublisher;
 
     @InjectMocks
     private AuthServiceImpl authService;

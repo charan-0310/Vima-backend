@@ -3,6 +3,7 @@ package com.vimainsurance.vimaadmin.service.serviceimpl;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
@@ -13,6 +14,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import com.vimainsurance.vimaadmin.adapter.InsurerAdapter;
 import com.vimainsurance.vimaadmin.adapter.InsurerAdapterFactory;
+import com.vimainsurance.vimaadmin.audit.PlatformAuditPublisher;
 import com.vimainsurance.vimaadmin.dto.ResponseDto;
 import com.vimainsurance.vimaadmin.dto.claim.ClaimQueryDto;
 import com.vimainsurance.vimaadmin.dto.claim.EmployeeResponseRequest;
@@ -49,6 +51,7 @@ public class ClaimQueryServiceImpl implements IClaimQueryService {
     private final ClaimsNotificationService notificationService;
     private final ClaimsNotificationEmitterService claimsNotificationEmitterService;
     private final JwtUserExtractor jwtUserExtractor;
+    private final PlatformAuditPublisher platformAuditPublisher;
 
     /**
      * Create a query for the claim. Query creation is allowed for all claim statuses;
@@ -86,6 +89,15 @@ public class ClaimQueryServiceImpl implements IClaimQueryService {
         auditService.logAction(claimId, "QUERY_ADDED", currentStatus.getValue(), currentStatus.getValue(),
                 jwtUserExtractor.getCurrentUserId(), jwtUserExtractor.getCurrentUserRole() != null ? jwtUserExtractor.getCurrentUserRole().getValue() : "ADMIN",
                 "Query: " + detail);
+        UUID orgId = claim.getOrganization() != null ? claim.getOrganization().getOrganizationId() : null;
+        platformAuditPublisher.publishAuthenticated(
+                "claims",
+                "claim_queries",
+                "CLAIM_QUERY",
+                "CREATE",
+                claimId.toString(),
+                orgId,
+                Map.of("queryId", query.getId().toString(), "queryStatus", QueryStatus.OPEN.name()));
         notificationService.notifyQueryRaised(claim, query);
         UUID actorId = jwtUserExtractor.getCurrentUserId();
         String actorRole = jwtUserExtractor.getCurrentUserRole() != null ? jwtUserExtractor.getCurrentUserRole().getValue() : "ADMIN";
@@ -143,6 +155,15 @@ public class ClaimQueryServiceImpl implements IClaimQueryService {
         auditService.logAction(claimId, "QUERY_RESPONDED", currentStatus.getValue(), currentStatus.getValue(),
                 adminId, jwtUserExtractor.getCurrentUserRole() != null ? jwtUserExtractor.getCurrentUserRole().getValue() : "ADMIN",
                 "Query response recorded");
+        UUID orgRespond = claim.getOrganization() != null ? claim.getOrganization().getOrganizationId() : null;
+        platformAuditPublisher.publishAuthenticated(
+                "claims",
+                "claim_queries",
+                "CLAIM_QUERY",
+                "ADMIN_RESPOND",
+                claimId.toString(),
+                orgRespond,
+                Map.of("queryId", queryId.toString()));
         notificationService.notifyQueryResponded(claim, query);
         String actorRole = jwtUserExtractor.getCurrentUserRole() != null ? jwtUserExtractor.getCurrentUserRole().getValue() : "ADMIN";
         claimsNotificationEmitterService.scheduleClaimQueryResponded(
@@ -175,6 +196,15 @@ public class ClaimQueryServiceImpl implements IClaimQueryService {
         query.setEmployeeRemarks(request.getRemarks());
         query.setEmployeeResponseAt(LocalDateTime.now());
         claimQueryRepository.save(query);
+        UUID orgEmp = claim.getOrganization() != null ? claim.getOrganization().getOrganizationId() : null;
+        platformAuditPublisher.publishAuthenticated(
+                "claims",
+                "claim_queries",
+                "CLAIM_QUERY",
+                "EMPLOYEE_RESPOND",
+                claimId.toString(),
+                orgEmp,
+                Map.of("queryId", queryId.toString()));
         String actorName = claim.getEmployee() != null ? claim.getEmployee().getFullName() : "Employee";
         String actorOrg = claim.getEmployee() != null && claim.getEmployee().getOrganization() != null
                 ? claim.getEmployee().getOrganization().getOrganizationName()

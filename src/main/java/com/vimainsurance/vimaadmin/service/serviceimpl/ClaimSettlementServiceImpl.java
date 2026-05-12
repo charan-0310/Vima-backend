@@ -3,6 +3,7 @@ package com.vimainsurance.vimaadmin.service.serviceimpl;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
@@ -12,6 +13,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
 
+import com.vimainsurance.vimaadmin.audit.PlatformAuditPublisher;
 import com.vimainsurance.vimaadmin.dto.ResponseDto;
 import com.vimainsurance.vimaadmin.dto.claim.ClaimDeductionDto;
 import com.vimainsurance.vimaadmin.dto.claim.DeductionRequest;
@@ -56,6 +58,7 @@ public class ClaimSettlementServiceImpl implements IClaimSettlementService {
     private final IAdminUserRepository adminUserRepository;
     private final IClaimsDocumentService claimsDocumentService;
     private final JwtUserExtractor jwtUserExtractor;
+    private final PlatformAuditPublisher platformAuditPublisher;
 
     @Override
     @Transactional
@@ -105,6 +108,20 @@ public class ClaimSettlementServiceImpl implements IClaimSettlementService {
         auditService.logAction(claimId, "SETTLEMENT_RECORDED", oldStatus.getValue(), ClaimStatus.SETTLED.getValue(),
                 jwtUserExtractor.getCurrentUserId(), jwtUserExtractor.getCurrentUserRole() != null ? jwtUserExtractor.getCurrentUserRole().getValue() : "ADMIN",
                 "Settlement amountPaid=" + amountPaid);
+
+        UUID orgId = claim.getOrganization() != null ? claim.getOrganization().getOrganizationId() : null;
+        platformAuditPublisher.publishAuthenticated(
+                "claims",
+                "claim_settlements",
+                "CLAIM_SETTLEMENT",
+                "CREATE",
+                claimId.toString(),
+                orgId,
+                Map.of(
+                        "settlementId", settlement.getId().toString(),
+                        "amountPaid", amountPaid,
+                        "grossSanctionedAmount", request.getGrossSanctionedAmount() != null ? request.getGrossSanctionedAmount() : BigDecimal.ZERO,
+                        "netSanctionedAmount", request.getNetSanctionedAmount() != null ? request.getNetSanctionedAmount() : BigDecimal.ZERO));
 
         notificationService.notifySettlement(claim, settlement);
         UUID actorId = jwtUserExtractor.getCurrentUserId();
@@ -166,6 +183,19 @@ public class ClaimSettlementServiceImpl implements IClaimSettlementService {
                 jwtUserExtractor.getCurrentUserId(), jwtUserExtractor.getCurrentUserRole() != null ? jwtUserExtractor.getCurrentUserRole().getValue() : "ADMIN",
                 null);
 
+        UUID orgIdUpd = claim.getOrganization() != null ? claim.getOrganization().getOrganizationId() : null;
+        platformAuditPublisher.publishAuthenticated(
+                "claims",
+                "claim_settlements",
+                "CLAIM_SETTLEMENT",
+                "UPDATE",
+                claimId.toString(),
+                orgIdUpd,
+                Map.of(
+                        "settlementId", settlement.getId().toString(),
+                        "amountPaid", settlement.getAmountPaid() != null ? settlement.getAmountPaid() : BigDecimal.ZERO,
+                        "grossSanctionedAmount", settlement.getGrossSanctionedAmount() != null ? settlement.getGrossSanctionedAmount() : BigDecimal.ZERO));
+
         SettlementResponse response = SettlementResponse.builder()
                 .id(settlement.getId())
                 .claimStatus(claim.getInternalStatus())
@@ -205,6 +235,18 @@ public class ClaimSettlementServiceImpl implements IClaimSettlementService {
                 jwtUserExtractor.getCurrentUserId(), jwtUserExtractor.getCurrentUserRole() != null ? jwtUserExtractor.getCurrentUserRole().getValue() : "ADMIN",
                 "Deduction: " + request.getDeductionDetails());
 
+        UUID orgDed = claim.getOrganization() != null ? claim.getOrganization().getOrganizationId() : null;
+        platformAuditPublisher.publishAuthenticated(
+                "claims",
+                "claim_deductions",
+                "CLAIM_DEDUCTION",
+                "CREATE",
+                claimId.toString(),
+                orgDed,
+                Map.of(
+                        "deductionId", deduction.getId().toString(),
+                        "deductionAmount", request.getDeductionAmount() != null ? request.getDeductionAmount() : BigDecimal.ZERO));
+
         ClaimDeductionDto dto = toDeductionDto(deduction);
         return ResponseEntity.ok(new ResponseDto<>("Success", dto));
     }
@@ -236,6 +278,15 @@ public class ClaimSettlementServiceImpl implements IClaimSettlementService {
             auditService.logAction(claimId, "DEDUCTION_REMOVED", claim.getInternalStatus().getValue(), claim.getInternalStatus().getValue(),
                     jwtUserExtractor.getCurrentUserId(), jwtUserExtractor.getCurrentUserRole() != null ? jwtUserExtractor.getCurrentUserRole().getValue() : "ADMIN",
                     null);
+            UUID orgRem = claim.getOrganization() != null ? claim.getOrganization().getOrganizationId() : null;
+            platformAuditPublisher.publishAuthenticated(
+                    "claims",
+                    "claim_deductions",
+                    "CLAIM_DEDUCTION",
+                    "DELETE",
+                    claimId.toString(),
+                    orgRem,
+                    Map.of("deductionId", deductionId.toString()));
         }
         return ResponseEntity.ok(new ResponseDto<>("Success", null));
     }

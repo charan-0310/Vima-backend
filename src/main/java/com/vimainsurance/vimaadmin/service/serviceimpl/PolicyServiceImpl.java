@@ -76,6 +76,7 @@ import com.vimainsurance.vimaadmin.util.Constants;
 import com.vimainsurance.vimaadmin.util.JwtUserExtractor;
 import com.vimainsurance.vimaadmin.audit.AuditContextSupplier;
 import com.vimainsurance.vimaadmin.audit.AuditedOperation;
+import com.vimainsurance.vimaadmin.audit.PlatformAuditPublisher;
 import com.vimainsurance.vimaadmin.util.PolicyValidationUtil;
 import com.vimainsurance.vimaadmin.util.TopupPremiumOptionsUtil;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -113,6 +114,9 @@ public class PolicyServiceImpl implements IPolicyService {
 
     @Autowired
     private JwtUserExtractor jwtUserExtractor;
+
+    @Autowired
+    private PlatformAuditPublisher platformAuditPublisher;
     
     @Autowired
     private IDocumentService documentService;
@@ -817,6 +821,17 @@ public class PolicyServiceImpl implements IPolicyService {
             }
             verifyPolicyBelongsToOrganization(policy, organizationId);
             Document doc = attachPolicyDocument(policy, file, slot);
+            String action = slot == DocumentType.POLICY_WORDING ? "ATTACH_WORDING" : "ATTACH_CLAIM_CHECKLIST";
+            platformAuditPublisher.publishAuthenticated(
+                    "cpc",
+                    "policies",
+                    "POLICY_DOCUMENT",
+                    action,
+                    policyId.toString(),
+                    organizationId,
+                    java.util.Map.of(
+                            "documentId", doc.getDocumentId().toString(),
+                            "filename", doc.getOriginalFilename() != null ? doc.getOriginalFilename() : ""));
             return responseObj.render(responseObj.formSuccessResponse(Constants.SUCCESS, toPolicyDocumentRefDto(doc)));
         } catch (BadRequestException e) {
             logger.warn("[correlationId:{}] Validation failed attaching {} to policy {}: {}",
@@ -843,6 +858,17 @@ public class PolicyServiceImpl implements IPolicyService {
             if (existing == null) {
                 return responseObj.render(responseObj.formSuccessResponse(Constants.SUCCESS, "No document attached"));
             }
+            String removeAction = slot == DocumentType.POLICY_WORDING ? "REMOVE_WORDING" : "REMOVE_CLAIM_CHECKLIST";
+            platformAuditPublisher.publishAuthenticated(
+                    "cpc",
+                    "policies",
+                    "POLICY_DOCUMENT",
+                    removeAction,
+                    policyId.toString(),
+                    organizationId,
+                    java.util.Map.of(
+                            "removedDocumentId", existing.getDocumentId().toString(),
+                            "filename", existing.getOriginalFilename() != null ? existing.getOriginalFilename() : ""));
             if (slot == DocumentType.POLICY_WORDING) {
                 policy.setPolicyWordingDocument(null);
             } else {

@@ -20,6 +20,7 @@ import org.springframework.web.bind.annotation.RestController;
 
 import com.vimainsurance.vimaadmin.dto.BaseResponse;
 import com.vimainsurance.vimaadmin.dto.ResponseDto;
+import com.vimainsurance.vimaadmin.audit.PlatformAuditPublisher;
 import com.vimainsurance.vimaadmin.notification.AdminNotificationInboxService;
 import com.vimainsurance.vimaadmin.notification.NotificationDispatcher;
 import com.vimainsurance.vimaadmin.notification.dto.AdminNotificationPageResponseDto;
@@ -38,14 +39,17 @@ public class AdminNotificationController {
     private final AdminNotificationInboxService inboxService;
     private final NotificationDispatcher notificationDispatcher;
     private final INotificationDeliveryRepository notificationDeliveryRepository;
+    private final PlatformAuditPublisher platformAuditPublisher;
 
     public AdminNotificationController(
             AdminNotificationInboxService inboxService,
             NotificationDispatcher notificationDispatcher,
-            INotificationDeliveryRepository notificationDeliveryRepository) {
+            INotificationDeliveryRepository notificationDeliveryRepository,
+            PlatformAuditPublisher platformAuditPublisher) {
         this.inboxService = inboxService;
         this.notificationDispatcher = notificationDispatcher;
         this.notificationDeliveryRepository = notificationDeliveryRepository;
+        this.platformAuditPublisher = platformAuditPublisher;
     }
 
     @GetMapping
@@ -115,6 +119,18 @@ public class AdminNotificationController {
         logger.info("[correlationId:{}] POST /api/v1/admin/notifications/{}/redispatch", MDC.get("correlationId"), id);
         BaseResponse<String> responseObj = new BaseResponse<>();
         notificationDispatcher.dispatchDeliveriesFor(id);
+        platformAuditPublisher.publish(
+                "admin",
+                "notifications",
+                "ADMIN_NOTIFICATION",
+                "REDISPATCH",
+                id.toString(),
+                null,
+                null,
+                null,
+                null,
+                null,
+                Map.of("notificationId", id.toString()));
         return responseObj.render(responseObj.formSuccessResponse("OK", "redispatch triggered"));
     }
 
