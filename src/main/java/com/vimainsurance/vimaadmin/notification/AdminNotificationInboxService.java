@@ -132,9 +132,45 @@ public class AdminNotificationInboxService {
 
     @Transactional
     public boolean markRead(UUID id) {
-        UUID recipientId = jwtUserExtractor.resolveCurrentAdminUser().orElseThrow().getId();
-        int updated = notificationRepository.markReadIfOwned(id, recipientId, LocalDateTime.now());
+        AdminUser me = jwtUserExtractor.resolveCurrentAdminUser().orElseThrow();
+        LocalDateTime now = LocalDateTime.now();
+        if (isVimaAudienceRole(me.getRole())) {
+            return markReadSharedLogicalGroup(id, me, now);
+        }
+        int updated = notificationRepository.markReadIfOwned(id, me.getId(), now);
         return updated > 0;
+    }
+
+    /**
+     * Vima shared inbox dedupes by logical dedup key across many recipient rows. Marking read must clear
+     * all matching fan-out rows so {@link #unreadCount()} (distinct logical keys) and the bell drop correctly.
+     */
+    private boolean markReadSharedLogicalGroup(UUID notificationId, AdminUser me, LocalDateTime readAt) {
+        Set<UUID> sharedRecipientIds = resolveSharedAudienceRecipientIds();
+        if (sharedRecipientIds.isEmpty()) {
+            return false;
+        }
+        return notificationRepository.findById(notificationId).map((n) -> {
+            if (n.getRecipient() == null || n.getRecipient().getId() == null) {
+                return false;
+            }
+            if (!sharedRecipientIds.contains(n.getRecipient().getId())) {
+                return false;
+            }
+            String dk = n.getDedupKey();
+            if (dk == null || dk.isBlank()) {
+                int owned = notificationRepository.markReadIfOwned(notificationId, me.getId(), readAt);
+                return owned > 0;
+            }
+            String logical = logicalDedupKey(n);
+            if (logical.isBlank()) {
+                return false;
+            }
+            String dedupPrefix = logical + ":";
+            int updated = notificationRepository.markReadLogicalGroupForRecipients(
+                    sharedRecipientIds, logical, dedupPrefix, readAt);
+            return updated > 0;
+        }).orElse(false);
     }
 
     @Transactional
@@ -148,6 +184,14 @@ public class AdminNotificationInboxService {
             return notificationRepository.markAllReadByReceiverEmail(receiverEmail, LocalDateTime.now());
         }
         UUID effectiveCompanyFilter = resolveCompanyFilter(me, companyIdFilter);
+        if (isVimaAudienceRole(me.getRole())) {
+            Set<UUID> sharedRecipientIds = resolveSharedAudienceRecipientIds();
+            if (sharedRecipientIds.isEmpty()) {
+                return 0;
+            }
+            return notificationRepository.markAllReadForRecipientIds(
+                    sharedRecipientIds, effectiveCompanyFilter, LocalDateTime.now());
+        }
         return notificationRepository.markAllReadForRecipient(me.getId(), effectiveCompanyFilter, LocalDateTime.now());
     }
 

@@ -141,4 +141,35 @@ public interface IAdminNotificationRepository extends JpaRepository<AdminNotific
             @Param("recipientId") UUID recipientId,
             @Param("companyId") UUID companyId,
             @Param("readAt") LocalDateTime readAt);
+
+    /**
+     * Shared Vima audience inbox: same company filter semantics as {@link #findInboxByRecipientIds}.
+     * Caller must pass a non-empty {@code recipientIds}.
+     */
+    @Modifying
+    @Query("""
+            UPDATE AdminNotification n SET n.readAt = :readAt, n.updatedAt = :readAt
+            WHERE n.recipient.id IN :recipientIds AND n.readAt IS NULL
+              AND (:companyId IS NULL OR n.company IS NULL OR n.company.organizationId = :companyId)
+            """)
+    int markAllReadForRecipientIds(
+            @Param("recipientIds") Collection<UUID> recipientIds,
+            @Param("companyId") UUID companyId,
+            @Param("readAt") LocalDateTime readAt);
+
+    /**
+     * Marks all unread fan-out rows in the shared pool that share the same logical dedup prefix as
+     * {@code logicalKey} / {@code dedupPrefix} (see {@link com.vimainsurance.vimaadmin.notification.AdminNotificationInboxService#logicalDedupKey}).
+     */
+    @Modifying
+    @Query("""
+            UPDATE AdminNotification n SET n.readAt = :readAt, n.updatedAt = :readAt
+            WHERE n.readAt IS NULL AND n.recipient.id IN :recipientIds
+              AND (n.dedupKey = :logicalKey OR n.dedupKey LIKE CONCAT(:dedupPrefix, '%'))
+            """)
+    int markReadLogicalGroupForRecipients(
+            @Param("recipientIds") Collection<UUID> recipientIds,
+            @Param("logicalKey") String logicalKey,
+            @Param("dedupPrefix") String dedupPrefix,
+            @Param("readAt") LocalDateTime readAt);
 }
