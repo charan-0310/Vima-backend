@@ -1,6 +1,7 @@
 package com.vimainsurance.vimaadmin.notification;
 
 import java.time.LocalDateTime;
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -61,12 +62,31 @@ public class AdminNotificationInboxService {
                         .size(size)
                         .build();
             }
-            Page<AdminNotification> raw = notificationRepository.findInboxByRecipientIds(
-                    sharedRecipientIds,
-                    unreadOnly,
-                    category,
-                    effectiveCompanyFilter,
-                    PageRequest.of(0, Math.max(size * 20, 500), Sort.by(Sort.Direction.DESC, "createdAt")));
+            List<UUID> vimaOrgScope = resolveVimaInboxOrganizationIdScope(companyIdFilter);
+            if (vimaOrgScope != null && vimaOrgScope.isEmpty()) {
+                return AdminNotificationPageResponseDto.builder()
+                        .content(List.of())
+                        .totalElements(0)
+                        .page(page)
+                        .size(size)
+                        .build();
+            }
+            Page<AdminNotification> raw;
+            if (vimaOrgScope != null) {
+                raw = notificationRepository.findInboxByRecipientIdsAndOrganizationIdIn(
+                        sharedRecipientIds,
+                        unreadOnly,
+                        category,
+                        vimaOrgScope,
+                        PageRequest.of(0, Math.max(size * 20, 500), Sort.by(Sort.Direction.DESC, "createdAt")));
+            } else {
+                raw = notificationRepository.findInboxByRecipientIds(
+                        sharedRecipientIds,
+                        unreadOnly,
+                        category,
+                        effectiveCompanyFilter,
+                        PageRequest.of(0, Math.max(size * 20, 500), Sort.by(Sort.Direction.DESC, "createdAt")));
+            }
             p = dedupeSharedAudiencePage(raw, page, size);
         } else if (isHrAdminRole(me.getRole())) {
             UUID hrOrgId = resolveHrAdminOrganizationId(me);
@@ -102,19 +122,33 @@ public class AdminNotificationInboxService {
     }
 
     @Transactional(readOnly = true)
-    public long unreadCount() {
+    public long unreadCount(UUID companyIdFilter) {
         AdminUser me = currentAdminForNotificationInbox();
         if (isVimaAudienceRole(me.getRole())) {
             Set<UUID> sharedRecipientIds = resolveSharedAudienceRecipientIds();
             if (sharedRecipientIds.isEmpty()) {
                 return 0L;
             }
-            Page<AdminNotification> raw = notificationRepository.findInboxByRecipientIds(
-                    sharedRecipientIds,
-                    true,
-                    null,
-                    null,
-                    PageRequest.of(0, 5000, Sort.by(Sort.Direction.DESC, "createdAt")));
+            List<UUID> vimaOrgScope = resolveVimaInboxOrganizationIdScope(companyIdFilter);
+            if (vimaOrgScope != null && vimaOrgScope.isEmpty()) {
+                return 0L;
+            }
+            Page<AdminNotification> raw;
+            if (vimaOrgScope != null) {
+                raw = notificationRepository.findInboxByRecipientIdsAndOrganizationIdIn(
+                        sharedRecipientIds,
+                        true,
+                        null,
+                        vimaOrgScope,
+                        PageRequest.of(0, 5000, Sort.by(Sort.Direction.DESC, "createdAt")));
+            } else {
+                raw = notificationRepository.findInboxByRecipientIds(
+                        sharedRecipientIds,
+                        true,
+                        null,
+                        null,
+                        PageRequest.of(0, 5000, Sort.by(Sort.Direction.DESC, "createdAt")));
+            }
             return raw.getContent().stream()
                     .map(this::logicalDedupKey)
                     .distinct()
@@ -143,7 +177,7 @@ public class AdminNotificationInboxService {
 
     /**
      * Vima shared inbox dedupes by logical dedup key across many recipient rows. Marking read must clear
-     * all matching fan-out rows so {@link #unreadCount()} (distinct logical keys) and the bell drop correctly.
+     * all matching fan-out rows so {@link #unreadCount(UUID)} (distinct logical keys) and the bell drop correctly.
      */
     private boolean markReadSharedLogicalGroup(UUID notificationId, AdminUser me, LocalDateTime readAt) {
         Set<UUID> sharedRecipientIds = resolveSharedAudienceRecipientIds();
@@ -167,8 +201,15 @@ public class AdminNotificationInboxService {
                 return false;
             }
             String dedupPrefix = logical + ":";
-            int updated = notificationRepository.markReadLogicalGroupForRecipients(
-                    sharedRecipientIds, logical, dedupPrefix, readAt);
+            List<UUID> vimaOrgScope = resolveVimaInboxOrganizationIdScope(null);
+            int updated;
+            if (vimaOrgScope != null) {
+                updated = notificationRepository.markReadLogicalGroupForRecipientsAndOrganizationIdIn(
+                        sharedRecipientIds, logical, dedupPrefix, vimaOrgScope, readAt);
+            } else {
+                updated = notificationRepository.markReadLogicalGroupForRecipients(
+                        sharedRecipientIds, logical, dedupPrefix, readAt);
+            }
             return updated > 0;
         }).orElse(false);
     }
@@ -188,6 +229,14 @@ public class AdminNotificationInboxService {
             Set<UUID> sharedRecipientIds = resolveSharedAudienceRecipientIds();
             if (sharedRecipientIds.isEmpty()) {
                 return 0;
+            }
+            List<UUID> vimaOrgScope = resolveVimaInboxOrganizationIdScope(companyIdFilter);
+            if (vimaOrgScope != null && vimaOrgScope.isEmpty()) {
+                return 0;
+            }
+            if (vimaOrgScope != null) {
+                return notificationRepository.markAllReadForRecipientIdsAndOrganizationIdIn(
+                        sharedRecipientIds, vimaOrgScope, LocalDateTime.now());
             }
             return notificationRepository.markAllReadForRecipientIds(
                     sharedRecipientIds, effectiveCompanyFilter, LocalDateTime.now());
@@ -215,8 +264,8 @@ public class AdminNotificationInboxService {
 
     private UUID resolveCompanyFilter(AdminUser me, UUID companyIdFilter) {
         if (isVimaAudienceRole(me.getRole())) {
-            // Shared Vima audience inbox should not be narrowed by company selector.
-            // Otherwise users can see partial notifications (e.g., only 2 instead of full shared pool).
+            // VIMA audience list/read-all scope when JWT has organization_ids is handled via
+            // {@link #resolveVimaInboxOrganizationIdScope(UUID)} and dedicated repository queries.
             return null;
         }
         if (isHrAdminRole(me.getRole())) {
@@ -224,6 +273,41 @@ public class AdminNotificationInboxService {
             return null;
         }
         return companyIdFilter;
+    }
+
+    /**
+     * When the access token lists {@code organization_ids}, VIMA platform roles see only notifications whose
+     * {@code company_id} is in that set (union). Optional {@code companyIdFromRequest} narrows to one org if it
+     * appears in the JWT list. When JWT has no org ids, returns {@code null} (legacy: full shared pool, deduped).
+     * Returns empty list when {@code companyIdFromRequest} is not in the JWT set (caller should return empty).
+     */
+    private List<UUID> resolveVimaInboxOrganizationIdScope(UUID companyIdFromRequest) {
+        List<UUID> jwtOrgs = parseAllJwtOrganizationIds();
+        if (jwtOrgs.isEmpty()) {
+            return null;
+        }
+        if (companyIdFromRequest != null) {
+            if (jwtOrgs.contains(companyIdFromRequest)) {
+                return List.of(companyIdFromRequest);
+            }
+            return List.of();
+        }
+        return List.copyOf(jwtOrgs);
+    }
+
+    private List<UUID> parseAllJwtOrganizationIds() {
+        List<UUID> out = new ArrayList<>();
+        for (String idStr : jwtUserExtractor.getCurrentOrganizations()) {
+            if (idStr == null || idStr.isBlank()) {
+                continue;
+            }
+            try {
+                out.add(UUID.fromString(idStr.trim()));
+            } catch (IllegalArgumentException ignored) {
+                // skip malformed claim entries
+            }
+        }
+        return out;
     }
 
     private boolean isHrAdminRole(String role) {

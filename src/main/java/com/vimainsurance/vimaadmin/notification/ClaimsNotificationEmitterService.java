@@ -234,6 +234,14 @@ public class ClaimsNotificationEmitterService {
         vars.put("creatorName", from);
         vars.put("creatorRole", actorRole);
         vars.put("claimAmount", claim.getClaimAmount() != null ? claim.getClaimAmount() : BigDecimal.ZERO);
+        if (claim.getClaimAmount() != null) {
+            vars.put("claimAmountFormatted", claim.getClaimAmount().toPlainString());
+        } else {
+            vars.put("claimAmountFormatted", "");
+        }
+        vars.put("hospitalName", claim.getHospitalName() != null ? claim.getHospitalName() : "");
+        vars.put("queryText", "");
+        vars.put("responseText", "");
         return vars;
     }
 
@@ -263,6 +271,7 @@ public class ClaimsNotificationEmitterService {
             String recipientDeepLink = deepLinkForRecipient(claim, admin);
             Map<String, Object> recipientVars = new HashMap<>(vars);
             recipientVars.put("deepLinkUrl", recipientDeepLink);
+            applyHrClaimRecipientEmailVars(recipientVars, admin, body, eventType);
             CreateNotificationCommand cmd = new CreateNotificationCommand(
                     admin.getId(),
                     organizationId,
@@ -322,6 +331,71 @@ public class ClaimsNotificationEmitterService {
             normalized = normalized.substring(0, normalized.length() - "_GROUP".length());
         }
         return normalized;
+    }
+
+    private static void applyHrClaimRecipientEmailVars(
+            Map<String, Object> recipientVars,
+            AdminUser admin,
+            String body,
+            NotificationEventType eventType) {
+        recipientVars.put("message", body != null ? body : "");
+        recipientVars.put("recipientName", resolveAdminRecipientLabel(admin));
+        applyHrClaimStatusBadge(recipientVars, eventType);
+    }
+
+    private static String resolveAdminRecipientLabel(AdminUser admin) {
+        if (admin == null) {
+            return "there";
+        }
+        if (admin.getFullName() != null && !admin.getFullName().isBlank()) {
+            return admin.getFullName().trim();
+        }
+        if (admin.getUsername() != null && !admin.getUsername().isBlank()) {
+            return admin.getUsername().trim();
+        }
+        return "there";
+    }
+
+    private static void applyHrClaimStatusBadge(Map<String, Object> vars, NotificationEventType eventType) {
+        if (eventType == null) {
+            vars.put("statusBadge", "Update");
+            vars.put("statusBadgeColor", "#e2e8f0");
+            return;
+        }
+        switch (eventType) {
+            case EMPLOYEE_CLAIM_SUBMITTED -> {
+                vars.put("statusBadge", "Pending review");
+                vars.put("statusBadgeColor", "#dbeafe");
+            }
+            case EMPLOYEE_CLAIM_APPROVED -> {
+                vars.put("statusBadge", "Approved");
+                vars.put("statusBadgeColor", "#dcfce7");
+            }
+            case EMPLOYEE_CLAIM_REJECTED -> {
+                vars.put("statusBadge", "Rejected");
+                vars.put("statusBadgeColor", "#fee2e2");
+            }
+            case EMPLOYEE_CLAIM_SETTLED -> {
+                vars.put("statusBadge", "Settled");
+                vars.put("statusBadgeColor", "#dcfce7");
+            }
+            case EMPLOYEE_CLAIM_QUERY_RAISED -> {
+                vars.put("statusBadge", "Query raised");
+                vars.put("statusBadgeColor", "#fef3c7");
+            }
+            case EMPLOYEE_CLAIM_QUERY_RESPONDED -> {
+                vars.put("statusBadge", "Query responded");
+                vars.put("statusBadgeColor", "#dbeafe");
+            }
+            case EMPLOYEE_CLAIM_QUERY_RESPONSE_SUBMITTED -> {
+                vars.put("statusBadge", "Response submitted");
+                vars.put("statusBadgeColor", "#fef3c7");
+            }
+            default -> {
+                vars.put("statusBadge", "Update");
+                vars.put("statusBadgeColor", "#e2e8f0");
+            }
+        }
     }
 
     private String portalBase() {

@@ -1270,7 +1270,23 @@ public class HRApprovalServiceImpl implements IHRApprovalService {
                 submissionId,
                 reviewer != null ? reviewer.getId() : null,
                 display,
-                reviewer != null ? reviewer.getFullName() : null);
+                reviewer != null ? reviewer.getFullName() : null,
+                resolveEnrolleeDisplayName(sub),
+                sub.getReferenceNumber());
+    }
+
+    private static String resolveEnrolleeDisplayName(EnrollmentSubmission sub) {
+        if (sub == null || sub.getEmployee() == null) {
+            return null;
+        }
+        Deals d = sub.getEmployee();
+        if (d.getFullName() != null && !d.getFullName().isBlank()) {
+            return d.getFullName().trim();
+        }
+        if (d.getEmail() != null && !d.getEmail().isBlank()) {
+            return d.getEmail().trim();
+        }
+        return null;
     }
 
 

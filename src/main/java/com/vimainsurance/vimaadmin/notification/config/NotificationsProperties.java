@@ -23,7 +23,7 @@ public class NotificationsProperties {
     /**
      * Target Slack channel ID for endorsement-completed notifications.
      */
-    private String slackChannelId = "C0B22DB8AUC";
+    private String slackChannelId = "";
 
     private int retryMaxAttempts = 5;
 

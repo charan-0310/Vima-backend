@@ -74,10 +74,10 @@ public class AdminNotificationController {
     }
 
     @GetMapping("/unread-count")
-    public ResponseEntity<ResponseDto<Long>> unreadCount() {
+    public ResponseEntity<ResponseDto<Long>> unreadCount(@RequestParam(required = false) UUID companyId) {
         logger.info("[correlationId:{}] GET /api/v1/admin/notifications/unread-count", MDC.get("correlationId"));
         BaseResponse<Long> responseObj = new BaseResponse<>();
-        long count = inboxService.unreadCount();
+        long count = inboxService.unreadCount(companyId);
         return responseObj.render(responseObj.formSuccessResponse("Unread count", count, count));
     }
 
