@@ -38,6 +38,7 @@ import com.vimainsurance.vimaadmin.entity.Deals;
 import com.vimainsurance.vimaadmin.enums.AccountStatus;
 import com.vimainsurance.vimaadmin.enums.NomineeRelationship;
 import com.vimainsurance.vimaadmin.entity.AdminUser;
+import com.vimainsurance.vimaadmin.entity.CostSharingRule;
 import com.vimainsurance.vimaadmin.entity.Policy;
 import com.vimainsurance.vimaadmin.entity.EmployeePolicyMap;
 
@@ -48,6 +49,7 @@ import com.vimainsurance.vimaadmin.entity.Endorsement;
 import com.vimainsurance.vimaadmin.enums.ConfirmationMethod;
 import com.vimainsurance.vimaadmin.enums.DocumentCategory;
 import com.vimainsurance.vimaadmin.enums.DocumentType;
+import com.vimainsurance.vimaadmin.exception.NoRateTableConfiguredException;
 import com.vimainsurance.vimaadmin.enums.EndorsementType;
 
 import jakarta.validation.ConstraintViolation;
@@ -74,6 +76,7 @@ import com.vimainsurance.vimaadmin.repository.IDocumentRepository;
 import com.vimainsurance.vimaadmin.repository.IEmployeePolicyMapRepository;
 import com.vimainsurance.vimaadmin.exception.DocumentUploadException;
 import com.vimainsurance.vimaadmin.util.TopupPremiumOptionsUtil;
+import com.vimainsurance.vimaadmin.util.Constants;
 import com.vimainsurance.vimaadmin.util.GmcCoverageUploadValidationUtil;
 import com.vimainsurance.vimaadmin.service.policy.PolicyMemberMappingHelper;
 import com.vimainsurance.vimaadmin.notification.FlagshipNotificationService;
@@ -333,11 +336,26 @@ public class EmployeeService {
                 String coverageCategory = resolveCoverageCategoryForCostSharing(coveredMembers);
                 String costSharingPlanType =
                         ("PARENT_GMC".equals(upper) || "GMC_PARENT".equals(upper)) ? "GMC" : planType;
-                CostShareSplit split = costSharingRuleService.applyCostSharing(
-                        companyId, costSharingPlanType, coverageCategory, planPremium);
+                CostSharingRule effectiveRule = costSharingRuleService.getEffectiveRule(
+                        companyId, costSharingPlanType, coverageCategory, LocalDate.now());
+                CostShareSplit split;
+                if (effectiveRule == null) {
+                    split = CostShareSplit.builder()
+                            .employerShare(null)
+                            .employeeShare(null)
+                            .shareType(null)
+                            .shareValue(null)
+                            .ruleId(null)
+                            .appliedCategory(null)
+                            .build();
+                } else {
+                    split = costSharingRuleService.applyCostSharing(
+                            companyId, costSharingPlanType, coverageCategory, planPremium);
+                }
                 // Keep parent review aligned with enrollment review behavior: 50/50 by default
                 // when parent-specific rule is missing and engine falls back to 100% employer.
                 if (("PARENT_GMC".equals(upper) || "GMC_PARENT".equals(upper))
+                        && effectiveRule != null
                         && split != null
                         && split.getEmployeeShare() != null
                         && split.getEmployerShare() != null
@@ -364,6 +382,7 @@ public class EmployeeService {
                             .shareType(split.getShareType())
                             .shareValue(split.getShareValue())
                             .ruleId(split.getRuleId())
+                            .appliedCategory(split.getAppliedCategory())
                             .build();
                 }
 
@@ -376,8 +395,12 @@ public class EmployeeService {
                         .build());
 
                 totalAnnual = totalAnnual.add(planPremium);
-                totalEmployer = totalEmployer.add(split.getEmployerShare());
-                totalEmployee = totalEmployee.add(split.getEmployeeShare());
+                if (split.getEmployerShare() != null) {
+                    totalEmployer = totalEmployer.add(split.getEmployerShare());
+                }
+                if (split.getEmployeeShare() != null) {
+                    totalEmployee = totalEmployee.add(split.getEmployeeShare());
+                }
                 totalGst = totalGst.add(gst);
             }
 
@@ -391,6 +414,13 @@ public class EmployeeService {
                     .build();
 
             return responseObj.render(responseObj.formSuccessResponse("OK", out));
+        } catch (NoRateTableConfiguredException e) {
+            log.info("previewBulkEmployeePremium: no rate table for company {} plan {}: {}",
+                    companyId, e.getPlanType(), e.getMessage());
+            return responseObj.render(responseObj.formErrorResponseWithKey(422,
+                    "Add a Rate Card with effective dates covering today to calculate premium.",
+                    null,
+                    Constants.ERROR_KEY_NO_RATE_TABLE_CONFIGURED));
         } catch (IllegalArgumentException e) {
             log.error("previewBulkEmployeePremium validation error: {}", e.getMessage(), e);
             return responseObj.render(responseObj.formErrorResponse(400, e.getMessage()));

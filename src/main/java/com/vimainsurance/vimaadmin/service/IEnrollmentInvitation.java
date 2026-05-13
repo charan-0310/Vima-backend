@@ -66,7 +66,7 @@ public interface IEnrollmentInvitation {
     /**
      * Activate enrollment window (scheduled → active) and send invitations to all employees linked to the window.
      */
-    ResponseEntity<ResponseDto<ActivateWindowResponseDto>> activateWindowAndSendInvites(UUID windowId);
+    ResponseEntity<?> activateWindowAndSendInvites(UUID windowId);
 
     /**
      * Get enrollment progress for a window (no endorsement): counts and employee details.

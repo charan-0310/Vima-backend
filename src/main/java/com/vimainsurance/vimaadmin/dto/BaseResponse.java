@@ -36,9 +36,15 @@ public class BaseResponse<T> {
 		return new ResponseDto<>(400,message, payload);
 	}
 
+	/** Error response with optional {@link ResponseDto#errorKey} for API clients. */
+	public ResponseDto<T> formErrorResponseWithKey(Integer errorCode, String message, T payload, String errorKey) {
+		return new ResponseDto<>(errorCode, message, payload, errorKey);
+	}
+
 	public ResponseEntity<ResponseDto<T>> render(ResponseDto<T> response) {
 		if (response.getErrorCode() != null) {
 			ResponseDto<T> errorResponse = new ResponseDto<>(response.getErrorCode(), response.getMessage(), response.getPayload());
+			errorResponse.setErrorKey(response.getErrorKey());
 			return renderError(errorResponse);
 		}
 		ResponseDto<T> successResponse = new ResponseDto<>(response.getMessage(), response.getPayload(), response.getTotalRecords());

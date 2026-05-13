@@ -14,4 +14,9 @@ public class Constants {
 	public static final String RECORD_CREATED = "Record created successfully";
 	public static final String SUCCESS = "Process completed successfully";
 
+	/** API {@link com.vimainsurance.vimaadmin.dto.ResponseDto#errorKey} — premium preview / calculate-premium */
+	public static final String ERROR_KEY_NO_RATE_TABLE_CONFIGURED = "NO_RATE_TABLE_CONFIGURED";
+	/** API {@link com.vimainsurance.vimaadmin.dto.ResponseDto#errorKey} — enrollment window activate / publish */
+	public static final String ERROR_KEY_RATE_CARD_COVERAGE_INCOMPLETE = "RATE_CARD_COVERAGE_INCOMPLETE";
+
 }
