@@ -34,6 +34,13 @@ public class ClaimsNotificationService {
     @Value("${app.base-url:http://localhost:8080}")
     private String baseUrl;
 
+    /**
+     * When false, skips only the admin email for "claim ready for manual submission to insurer"
+     * ({@code claim_manual_submission_admin}). Other claim emails are unchanged.
+     */
+    @Value("${claims.email.manual-submission-admin-notification-enabled:true}")
+    private boolean manualSubmissionAdminNotificationEnabled;
+
     public void notifyStatusChange(Claim claim, ClaimStatus oldStatus, ClaimStatus newStatus) {
         Claim loaded = claimRepository.findByIdWithOrganizationAndEmployeeAndSettlement(claim.getId()).orElse(claim);
         Deals employee = loaded.getEmployee();
@@ -138,6 +145,11 @@ public class ClaimsNotificationService {
 
     public void notifyAdminManualSubmission(Claim claim) {
         Claim loaded = claimRepository.findByIdWithOrganizationAndEmployeeAndSettlement(claim.getId()).orElse(claim);
+        if (!manualSubmissionAdminNotificationEnabled) {
+            log.info("claims_notification_manual_submission_skip claimId={} claimNumber={} reason=notification_disabled",
+                    loaded.getId(), loaded.getClaimNumber());
+            return;
+        }
         UUID employeeId = loaded.getEmployee() != null ? loaded.getEmployee().getIndividualId() : null;
         UUID organizationId = loaded.getOrganization() != null ? loaded.getOrganization().getOrganizationId() : null;
         List<AdminUser> recipients = notificationRoutingResolver.resolveClaimsTeamRecipients(organizationId);
