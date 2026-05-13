@@ -6,6 +6,7 @@ Detailed implementation conventions live in `.cursor/rules/`.
 ## Source Of Truth
 
 - Architecture and coding conventions: `.cursor/rules/backend-architecture.mdc`
+- **Feature completion** (production-style code review, fix issues in-repo, `./mvnw clean verify` when feasible): `.cursor/rules/feature-completion-gate.mdc`
 - Documentation triggers:
   - `.cursor/rules/docs-release.mdc`
   - `.cursor/rules/docs-implementation.mdc`
@@ -16,7 +17,7 @@ Detailed implementation conventions live in `.cursor/rules/`.
 - Follow existing backend architecture conventions before introducing new patterns.
 - Prefer minimal, scoped changes over broad refactors unless explicitly requested.
 - Run relevant targeted tests during development for each substantive backend code change.
-- Before finalizing backend code changes, run full verification: `./mvnw clean verify`.
+- Before calling work done, do a short **production code review** pass on the diff (security, transactions, validation, tenancy), then run `./mvnw clean verify` when feasible. Prefer fixing findings over dumping a deferred checklist.
 - Treat failing tests as blocking issues (do not mark work complete while tests fail unless the user explicitly approves a temporary exception).
 - If validation cannot run, state what was not validated and why.
 

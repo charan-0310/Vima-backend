@@ -32,19 +32,16 @@ import org.springframework.security.core.userdetails.User;
 import org.springframework.security.core.userdetails.UserDetails;
 
 import com.vimainsurance.vimaadmin.dto.CustomerBulkDeleteRequestDto;
-import com.vimainsurance.vimaadmin.dto.CustomerPipelineRequestDto;
 import com.vimainsurance.vimaadmin.dto.CustomerRequestDto;
 import com.vimainsurance.vimaadmin.dto.CustomerResponseDto;
 import com.vimainsurance.vimaadmin.dto.ResponseDto;
 import com.vimainsurance.vimaadmin.entity.AdminUser;
 import com.vimainsurance.vimaadmin.entity.Customer;
-import com.vimainsurance.vimaadmin.entity.Quotes;
 import com.vimainsurance.vimaadmin.repository.IAdminUserRepository;
 import com.vimainsurance.vimaadmin.repository.ICustomerRepository;
 import com.vimainsurance.vimaadmin.repository.IDealsRepository;
 import com.vimainsurance.vimaadmin.repository.IDocumentRepository;
 import com.vimainsurance.vimaadmin.util.Constants;
-import com.vimainsurance.vimaadmin.util.IdGenerator;
 import com.vimainsurance.vimaadmin.util.JwtUserExtractor;
 
 @ExtendWith(MockitoExtension.class)
@@ -61,9 +58,6 @@ class CustomerServiceImplTest {
 
     @Mock
     private IDealsRepository dealsRepository;
-
-    @Mock
-    private IdGenerator customerIdGenerator;
 
     @Mock
     private JwtUserExtractor jwtUserExtractor;
@@ -142,32 +136,6 @@ class CustomerServiceImplTest {
     }
 
     @Test
-    void testCreate_Success() {
-        when(customerRepository.findByPhoneNumber(any())).thenReturn(Optional.empty());
-        when(adminUserRepository.findByUsername(any())).thenReturn(Optional.of(adminUser));
-        when(customerIdGenerator.generateCustomerId()).thenReturn("C001");
-        when(customerRepository.save(any())).thenReturn(customer);
-
-        ResponseEntity<ResponseDto<String>> response = customerService.create(customerRequestDto, "test-agent");
-
-        assertEquals(HttpStatus.OK, response.getStatusCode());
-        assertNotNull(response.getBody());
-        assertEquals(Constants.SUCCESS, response.getBody().getMessage());
-        assertEquals(Constants.SAVE_SUCCESS, response.getBody().getPayload());
-    }
-
-    @Test
-    void testCreate_PhoneNumberExists() {
-        when(customerRepository.findByPhoneNumber(any())).thenReturn(Optional.of(customer));
-
-        ResponseEntity<ResponseDto<String>> response = customerService.create(customerRequestDto, "test-agent");
-
-        assertEquals(HttpStatus.BAD_REQUEST, response.getStatusCode());
-        assertNotNull(response.getBody());
-        assertEquals("Already Existed", response.getBody().getMessage());
-    }
-
-    @Test
     void testUpdate_Success() {
         when(customerRepository.findByCustId(any())).thenReturn(Optional.of(customer));
         when(customerRepository.save(any())).thenReturn(customer);
@@ -213,21 +181,6 @@ class CustomerServiceImplTest {
         assertEquals(HttpStatus.BAD_REQUEST, response.getStatusCode());
         assertNotNull(response.getBody());
         assertEquals(Constants.DELETE_FAILED, response.getBody().getMessage());
-    }
-
-    @Test
-    void testFindByAgent_Success() {
-        List<Customer> customers = new ArrayList<>();
-        customers.add(customer);
-        when(adminUserRepository.findByUsername(any())).thenReturn(Optional.of(adminUser));
-        when(customerRepository.searchCustomersByCreatedBy(any(), any(), any())).thenReturn(new PageImpl<>(customers));
-        
-        ResponseEntity<ResponseDto<List<CustomerResponseDto>>> response = customerService.findByAgent("test-agent", "test-search", 0, 10, "test-sortBy", "test-sortDirection");
-
-        assertEquals(HttpStatus.OK, response.getStatusCode());
-        assertNotNull(response.getBody());
-        assertEquals(Constants.SUCCESS, response.getBody().getMessage());
-        assertEquals(1, response.getBody().getPayload().size());
     }
 
     @Test
@@ -330,31 +283,6 @@ class CustomerServiceImplTest {
         assertEquals(Constants.RECORD_NOT_FOUND_MESSAGE, response.getBody().getMessage());
     }
 
-    // Test cases for create method - Agent not found scenario
-    @Test
-    void testCreate_AgentNotFound() {
-        when(customerRepository.findByPhoneNumber(any())).thenReturn(Optional.empty());
-        when(adminUserRepository.findByUsername(any())).thenReturn(Optional.empty());
-
-        ResponseEntity<ResponseDto<String>> response = customerService.create(customerRequestDto, "non-existent-agent");
-
-        assertEquals(HttpStatus.BAD_REQUEST, response.getStatusCode());
-        assertNotNull(response.getBody());
-        assertEquals("Agent not found", response.getBody().getMessage());
-    }
-
-    // Test cases for create method - Exception handling
-    @Test
-    void testCreate_Exception() {
-        when(customerRepository.findByPhoneNumber(any())).thenThrow(new RuntimeException("Database error"));
-
-        ResponseEntity<ResponseDto<String>> response = customerService.create(customerRequestDto, "test-agent");
-
-        assertEquals(HttpStatus.BAD_REQUEST, response.getStatusCode());
-        assertNotNull(response.getBody());
-        assertEquals("Database error", response.getBody().getMessage());
-    }
-
     // Test cases for update method - Exception handling
     @Test
     void testUpdate_Exception() {
@@ -377,75 +305,6 @@ class CustomerServiceImplTest {
         assertEquals(HttpStatus.BAD_REQUEST, response.getStatusCode());
         assertNotNull(response.getBody());
         assertEquals("Database error", response.getBody().getMessage());
-    }
-
-    // Test cases for findByAgent method - Agent not found
-    @Test
-    void testFindByAgent_AgentNotFound() {
-        when(adminUserRepository.findByUsername(any())).thenReturn(Optional.empty());
-
-        ResponseEntity<ResponseDto<List<CustomerResponseDto>>> response = customerService.findByAgent("non-existent-agent", "test-search", 0, 10, "test-sortBy", "test-sortDirection");
-
-        assertEquals(HttpStatus.BAD_REQUEST, response.getStatusCode());
-        assertNotNull(response.getBody());
-        assertEquals("Agent not found", response.getBody().getMessage());
-    }
-
-    // Test cases for findByAgent method - Exception handling
-    @Test
-    void testFindByAgent_Exception() {
-        when(adminUserRepository.findByUsername(any())).thenThrow(new RuntimeException("Database error"));
-
-        ResponseEntity<ResponseDto<List<CustomerResponseDto>>> response = customerService.findByAgent("test-agent", "test-search", 0, 10, "test-sortBy", "test-sortDirection");
-
-        assertEquals(HttpStatus.BAD_REQUEST, response.getStatusCode());
-        assertNotNull(response.getBody());
-        assertEquals("Database error", response.getBody().getMessage());
-    }
-
-    // Test cases for findByAgent method - Empty results
-    @Test
-    void testFindByAgent_EmptyResults() {
-        when(adminUserRepository.findByUsername(any())).thenReturn(Optional.of(adminUser));
-        when(customerRepository.findActiveByCreatedBy(any(), any())).thenReturn(new PageImpl<>(new ArrayList<>()));
-
-        ResponseEntity<ResponseDto<List<CustomerResponseDto>>> response = customerService.findByAgent("test-agent", null, 0, 10, "test-sortBy", "test-sortDirection");
-
-        assertEquals(HttpStatus.OK, response.getStatusCode());
-        assertNotNull(response.getBody());
-        assertEquals(Constants.SUCCESS, response.getBody().getMessage());
-        assertEquals(0, response.getBody().getPayload().size());
-    }
-
-    // Test cases for findByAgent method - With search
-    @Test
-    void testFindByAgent_WithSearch() {
-        List<Customer> customers = new ArrayList<>();
-        customers.add(customer);
-        when(adminUserRepository.findByUsername(any())).thenReturn(Optional.of(adminUser));
-        when(customerRepository.searchCustomersByCreatedBy(any(), any(), any())).thenReturn(new PageImpl<>(customers));
-
-        ResponseEntity<ResponseDto<List<CustomerResponseDto>>> response = customerService.findByAgent("test-agent", "test-search", 0, 10, "test-sortBy", "test-sortDirection");
-
-        assertEquals(HttpStatus.OK, response.getStatusCode());
-        assertNotNull(response.getBody());
-        assertEquals(Constants.SUCCESS, response.getBody().getMessage());
-        assertEquals(1, response.getBody().getPayload().size());
-    }
-
-    // Test cases for findByAgent method - Premium sorting
-    @Test
-    void testFindByAgent_PremiumSorting() {
-        List<Customer> customers = new ArrayList<>();
-        customers.add(customer);
-        when(adminUserRepository.findByUsername(any())).thenReturn(Optional.of(adminUser));
-        when(customerRepository.findActiveByCreatedBy(any(), any())).thenReturn(new PageImpl<>(customers));
-
-        ResponseEntity<ResponseDto<List<CustomerResponseDto>>> response = customerService.findByAgent("test-agent", null, 0, 10, "premium", "desc");
-
-        assertEquals(HttpStatus.OK, response.getStatusCode());
-        assertNotNull(response.getBody());
-        assertEquals(Constants.SUCCESS, response.getBody().getMessage());
     }
 
     // Test cases for getAllCustomers method - Exception handling
@@ -536,95 +395,6 @@ class CustomerServiceImplTest {
         assertEquals(HttpStatus.BAD_REQUEST, response.getStatusCode());
         assertNotNull(response.getBody());
         assertEquals("Database error", response.getBody().getMessage());
-    }
-
-    // Test cases for updatePipelineStatus method - Success
-    @Test
-    void testUpdatePipelineStatus_Success() {
-        CustomerPipelineRequestDto pipelineDto = new CustomerPipelineRequestDto();
-        pipelineDto.setStatus("NEW_LEAD");
-        
-        when(adminUserRepository.findByUsername(any())).thenReturn(Optional.of(adminUser));
-        when(customerRepository.findByCustId(any())).thenReturn(Optional.of(customer));
-        when(customerRepository.save(any())).thenReturn(customer);
-
-        ResponseEntity<ResponseDto<String>> response = customerService.updatePipelineStatus("test-agent", "C001", pipelineDto);
-
-        assertEquals(HttpStatus.OK, response.getStatusCode());
-        assertNotNull(response.getBody());
-        assertEquals("Pipeline status updated successfully", response.getBody().getMessage());
-    }
-
-    // Test cases for updatePipelineStatus method - Agent not found
-    @Test
-    void testUpdatePipelineStatus_AgentNotFound() {
-        CustomerPipelineRequestDto pipelineDto = new CustomerPipelineRequestDto();
-        pipelineDto.setStatus("NEW_LEAD");
-        
-        when(adminUserRepository.findByUsername(any())).thenReturn(Optional.empty());
-
-        ResponseEntity<ResponseDto<String>> response = customerService.updatePipelineStatus("non-existent-agent", "C001", pipelineDto);
-
-        assertEquals(HttpStatus.NOT_FOUND, response.getStatusCode());
-        assertNotNull(response.getBody());
-        assertEquals("Agent not found", response.getBody().getMessage());
-    }
-
-    // Test cases for updatePipelineStatus method - Customer not found
-    @Test
-    void testUpdatePipelineStatus_CustomerNotFound() {
-        CustomerPipelineRequestDto pipelineDto = new CustomerPipelineRequestDto();
-        pipelineDto.setStatus("NEW_LEAD");
-        
-        when(adminUserRepository.findByUsername(any())).thenReturn(Optional.of(adminUser));
-        when(customerRepository.findByCustId(any())).thenReturn(Optional.empty());
-
-        ResponseEntity<ResponseDto<String>> response = customerService.updatePipelineStatus("test-agent", "C001", pipelineDto);
-
-        assertEquals(HttpStatus.NOT_FOUND, response.getStatusCode());
-        assertNotNull(response.getBody());
-        assertEquals("Customer not found", response.getBody().getMessage());
-    }
-
-    // Test cases for updatePipelineStatus method - Permission denied
-    @Test
-    void testUpdatePipelineStatus_PermissionDenied() {
-        CustomerPipelineRequestDto pipelineDto = new CustomerPipelineRequestDto();
-        pipelineDto.setStatus("NEW_LEAD");
-        
-        AdminUser differentOwner = new AdminUser();
-        differentOwner.setId(UUID.randomUUID());
-        differentOwner.setUsername("different-owner");
-        
-        Customer customerWithDifferentOwner = new Customer();
-        customerWithDifferentOwner.setId(UUID.randomUUID());
-        customerWithDifferentOwner.setCustId("C001");
-        customerWithDifferentOwner.setOwner(differentOwner);
-        
-        when(adminUserRepository.findByUsername(any())).thenReturn(Optional.of(adminUser));
-        when(customerRepository.findByCustId(any())).thenReturn(Optional.of(customerWithDifferentOwner));
-
-        ResponseEntity<ResponseDto<String>> response = customerService.updatePipelineStatus("test-agent", "C001", pipelineDto);
-
-        assertEquals(HttpStatus.FORBIDDEN, response.getStatusCode());
-        assertNotNull(response.getBody());
-        assertEquals("You don't have permission to update this customer", response.getBody().getMessage());
-    }
-
-    // Test cases for updatePipelineStatus method - Invalid status
-    @Test
-    void testUpdatePipelineStatus_InvalidStatus() {
-        CustomerPipelineRequestDto pipelineDto = new CustomerPipelineRequestDto();
-        pipelineDto.setStatus("INVALID_STATUS");
-        
-        when(adminUserRepository.findByUsername(any())).thenReturn(Optional.of(adminUser));
-        when(customerRepository.findByCustId(any())).thenReturn(Optional.of(customer));
-
-        ResponseEntity<ResponseDto<String>> response = customerService.updatePipelineStatus("test-agent", "C001", pipelineDto);
-
-        assertEquals(HttpStatus.BAD_REQUEST, response.getStatusCode());
-        assertNotNull(response.getBody());
-        assertEquals("Invalid status. Valid statuses are: NEW_LEAD, PRE_FOLLOW_UP, QUOTE_SENT, POST_FOLLOW_UP, APPLICATION, POLICY_ISSUED, NOT_INTERESTED, LEAD_LOST", response.getBody().getMessage());
     }
 
     // Test cases for bulkDelete method - Success
@@ -721,104 +491,6 @@ class CustomerServiceImplTest {
         assertEquals(HttpStatus.BAD_REQUEST, response.getStatusCode());
         assertNotNull(response.getBody());
         assertEquals("Database error", response.getBody().getMessage());
-    }
-
-    // Test cases for createSort method - Default sorting
-    @Test
-    void testCreateSort_DefaultSorting() {
-        // This tests the private createSort method indirectly through findByAgent
-        List<Customer> customers = new ArrayList<>();
-        customers.add(customer);
-        // when(securityContext.getAuthentication()).thenReturn(authentication);
-        // when(authentication.getName()).thenReturn("test-agent");
-        // SecurityContextHolder.setContext(securityContext);
-        when(adminUserRepository.findByUsername(any())).thenReturn(Optional.of(adminUser));
-        when(customerRepository.findActiveByCreatedBy(any(), any())).thenReturn(new PageImpl<>(customers));
-
-        ResponseEntity<ResponseDto<List<CustomerResponseDto>>> response = customerService.findByAgent("test-agent", "", 0, 10, null, null);
-
-        assertEquals(HttpStatus.OK, response.getStatusCode());
-        assertNotNull(response.getBody());
-        assertEquals(Constants.SUCCESS, response.getBody().getMessage());
-    }
-
-    // Test cases for createSort method - Custom sorting
-    @Test
-    void testCreateSort_CustomSorting() {
-        List<Customer> customers = new ArrayList<>();
-        customers.add(customer);
-        when(adminUserRepository.findByUsername(any())).thenReturn(Optional.of(adminUser));
-        when(customerRepository.findActiveByCreatedBy(any(), any())).thenReturn(new PageImpl<>(customers));
-
-        ResponseEntity<ResponseDto<List<CustomerResponseDto>>> response = customerService.findByAgent("test-agent", null, 0, 10, "fullName", "asc");
-
-        assertEquals(HttpStatus.OK, response.getStatusCode());
-        assertNotNull(response.getBody());
-        assertEquals(Constants.SUCCESS, response.getBody().getMessage());
-    }
-
-    // Test cases for premium sorting with quotes
-    @Test
-    void testPremiumSorting_WithQuotes() {
-        // Create customer with quotes
-        Quotes quote1 = new Quotes();
-        quote1.setBestPremium("1000.00");
-        
-        Quotes quote2 = new Quotes();
-        quote2.setBestPremium("1500.00");
-        
-        customer.setQuotes(Arrays.asList(quote1, quote2));
-        
-        List<Customer> customers = new ArrayList<>();
-        customers.add(customer);
-        
-        when(adminUserRepository.findByUsername(any())).thenReturn(Optional.of(adminUser));
-        when(customerRepository.findActiveByCreatedBy(any(), any())).thenReturn(new PageImpl<>(customers));
-
-        ResponseEntity<ResponseDto<List<CustomerResponseDto>>> response = customerService.findByAgent("test-agent", null, 0, 10, "premium", "desc");
-
-        assertEquals(HttpStatus.OK, response.getStatusCode());
-        assertNotNull(response.getBody());
-        assertEquals(Constants.SUCCESS, response.getBody().getMessage());
-    }
-
-    // Test cases for premium sorting without quotes
-    @Test
-    void testPremiumSorting_WithoutQuotes() {
-        customer.setQuotes(new ArrayList<>());
-        
-        List<Customer> customers = new ArrayList<>();
-        customers.add(customer);
-        
-        when(adminUserRepository.findByUsername(any())).thenReturn(Optional.of(adminUser));
-        when(customerRepository.findActiveByCreatedBy(any(), any())).thenReturn(new PageImpl<>(customers));
-
-        ResponseEntity<ResponseDto<List<CustomerResponseDto>>> response = customerService.findByAgent("test-agent", null, 0, 10, "premium", "desc");
-
-        assertEquals(HttpStatus.OK, response.getStatusCode());
-        assertNotNull(response.getBody());
-        assertEquals(Constants.SUCCESS, response.getBody().getMessage());
-    }
-
-    // Test cases for premium sorting with invalid premium values
-    @Test
-    void testPremiumSorting_InvalidPremium() {
-        Quotes quote = new Quotes();
-        quote.setBestPremium("invalid");
-        
-        customer.setQuotes(Arrays.asList(quote));
-        
-        List<Customer> customers = new ArrayList<>();
-        customers.add(customer);
-        
-        when(adminUserRepository.findByUsername(any())).thenReturn(Optional.of(adminUser));
-        when(customerRepository.findActiveByCreatedBy(any(), any())).thenReturn(new PageImpl<>(customers));
-
-        ResponseEntity<ResponseDto<List<CustomerResponseDto>>> response = customerService.findByAgent("test-agent", null, 0, 10, "premium", "desc");
-
-        assertEquals(HttpStatus.OK, response.getStatusCode());
-        assertNotNull(response.getBody());
-        assertEquals(Constants.SUCCESS, response.getBody().getMessage());
     }
 
     // Test for customerToDeals with dependents - simplified version

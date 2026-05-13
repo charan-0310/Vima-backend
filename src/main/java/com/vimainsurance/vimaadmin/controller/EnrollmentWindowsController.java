@@ -146,7 +146,7 @@ public class EnrollmentWindowsController {
      */
     @PostMapping("/{id}/activate")
     @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'VIMA_ADMIN', 'HR_ADMIN')")
-    public ResponseEntity<ResponseDto<String>> activate(@PathVariable UUID id) {
+    public ResponseEntity<?> activate(@PathVariable UUID id) {
         logger.info("[correlationId:{}] POST /api/admin/enrollment-windows/{}/activate called", MDC.get("correlationId"), id);
         return enrollmentWindowService.activate(id);
     }

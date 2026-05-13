@@ -24,7 +24,6 @@ import org.springframework.web.bind.annotation.RestController;
 
 import com.vimainsurance.vimaadmin.dto.ConvertToDealRequestDto;
 import com.vimainsurance.vimaadmin.dto.CustomerBulkDeleteRequestDto;
-import com.vimainsurance.vimaadmin.dto.CustomerPipelineRequestDto;
 import com.vimainsurance.vimaadmin.dto.CustomerRequestDto;
 import com.vimainsurance.vimaadmin.dto.CustomerResponseDto;
 import com.vimainsurance.vimaadmin.dto.DocumentRequestDto;
@@ -43,13 +42,6 @@ public class CustomerController {
     @Autowired
     private ICustomerService iCustomerService;
 
-    @PostMapping("/agent/{username}/customer")
-    @PreAuthorize("hasAnyRole('VIMA_ADMIN', 'SALES_AGENT', 'SALES_MANAGER', 'SUPER_ADMIN', 'ADMIN')")
-    public ResponseEntity<ResponseDto<String>> create(@RequestBody CustomerRequestDto requestDto, @PathVariable String username){
-        logger.info("[correlationId:{}] /agent/{}/customer endpoint called", MDC.get("correlationId"), username);
-        return iCustomerService.create(requestDto, username);
-    }
-
     @PutMapping("/customer")
     @PreAuthorize("hasAnyRole('VIMA_ADMIN', 'SALES_AGENT', 'SALES_MANAGER', 'SUPER_ADMIN', 'ADMIN')")
     public ResponseEntity<ResponseDto<String>> update(@RequestBody CustomerRequestDto requestDto){
@@ -62,35 +54,6 @@ public class CustomerController {
     public ResponseEntity<ResponseDto<String>> bulkDelete(@RequestBody CustomerBulkDeleteRequestDto requestDto) {
         logger.info("[correlationId:{}] /customers (DELETE) endpoint called for bulk deletion", MDC.get("correlationId"));
         return iCustomerService.bulkDelete(requestDto);
-    }
-
-    /**
-     * Get customers for a specific agent with advanced filtering and sorting
-     * 
-     * Query Optimization:
-     * - Uses dedicated searchCustomersByCreatedBy when search is provided
-     * - Uses basic findActiveByCreatedBy when no search is applied
-     * - Special handling for premium sorting with in-memory processing
-     * 
-     * Supported sortBy values:
-     * - pipelineStage/status: Sort by customer pipeline stage
-     * - premium: Sort by highest premium from quotes
-     * - lastActivity/updatedAt: Sort by last activity (default)
-     * - fullName: Sort by customer name
-     * - createdAt: Sort by creation date
-     * - city, state, email, phoneNumber: Sort by respective fields
-     */
-    @GetMapping("/agent/{username}/customers")
-    @PreAuthorize("hasAnyRole('VIMA_ADMIN', 'SALES_AGENT', 'SALES_MANAGER', 'SUPER_ADMIN', 'ADMIN')")
-    public ResponseEntity<ResponseDto<List<CustomerResponseDto>>> getCustomerByAgent(
-            @PathVariable String username,
-            @RequestParam(defaultValue = "0", required = false) int page,
-            @RequestParam(defaultValue = "10", required = false) int rec,
-            @RequestParam(defaultValue = "", required = false) String search,
-            @RequestParam(required = false) String sortBy,
-            @RequestParam(defaultValue = "asc", required = false) String sortDirection) {
-        logger.info("[correlationId:{}] /agent/{}/customers endpoint called", MDC.get("correlationId"), username);
-        return iCustomerService.findByAgent(username, search, page, rec, sortBy, sortDirection);
     }
 
     @GetMapping("/customers/{custid}")
@@ -127,17 +90,6 @@ public class CustomerController {
         logger.info("[correlationId:{}] /admin/customers endpoint called", MDC.get("correlationId"));
         return iCustomerService.getAllCustomers(search, page, rec, sortBy, sortDirection);
     }
-
-    @PutMapping("/agent/{username}/customer/{customerId}/pipeline")
-    @PreAuthorize("hasAnyRole('VIMA_ADMIN', 'SALES_AGENT', 'SALES_MANAGER', 'SUPER_ADMIN', 'ADMIN')")
-    public ResponseEntity<ResponseDto<String>> updatePipelineStatus(
-            @PathVariable String username,
-            @PathVariable String customerId,
-            @RequestBody CustomerPipelineRequestDto requestDto) {
-        logger.info("[correlationId:{}] /agent/{}/customer/{}/pipeline endpoint called", MDC.get("correlationId"), username, customerId);
-        return iCustomerService.updatePipelineStatus(username, customerId, requestDto);
-    }
-
 
     @PostMapping(value = "/customer/{customerId}/upload", consumes = MediaType.MULTIPART_FORM_DATA_VALUE,
     produces = MediaType.APPLICATION_JSON_VALUE)
