@@ -24,10 +24,11 @@ public class SlackNotificationUtil {
     
     private final RestTemplate restTemplate;
     
-    @Value("${slack.webhook.url:https://hooks.slack.com/services/REDACTED}")
+    /** No default URL — avoids posting to a shared prod/reminder webhook when config is missing or not loaded. */
+    @Value("${slack.webhook.url:}")
     private String slackWebhookUrl;
 
-    @Value("${slack.reminder.channel.url:https://hooks.slack.com/services/REDACTED}")
+    @Value("${slack.reminder.channel.url:}")
     private String slackReminderChannelUrl;
 
     @Value("${slack.sendmessage}")

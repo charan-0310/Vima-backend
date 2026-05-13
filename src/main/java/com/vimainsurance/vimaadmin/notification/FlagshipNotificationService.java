@@ -1,12 +1,13 @@
 package com.vimainsurance.vimaadmin.notification;
 
+import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
-import java.time.LocalDate;
+import java.util.concurrent.ConcurrentHashMap;
 
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
@@ -29,6 +30,13 @@ import lombok.extern.slf4j.Slf4j;
 @Service
 @RequiredArgsConstructor
 public class FlagshipNotificationService {
+
+    /**
+     * Serializes {@link #emitEndorsementUploaded} per endorsement so two after-commit jobs (e.g. endorsement create
+     * API + employee bulk upload) cannot race past {@code existsByDedupKey} and each create a SLACK delivery for the
+     * same logical upload (duplicate identical Slack posts).
+     */
+    private final ConcurrentHashMap<UUID, Object> endorsementUploadEmitLocks = new ConcurrentHashMap<>();
 
     private final NotificationRoutingResolver routingResolver;
     private final NotificationService notificationService;
@@ -79,7 +87,9 @@ public class FlagshipNotificationService {
             UUID submissionId,
             UUID reviewerAdminUserId,
             String organizationDisplayName,
-            String reviewerName) {
+            String reviewerName,
+            String enrolleeDisplayName,
+            String submissionReferenceNumber) {
         if (organizationId == null || windowId == null || submissionId == null) {
             return;
         }
@@ -90,7 +100,9 @@ public class FlagshipNotificationService {
                         submissionId,
                         reviewerAdminUserId,
                         organizationDisplayName,
-                        reviewerName));
+                        reviewerName,
+                        enrolleeDisplayName,
+                        submissionReferenceNumber));
     }
 
     public void scheduleEnrollmentWindowOpened(UUID organizationId, UUID windowId, String organizationDisplayName) {
@@ -168,57 +180,69 @@ public class FlagshipNotificationService {
             Organization organization,
             AdminUser uploadedBy,
             List<String> selfEmployeeIds) {
+        UUID endorsementId = endorsement.getEndorsementId();
         log.info("flagship_notification_emit_start event=ENDORSEMENT_UPLOADED endorsementId={} orgId={}",
-                endorsement.getEndorsementId(), organization.getOrganizationId());
-        List<AdminUser> recipients = routingResolver.resolveRecipients(NotificationEventType.ENDORSEMENT_UPLOADED, null);
-        if (recipients.isEmpty()) {
-            log.info("flagship_notification_skip event=ENDORSEMENT_UPLOADED reason=no_vima_recipients endorsementId={}",
-                    endorsement.getEndorsementId());
+                endorsementId, organization.getOrganizationId());
+        if (endorsementId == null) {
+            log.warn("flagship_notification_skip event=ENDORSEMENT_UPLOADED reason=missing_endorsement_id");
             return;
         }
-        String orgName = organization.getOrganizationName();
-        String uploader = uploadedBy != null && uploadedBy.getFullName() != null ? uploadedBy.getFullName() : "HR";
-        String deepLink = portalBase() + "/endorsements/" + endorsement.getEndorsementId();
-        EndorsementMemberCounts counts = resolveMemberCountsForEndorsement(endorsement.getEndorsementId());
-        String bodyText = buildEndorsementUploadedBody(counts, uploader, orgName);
-        int slackRecipientIndex = 0;
-        for (int i = 0; i < recipients.size(); i++) {
-            AdminUser admin = recipients.get(i);
-            String dedup = "ENDORSEMENT_UPLOADED:" + endorsement.getEndorsementId() + ":" + admin.getId();
-            Map<String, Object> vars = new HashMap<>();
-            vars.put("title", "Endorsement uploaded — " + orgName);
-            vars.put("organizationName", orgName);
-            vars.put("uploadedByName", uploader);
-            vars.put("creatorName", uploader);
-            vars.put("creatorRole", uploadedBy != null ? uploadedBy.getRole() : null);
-            vars.put("creatorEmail", uploadedBy != null ? uploadedBy.getEmail() : null);
-            vars.put("endorsementType", endorsement.getEndorsementType() != null ? endorsement.getEndorsementType().name() : "");
-            vars.put("deepLinkUrl", deepLink);
-            vars.put("totalEmployees", counts.totalEmployees());
-            vars.put("totalDependents", counts.totalDependents());
-            Boolean slackDeliveryEnabled = (i == slackRecipientIndex) ? null : Boolean.FALSE;
-            CreateNotificationCommand cmd = new CreateNotificationCommand(
-                    admin.getId(),
-                    organization.getOrganizationId(),
-                    NotificationEventType.ENDORSEMENT_UPLOADED,
-                    NotificationCategory.ENDORSEMENT,
-                    NotificationSeverity.INFO,
-                    "New endorsement upload — " + orgName,
-                    bodyText,
-                    deepLink,
-                    dedup,
-                    "Endorsement uploaded — " + orgName,
-                    "email/notification-endorsement-uploaded",
-                    vars,
-                    slackDeliveryEnabled);
-            notificationService.createIfAbsent(cmd).ifPresentOrElse(
-                    id -> {
-                        notificationDispatcher.dispatchDeliveriesFor(id);
-                        log.info("flagship_notification_emit event=ENDORSEMENT_UPLOADED notificationId={} dedupKey={} recipientId={} slackIncluded={}",
-                                id, dedup, admin.getId(),
-                                slackDeliveryEnabled == null || Boolean.TRUE.equals(slackDeliveryEnabled));
-                    },
-                    () -> log.debug("flagship_notification_dedup event=ENDORSEMENT_UPLOADED dedupKey={}", dedup));
+        Object emitLock = endorsementUploadEmitLocks.computeIfAbsent(endorsementId, k -> new Object());
+        try {
+            synchronized (emitLock) {
+                List<AdminUser> recipients = routingResolver.resolveRecipients(NotificationEventType.ENDORSEMENT_UPLOADED, null);
+                if (recipients.isEmpty()) {
+                    log.info("flagship_notification_skip event=ENDORSEMENT_UPLOADED reason=no_vima_recipients endorsementId={}",
+                            endorsementId);
+                    return;
+                }
+                String orgName = organization.getOrganizationName();
+                String uploader = uploadedBy != null && uploadedBy.getFullName() != null ? uploadedBy.getFullName() : "HR";
+                String deepLink = portalBase() + "/endorsements/" + endorsementId;
+                EndorsementMemberCounts counts = resolveMemberCountsForEndorsement(endorsementId);
+                String bodyText = buildEndorsementUploadedBody(counts, uploader, orgName);
+                int slackRecipientIndex = 0;
+                for (int i = 0; i < recipients.size(); i++) {
+                    AdminUser admin = recipients.get(i);
+                    String dedup = "ENDORSEMENT_UPLOADED:" + endorsementId + ":" + admin.getId();
+                    Map<String, Object> vars = new HashMap<>();
+                    vars.put("title", "Endorsement uploaded — " + orgName);
+                    vars.put("organizationName", orgName);
+                    vars.put("uploadedByName", uploader);
+                    vars.put("creatorName", uploader);
+                    vars.put("creatorRole", uploadedBy != null ? uploadedBy.getRole() : null);
+                    vars.put("creatorEmail", uploadedBy != null ? uploadedBy.getEmail() : null);
+                    vars.put("endorsementType", endorsement.getEndorsementType() != null ? endorsement.getEndorsementType().name() : "");
+                    vars.put("deepLinkUrl", deepLink);
+                    vars.put("totalEmployees", counts.totalEmployees());
+                    vars.put("totalDependents", counts.totalDependents());
+                    Boolean slackDeliveryEnabled = (i == slackRecipientIndex) ? null : Boolean.FALSE;
+                    CreateNotificationCommand cmd = new CreateNotificationCommand(
+                            admin.getId(),
+                            organization.getOrganizationId(),
+                            NotificationEventType.ENDORSEMENT_UPLOADED,
+                            NotificationCategory.ENDORSEMENT,
+                            NotificationSeverity.INFO,
+                            "New endorsement upload — " + orgName,
+                            bodyText,
+                            deepLink,
+                            dedup,
+                            "Endorsement uploaded — " + orgName,
+                            "email/notification-endorsement-uploaded",
+                            vars,
+                            slackDeliveryEnabled);
+                    notificationService.createIfAbsent(cmd).ifPresentOrElse(
+                            id -> {
+                                notificationDispatcher.dispatchDeliveriesFor(id);
+                                log.info("flagship_notification_emit event=ENDORSEMENT_UPLOADED notificationId={} dedupKey={} recipientId={} slackIncluded={}",
+                                        id, dedup, admin.getId(),
+                                        slackDeliveryEnabled == null || Boolean.TRUE.equals(slackDeliveryEnabled));
+                            },
+                            () -> log.debug("flagship_notification_dedup event=ENDORSEMENT_UPLOADED dedupKey={}", dedup));
+                }
+            }
+        } finally {
+            endorsementUploadEmitLocks.remove(endorsementId, emitLock);
         }
     }
 
@@ -289,7 +313,9 @@ public class FlagshipNotificationService {
             UUID submissionId,
             UUID reviewerAdminUserId,
             String organizationDisplayName,
-            String reviewerName) {
+            String reviewerName,
+            String enrolleeDisplayName,
+            String submissionReferenceNumber) {
         List<AdminUser> recipients = routingResolver.resolveEnrollmentSubmissionApprovedRecipients(
                 organizationId, reviewerAdminUserId);
         if (recipients.isEmpty()) {
@@ -301,7 +327,11 @@ public class FlagshipNotificationService {
                 ? organizationDisplayName
                 : "Your organization";
         String actor = reviewerName != null && !reviewerName.isBlank() ? reviewerName : "HR Admin";
+        String enrollee = enrolleeDisplayName != null && !enrolleeDisplayName.isBlank() ? enrolleeDisplayName.trim() : "An employee";
         String deepLink = portalBase() + "/group/" + organizationId + "/enrollment-windows/" + windowId;
+        String bodyText = "Employee: " + enrollee
+                + "\nOrganization: " + orgName
+                + "\nApproved by: " + actor;
         int slackRecipientIndex = resolveEnrollmentSlackRecipientIndex(recipients);
         for (int i = 0; i < recipients.size(); i++) {
             AdminUser admin = recipients.get(i);
@@ -309,10 +339,21 @@ public class FlagshipNotificationService {
             Map<String, Object> vars = new HashMap<>();
             vars.put("title", "Enrollment submission approved — " + orgName);
             vars.put("organizationName", orgName);
+            vars.put("enrolleeName", enrollee);
             vars.put("deepLinkUrl", deepLink);
             vars.put("actedByName", actor);
             vars.put("creatorName", actor);
             vars.put("creatorRole", "HR_ADMIN");
+            String recipientLabel = admin.getFullName() != null && !admin.getFullName().isBlank()
+                    ? admin.getFullName().trim()
+                    : (admin.getUsername() != null && !admin.getUsername().isBlank() ? admin.getUsername().trim() : "there");
+            vars.put("recipientName", recipientLabel);
+            vars.put("message",
+                    "A self-enrollment submission for " + enrollee + " at " + orgName + " has been approved by " + actor + ".");
+            vars.put("referenceNumber",
+                    submissionReferenceNumber != null && !submissionReferenceNumber.isBlank()
+                            ? submissionReferenceNumber.trim()
+                            : "");
             Boolean slackDeliveryEnabled = (i == slackRecipientIndex) ? null : Boolean.FALSE;
             CreateNotificationCommand cmd = new CreateNotificationCommand(
                     admin.getId(),
@@ -321,7 +362,7 @@ public class FlagshipNotificationService {
                     NotificationCategory.ENROLLMENT,
                     NotificationSeverity.INFO,
                     "Enrollment submission approved — " + orgName,
-                    "An enrollment submission has been approved by " + actor + ".",
+                    bodyText,
                     deepLink,
                     dedup,
                     "Enrollment submission approved — " + orgName,
@@ -541,6 +582,12 @@ public class FlagshipNotificationService {
             vars.put("organizationName", orgName);
             vars.put("displayOrganizationName",
                     displayOrgName);
+            String recipientLabel = admin.getFullName() != null && !admin.getFullName().isBlank()
+                    ? admin.getFullName().trim()
+                    : (admin.getUsername() != null && !admin.getUsername().isBlank() ? admin.getUsername().trim() : "there");
+            vars.put("recipientName", recipientLabel);
+            vars.put("message",
+                    "An endorsement for " + orgName + " has completed and affected employees are now active in Vima.");
             if (actedByName != null && !actedByName.isBlank()) {
                 vars.put("actedByName", actedByName);
             }

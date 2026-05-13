@@ -122,6 +122,40 @@ class NotificationDispatcherTest {
     }
 
     @Test
+    void endorsementUploaded_prefersUnifiedWebhookWhenReminderEnvAlsoSet() {
+        notificationsProperties.setSlackWebhookUrl("https://hooks.slack.com/services/unified-hook");
+        when(environment.getProperty("slack.reminder.channel.url", "")).thenReturn("https://hooks.slack.com/services/reminder-hook");
+        when(environment.getProperty("slack.webhook.url", "")).thenReturn("");
+        AdminNotification notification = slackNotification(NotificationEventType.ENDORSEMENT_UPLOADED);
+        when(notificationsFeatureGate.isNotificationsEnabled()).thenReturn(true);
+        when(notificationRepository.findByIdForDispatch(notification.getId())).thenReturn(Optional.of(notification));
+        when(slackWebhookClient.postMessageToWebhookUrl(expectedText(notification), "https://hooks.slack.com/services/unified-hook"))
+                .thenReturn(true);
+
+        dispatcher.dispatchDeliveriesFor(notification.getId());
+
+        verify(slackWebhookClient).postMessageToWebhookUrl(expectedText(notification), "https://hooks.slack.com/services/unified-hook");
+        assertEquals(NotificationDeliveryStatus.SENT, notification.getDeliveries().get(0).getStatus());
+    }
+
+    @Test
+    void endorsementUploaded_fallsBackToReminderWhenUnifiedUnset() {
+        notificationsProperties.setSlackWebhookUrl("");
+        when(environment.getProperty("slack.reminder.channel.url", "")).thenReturn("https://hooks.slack.com/services/reminder-only");
+        when(environment.getProperty("slack.webhook.url", "")).thenReturn("");
+        AdminNotification notification = slackNotification(NotificationEventType.ENDORSEMENT_UPLOADED);
+        when(notificationsFeatureGate.isNotificationsEnabled()).thenReturn(true);
+        when(notificationRepository.findByIdForDispatch(notification.getId())).thenReturn(Optional.of(notification));
+        when(slackWebhookClient.postMessageToWebhookUrl(expectedText(notification), "https://hooks.slack.com/services/reminder-only"))
+                .thenReturn(true);
+
+        dispatcher.dispatchDeliveriesFor(notification.getId());
+
+        verify(slackWebhookClient).postMessageToWebhookUrl(expectedText(notification), "https://hooks.slack.com/services/reminder-only");
+        assertEquals(NotificationDeliveryStatus.SENT, notification.getDeliveries().get(0).getStatus());
+    }
+
+    @Test
     void emailTemporarilyDisabled_forVimaAdminOnConfiguredCategories() {
         AdminNotification notification = emailNotification(NotificationEventType.ENDORSEMENT_COMPLETED, "VIMA_ADMIN");
         when(notificationsFeatureGate.isNotificationsEnabled()).thenReturn(true);
