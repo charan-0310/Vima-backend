@@ -2,6 +2,7 @@ package com.vimainsurance.vimaadmin.notification;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -20,6 +21,7 @@ import org.springframework.core.env.Environment;
 
 import com.vimainsurance.vimaadmin.dto.EmailResponse;
 import com.vimainsurance.vimaadmin.entity.AdminUser;
+import com.vimainsurance.vimaadmin.notification.config.EngineeringTestSlackWebhookOverrides;
 import com.vimainsurance.vimaadmin.notification.config.NotificationsProperties;
 import com.vimainsurance.vimaadmin.notification.entity.AdminNotification;
 import com.vimainsurance.vimaadmin.notification.entity.NotificationDelivery;
@@ -65,6 +67,7 @@ class NotificationDispatcherTest {
                 environment,
                 emailService,
                 slackWebhookClient);
+        lenient().when(environment.getProperty(EngineeringTestSlackWebhookOverrides.ENFORCE_PROPERTY, "false")).thenReturn("false");
     }
 
     @Test
@@ -119,6 +122,73 @@ class NotificationDispatcherTest {
         verify(slackWebhookClient, never()).postMessageToChannel(any(), any());
         verify(slackWebhookClient).postMessageToWebhookUrl(expectedText(notification), "https://hooks.slack.com/services/test");
         assertEquals(NotificationDeliveryStatus.SENT, notification.getDeliveries().get(0).getStatus());
+    }
+
+    @Test
+    void endorsementUploaded_prefersUnifiedWebhookWhenReminderEnvAlsoSet() {
+        notificationsProperties.setSlackWebhookUrl("https://hooks.slack.com/services/unified-hook");
+        when(environment.getProperty("slack.reminder.channel.url", "")).thenReturn("https://hooks.slack.com/services/reminder-hook");
+        when(environment.getProperty("slack.webhook.url", "")).thenReturn("");
+        AdminNotification notification = slackNotification(NotificationEventType.ENDORSEMENT_UPLOADED);
+        when(notificationsFeatureGate.isNotificationsEnabled()).thenReturn(true);
+        when(notificationRepository.findByIdForDispatch(notification.getId())).thenReturn(Optional.of(notification));
+        when(slackWebhookClient.postMessageToWebhookUrl(expectedText(notification), "https://hooks.slack.com/services/unified-hook"))
+                .thenReturn(true);
+
+        dispatcher.dispatchDeliveriesFor(notification.getId());
+
+        verify(slackWebhookClient).postMessageToWebhookUrl(expectedText(notification), "https://hooks.slack.com/services/unified-hook");
+        assertEquals(NotificationDeliveryStatus.SENT, notification.getDeliveries().get(0).getStatus());
+    }
+
+    @Test
+    void endorsementUploaded_fallsBackToReminderWhenUnifiedUnset() {
+        notificationsProperties.setSlackWebhookUrl("");
+        when(environment.getProperty("slack.reminder.channel.url", "")).thenReturn("https://hooks.slack.com/services/reminder-only");
+        when(environment.getProperty("slack.webhook.url", "")).thenReturn("");
+        AdminNotification notification = slackNotification(NotificationEventType.ENDORSEMENT_UPLOADED);
+        when(notificationsFeatureGate.isNotificationsEnabled()).thenReturn(true);
+        when(notificationRepository.findByIdForDispatch(notification.getId())).thenReturn(Optional.of(notification));
+        when(slackWebhookClient.postMessageToWebhookUrl(expectedText(notification), "https://hooks.slack.com/services/reminder-only"))
+                .thenReturn(true);
+
+        dispatcher.dispatchDeliveriesFor(notification.getId());
+
+        verify(slackWebhookClient).postMessageToWebhookUrl(expectedText(notification), "https://hooks.slack.com/services/reminder-only");
+        assertEquals(NotificationDeliveryStatus.SENT, notification.getDeliveries().get(0).getStatus());
+    }
+
+    @Test
+    void whenEngineeringTestSlackEnforced_claimSlackIgnoresSlackWebhookEnv() {
+        when(environment.getProperty(EngineeringTestSlackWebhookOverrides.ENFORCE_PROPERTY, "false")).thenReturn("true");
+        notificationsProperties.setClaimsSlackWebhookUrl("https://hooks.slack.com/services/claims-engineering");
+        notificationsProperties.setSlackWebhookUrl("");
+        AdminNotification notification = slackNotification(NotificationEventType.EMPLOYEE_CLAIM_SUBMITTED);
+        when(notificationsFeatureGate.isNotificationsEnabled()).thenReturn(true);
+        when(notificationRepository.findByIdForDispatch(notification.getId())).thenReturn(Optional.of(notification));
+        when(slackWebhookClient.postMessageToWebhookUrl(expectedText(notification), "https://hooks.slack.com/services/claims-engineering"))
+                .thenReturn(true);
+
+        dispatcher.dispatchDeliveriesFor(notification.getId());
+
+        verify(slackWebhookClient).postMessageToWebhookUrl(expectedText(notification), "https://hooks.slack.com/services/claims-engineering");
+        assertEquals(NotificationDeliveryStatus.SENT, notification.getDeliveries().get(0).getStatus());
+    }
+
+    @Test
+    void whenEngineeringTestSlackEnforced_endorsementUploadedIgnoresReminderEnv() {
+        when(environment.getProperty(EngineeringTestSlackWebhookOverrides.ENFORCE_PROPERTY, "false")).thenReturn("true");
+        notificationsProperties.setSlackWebhookUrl("https://hooks.slack.com/services/unified-engineering");
+        notificationsProperties.setClaimsSlackWebhookUrl("");
+        AdminNotification notification = slackNotification(NotificationEventType.ENDORSEMENT_UPLOADED);
+        when(notificationsFeatureGate.isNotificationsEnabled()).thenReturn(true);
+        when(notificationRepository.findByIdForDispatch(notification.getId())).thenReturn(Optional.of(notification));
+        when(slackWebhookClient.postMessageToWebhookUrl(expectedText(notification), "https://hooks.slack.com/services/unified-engineering"))
+                .thenReturn(true);
+
+        dispatcher.dispatchDeliveriesFor(notification.getId());
+
+        verify(slackWebhookClient).postMessageToWebhookUrl(expectedText(notification), "https://hooks.slack.com/services/unified-engineering");
     }
 
     @Test

@@ -8,6 +8,7 @@ import com.vimainsurance.vimaadmin.dto.PremiumCalculationRequestDto;
 import com.vimainsurance.vimaadmin.dto.PremiumCalculationResponseDto;
 import com.vimainsurance.vimaadmin.dto.PremiumPreviewRequestDto;
 import com.vimainsurance.vimaadmin.dto.PremiumPreviewResponseDto;
+import com.vimainsurance.vimaadmin.dto.RateCardCoverageGapDto;
 
 /**
  * Premium calculation engine: rate lookup and enrollment premium with employee_policy_map integration.
@@ -62,6 +63,12 @@ public interface IPremiumCalculationService {
      * Admin preview: premium with rate source and matched age band.
      */
     PremiumPreviewResponseDto previewPremium(PremiumPreviewRequestDto request);
+
+    /**
+     * Active policies for the org that have no effective rate table row (as of today).
+     * Used to block enrollment window activation until rate card covers every active product.
+     */
+    List<RateCardCoverageGapDto> findGapsInRateCardCoverageForActivePolicies(java.util.UUID organizationId);
 
     /** Per-plan breakdown for internal use. */
     record PlanPremiumBreakdown(

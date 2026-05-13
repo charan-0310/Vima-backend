@@ -1,17 +1,3 @@
 <!DOCTYPE html>
-<html xmlns:th="http://www.thymeleaf.org" lang="en">
-<head>
-    <meta charset="UTF-8"/>
-    <title th:text="${title}">Employee claim approved</title>
-</head>
-<body style="font-family: Arial, sans-serif; line-height: 1.5; color: #111;">
-<p>Hello,</p>
-<p>
-    Claim <strong th:text="${claimNumber}">CLM</strong> has been approved.
-</p>
-<p>
-    <a th:href="${deepLinkUrl}" th:text="${deepLinkUrl}">Open claim</a>
-</p>
-<p style="color:#666;font-size:12px;">This is an automated message from Vima.</p>
-</body>
+<html xmlns:th="http://www.thymeleaf.org" lang="en" th:replace="~{email/fragments/hr-employee-claim-email-layout :: emailLayout}">
 </html>

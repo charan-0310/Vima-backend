@@ -40,7 +40,6 @@ import com.vimainsurance.vimaadmin.dto.CustomerRequestDto;
 import com.vimainsurance.vimaadmin.dto.CustomerResponseDto;
 import com.vimainsurance.vimaadmin.dto.DealsRequestDto;
 import com.vimainsurance.vimaadmin.dto.DocumentRequestDto;
-import com.vimainsurance.vimaadmin.dto.CustomerPipelineRequestDto;
 import com.vimainsurance.vimaadmin.dto.CustomerBulkDeleteRequestDto;
 import com.vimainsurance.vimaadmin.dto.DocumentResponseDto;
 import com.vimainsurance.vimaadmin.dto.PolicyRequestDto;
@@ -77,7 +76,6 @@ import com.vimainsurance.vimaadmin.service.IS3Service;
 import com.vimainsurance.vimaadmin.util.Constants;
 import com.vimainsurance.vimaadmin.util.ConverterUtils;
 import com.vimainsurance.vimaadmin.util.EnvironmentUtil;
-import com.vimainsurance.vimaadmin.util.IdGenerator;
 import com.vimainsurance.vimaadmin.util.JwtUserExtractor;
 import com.vimainsurance.vimaadmin.util.SlackNotificationUtil;
 import com.vimainsurance.vimaadmin.repository.IDealsRepository;
@@ -86,7 +84,6 @@ import com.vimainsurance.vimaadmin.dto.NomineeRequestDto;
 import com.vimainsurance.vimaadmin.enums.Gender;
 import com.vimainsurance.vimaadmin.enums.NomineeRelationship;
 import org.springframework.transaction.interceptor.TransactionAspectSupport;
-import org.springframework.transaction.annotation.Transactional;
 
 @Service
 public class CustomerServiceImpl implements ICustomerService{
@@ -100,10 +97,6 @@ public class CustomerServiceImpl implements ICustomerService{
 
     @Autowired
     private IAdminUserRepository adminUserRepository;
-
-    @Autowired
-    private IdGenerator customerIdGenerator;
-
 
     @Autowired
     private IDocumentRepository documentRepository;
@@ -143,58 +136,6 @@ public class CustomerServiceImpl implements ICustomerService{
 
     @Autowired
     private ObjectMapper objectMapper;
-
-    @Override
-    @AuditedOperation(schemaName = "admin", tableName = "customers", entityType = "CUSTOMER", action = "CREATE")
-    public ResponseEntity<ResponseDto<String>> create(CustomerRequestDto requestDto, String username) {
-        logger.info("[correlationId:{}] create called", MDC.get("correlationId"));
-        BaseResponse<String> responseObj = new BaseResponse<>();
-        try {
-            String phoneNumber = requestDto.getPhoneNumber();
-            if (phoneNumber != null && !phoneNumber.isBlank()) {
-                Optional<Customer> existByPhonenumber = customerRepository.findByPhoneNumber(phoneNumber);
-                if(existByPhonenumber.isPresent()){
-                    return responseObj.render(responseObj.formErrorResponse("Already Existed"));
-                }
-
-                String normalizedNumber = normalizePhoneNumber(phoneNumber);
-                if(normalizedNumber != null && !normalizedNumber.isBlank()){
-                    Optional<Customer> existByNormalized = customerRepository.findByNormalizedPhoneNumber(normalizedNumber);
-                    if(existByNormalized.isPresent()){
-                        return responseObj.render(responseObj.formErrorResponse("Already Existed"));
-                    }
-                }
-            }
-            Customer customer = new Customer();
-            Optional<AdminUser> adminUser = adminUserRepository.findByUsername(username);
-            if(adminUser.isEmpty()){
-                return responseObj.render(responseObj.formErrorResponse("Agent not found"));
-            }
-            customer.setCustId(customerIdGenerator.generateCustomerId());
-            customer.setFullName(requestDto.getFullName());
-            customer.setDateOfBirth(requestDto.getDateOfBirth());
-            customer.setGender(requestDto.getGender());
-            customer.setPhoneNumber(phoneNumber);
-            customer.setEmail(requestDto.getEmail());
-            customer.setCity(requestDto.getCity());
-            customer.setState(requestDto.getState());
-            customer.setOccupation(requestDto.getOccupation());
-            customer.setAnnualIncome(requestDto.getAnnualIncome());
-            customer.setDependentCount(requestDto.getDependentCount());
-            // customer.setZohoCrmId(requestDto.getZohoCrmId());
-            customer.setStatus(requestDto.getStatus());
-            customer.setCreatedAt(requestDto.getCreatedAt());
-            customer.setUpdatedAt(requestDto.getUpdatedAt());
-            customer.setCreatedBy(adminUser.get());
-            customer.setOwner(adminUser.get());
-            customer.setNotes(requestDto.getNotes());
-            customerRepository.save(customer);
-            return responseObj.render(responseObj.formSuccessResponse(Constants.SUCCESS, Constants.SAVE_SUCCESS));
-        } catch (Exception e) {
-            logger.error("Exception in create", e);
-            return responseObj.render(responseObj.formErrorResponse(e.getMessage()));
-        }
-    }
 
     @Override
     @AuditedOperation(schemaName = "admin", tableName = "customers", entityType = "CUSTOMER", action = "UPDATE")
@@ -257,129 +198,6 @@ public class CustomerServiceImpl implements ICustomerService{
         }
     }
 
-    @Override
-    @AuditedOperation(schemaName = "admin", tableName = "customers", entityType = "CUSTOMER", action = "UPDATE")
-    public ResponseEntity<ResponseDto<String>> updatePipelineStatus(String username, String customerId, CustomerPipelineRequestDto requestDto) {
-        Optional<AdminUser> agentOpt = adminUserRepository.findByUsername(username);
-        if (agentOpt.isEmpty()) {
-            return ResponseEntity.status(HttpStatus.NOT_FOUND)
-                    .body(new ResponseDto<String>("Agent not found", null));
-        }
-
-        Optional<Customer> customerOpt = customerRepository.findByCustId(customerId);
-        if (customerOpt.isEmpty()) {
-            return ResponseEntity.status(HttpStatus.NOT_FOUND)
-                    .body(new ResponseDto<String>("Customer not found", null));
-        }
-
-        Customer customer = customerOpt.get();
-        AdminUser agent = agentOpt.get();
-
-        // Check if agent has admin privileges (ADMIN or VIMA_ADMIN roles)
-        boolean hasAdminAccess = "ADMIN".equals(agent.getRole()) || "VIMA_ADMIN".equals(agent.getRole());
-
-        // Verify the customer belongs to the agent (unless agent has admin access)
-        if (!hasAdminAccess && (
-                !customer.getOwner().getId().equals(agent.getId()) && 
-                (customer.getOwner().getReportingTo() == null || 
-                !customer.getOwner().getReportingTo().getId().equals(agent.getId()))
-            )){
-        return ResponseEntity.status(HttpStatus.FORBIDDEN)
-                    .body(new ResponseDto<String>("You don't have permission to update this customer", null));
-        }
-
-        // Validate the status
-        String status = requestDto.getStatus().toUpperCase();
-        if (!isValidStatus(status)) {
-            return ResponseEntity.status(HttpStatus.BAD_REQUEST)
-                    .body(new ResponseDto<String>("Invalid status. Valid statuses are: NEW_LEAD, PRE_FOLLOW_UP, QUOTE_SENT, POST_FOLLOW_UP, APPLICATION, POLICY_ISSUED, NOT_INTERESTED, LEAD_LOST", null));
-        }
-
-        // Update the status
-        customer.setStatus(status);
-        customer.setUpdatedAt(LocalDateTime.now());
-        customerRepository.save(customer);
-
-        return ResponseEntity.ok(new ResponseDto<String>("Pipeline status updated successfully", null));
-    }
-
-    private boolean isValidStatus(String status) {
-        return List.of(
-            "NEW_LEAD",
-            "PRE_FOLLOW_UP",
-            "QUOTE_SENT",
-            "POST_FOLLOW_UP",
-            "APPLICATION",
-            "POLICY_ISSUED",
-            "NOT_INTERESTED",
-            "LEAD_LOST"
-        ).contains(status);
-    }
-
-
-    @Override
-    public ResponseEntity<ResponseDto<List<CustomerResponseDto>>> findByAgent(
-            String username, String search, int page, int rec, String sortBy, String sortDirection) {
-        logger.info("[correlationId:{}] findByAgent called with filters - sortBy: {}, sortDirection: {}", 
-                   MDC.get("correlationId"), sortBy, sortDirection);
-        BaseResponse<List<CustomerResponseDto>> responseObj = new BaseResponse<>();
-        try {
-            Optional<AdminUser> adminUser = adminUserRepository.findByUsername(username);
-            if(adminUser.isEmpty()){
-                return responseObj.render(responseObj.formErrorResponse("Agent not found"));
-            }
-            // Determine which query method to use based on sorting
-            Page<Customer> customerList;
-            if (PREMIUM_SORT_FIELD.equalsIgnoreCase(sortBy)) {
-                // For premium sorting, we need to handle it separately
-                customerList = getCustomersWithPremiumSorting(adminUser.get(), search, page, rec, sortDirection);
-            } else if (search != null && !search.trim().isEmpty()) {
-                // Use dedicated search method when search is provided
-                Sort sort = createSort(sortBy, sortDirection);
-                PageRequest pageRequest = PageRequest.of(page, rec, sort);
-                customerList = customerRepository.searchCustomersByCreatedBy(adminUser.get(), search, pageRequest);
-            } else {
-                // Use basic method when no search is applied
-                Sort sort = createSort(sortBy, sortDirection);
-                PageRequest pageRequest = PageRequest.of(page, rec, sort);
-                customerList = customerRepository.findActiveByCreatedBy(adminUser.get(), pageRequest);
-            }
-
-            LinkedHashSet<CustomerResponseDto> customerResponseSet = new LinkedHashSet<>();
-            if(customerList.isEmpty()){
-                return responseObj.render(responseObj.formSuccessResponse(Constants.SUCCESS, new ArrayList<>(), 0));
-            }
-            
-            for(Customer customer : customerList){
-                CustomerResponseDto responseDto = new CustomerResponseDto();
-                responseDto.setId(customer.getId().toString());
-                responseDto.setCustId(customer.getCustId());
-                responseDto.setFullName(customer.getFullName());
-                responseDto.setDateOfBirth(customer.getDateOfBirth());
-                responseDto.setGender(customer.getGender());
-                responseDto.setPhoneNumber(customer.getPhoneNumber());
-                responseDto.setEmail(customer.getEmail());
-                responseDto.setCity(customer.getCity());
-                responseDto.setState(customer.getState());
-                responseDto.setOccupation(customer.getOccupation());
-                responseDto.setAnnualIncome(customer.getAnnualIncome());
-                responseDto.setDependentCount(customer.getDependentCount());
-                responseDto.setUpdatedAt(LocalDateTime.now());
-                responseDto.setStatus(customer.getStatus());
-                responseDto.setNotes(customer.getNotes());
-                responseDto.setQuotes(customer.getQuotes());
-                responseDto.setOwner(adminUser.get().getUsername());
-                customerResponseSet.add(responseDto);
-            }
-            
-            List<CustomerResponseDto> uniqueList = new ArrayList<>(customerResponseSet);
-            return responseObj.render(responseObj.formSuccessResponse(Constants.SUCCESS, uniqueList, customerList.getTotalElements()));
-        } catch (Exception e) {
-            logger.error("Exception in findByAgent", e);
-            return responseObj.render(responseObj.formErrorResponse(e.getMessage()));
-        }
-    }
-    
     private Sort createSort(String sortBy, String sortDirection) {
         if (sortBy == null || sortBy.trim().isEmpty()) {
             return Sort.by(Sort.Direction.DESC, DEFAULT_SORT_FIELD); // Default sort
@@ -406,39 +224,6 @@ public class CustomerServiceImpl implements ICustomerService{
             case PREMIUM_SORT_FIELD -> PREMIUM_SORT_FIELD; // Special case - handled separately
             default -> DEFAULT_SORT_FIELD; // Default fallback
         };
-    }
-    
-    private Page<Customer> getCustomersWithPremiumSorting(AdminUser owner, String search, 
-                                                         int page, int rec, String sortDirection) {
-        // Get all customers without pagination first for premium sorting
-        Page<Customer> allCustomers;
-        if (search != null && !search.trim().isEmpty()) {
-            // Use dedicated search method when search is provided
-            allCustomers = customerRepository.searchCustomersByCreatedBy(
-                owner, search, PageRequest.of(0, Integer.MAX_VALUE));
-        } else {
-            // Use basic method when no search is applied
-            allCustomers = customerRepository.findActiveByCreatedBy(
-                owner, PageRequest.of(0, Integer.MAX_VALUE));
-        }
-        
-        // Sort by premium (best premium from quotes)
-        List<Customer> sortedCustomers = allCustomers.getContent().stream()
-            .sorted((c1, c2) -> {
-                BigDecimal premium1 = getHighestPremium(c1);
-                BigDecimal premium2 = getHighestPremium(c2);
-                
-                int comparison = premium1.compareTo(premium2);
-                return "desc".equalsIgnoreCase(sortDirection) ? -comparison : comparison;
-            })
-            .collect(Collectors.toList());
-        
-        // Apply pagination manually
-        int start = page * rec;
-        int end = Math.min(start + rec, sortedCustomers.size());
-        List<Customer> paginatedCustomers = sortedCustomers.subList(start, end);
-        
-        return new PageImpl<>(paginatedCustomers, PageRequest.of(page, rec), sortedCustomers.size());
     }
     
     private BigDecimal getHighestPremium(Customer customer) {

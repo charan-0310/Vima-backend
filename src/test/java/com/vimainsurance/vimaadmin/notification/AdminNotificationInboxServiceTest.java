@@ -4,6 +4,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyBoolean;
+import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.never;
@@ -120,7 +121,7 @@ class AdminNotificationInboxServiceTest {
         when(adminUserRepository.findWithOrganizationById(recipientId)).thenReturn(Optional.of(hr));
         when(notificationRepository.countUnreadForHrAdminByOrganization(recipientId, orgId)).thenReturn(3L);
 
-        assertEquals(3L, inboxService.unreadCount());
+        assertEquals(3L, inboxService.unreadCount(null));
         verify(notificationRepository).countUnreadForHrAdminByOrganization(recipientId, orgId);
         verify(notificationRepository, never()).countUnreadByReceiverEmail(any());
     }
@@ -140,6 +141,81 @@ class AdminNotificationInboxServiceTest {
         verify(notificationRepository).markAllReadForHrAdminByOrganization(
                 eq(recipientId), eq(orgId), any(LocalDateTime.class));
         verify(notificationRepository, never()).markAllReadByReceiverEmail(any(), any());
+    }
+
+    @Test
+    void vimaAudience_jwtOrganizationIds_scopesInboxToThoseOrganizations() {
+        UUID org1 = UUID.randomUUID();
+        UUID org2 = UUID.randomUUID();
+        UUID vimaId = UUID.randomUUID();
+        AdminUser vima = vimaAdmin(vimaId);
+        when(jwtUserExtractor.resolveCurrentAdminUser()).thenReturn(Optional.of(vima));
+        when(jwtUserExtractor.getCurrentOrganizations()).thenReturn(List.of(org1.toString(), org2.toString()));
+        when(adminUserRepository.findByIsActiveTrue()).thenReturn(List.of(vima));
+
+        Page<AdminNotification> page = new PageImpl<>(List.of(), PageRequest.of(0, 500), 0);
+        when(notificationRepository.findInboxByRecipientIdsAndOrganizationIdIn(
+                        any(), eq(false), isNull(), eq(List.of(org1, org2)), any(Pageable.class)))
+                .thenReturn(page);
+
+        AdminNotificationPageResponseDto out = inboxService.list(false, null, null, 0, 20);
+
+        assertEquals(0, out.getContent().size());
+        verify(notificationRepository).findInboxByRecipientIdsAndOrganizationIdIn(
+                argThat(ids -> ids != null && ids.contains(vimaId)),
+                eq(false),
+                isNull(),
+                argThat(ids -> ids != null && ids.size() == 2 && ids.contains(org1) && ids.contains(org2)),
+                any(Pageable.class));
+        verify(notificationRepository, never()).findInboxByRecipientIds(any(), anyBoolean(), any(), any(), any());
+    }
+
+    @Test
+    void vimaAudience_noJwtOrganizationIds_usesLegacyUnscopedInbox() {
+        UUID vimaId = UUID.randomUUID();
+        AdminUser vima = vimaAdmin(vimaId);
+        when(jwtUserExtractor.resolveCurrentAdminUser()).thenReturn(Optional.of(vima));
+        when(jwtUserExtractor.getCurrentOrganizations()).thenReturn(List.of());
+        when(adminUserRepository.findByIsActiveTrue()).thenReturn(List.of(vima));
+
+        Page<AdminNotification> page = new PageImpl<>(List.of(), PageRequest.of(0, 500), 0);
+        when(notificationRepository.findInboxByRecipientIds(
+                        any(), eq(false), isNull(), isNull(), any(Pageable.class)))
+                .thenReturn(page);
+
+        inboxService.list(false, null, null, 0, 20);
+
+        verify(notificationRepository).findInboxByRecipientIds(
+                argThat(ids -> ids != null && ids.contains(vimaId)),
+                eq(false),
+                isNull(),
+                isNull(),
+                any(Pageable.class));
+        verify(notificationRepository, never()).findInboxByRecipientIdsAndOrganizationIdIn(any(), anyBoolean(), any(), any(), any());
+    }
+
+    @Test
+    void vimaAudience_companyIdNotInJwt_returnsEmptyInbox() {
+        UUID org1 = UUID.randomUUID();
+        UUID vimaId = UUID.randomUUID();
+        AdminUser vima = vimaAdmin(vimaId);
+        when(jwtUserExtractor.resolveCurrentAdminUser()).thenReturn(Optional.of(vima));
+        when(jwtUserExtractor.getCurrentOrganizations()).thenReturn(List.of(org1.toString()));
+        when(adminUserRepository.findByIsActiveTrue()).thenReturn(List.of(vima));
+
+        AdminNotificationPageResponseDto out = inboxService.list(false, null, UUID.randomUUID(), 0, 20);
+
+        assertTrue(out.getContent().isEmpty());
+        assertEquals(0, out.getTotalElements());
+        verify(notificationRepository, never()).findInboxByRecipientIdsAndOrganizationIdIn(any(), anyBoolean(), any(), any(), any());
+        verify(notificationRepository, never()).findInboxByRecipientIds(any(), anyBoolean(), any(), any(), any());
+    }
+
+    private static AdminUser vimaAdmin(UUID id) {
+        AdminUser u = new AdminUser();
+        u.setId(id);
+        u.setRole("VIMA_ADMIN");
+        return u;
     }
 
     private static AdminUser hrAdmin(UUID recipientId, UUID orgId) {

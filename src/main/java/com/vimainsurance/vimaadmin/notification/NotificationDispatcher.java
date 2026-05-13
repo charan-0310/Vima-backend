@@ -17,6 +17,7 @@ import org.springframework.transaction.annotation.Transactional;
 import com.vimainsurance.vimaadmin.dto.EmailRequest;
 import com.vimainsurance.vimaadmin.dto.EmailResponse;
 import com.vimainsurance.vimaadmin.entity.AdminUser;
+import com.vimainsurance.vimaadmin.notification.config.EngineeringTestSlackWebhookOverrides;
 import com.vimainsurance.vimaadmin.notification.config.NotificationsProperties;
 import com.vimainsurance.vimaadmin.notification.entity.AdminNotification;
 import com.vimainsurance.vimaadmin.notification.entity.NotificationDelivery;
@@ -193,23 +194,36 @@ public class NotificationDispatcher {
         }
         boolean ok = false;
         String route = "none";
+        // Prefer notifications.* first so repo-controlled non-prod webhooks win over stray
+        // SLACK_REMINDER_CHANNEL_URL / SLACK_WEBHOOK_URL from the host environment.
+        // When vima.slack.enforce-engineering-test-webhooks=true, only NotificationsProperties URLs
+        // are used (pinned at startup) — host env cannot override.
         String url;
-        if (isClaimEvent(n.getEventType())) {
-            url = notificationsProperties.getClaimsSlackWebhookUrl();
-        } else if (NotificationEventType.ENDORSEMENT_UPLOADED.equals(n.getEventType())) {
-            url = environment.getProperty("slack.reminder.channel.url", "");
-            if (url == null || url.isBlank()) {
-                url = notificationsProperties.getSlackWebhookUrl();
+        if (slackWebhooksPinnedToEngineeringTest()) {
+            if (isClaimEvent(n.getEventType())) {
+                url = firstNonBlank(
+                        notificationsProperties.getClaimsSlackWebhookUrl(),
+                        notificationsProperties.getSlackWebhookUrl());
+            } else {
+                url = firstNonBlank(notificationsProperties.getSlackWebhookUrl());
             }
+        } else if (isClaimEvent(n.getEventType())) {
+            url = firstNonBlank(
+                    notificationsProperties.getClaimsSlackWebhookUrl(),
+                    environment.getProperty("slack.webhook.url", ""));
+        } else if (NotificationEventType.ENDORSEMENT_UPLOADED.equals(n.getEventType())) {
+            url = firstNonBlank(
+                    notificationsProperties.getSlackWebhookUrl(),
+                    environment.getProperty("slack.reminder.channel.url", ""),
+                    environment.getProperty("slack.webhook.url", ""));
         } else {
-            url = notificationsProperties.getSlackWebhookUrl();
-        }
-        if (url == null || url.isBlank()) {
-            url = environment.getProperty("slack.webhook.url", "");
+            url = firstNonBlank(
+                    notificationsProperties.getSlackWebhookUrl(),
+                    environment.getProperty("slack.webhook.url", ""));
         }
         if (url == null || url.isBlank()) {
             d.setStatus(NotificationDeliveryStatus.SKIPPED);
-            d.setLastError("notifications.slack-webhook-url (or slack.webhook.url) not configured");
+            d.setLastError("Slack Incoming Webhook not configured (notifications.slack-webhook-url / claims / slack.webhook.url)");
             log.info("notification_delivery_skipped channel=SLACK notificationId={} reason=no_webhook", n.getId());
             return;
         }
@@ -234,6 +248,23 @@ public class NotificationDispatcher {
                 notificationsProperties.getRetryMaxDelayMs(),
                 notificationsProperties.getRetryInitialDelayMs() * (1L << Math.min(d.getAttemptCount(), 10)));
         d.setNextRetryAt(LocalDateTime.now().plus(Duration.ofMillis(delayMs)));
+    }
+
+    private boolean slackWebhooksPinnedToEngineeringTest() {
+        return Boolean.parseBoolean(
+                environment.getProperty(EngineeringTestSlackWebhookOverrides.ENFORCE_PROPERTY, "false"));
+    }
+
+    private static String firstNonBlank(String... candidates) {
+        if (candidates == null) {
+            return "";
+        }
+        for (String c : candidates) {
+            if (c != null && !c.isBlank()) {
+                return c.trim();
+            }
+        }
+        return "";
     }
 
     private static boolean isClaimEvent(NotificationEventType eventType) {

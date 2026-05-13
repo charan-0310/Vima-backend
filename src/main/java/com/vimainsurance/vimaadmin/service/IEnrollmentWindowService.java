@@ -52,7 +52,7 @@ public interface IEnrollmentWindowService {
 
     ResponseEntity<ResponseDto<EnrollmentWindowResponseDto>> update(UUID id, EnrollmentWindowRequestDto requestDto);
 
-    ResponseEntity<ResponseDto<String>> activate(UUID id);
+    ResponseEntity<?> activate(UUID id);
 
     ResponseEntity<ResponseDto<String>> close(UUID id);
 
