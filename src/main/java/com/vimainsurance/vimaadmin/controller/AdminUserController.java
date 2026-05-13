@@ -17,6 +17,7 @@ import org.springframework.web.bind.annotation.RestController;
 import com.vimainsurance.vimaadmin.dto.AdminUserRequestDto;
 import com.vimainsurance.vimaadmin.dto.AdminUserResponseDto;
 import com.vimainsurance.vimaadmin.dto.AdminUsersFilteredResponseDto;
+import com.vimainsurance.vimaadmin.dto.UserManagementStatsDto;
 import com.vimainsurance.vimaadmin.dto.AuthentikGroupsResponseDto;
 import com.vimainsurance.vimaadmin.dto.OrganizationDto;
 import com.vimainsurance.vimaadmin.dto.PasswordChangeRequestDto;
@@ -90,6 +91,21 @@ public class AdminUserController {
             @RequestParam(required = false) String sortBy,
             @RequestParam(defaultValue = "desc", required = false) String sortDirection) {
         return adminUserService.getAllAdminUsersWithFilters(search, role, organization, isActive, page, rec, sortBy, sortDirection);
+    }
+
+    /**
+     * User Management dashboard totals (total users, HR admins, VIMA admins, organizations)
+     * for the current filter set. Independent of table pagination.
+     */
+    @GetMapping("/stats")
+    public ResponseEntity<ResponseDto<UserManagementStatsDto>> getUserManagementStats(
+            @RequestParam(defaultValue = "", required = false) String search,
+            @RequestParam(required = false) String role,
+            @RequestParam(required = false) String organization,
+            @RequestParam(required = false) Boolean isActive,
+            @RequestParam(required = false) String sortBy,
+            @RequestParam(defaultValue = "desc", required = false) String sortDirection) {
+        return adminUserService.getUserManagementStats(search, role, organization, isActive, sortBy, sortDirection);
     }
 
     /**

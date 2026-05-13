@@ -25,10 +25,11 @@ public class FeatureManagementController {
 
     @GetMapping("/features/roles")
     @PreAuthorize("hasRole('VIMA_ADMIN')")
-    public ResponseEntity<List<FeatureFlagsManagementResponse>> getFeatureFlags() {
-        logger.info("Request received: get feature flags by roles");
+    public ResponseEntity<List<FeatureFlagsManagementResponse>> getFeatureFlags(
+            @RequestParam(value = "roleName", required = false) String roleName) {
+        logger.info("Request received: get feature flags by roles (roleName filter: {})", roleName);
         try {
-            List<FeatureFlagsManagementResponse> flags = featureFlagService.getFeatureFlagsGroupedByType();
+            List<FeatureFlagsManagementResponse> flags = featureFlagService.getFeatureFlagsGroupedByType(roleName);
             if (flags == null || flags.isEmpty()) {
                 logger.info("No feature flags found for roles");
                 return ResponseEntity.ok(Collections.emptyList());
@@ -56,20 +57,66 @@ public class FeatureManagementController {
         }
     }
 
+    /**
+     * Lightweight parent-feature counts per organization (for admin UI badges). Avoids loading full org trees.
+     */
+    @GetMapping("/features/organizations/feature-counts")
+    @PreAuthorize("hasRole('VIMA_ADMIN')")
+    public ResponseEntity<List<OrganizationFeatureCountDto>> getOrganizationFeatureCounts() {
+        logger.info("Request received: organization parent feature counts");
+        try {
+            List<OrganizationFeatureCountDto> counts = featureFlagService.getOrganizationParentFeatureCounts();
+            return ResponseEntity.ok(counts == null ? Collections.emptyList() : counts);
+        } catch (Exception e) {
+            logger.error("Error while fetching organization feature counts", e);
+            return ResponseEntity.status(500).build();
+        }
+    }
+
     @GetMapping("/features/organizations")
     @PreAuthorize("hasRole('VIMA_ADMIN')")
-    public ResponseEntity<List<FeatureFlagsOrganizationResponse>> getFeatureFlagsByOrganization() {
-        logger.info("Request received: get feature flags by organizations");
+    public ResponseEntity<?> getFeatureFlagsByOrganization(
+            @RequestParam(value = "organizationId", required = false) String organizationId,
+            @RequestParam(value = "page", required = false) Integer page,
+            @RequestParam(value = "pageSize", required = false) Integer pageSize) {
+        logger.info(
+                "Request received: get feature flags by organizations (organizationId filter: {}, page: {}, pageSize: {})",
+                organizationId, page, pageSize);
         try {
-            List<FeatureFlagsOrganizationResponse> flags = featureFlagService.getFeatureFlagsGroupedByOrganization();
-            if (flags == null || flags.isEmpty()) {
+            List<FeatureFlagsOrganizationResponse> flags =
+                    featureFlagService.getFeatureFlagsGroupedByOrganization(organizationId);
+            if (flags == null) {
+                flags = Collections.emptyList();
+            }
+
+            boolean paginate = organizationId == null
+                    && page != null
+                    && pageSize != null
+                    && page > 0
+                    && pageSize > 0;
+            if (paginate) {
+                int size = Math.min(pageSize, 100);
+                int p = page;
+                long total = flags.size();
+                int fromIndex = (p - 1) * size;
+                List<FeatureFlagsOrganizationResponse> slice =
+                        fromIndex >= flags.size()
+                                ? Collections.emptyList()
+                                : flags.subList(fromIndex, Math.min(fromIndex + size, flags.size()));
+                int totalPages = size == 0 ? 0 : (int) Math.ceil((double) total / (double) size);
+                FeatureFlagsOrganizationsPageResponse body =
+                        new FeatureFlagsOrganizationsPageResponse(slice, total, p, size, totalPages);
+                return ResponseEntity.ok(body);
+            }
+
+            if (flags.isEmpty()) {
                 logger.info("No feature flags found for organizations");
                 return ResponseEntity.ok(Collections.emptyList());
             }
             logger.debug("Returning {} feature flag groups for organizations", flags.size());
             return ResponseEntity.ok(flags);
         } catch (Exception e) {
-            logger.error("Error while fetching feature flags for organizations", e);
+            logger.error("Error while fetching feature flags by organizations", e);
             return ResponseEntity.status(500).build();
         }
     }

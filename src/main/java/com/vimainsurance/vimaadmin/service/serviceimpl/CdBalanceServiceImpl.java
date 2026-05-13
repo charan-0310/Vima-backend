@@ -25,6 +25,7 @@ import org.springframework.web.multipart.MultipartFile;
 
 import com.vimainsurance.vimaadmin.audit.AuditedOperation;
 import com.vimainsurance.vimaadmin.dto.BaseResponse;
+import com.vimainsurance.vimaadmin.dto.CdBalanceLedgerSummaryDto;
 import com.vimainsurance.vimaadmin.dto.CdBalanceResponseDto;
 import com.vimainsurance.vimaadmin.dto.CdBalanceTransactionRequestDto;
 import com.vimainsurance.vimaadmin.dto.CdBalanceTransactionResponseDto;
@@ -264,7 +265,11 @@ public class CdBalanceServiceImpl implements ICdBalanceService {
                     .map(tx -> CdBalanceMapper.toTransactionResponseDto(tx, docsByTransaction.getOrDefault(tx.getTransactionId(), Collections.emptyList())))
                     .collect(Collectors.toList());
 
-            return responseObj.render(responseObj.formSuccessResponse(Constants.SUCCESS, payload, transactionPage.getTotalElements()));
+            CdBalanceLedgerSummaryDto ledgerSummary = computeLedgerSummary(cdAccountId, policyId, txType, from, to);
+            ResponseDto<List<CdBalanceTransactionResponseDto>> dto = responseObj.formSuccessResponse(
+                    Constants.SUCCESS, payload, transactionPage.getTotalElements());
+            dto.setLedgerSummary(ledgerSummary);
+            return responseObj.render(dto);
         } catch (Exception e) {
             logger.error("[correlationId:{}] Error fetching CD ledger for cdAccountId={}", MDC.get("correlationId"), cdAccountId, e);
             return responseObj.render(responseObj.formErrorResponse(e.getMessage()));
@@ -413,6 +418,65 @@ public class CdBalanceServiceImpl implements ICdBalanceService {
                 .collect(Collectors.groupingBy(
                         CdTransactionDocument::getTransactionId,
                         Collectors.mapping(CdTransactionDocument::getDocumentId, Collectors.toList())));
+    }
+
+    private CdBalanceLedgerSummaryDto computeLedgerSummary(
+            UUID cdAccountId,
+            Long policyId,
+            CdTransactionType txType,
+            LocalDateTime from,
+            LocalDateTime to) {
+        boolean applyPolicyFilter = policyId != null;
+        boolean applyTypeFilter = txType != null;
+        boolean applyFromFilter = from != null;
+        boolean applyToFilter = to != null;
+        String txTypeStr = txType == null ? "" : txType.name();
+        List<Object[]> rows = cdBalanceTransactionRepository.aggregateLedgerFiltered(
+                cdAccountId,
+                applyPolicyFilter,
+                applyPolicyFilter ? policyId : null,
+                applyTypeFilter,
+                txTypeStr,
+                applyFromFilter,
+                from,
+                applyToFilter,
+                to);
+        if (rows == null || rows.isEmpty()) {
+            return new CdBalanceLedgerSummaryDto(
+                    BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO, 0L);
+        }
+        Object[] row = rows.get(0);
+        BigDecimal totalDeposited = toBigDecimal(row[0]);
+        BigDecimal totalUtilized = toBigDecimal(row[1]);
+        BigDecimal endorsementCreditAbs = toBigDecimal(row[2]);
+        BigDecimal endorsementDebitAbs = toBigDecimal(row[3]);
+        long endorsementTxCount = toLong(row[4]);
+        BigDecimal endorsementPremium = endorsementDebitAbs.subtract(endorsementCreditAbs);
+        return new CdBalanceLedgerSummaryDto(
+                totalDeposited, totalUtilized, endorsementPremium, endorsementTxCount);
+    }
+
+    private static BigDecimal toBigDecimal(Object value) {
+        if (value == null) {
+            return BigDecimal.ZERO;
+        }
+        if (value instanceof BigDecimal bd) {
+            return bd;
+        }
+        if (value instanceof Number n) {
+            return BigDecimal.valueOf(n.doubleValue());
+        }
+        return new BigDecimal(value.toString());
+    }
+
+    private static long toLong(Object value) {
+        if (value == null) {
+            return 0L;
+        }
+        if (value instanceof Number n) {
+            return n.longValue();
+        }
+        return Long.parseLong(value.toString());
     }
 
     private void validateRecalculateAccess() {

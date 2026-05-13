@@ -6,7 +6,7 @@ import com.vimainsurance.vimaadmin.dto.FeatureFlagResponseDto;
 import com.vimainsurance.vimaadmin.dto.FeatureFlagsManagementResponse;
 import com.vimainsurance.vimaadmin.dto.FeatureFlagsOrganizationResponse;
 import com.vimainsurance.vimaadmin.dto.FeatureFlagUpdateDto;
-
+import com.vimainsurance.vimaadmin.dto.OrganizationFeatureCountDto;
 
 public interface FeatureFlagService {
 
@@ -18,11 +18,30 @@ public interface FeatureFlagService {
 
     List<FeatureFlagResponseDto> findAllMatchedFeatureFlags();
 
-    List<FeatureFlagsManagementResponse> getFeatureFlagsGroupedByType();
+    /**
+     * When non-null and non-empty, the SPA should treat these as the only organization UUIDs the user may operate on.
+     * Used for org-scoped VIMA_ADMIN ({@code admin_users.organization_id} set).
+     *
+     * @return null when unrestricted (derive orgs from JWT / tenant as today)
+     */
+    List<String> resolveAllowedOrganizationIdsForAuthMe();
+
+    /**
+     * @param roleNameFilter optional; when set (e.g. ROLE_VIMA_ADMIN), only that role bucket is built and returned.
+     */
+    List<FeatureFlagsManagementResponse> getFeatureFlagsGroupedByType(String roleNameFilter);
 
     void updateFeatureFlagRoles(String roleName, FeatureFlagUpdateDto updateDto);
 
-    List<FeatureFlagsOrganizationResponse> getFeatureFlagsGroupedByOrganization();
+    /**
+     * @param organizationIdFilter optional organization UUID; when set, only that organization is loaded (much faster).
+     */
+    List<FeatureFlagsOrganizationResponse> getFeatureFlagsGroupedByOrganization(String organizationIdFilter);
+
+    /**
+     * Parent-level feature assignment counts per organization (lightweight; for admin UI badges).
+     */
+    List<OrganizationFeatureCountDto> getOrganizationParentFeatureCounts();
 
     void updateFeatureFlagCompanies(String organizationId, FeatureFlagUpdateDto updateDto);
 
