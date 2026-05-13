@@ -17,6 +17,7 @@ import org.springframework.transaction.annotation.Transactional;
 import com.vimainsurance.vimaadmin.dto.EmailRequest;
 import com.vimainsurance.vimaadmin.dto.EmailResponse;
 import com.vimainsurance.vimaadmin.entity.AdminUser;
+import com.vimainsurance.vimaadmin.notification.config.EngineeringTestSlackWebhookOverrides;
 import com.vimainsurance.vimaadmin.notification.config.NotificationsProperties;
 import com.vimainsurance.vimaadmin.notification.entity.AdminNotification;
 import com.vimainsurance.vimaadmin.notification.entity.NotificationDelivery;
@@ -195,9 +196,18 @@ public class NotificationDispatcher {
         String route = "none";
         // Prefer notifications.* first so repo-controlled non-prod webhooks win over stray
         // SLACK_REMINDER_CHANNEL_URL / SLACK_WEBHOOK_URL from the host environment.
-        // ENDORSEMENT_UPLOADED still falls back to slack.reminder.channel.url when unified URL is unset (typical prod).
+        // When vima.slack.enforce-engineering-test-webhooks=true, only NotificationsProperties URLs
+        // are used (pinned at startup) — host env cannot override.
         String url;
-        if (isClaimEvent(n.getEventType())) {
+        if (slackWebhooksPinnedToEngineeringTest()) {
+            if (isClaimEvent(n.getEventType())) {
+                url = firstNonBlank(
+                        notificationsProperties.getClaimsSlackWebhookUrl(),
+                        notificationsProperties.getSlackWebhookUrl());
+            } else {
+                url = firstNonBlank(notificationsProperties.getSlackWebhookUrl());
+            }
+        } else if (isClaimEvent(n.getEventType())) {
             url = firstNonBlank(
                     notificationsProperties.getClaimsSlackWebhookUrl(),
                     environment.getProperty("slack.webhook.url", ""));
@@ -238,6 +248,11 @@ public class NotificationDispatcher {
                 notificationsProperties.getRetryMaxDelayMs(),
                 notificationsProperties.getRetryInitialDelayMs() * (1L << Math.min(d.getAttemptCount(), 10)));
         d.setNextRetryAt(LocalDateTime.now().plus(Duration.ofMillis(delayMs)));
+    }
+
+    private boolean slackWebhooksPinnedToEngineeringTest() {
+        return Boolean.parseBoolean(
+                environment.getProperty(EngineeringTestSlackWebhookOverrides.ENFORCE_PROPERTY, "false"));
     }
 
     private static String firstNonBlank(String... candidates) {
