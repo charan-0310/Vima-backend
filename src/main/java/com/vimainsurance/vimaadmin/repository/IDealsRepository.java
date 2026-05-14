@@ -704,4 +704,22 @@ public interface IDealsRepository extends JpaRepository<Deals, UUID> , JpaSpecif
         @Param("endDate") LocalDateTime endDate
     );
 
+    /** Active primary members (employees) linked to any organization. */
+    @Query("""
+        SELECT COUNT(d) FROM Deals d
+        WHERE d.organization IS NOT NULL
+          AND d.status = :active
+          AND d.isPrimaryMember = true
+        """)
+    long countActiveEmployeesInOrganizations(@Param("active") AccountStatus active);
+
+    /** Active dependents / family members under corporate coverage (non-primary). */
+    @Query("""
+        SELECT COUNT(d) FROM Deals d
+        WHERE d.organization IS NOT NULL
+          AND d.status = :active
+          AND (d.isPrimaryMember = false OR d.isPrimaryMember IS NULL)
+        """)
+    long countActiveDependentsInOrganizations(@Param("active") AccountStatus active);
+
 }

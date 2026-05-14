@@ -160,4 +160,89 @@ public interface IPolicyRepository extends JpaRepository<Policy, Long> {
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("SELECT p FROM Policy p WHERE p.policyId = :policyId")
     Optional<Policy> findByIdForUpdate(@Param("policyId") Long policyId);
+
+    // --- Manager portfolio dashboard (group / org-scoped policies) ---
+
+    @Query("""
+        SELECT COUNT(p) FROM Policy p
+        WHERE p.organizationId IS NOT NULL
+          AND (p.isDeleted = false OR p.isDeleted IS NULL)
+          AND p.status = :active
+        """)
+    long countActivePoliciesForOrganizations(@Param("active") PolicyStatus active);
+
+    @Query("""
+        SELECT COALESCE(SUM(p.premiumAmount), 0) FROM Policy p
+        WHERE p.organizationId IS NOT NULL
+          AND (p.isDeleted = false OR p.isDeleted IS NULL)
+          AND p.status = :active
+        """)
+    java.math.BigDecimal sumInceptionPremiumForActiveOrganizationPolicies(@Param("active") PolicyStatus active);
+
+    @Query("""
+        SELECT COUNT(p) FROM Policy p
+        WHERE p.organizationId IS NOT NULL
+          AND (p.isDeleted = false OR p.isDeleted IS NULL)
+          AND p.status = :active
+          AND p.endDate IS NOT NULL
+          AND p.endDate > :today
+          AND p.endDate <= :within
+        """)
+    long countActiveOrgPoliciesExpiringBetween(@Param("active") PolicyStatus active,
+            @Param("today") LocalDate today,
+            @Param("within") LocalDate within);
+
+    @Query("""
+        SELECT COUNT(p) FROM Policy p
+        WHERE p.organizationId IS NOT NULL
+          AND (p.isDeleted = false OR p.isDeleted IS NULL)
+          AND p.status = :active
+          AND (p.endDate IS NULL OR p.endDate > :after)
+        """)
+    long countActiveOrgPoliciesWithEndAfter(@Param("active") PolicyStatus active, @Param("after") LocalDate after);
+
+    @Query("""
+        SELECT COUNT(p) FROM Policy p
+        WHERE p.organizationId IS NOT NULL
+          AND (p.isDeleted = false OR p.isDeleted IS NULL)
+          AND p.status = :active
+          AND p.endDate IS NOT NULL
+          AND p.endDate >= :fromInclusive
+          AND p.endDate <= :toInclusive
+        """)
+    long countActiveOrgPoliciesEndDateBetween(@Param("active") PolicyStatus active,
+            @Param("fromInclusive") LocalDate fromInclusive,
+            @Param("toInclusive") LocalDate toInclusive);
+
+    @Query("""
+        SELECT COUNT(p) FROM Policy p
+        WHERE p.organizationId IS NOT NULL
+          AND (p.isDeleted = false OR p.isDeleted IS NULL)
+          AND (
+            p.status IN ('LAPSED', 'EXPIRED', 'CANCELLED')
+            OR (p.endDate IS NOT NULL AND p.endDate < :today)
+          )
+        """)
+    long countLapsedOrExpiredOrganizationPolicies(@Param("today") LocalDate today);
+
+    @Query(value = """
+        SELECT p.policy_id::text,
+               o.organization_name,
+               o.organization_displayname,
+               o.organization_id::text,
+               p.policy_number,
+               CAST(p.product_type AS TEXT),
+               COALESCE(p.sum_insured, 0),
+               p.end_date
+        FROM cpc.policies p
+        INNER JOIN cpc.organizations o ON o.organization_id = p.organization_id
+        WHERE p.organization_id IS NOT NULL
+          AND (p.is_deleted IS NULL OR p.is_deleted = false)
+          AND p.status::text = 'ACTIVE'
+          AND p.end_date IS NOT NULL
+          AND p.end_date > :today
+          AND p.end_date <= :until
+        ORDER BY p.end_date ASC
+        """, nativeQuery = true)
+    List<Object[]> findUpcomingRenewalsNative(@Param("today") LocalDate today, @Param("until") LocalDate until);
 }
