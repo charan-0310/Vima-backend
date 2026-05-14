@@ -42,4 +42,25 @@ class TopupPremiumOptionsUtilTest {
 
         assertTrue(map.isEmpty());
     }
+
+    @Test
+    void minPositiveTierPremium_returnsSmallestPositive() {
+        assertEquals(
+                BigDecimal.valueOf(200),
+                TopupPremiumOptionsUtil.minPositiveTierPremium("[500, 300, 200]").orElseThrow());
+    }
+
+    @Test
+    void minPositiveTierPremium_ignoresZeros() {
+        assertEquals(
+                BigDecimal.valueOf(100),
+                TopupPremiumOptionsUtil.minPositiveTierPremium("[0, 100, 200]").orElseThrow());
+    }
+
+    @Test
+    void minPositiveTierPremium_whenBlank_returnsEmpty() {
+        assertTrue(TopupPremiumOptionsUtil.minPositiveTierPremium(null).isEmpty());
+        assertTrue(TopupPremiumOptionsUtil.minPositiveTierPremium("").isEmpty());
+        assertTrue(TopupPremiumOptionsUtil.minPositiveTierPremium("[]").isEmpty());
+    }
 }

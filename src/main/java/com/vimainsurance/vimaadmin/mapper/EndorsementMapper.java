@@ -120,10 +120,24 @@ public class EndorsementMapper {
         }
         dto.setLifeEventType(endorsement.getLifeEventType());
         try {
+            if (endorsement.getEnrollmentWindow() != null) {
+                dto.setEnrollmentWindowId(endorsement.getEnrollmentWindow().getId());
+                dto.setEnrollmentWindowName(endorsement.getEnrollmentWindow().getName());
+            }
+        } catch (RuntimeException ignored) {
+            dto.setEnrollmentWindowId(null);
+            dto.setEnrollmentWindowName(null);
+        }
+        try {
             if (endorsement.getPolicy() != null) {
                 dto.setPolicyId(endorsement.getPolicy().getPolicyId());
                 if (endorsement.getPolicy().getProductType() != null) {
                     dto.setPolicyType(endorsement.getPolicy().getProductType().getValue());
+                }
+                dto.setPolicyNumber(endorsement.getPolicy().getPolicyNumber());
+                String desc = endorsement.getPolicy().getDescription();
+                if (desc != null && !desc.isBlank()) {
+                    dto.setPolicyName(desc.trim());
                 }
                 dto.setInsuranceCompanyName(endorsement.getPolicy().getInsurerName());
             }
@@ -131,6 +145,8 @@ public class EndorsementMapper {
             // Local/dev DB can lag policy schema; don't fail the endorsement list because policy lazy-load SQL breaks.
             dto.setPolicyId(null);
             dto.setPolicyType(null);
+            dto.setPolicyNumber(null);
+            dto.setPolicyName(null);
             dto.setInsuranceCompanyName(null);
         }
         dto.setSplitGroupId(endorsement.getSplitGroupId());

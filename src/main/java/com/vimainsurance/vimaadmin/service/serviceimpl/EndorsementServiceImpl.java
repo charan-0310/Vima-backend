@@ -1,6 +1,7 @@
 package com.vimainsurance.vimaadmin.service.serviceimpl;
 
 import java.io.InputStream;
+import java.math.BigDecimal;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
@@ -77,6 +78,7 @@ import com.vimainsurance.vimaadmin.repository.IDealsRepository;
 import com.vimainsurance.vimaadmin.repository.IDocumentRepository;
 import com.vimainsurance.vimaadmin.repository.IEndorsementRepository;
 import com.vimainsurance.vimaadmin.repository.IOrganizationRepository;
+import com.vimainsurance.vimaadmin.repository.IPolicyRepository;
 import com.vimainsurance.vimaadmin.service.IDocumentService;
 import com.vimainsurance.vimaadmin.service.IEmailService;
 import com.vimainsurance.vimaadmin.service.ICdBalanceService;
@@ -104,6 +106,9 @@ public class EndorsementServiceImpl implements IEndorsementService {
 
     @Autowired
     private IEndorsementRepository endorsementRepository;
+
+    @Autowired
+    private IPolicyRepository policyRepository;
 
     @Autowired
     private IOrganizationRepository organizationRepository;
@@ -167,6 +172,134 @@ public class EndorsementServiceImpl implements IEndorsementService {
     private EmployeeOnboardingPipeline employeeOnboardingPipeline;
 
     private record MemberCounts(int employeeCount, int dependentCount) {}
+
+    /** Columns loaded via native query to avoid initializing lazy {@code Policy} on list paths. */
+    private record PolicyListingRow(
+            String productType,
+            String policyNumber,
+            String insurerName,
+            BigDecimal cdBalance,
+            String policyDescription) {}
+
+    private static BigDecimal bigDecimalFromRow(Object cell) {
+        if (cell == null) {
+            return null;
+        }
+        if (cell instanceof BigDecimal bd) {
+            return bd;
+        }
+        if (cell instanceof Number n) {
+            return BigDecimal.valueOf(n.doubleValue());
+        }
+        String s = cell.toString().trim();
+        if (s.isEmpty()) {
+            return null;
+        }
+        return new BigDecimal(s);
+    }
+
+    private static Long policyIdFromRow(Object cell) {
+        if (cell == null) {
+            return null;
+        }
+        if (cell instanceof Number n) {
+            return n.longValue();
+        }
+        return Long.parseLong(cell.toString());
+    }
+
+    private static UUID uuidFromRow(Object cell) {
+        if (cell == null) {
+            return null;
+        }
+        if (cell instanceof UUID u) {
+            return u;
+        }
+        return UUID.fromString(cell.toString());
+    }
+
+    /**
+     * Reads {@code cpc.endorsements.policy_id} in bulk, then falls back to {@code employee_policy_map} when the FK is null.
+     */
+    private Map<UUID, Long> resolvePolicyIdsForEndorsements(List<UUID> endorsementIds) {
+        if (endorsementIds == null || endorsementIds.isEmpty()) {
+            return Map.of();
+        }
+        List<UUID> ids = endorsementIds.stream().filter(Objects::nonNull).distinct().toList();
+        if (ids.isEmpty()) {
+            return Map.of();
+        }
+        Map<UUID, Long> resolved = new HashMap<>();
+        for (Object[] row : endorsementRepository.findPolicyIdsByEndorsementIds(ids)) {
+            UUID eid = uuidFromRow(row[0]);
+            if (eid == null) {
+                continue;
+            }
+            resolved.put(eid, row[1] != null ? policyIdFromRow(row[1]) : null);
+        }
+        List<UUID> missing = ids.stream().filter(id -> resolved.get(id) == null).toList();
+        if (!missing.isEmpty()) {
+            for (Object[] row : endorsementRepository.findPrimaryPolicyIdsFromEmployeePolicyMapByEndorsementIds(missing)) {
+                UUID eid = uuidFromRow(row[0]);
+                Long pid = row[1] != null ? policyIdFromRow(row[1]) : null;
+                if (eid != null && pid != null) {
+                    resolved.put(eid, pid);
+                }
+            }
+        }
+        return resolved;
+    }
+
+    private Map<Long, PolicyListingRow> loadPolicyListingRows(Set<Long> policyIds) {
+        if (policyIds == null || policyIds.isEmpty()) {
+            return Map.of();
+        }
+        List<Long> ids = policyIds.stream().filter(Objects::nonNull).distinct().toList();
+        if (ids.isEmpty()) {
+            return Map.of();
+        }
+        List<Object[]> rows = policyRepository.findListingColumnsByPolicyIds(ids);
+        Map<Long, PolicyListingRow> out = new HashMap<>();
+        for (Object[] row : rows) {
+            Long pid = policyIdFromRow(row[0]);
+            if (pid == null) {
+                continue;
+            }
+            String productType = row[1] != null ? String.valueOf(row[1]).trim() : null;
+            String policyNumber = row[2] != null ? String.valueOf(row[2]).trim() : null;
+            String insurerName = row[3] != null ? String.valueOf(row[3]).trim() : null;
+            BigDecimal cdBalance = row.length > 4 ? bigDecimalFromRow(row[4]) : null;
+            String policyDescription = row.length > 5 && row[5] != null ? String.valueOf(row[5]).trim() : null;
+            out.put(pid, new PolicyListingRow(productType, policyNumber, insurerName, cdBalance, policyDescription));
+        }
+        return out;
+    }
+
+    private void applyPolicyListingSummaries(EndorsementResponseDto dto, Long resolvedPolicyId, Map<Long, PolicyListingRow> byPolicyId) {
+        if (dto == null || resolvedPolicyId == null) {
+            return;
+        }
+        dto.setPolicyId(resolvedPolicyId);
+        PolicyListingRow row = byPolicyId.get(resolvedPolicyId);
+        if (row == null) {
+            return;
+        }
+        if (row.productType() != null && !row.productType().isBlank()) {
+            dto.setPolicyType(row.productType());
+        }
+        if (row.policyNumber() != null && !row.policyNumber().isBlank()) {
+            dto.setPolicyNumber(row.policyNumber());
+        }
+        if (row.insurerName() != null && !row.insurerName().isBlank()) {
+            dto.setInsuranceCompanyName(row.insurerName());
+        }
+        if (row.cdBalance() != null) {
+            dto.setCdBalance(row.cdBalance());
+        }
+        if (row.policyDescription() != null && !row.policyDescription().isBlank()) {
+            dto.setPolicyName(row.policyDescription());
+        }
+    }
 
     @Override
     @Transactional
@@ -346,6 +479,11 @@ public class EndorsementServiceImpl implements IEndorsementService {
                 com.vimainsurance.vimaadmin.audit.AuditContextSupplier.setOrganizationId(orgId);
             }
             EndorsementResponseDto dto = mapToResponseDtoWithoutPolicy(opt.get());
+            Map<UUID, Long> policyIdByEndorsement = resolvePolicyIdsForEndorsements(List.of(endorsementId));
+            Long resolvedPolicyId = policyIdByEndorsement.get(endorsementId);
+            Map<Long, PolicyListingRow> policySummaries = loadPolicyListingRows(
+                    resolvedPolicyId != null ? Set.of(resolvedPolicyId) : Set.of());
+            applyPolicyListingSummaries(dto, resolvedPolicyId, policySummaries);
             applyDynamicMemberCounts(dto, opt.get());
             return responseObj.render(responseObj.formSuccessResponse(Constants.SUCCESS, dto));
         } catch (OrganizationAccessDeniedException e) {
@@ -512,9 +650,20 @@ public class EndorsementServiceImpl implements IEndorsementService {
 
             Map<UUID, MemberCounts> memberCountsByEndorsementId = calculateMemberCountsForEndorsements(pageRows);
 
+            List<UUID> pageEndorsementIds = pageRows.stream()
+                    .map(Endorsement::getEndorsementId)
+                    .filter(Objects::nonNull)
+                    .toList();
+            Map<UUID, Long> policyIdByEndorsement = resolvePolicyIdsForEndorsements(pageEndorsementIds);
+            Set<Long> policyIdBatch = policyIdByEndorsement.values().stream()
+                    .filter(Objects::nonNull)
+                    .collect(Collectors.toCollection(HashSet::new));
+            Map<Long, PolicyListingRow> policySummaries = loadPolicyListingRows(policyIdBatch);
+
             List<EndorsementResponseDto> out = new ArrayList<>();
             for (Endorsement endorsement : pageRows) {
                 EndorsementResponseDto dto = mapToResponseDtoWithoutPolicy(endorsement);
+                applyPolicyListingSummaries(dto, policyIdByEndorsement.get(endorsement.getEndorsementId()), policySummaries);
                 MemberCounts counts = memberCountsByEndorsementId.get(endorsement.getEndorsementId());
                 if (counts == null) {
                     counts = new MemberCounts(0, 0);
@@ -1669,11 +1818,19 @@ public class EndorsementServiceImpl implements IEndorsementService {
             dto.setSource(endorsement.getSource().getValue());
         }
         dto.setLifeEventType(endorsement.getLifeEventType());
+        try {
+            if (endorsement.getEnrollmentWindow() != null) {
+                dto.setEnrollmentWindowId(endorsement.getEnrollmentWindow().getId());
+                dto.setEnrollmentWindowName(endorsement.getEnrollmentWindow().getName());
+            }
+        } catch (RuntimeException ignored) {
+            dto.setEnrollmentWindowId(null);
+            dto.setEnrollmentWindowName(null);
+        }
         dto.setSplitGroupId(endorsement.getSplitGroupId());
         if (endorsement.getParentEndorsement() != null) {
             dto.setParentEndorsementId(endorsement.getParentEndorsement().getEndorsementId());
         }
-        // Intentionally omit policy fields on listing endpoint to avoid policy-table schema drift failures.
         return dto;
     }
 

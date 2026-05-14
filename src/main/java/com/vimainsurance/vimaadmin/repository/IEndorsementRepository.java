@@ -270,5 +270,27 @@ public interface IEndorsementRepository extends JpaRepository<Endorsement, UUID>
         """, nativeQuery = true)
     Double avgEndorsementApprovalTurnaroundDays();
 
+    /**
+     * Policy FK as stored on endorsements (native read avoids JPA issues with duplicate column / lazy proxies on list APIs).
+     */
+    @Query(value = """
+            SELECT e.endorsement_id, e.policy_id
+            FROM cpc.endorsements e
+            WHERE e.endorsement_id IN (:ids)
+            """, nativeQuery = true)
+    List<Object[]> findPolicyIdsByEndorsementIds(@Param("ids") List<UUID> ids);
+
+    /**
+     * When {@code endorsements.policy_id} is null, recover a representative policy from active employee_policy_map rows.
+     */
+    @Query(value = """
+            SELECT DISTINCT ON (m.endorsement_id) m.endorsement_id, m.policy_id
+            FROM cpc.employee_policy_map m
+            WHERE m.endorsement_id IN (:ids)
+              AND m.status = 'ACTIVE'
+            ORDER BY m.endorsement_id, m.created_at ASC
+            """, nativeQuery = true)
+    List<Object[]> findPrimaryPolicyIdsFromEmployeePolicyMapByEndorsementIds(@Param("ids") List<UUID> ids);
+
 }
 
