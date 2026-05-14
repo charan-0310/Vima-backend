@@ -241,10 +241,8 @@ public class SecurityConfig {
                             // Public endpoints - no authentication required
                             .requestMatchers("/health", "/actuator/**", "/public/**").permitAll()
 
-                            // Legacy endpoints that may need authentication - keeping for backward compatibility
-                            // These should eventually be migrated to use JWT tokens
-                            .requestMatchers("/api/v1/login", "/oauth2/**",
-                                    "/api/v1/nonce", "/api/v1/auth/challenge", "/api/v1/auth/login").permitAll()
+                            // OAuth2 client (e.g. Google) — browser redirect flow
+                            .requestMatchers("/oauth2/**").permitAll()
                             // Enrollment token validation - public (no JWT; token in path)
                             .requestMatchers("/api/v1/enrollments/**").permitAll()
                             .requestMatchers("/api/v1/enrollment-submissions/**").permitAll()
@@ -278,7 +276,7 @@ public class SecurityConfig {
                                     .jwtAuthenticationConverter(jwtAuthenticationConverter)
                             )
                     )
-                    // Keep authentication provider for backward compatibility with legacy endpoints
+                    // Legacy DaoAuthenticationProvider — used by OAuth2 client flows and filters that load UserDetails
                     .authenticationProvider(authenticationProvider())
                     // Add TenantFilter after OAuth2 Resource Server processes JWT
                     // This ensures tenant can be extracted from both headers/host AND JWT claims

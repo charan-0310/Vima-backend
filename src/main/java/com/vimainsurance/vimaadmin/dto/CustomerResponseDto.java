@@ -6,8 +6,6 @@ import java.time.LocalDateTime;
 import java.util.List;
 
 import com.fasterxml.jackson.annotation.JsonIgnore;
-import com.vimainsurance.vimaadmin.entity.Quotes;
-import com.vimainsurance.vimaadmin.dto.DocumentResponseDto;
 import lombok.Getter;
 import lombok.Setter;
 
@@ -49,8 +47,6 @@ public class CustomerResponseDto {
     private LocalDateTime createdAt;
 
     private LocalDateTime updatedAt;
-
-    private List<Quotes> quotes;
 
     private List<DocumentResponseDto> documents;
 

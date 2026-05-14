@@ -227,20 +227,7 @@ public class CustomerServiceImpl implements ICustomerService{
     }
     
     private BigDecimal getHighestPremium(Customer customer) {
-        if (customer.getQuotes() == null || customer.getQuotes().isEmpty()) {
-            return BigDecimal.ZERO;
-        }
-        
-        return customer.getQuotes().stream()
-            .map(quote -> {
-                try {
-                    return new BigDecimal(quote.getBestPremium() != null ? quote.getBestPremium() : "0");
-                } catch (NumberFormatException e) {
-                    return BigDecimal.ZERO;
-                }
-            })
-            .max(BigDecimal::compareTo)
-            .orElse(BigDecimal.ZERO);
+        return BigDecimal.ZERO;
     }
     
     private Page<Customer> getAllCustomersWithPremiumSorting(String search, int page, int rec, String sortDirection) {
@@ -360,7 +347,6 @@ public class CustomerServiceImpl implements ICustomerService{
         responseDto.setUpdatedAt(LocalDateTime.now());
         responseDto.setStatus(customer.getStatus());
         responseDto.setNotes(customer.getNotes());
-        responseDto.setQuotes(customer.getQuotes());
         responseDto.setOwner(customer.getOwner() != null ? customer.getOwner().getUsername() : null);
         return responseDto;
     }
@@ -416,7 +402,6 @@ public class CustomerServiceImpl implements ICustomerService{
             responseDto.setUpdatedAt(LocalDateTime.now());
             responseDto.setStatus(customer.getStatus());
             responseDto.setNotes(customer.getNotes());
-            responseDto.setQuotes(customer.getQuotes());
             responseDto.setOwner(customer.getOwner().getUsername() + " (" + customer.getOwner().getAgentId() + ")");
             responseDto.setDocuments(documentRepository.findByEntityAndCategory(DocumentEntityType.CUSTOMER, customer.getCustId(), DocumentCategory.KYC_DOCUMENTS).stream().map(document -> {
                 DocumentResponseDto documentResponseDto = new DocumentResponseDto();

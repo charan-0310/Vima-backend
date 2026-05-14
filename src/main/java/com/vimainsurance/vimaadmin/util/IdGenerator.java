@@ -4,7 +4,6 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
 import com.vimainsurance.vimaadmin.repository.ICustomerRepository;
-import com.vimainsurance.vimaadmin.repository.IQuoteRepository;
 import com.vimainsurance.vimaadmin.repository.IAdminUserRepository;
 
 /**
@@ -17,9 +16,6 @@ public class IdGenerator {
     private ICustomerRepository customerRepository;
 
     @Autowired
-    private IQuoteRepository quoteRepository;
-
-    @Autowired
     private IAdminUserRepository adminUserRepository;
 
     /**
@@ -29,16 +25,6 @@ public class IdGenerator {
     public String generateCustomerId() {
         Long maxId = customerRepository.getNextCustomerSeq();
         return "C" + maxId.toString();
-    }
-
-
-    /**
-     * Generate a new Quote ID
-     * @return A unique Quote ID in format "Q{number}" with zero-padding
-     */
-    public String generateQuoteId() {
-        Long maxId = quoteRepository.getNextQuoteSeq();
-        return "Q" + maxId.toString();
     }
 
 

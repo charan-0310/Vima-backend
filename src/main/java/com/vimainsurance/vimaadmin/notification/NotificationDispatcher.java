@@ -219,6 +219,7 @@ public class NotificationDispatcher {
         } else {
             url = firstNonBlank(
                     notificationsProperties.getSlackWebhookUrl(),
+                    environment.getProperty("slack.reminder.channel.url", ""),
                     environment.getProperty("slack.webhook.url", ""));
         }
         if (url == null || url.isBlank()) {

@@ -20,6 +20,7 @@ class EndorsementMapperTest {
 
         Policy policy = new Policy();
         policy.setPolicyId(101L);
+        policy.setPolicyNumber("POL-101");
         policy.setProductType(ProductType.GMC);
 
         Endorsement endorsement = new Endorsement();
@@ -32,6 +33,7 @@ class EndorsementMapperTest {
 
         assertEquals(101L, dto.getPolicyId());
         assertEquals("GMC", dto.getPolicyType());
+        assertEquals("POL-101", dto.getPolicyNumber());
         assertEquals(endorsement.getSplitGroupId(), dto.getSplitGroupId());
         assertEquals(parent.getEndorsementId(), dto.getParentEndorsementId());
     }

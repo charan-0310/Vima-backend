@@ -2,6 +2,7 @@ package com.vimainsurance.vimaadmin.repository;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -160,6 +161,29 @@ public interface IPolicyRepository extends JpaRepository<Policy, Long> {
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("SELECT p FROM Policy p WHERE p.policyId = :policyId")
     Optional<Policy> findByIdForUpdate(@Param("policyId") Long policyId);
+
+    /**
+     * Minimal columns for endorsement list/detail when we must avoid lazy-loading the full Policy entity.
+     * Includes linked CD account balance (when {@code cd_account_id} is set).
+     * Insurer display: policy denormalized name, else master provider name, else CD account insurer label.
+     */
+    @Query(value = """
+            SELECT p.policy_id,
+                   CAST(p.product_type AS TEXT),
+                   p.policy_number,
+                   COALESCE(
+                       NULLIF(TRIM(p.insurer_name), ''),
+                       ip.provider_name,
+                       ca.insurer_name
+                   ) AS insurer_name,
+                   ca.cd_balance,
+                   p.description
+            FROM cpc.policies p
+            LEFT JOIN cpc.cd_accounts ca ON ca.cd_account_id = p.cd_account_id
+            LEFT JOIN admin.insurance_providers ip ON ip.provider_id = p.insurance_provider_id
+            WHERE p.policy_id IN (:ids)
+            """, nativeQuery = true)
+    List<Object[]> findListingColumnsByPolicyIds(@Param("ids") Collection<Long> ids);
 
     // --- Manager portfolio dashboard (group / org-scoped policies) ---
 
