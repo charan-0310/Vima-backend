@@ -33,7 +33,6 @@ import com.vimainsurance.vimaadmin.dto.AuthentikGroupsResponseDto;
 import com.vimainsurance.vimaadmin.dto.AuthentikPaginatedResponse;
 import com.vimainsurance.vimaadmin.dto.BaseResponse;
 import com.vimainsurance.vimaadmin.dto.OrganizationDto;
-import com.vimainsurance.vimaadmin.dto.PasswordChangeRequestDto;
 import com.vimainsurance.vimaadmin.dto.ResponseDto;
 import com.vimainsurance.vimaadmin.dto.RoleDto;
 import com.vimainsurance.vimaadmin.entity.AdminUser;
@@ -44,8 +43,6 @@ import com.vimainsurance.vimaadmin.service.IEmailService;
 import com.vimainsurance.vimaadmin.util.KeyCloakUtil;
 import com.vimainsurance.vimaadmin.util.Constants;
 import com.vimainsurance.vimaadmin.util.IdGenerator;
-import com.vimainsurance.vimaadmin.util.PasswordEncoder;
-import com.vimainsurance.vimaadmin.util.PasswordGenerator;
 
 @Service
 public class AdminUserServiceImpl implements IAdminUserService {
@@ -697,59 +694,6 @@ public class AdminUserServiceImpl implements IAdminUserService {
     }
 
     @Override
-    public ResponseEntity<ResponseDto<String>> changePassword(String username, PasswordChangeRequestDto requestDto) {
-        logger.info("changePassword called for username: {}", username);
-        BaseResponse<String> responseObj = new BaseResponse<>();
-        try {
-            Optional<AdminUser> userOpt = adminUserRepository.findByUsername(username);
-            if (userOpt.isEmpty()) {
-                return responseObj.render(responseObj.formErrorResponse("Admin user not found"));
-            }
-            
-            AdminUser user = userOpt.get();
-            
-            // Verify current password using the same method as challenge login
-            if (!PasswordEncoder.matches(requestDto.getCurrentPassword(), user.getPasswordHash())) {
-                return responseObj.render(responseObj.formErrorResponse("Current password is incorrect"));
-            }
-            
-            // Validate new password
-            if (requestDto.getNewPassword() == null || requestDto.getNewPassword().trim().isEmpty()) {
-                return responseObj.render(responseObj.formErrorResponse("New password cannot be empty"));
-            }
-            
-            if (requestDto.getNewPassword().length() < 8) {
-                return responseObj.render(responseObj.formErrorResponse("New password must be at least 8 characters long"));
-            }
-            
-            // Check if new password is same as current password
-            if (PasswordEncoder.matches(requestDto.getNewPassword(), user.getPasswordHash())) {
-                return responseObj.render(responseObj.formErrorResponse("New password must be different from current password"));
-            }
-            
-            // Hash and save new password using the same method as challenge login
-            user.setPasswordHash(PasswordEncoder.encodePassword(requestDto.getNewPassword()));
-            adminUserRepository.save(user);
-            
-            UUID orgId = user.getOrganization() != null ? user.getOrganization().getOrganizationId() : null;
-            platformAuditPublisher.publishAuthenticated(
-                    "admin",
-                    "admin_users",
-                    "ADMIN_USER",
-                    "PASSWORD_SELF_CHANGE",
-                    user.getId().toString(),
-                    orgId,
-                    Map.of("username", user.getUsername()));
-
-            logger.info("Password changed successfully for user: {}", username);
-            return responseObj.render(responseObj.formSuccessResponse(Constants.SUCCESS, "Password changed successfully"));
-        } catch (Exception e) {
-            logger.error("Error changing password for user: {}", username, e);
-            return responseObj.render(responseObj.formErrorResponse(e.getMessage()));
-        }
-    }
-
-    @Override
     public ResponseEntity<ResponseDto<AuthentikGroupsResponseDto>> getRolesAndOrganizations() {
         logger.info("getRolesAndOrganizations called");
         BaseResponse<AuthentikGroupsResponseDto> responseObj = new BaseResponse<>();
@@ -791,50 +735,6 @@ public class AdminUserServiceImpl implements IAdminUserService {
             return responseObj.render(responseObj.formSuccessResponse(Constants.SUCCESS, organizations));
         } catch (Exception e) {
             logger.error("Error fetching organizations from Keycloak", e);
-            return responseObj.render(responseObj.formErrorResponse(e.getMessage()));
-        }
-    }
-
-    @Override
-    public ResponseEntity<ResponseDto<String>> adminChangeUserPassword(String username) {
-        logger.info("[correlationId:{}] adminChangeUserPassword called for username: {}", MDC.get("correlationId"), username);
-        BaseResponse<String> responseObj = new BaseResponse<>();
-        try {
-            Optional<AdminUser> userOpt = adminUserRepository.findByUsername(username);
-            if (userOpt.isEmpty()) {
-                return responseObj.render(responseObj.formErrorResponse("Admin user not found"));
-            }
-            
-            AdminUser user = userOpt.get();
-            
-            String randomPassword = PasswordGenerator.generateRandomPassword();
-            user.setPasswordHash(PasswordEncoder.encodePassword(randomPassword));
-            user.setCreatedAt(LocalDateTime.now());
-            adminUserRepository.save(user);
-            
-            // Send welcome email with the generated password
-            try {
-                emailService.sendPasswordResetEmail(user.getEmail(), randomPassword, user.getUsername());
-                logger.info("[correlationId:{}] Welcome email sent successfully to: {}", MDC.get("correlationId"), user.getEmail());
-            } catch (Exception emailException) {
-                logger.error("[correlationId:{}] Failed to send welcome email to: {}", MDC.get("correlationId"), user.getEmail(), emailException);
-                // Don't fail user creation if email fails
-            }
-
-            UUID orgId = user.getOrganization() != null ? user.getOrganization().getOrganizationId() : null;
-            platformAuditPublisher.publishAuthenticated(
-                    "admin",
-                    "admin_users",
-                    "ADMIN_USER",
-                    "PASSWORD_ADMIN_RESET",
-                    user.getId().toString(),
-                    orgId,
-                    Map.of("targetUsername", username));
-
-            logger.info("[correlationId:{}] Admin password change successful for user: {}", MDC.get("correlationId"), username);
-            return responseObj.render(responseObj.formSuccessResponse(Constants.SUCCESS, "User password changed successfully by admin"));
-        } catch (Exception e) {
-            logger.error("[correlationId:{}] Error changing user password by admin for user: {}", MDC.get("correlationId"), username, e);
             return responseObj.render(responseObj.formErrorResponse(e.getMessage()));
         }
     }

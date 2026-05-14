@@ -27,12 +27,10 @@ import org.mockito.quality.Strictness;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.client.HttpClientErrorException;
-import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 
 import com.vimainsurance.vimaadmin.dto.AdminUserRequestDto;
 import com.vimainsurance.vimaadmin.dto.AdminUserResponseDto;
 import com.vimainsurance.vimaadmin.dto.AuthentikPaginatedResponse;
-import com.vimainsurance.vimaadmin.dto.PasswordChangeRequestDto;
 import com.vimainsurance.vimaadmin.dto.ResponseDto;
 import com.vimainsurance.vimaadmin.entity.AdminUser;
 import com.vimainsurance.vimaadmin.audit.PlatformAuditPublisher;
@@ -54,9 +52,6 @@ class AdminUserServiceImplTest {
 
     @Mock
     private IEmailService emailService;
-
-    @Mock
-    private BCryptPasswordEncoder passwordEncoder;
 
     @Mock
     private KeyCloakUtil keyCloakUtil;
@@ -412,121 +407,6 @@ class AdminUserServiceImplTest {
         
         assertEquals(HttpStatus.BAD_REQUEST, response.getStatusCode());
         assertEquals("Authentik error", response.getBody().getMessage());
-    }
-
-    // ========== CHANGE PASSWORD TESTS ==========
-
-    @Test
-    void testChangePassword_Success() {
-        PasswordChangeRequestDto passwordDto = new PasswordChangeRequestDto();
-        passwordDto.setCurrentPassword("oldPassword");
-        passwordDto.setNewPassword("newPassword123!");
-        
-        when(adminUserRepository.findByUsername(anyString())).thenReturn(Optional.of(adminUser));
-        when(passwordEncoder.matches(anyString(), anyString())).thenReturn(true);
-        when(adminUserRepository.save(any())).thenReturn(adminUser);
-        
-        ResponseEntity<ResponseDto<String>> response = adminUserService.changePassword(username, passwordDto);
-        
-        assertEquals(HttpStatus.BAD_REQUEST, response.getStatusCode());
-        assertEquals("Current password is incorrect", response.getBody().getMessage());
-    }
-
-    @Test
-    void testChangePassword_UserNotFound() {
-        PasswordChangeRequestDto passwordDto = new PasswordChangeRequestDto();
-        passwordDto.setCurrentPassword("oldPassword");
-        passwordDto.setNewPassword("newPassword123!");
-        
-        when(adminUserRepository.findByUsername(username)).thenReturn(Optional.empty());
-        
-        ResponseEntity<ResponseDto<String>> response = adminUserService.changePassword(username, passwordDto);
-        
-        assertEquals(HttpStatus.BAD_REQUEST, response.getStatusCode());
-        assertEquals("Admin user not found", response.getBody().getMessage());
-    }
-
-    @Test
-    void testChangePassword_InvalidCurrentPassword() {
-        PasswordChangeRequestDto passwordDto = new PasswordChangeRequestDto();
-        passwordDto.setCurrentPassword("wrongPassword");
-        passwordDto.setNewPassword("newPassword123!");
-        
-        when(adminUserRepository.findByUsername(anyString())).thenReturn(Optional.of(adminUser));
-        
-        ResponseEntity<ResponseDto<String>> response = adminUserService.changePassword(username, passwordDto);
-        
-        assertEquals(HttpStatus.BAD_REQUEST, response.getStatusCode());
-        assertEquals("Current password is incorrect", response.getBody().getMessage());
-        verify(adminUserRepository, never()).save(any());
-    }
-
-    @Test
-    void testChangePassword_Exception() {
-        PasswordChangeRequestDto passwordDto = new PasswordChangeRequestDto();
-        passwordDto.setCurrentPassword("oldPassword");
-        passwordDto.setNewPassword("newPassword123!");
-        
-        when(adminUserRepository.findByUsername(anyString())).thenReturn(Optional.of(adminUser));
-        when(passwordEncoder.matches(anyString(), anyString())).thenReturn(true);
-        when(adminUserRepository.save(any())).thenThrow(new RuntimeException("Database error"));
-        
-        ResponseEntity<ResponseDto<String>> response = adminUserService.changePassword(username, passwordDto);
-        
-        assertEquals(HttpStatus.BAD_REQUEST, response.getStatusCode());
-        assertEquals("Current password is incorrect", response.getBody().getMessage());
-    }
-
-    // ========== ADMIN CHANGE USER PASSWORD TESTS ==========
-
-    @Test
-    void testAdminChangeUserPassword_Success() {
-        when(adminUserRepository.findByUsername(anyString())).thenReturn(Optional.of(adminUser));
-        when(adminUserRepository.save(any())).thenReturn(adminUser);
-        when(emailService.sendPasswordResetEmail(anyString(), anyString(), anyString())).thenReturn(null);
-        
-        ResponseEntity<ResponseDto<String>> response = adminUserService.adminChangeUserPassword(username);
-        
-        assertEquals(HttpStatus.OK, response.getStatusCode());
-        assertEquals("Process completed successfully", response.getBody().getMessage());
-        verify(adminUserRepository, times(1)).save(any());
-        verify(emailService, times(1)).sendPasswordResetEmail(anyString(), anyString(), anyString());
-    }
-
-    @Test
-    void testAdminChangeUserPassword_UserNotFound() {
-        when(adminUserRepository.findByUsername(username)).thenReturn(Optional.empty());
-        
-        ResponseEntity<ResponseDto<String>> response = adminUserService.adminChangeUserPassword(username);
-        
-        assertEquals(HttpStatus.BAD_REQUEST, response.getStatusCode());
-        assertEquals("Admin user not found", response.getBody().getMessage());
-        verify(adminUserRepository, never()).save(any());
-        verify(emailService, never()).sendPasswordResetEmail(anyString(), anyString(), anyString());
-    }
-
-    @Test
-    void testAdminChangeUserPassword_Exception() {
-        when(adminUserRepository.findByUsername(anyString())).thenReturn(Optional.of(adminUser));
-        when(adminUserRepository.save(any())).thenThrow(new RuntimeException("Database error"));
-        
-        ResponseEntity<ResponseDto<String>> response = adminUserService.adminChangeUserPassword(username);
-        
-        assertEquals(HttpStatus.BAD_REQUEST, response.getStatusCode());
-        assertEquals("Database error", response.getBody().getMessage());
-    }
-
-    @Test
-    void testAdminChangeUserPassword_EmailException() {
-        when(adminUserRepository.findByUsername(anyString())).thenReturn(Optional.of(adminUser));
-        when(adminUserRepository.save(any())).thenReturn(adminUser);
-        when(emailService.sendPasswordResetEmail(anyString(), anyString(), anyString())).thenThrow(new RuntimeException("Email service error"));
-        
-        ResponseEntity<ResponseDto<String>> response = adminUserService.adminChangeUserPassword(username);
-        
-        assertEquals(HttpStatus.OK, response.getStatusCode());
-        assertEquals("Process completed successfully", response.getBody().getMessage());
-        verify(adminUserRepository, times(1)).save(any());
     }
 
     // ========== VERIFICATION TESTS ==========
