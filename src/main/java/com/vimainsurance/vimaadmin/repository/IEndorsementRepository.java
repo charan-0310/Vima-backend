@@ -248,5 +248,27 @@ public interface IEndorsementRepository extends JpaRepository<Endorsement, UUID>
     List<Object[]> getPolicyPremiumSummaryByOrganizationAndPolicyIds(@Param("organizationId") UUID organizationId,
                                                                      @Param("policyIds") List<Long> policyIds);
 
+    @Query(value = """
+        SELECT EXTRACT(YEAR FROM e.created_at)::int AS y,
+               EXTRACT(MONTH FROM e.created_at)::int AS m,
+               COUNT(*) FILTER (WHERE e.endorsement_type::text IN ('ADDITION', 'BULK_UPLOAD', 'INITIAL_UPLOAD')),
+               COUNT(*) FILTER (WHERE e.endorsement_type::text = 'DELETION')
+        FROM cpc.endorsements e
+        WHERE e.created_at >= :start AND e.created_at < :endExclusive
+        GROUP BY y, m
+        ORDER BY y, m
+        """, nativeQuery = true)
+    List<Object[]> aggregateMonthlyEndorsementActivityAllOrgs(
+            @Param("start") LocalDateTime start,
+            @Param("endExclusive") LocalDateTime endExclusive);
+
+    @Query(value = """
+        SELECT AVG((EXTRACT(EPOCH FROM (e.approved_at - e.created_at)) / 86400.0))
+        FROM cpc.endorsements e
+        WHERE e.approved_at IS NOT NULL
+          AND e.status::text IN ('APPROVED', 'COMPLETED')
+        """, nativeQuery = true)
+    Double avgEndorsementApprovalTurnaroundDays();
+
 }
 

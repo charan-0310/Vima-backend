@@ -57,5 +57,15 @@ public interface IEnrollmentWindowsRepository extends JpaRepository<EnrollmentWi
         WHERE status = 'SCHEDULED' AND end_date < :currentDate
         """, nativeQuery = true)
     int markExpiredWindows(@Param("currentDate") LocalDate currentDate);
+
+    @Query(value = """
+        SELECT COUNT(*)
+        FROM cpc.enrollment_windows w
+        WHERE w.closed_at IS NULL
+          AND w.status::text NOT IN ('CLOSED', 'CANCELLED', 'EXPIRED')
+          AND w.end_date >= :today
+          AND w.end_date <= :until
+        """, nativeQuery = true)
+    long countEnrollmentWindowsExpiringSoon(@Param("today") LocalDate today, @Param("until") LocalDate until);
 }
 
