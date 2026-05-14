@@ -37,8 +37,9 @@ public class ClaimsNotificationService {
     /**
      * When false, skips only the admin email for "claim ready for manual submission to insurer"
      * ({@code claim_manual_submission_admin}). Other claim emails are unchanged.
+     * Default false when the property is omitted (Slack / in-app claims team notifications are separate).
      */
-    @Value("${claims.email.manual-submission-admin-notification-enabled:true}")
+    @Value("${claims.email.manual-submission-admin-notification-enabled:false}")
     private boolean manualSubmissionAdminNotificationEnabled;
 
     public void notifyStatusChange(Claim claim, ClaimStatus oldStatus, ClaimStatus newStatus) {
