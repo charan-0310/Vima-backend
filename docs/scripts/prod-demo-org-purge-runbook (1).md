@@ -73,10 +73,14 @@ BEGIN;
 
 CREATE TEMP TABLE target_orgs (organization_id uuid PRIMARY KEY);
 
-INSERT INTO target_orgs (organization_id) VALUES
-('3cd63934-59cb-4972-87ff-e047642e4640'),
-('60bbee7b-eff9-4ca1-ab9f-3fc73580901d'),
-('43807613-dea0-46d4-b8ce-b3a6aec368c5');
+INSERT INTO target_orgs (organization_id)
+SELECT organization_id
+FROM cpc.organizations
+WHERE organization_id IN (
+  '3cd63934-59cb-4972-87ff-e047642e4640',
+  '60bbee7b-eff9-4ca1-ab9f-3fc73580901d',
+  '43807613-dea0-46d4-b8ce-b3a6aec368c5'
+);
 
 -- Sanity check: confirm these are the right orgs
 SELECT organization_id, organization_name, status, created_at
@@ -138,9 +142,12 @@ This order is based on what exists in your Flyway migrations; key blockers are:
 
 - `cpc.cd_balance_transactions.organization_id` is `ON DELETE RESTRICT` → must be deleted before deleting orgs.
 - `cpc.cd_accounts.organization_id` is `ON DELETE RESTRICT` (added in `V57`) → must be deleted before deleting orgs.
+- `cpc.wellness_access_logs.organization_id` → `cpc.organizations` (`V66`, default `NO ACTION`) → must be deleted before deleting orgs.
+- `admin.feature_flag_companies.organization_id` → `cpc.organizations` (FK enforced in DB; `V1` table) → must be deleted before deleting orgs.
+- `admin.notifications.company_id` → `cpc.organizations` (`V75`, `ON DELETE SET NULL`) → not an FK blocker; delete explicitly so inbox/delivery rows for the org are removed (`notification_deliveries` cascades from `notifications`).
 - `cpc.endorsements.policy_id` → `cpc.policies` (`fk_endorsements_policy`, `V59`, default `NO ACTION`) → **endorsements for the org must be removed before policies** (otherwise Postgres raises `23503` on `DELETE FROM cpc.policies`).
 
-Run this in pgAdmin Query Tool:
+Run this in pgAdmin Query Tool. Targets are loaded with `INSERT … SELECT … WHERE organization_id IN (…)` so `target_orgs` only contains IDs that exist in `cpc.organizations` at run time.
 
 ```sql
 BEGIN;
@@ -149,10 +156,15 @@ SET LOCAL statement_timeout = '20min';
 SET LOCAL lock_timeout = '30s';
 
 CREATE TEMP TABLE target_orgs (organization_id uuid PRIMARY KEY);
-INSERT INTO target_orgs (organization_id) VALUES
-('3cd63934-59cb-4972-87ff-e047642e4640'),
-('60bbee7b-eff9-4ca1-ab9f-3fc73580901d'),
-('43807613-dea0-46d4-b8ce-b3a6aec368c5');
+
+INSERT INTO target_orgs (organization_id)
+SELECT organization_id
+FROM cpc.organizations
+WHERE organization_id IN (
+  '3cd63934-59cb-4972-87ff-e047642e4640',
+  '60bbee7b-eff9-4ca1-ab9f-3fc73580901d',
+  '43807613-dea0-46d4-b8ce-b3a6aec368c5'
+);
 
 -- Last chance sanity check
 SELECT organization_id, organization_name
@@ -220,12 +232,12 @@ WHERE epm.organization_id = o.organization_id;
 -- Pre-clear customer FKs that point to enrollment records in this org
 UPDATE cpc.customers c
 SET enrollment_submission_id = NULL
-USING target_orgs o
+FROM target_orgs o
 WHERE c.organization_id = o.organization_id;
 
 UPDATE cpc.customers c
 SET enrollment_window_id = NULL
-USING target_orgs o
+FROM target_orgs o
 WHERE c.organization_id = o.organization_id;
 
 -- nominees has check_policy_or_submission; delete nominees tied to target submissions
@@ -289,9 +301,24 @@ DELETE FROM cpc.customers c
 USING target_orgs o
 WHERE c.organization_id = o.organization_id;
 
+-- wellness_access_logs.organization_id is NO ACTION (V66)
+DELETE FROM cpc.wellness_access_logs w
+USING target_orgs o
+WHERE w.organization_id = o.organization_id;
+
 -- ============================================================
 -- E) Admin + audit references
 -- ============================================================
+
+-- Per-org feature flag rows (FK to cpc.organizations in DB)
+DELETE FROM admin.feature_flag_companies ffc
+USING target_orgs o
+WHERE ffc.organization_id = o.organization_id;
+
+-- Unified notifications (V75): company_id → organizations; deliveries cascade from notifications
+DELETE FROM admin.notifications n
+USING target_orgs o
+WHERE n.company_id = o.organization_id;
 
 DELETE FROM admin.admin_users u
 USING target_orgs o
