@@ -78,7 +78,7 @@ public class SwaggerUIConfig implements WebMvcConfigurer {
 	 */
 	@Bean
 	public GroupedOpenApi userAuthenticationGroup() {
-		return GroupedOpenApi.builder().group("Authentication").pathsToMatch("/api/v1/login/**").build();
+		return GroupedOpenApi.builder().group("Authentication").pathsToMatch("/api/v1/auth/**").build();
 	}
 
 	/**

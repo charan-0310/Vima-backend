@@ -20,7 +20,6 @@ import com.vimainsurance.vimaadmin.dto.AdminUsersFilteredResponseDto;
 import com.vimainsurance.vimaadmin.dto.UserManagementStatsDto;
 import com.vimainsurance.vimaadmin.dto.AuthentikGroupsResponseDto;
 import com.vimainsurance.vimaadmin.dto.OrganizationDto;
-import com.vimainsurance.vimaadmin.dto.PasswordChangeRequestDto;
 import com.vimainsurance.vimaadmin.dto.ResponseDto;
 import com.vimainsurance.vimaadmin.dto.RoleDto;
 import com.vimainsurance.vimaadmin.service.IAdminUserService;
@@ -142,15 +141,4 @@ public class AdminUserController {
         return adminUserService.getOrganizations();
     }
 
-    @PostMapping("/{username}/change-password")
-    public ResponseEntity<ResponseDto<String>> changePassword(@PathVariable String username, @RequestBody PasswordChangeRequestDto requestDto) {
-        return adminUserService.changePassword(username, requestDto);
-    }
-
-    @PostMapping("/{username}/reset-password")
-    public ResponseEntity<ResponseDto<String>> adminChangeUserPassword(@PathVariable String username) {
-        return adminUserService.adminChangeUserPassword(username);
-    }
-
-    
 } 
