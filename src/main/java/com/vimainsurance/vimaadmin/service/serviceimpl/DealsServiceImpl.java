@@ -923,19 +923,18 @@ public class DealsServiceImpl implements IDealsService{
                 totalCustomers = 0L;
             }
 
-            Long totalActivePolicies = policyRepository.countByStatus(PolicyStatus.ACTIVE);
+            Long totalActivePolicies = policyRepository.countRetailPoliciesByStatus(PolicyStatus.ACTIVE);
             if (totalActivePolicies == null) {
                 totalActivePolicies = 0L;
             }
 
-            // Use aggregation queries instead of loading all active policies into memory
-            // This prevents OutOfMemoryError when there are many active policies
-            BigDecimal totalCoverage = policyRepository.sumSumInsuredByStatus(PolicyStatus.ACTIVE);
+            // Scoped to retail customers (Deals primary members with no organization)
+            BigDecimal totalCoverage = policyRepository.sumRetailSumInsuredByStatus(PolicyStatus.ACTIVE);
             if (totalCoverage == null) {
                 totalCoverage = BigDecimal.ZERO;
             }
 
-            BigDecimal totalPremium = policyRepository.sumPremiumAmountByStatus(PolicyStatus.ACTIVE);
+            BigDecimal totalPremium = policyRepository.sumRetailPremiumAmountByStatus(PolicyStatus.ACTIVE);
             if (totalPremium == null) {
                 totalPremium = BigDecimal.ZERO;
             }

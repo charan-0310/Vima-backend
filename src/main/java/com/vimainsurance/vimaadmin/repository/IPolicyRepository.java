@@ -143,6 +143,61 @@ public interface IPolicyRepository extends JpaRepository<Policy, Long> {
     BigDecimal sumPremiumAmountByStatus(@Param("status") PolicyStatus status);
 
     /**
+     * Count active retail (non-organization) policies
+     */
+    @Query("SELECT COUNT(p) FROM Policy p WHERE p.status = :status AND p.organizationId IS NULL")
+    long countByStatusAndOrganizationIdIsNull(@Param("status") PolicyStatus status);
+
+    /**
+     * Sum of sumInsured for active retail (non-organization) policies
+     */
+    @Query("SELECT COALESCE(SUM(p.sumInsured), 0) FROM Policy p WHERE p.status = :status AND p.organizationId IS NULL")
+    BigDecimal sumSumInsuredByStatusAndOrganizationIdIsNull(@Param("status") PolicyStatus status);
+
+    /**
+     * Sum of premiumAmount for active retail (non-organization) policies
+     */
+    @Query("SELECT COALESCE(SUM(p.premiumAmount), 0) FROM Policy p WHERE p.status = :status AND p.organizationId IS NULL")
+    BigDecimal sumPremiumAmountByStatusAndOrganizationIdIsNull(@Param("status") PolicyStatus status);
+
+    /**
+     * Retail dashboard scope: policies whose primaryIndividualId is a retail primary customer (customers.organization_id IS NULL).
+     * This is more reliable than Policy.organizationId IS NULL because retail policies may still carry an organizationId.
+     */
+    @Query("""
+            SELECT COUNT(p)
+            FROM Policy p
+            WHERE p.status = :status
+              AND p.primaryIndividualId IN (
+                SELECT d.individualId FROM Deals d
+                WHERE d.isPrimaryMember = true AND d.organization IS NULL
+              )
+            """)
+    long countRetailPoliciesByStatus(@Param("status") PolicyStatus status);
+
+    @Query("""
+            SELECT COALESCE(SUM(p.sumInsured), 0)
+            FROM Policy p
+            WHERE p.status = :status
+              AND p.primaryIndividualId IN (
+                SELECT d.individualId FROM Deals d
+                WHERE d.isPrimaryMember = true AND d.organization IS NULL
+              )
+            """)
+    BigDecimal sumRetailSumInsuredByStatus(@Param("status") PolicyStatus status);
+
+    @Query("""
+            SELECT COALESCE(SUM(p.premiumAmount), 0)
+            FROM Policy p
+            WHERE p.status = :status
+              AND p.primaryIndividualId IN (
+                SELECT d.individualId FROM Deals d
+                WHERE d.isPrimaryMember = true AND d.organization IS NULL
+              )
+            """)
+    BigDecimal sumRetailPremiumAmountByStatus(@Param("status") PolicyStatus status);
+
+    /**
      * Find policy IDs whose product type is TOP_UP or SUPER_TOP_UP (for enrollment top-up mapping cancellation).
      */
     @Query("SELECT p.policyId FROM Policy p WHERE p.productType IN :productTypes")
