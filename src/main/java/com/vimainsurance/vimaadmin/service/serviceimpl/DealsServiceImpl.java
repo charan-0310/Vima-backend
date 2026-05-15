@@ -465,7 +465,10 @@ public class DealsServiceImpl implements IDealsService{
             AdminUser agent = adminUser.get();
             requestDto.setUploadedBy(agent.getId());
             requestDto.setUploadedByRole(UserRole.fromValue(agent.getRole()));
-            ResponseEntity<ResponseDto<List<Document>>> response = documentService.uploadKYCDocuments(requestDto.getFiles(), individualId.toString(), DocumentEntityType.INDIVIDUAL, DocumentType.fromValue(requestDto.getDocumentType()), requestDto.getUploadedBy(), requestDto.getUploadedByRole(), requestDto.getNotes(), DocumentCategory.KYC_DOCUMENTS);
+            DocumentCategory category = requestDto.getDocumentCategory() != null && !requestDto.getDocumentCategory().isBlank()
+                ? DocumentCategory.fromValue(requestDto.getDocumentCategory())
+                : DocumentCategory.KYC_DOCUMENTS;
+            ResponseEntity<ResponseDto<List<Document>>> response = documentService.uploadKYCDocuments(requestDto.getFiles(), individualId.toString(), DocumentEntityType.INDIVIDUAL, DocumentType.fromValue(requestDto.getDocumentType()), requestDto.getUploadedBy(), requestDto.getUploadedByRole(), requestDto.getNotes(), category);
             if(response.getBody() != null && response.getBody().getErrorCode() != null){
                 return responseObj.render(responseObj.formErrorResponse(response.getBody().getMessage()));
             }

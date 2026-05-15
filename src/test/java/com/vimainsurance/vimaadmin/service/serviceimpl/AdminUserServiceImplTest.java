@@ -105,6 +105,8 @@ class AdminUserServiceImplTest {
         when(adminUserRepository.findByUsername(requestDto.getUsername())).thenReturn(Optional.empty());
         when(adminUserRepository.findByEmail(requestDto.getEmail())).thenReturn(Optional.empty());
         when(adminUserRepository.save(any(AdminUser.class))).thenReturn(adminUser);
+        when(idGenerator.generateVimaId()).thenReturn("VIMA-AGENT-001");
+        when(keyCloakUtil.emailExistsInRealm(anyString())).thenReturn(false);
         when(keyCloakUtil.createUser(anyString(), anyString(), anyString(), anyString(), any(), any(Boolean.class), nullable(String.class), anyString())).thenReturn("TempPassword123");
         
         ResponseEntity<ResponseDto<String>> response = adminUserService.createAdminUser(requestDto);
@@ -416,6 +418,8 @@ class AdminUserServiceImplTest {
         when(adminUserRepository.findByUsername(requestDto.getUsername())).thenReturn(Optional.empty());
         when(adminUserRepository.findByEmail(requestDto.getEmail())).thenReturn(Optional.empty());
         when(adminUserRepository.save(any(AdminUser.class))).thenReturn(adminUser);
+        when(idGenerator.generateVimaId()).thenReturn("VIMA-AGENT-001");
+        when(keyCloakUtil.emailExistsInRealm(anyString())).thenReturn(false);
         when(keyCloakUtil.createUser(anyString(), anyString(), anyString(), anyString(), any(), any(Boolean.class), nullable(String.class), anyString())).thenReturn("TempPassword123");
         
         adminUserService.createAdminUser(requestDto);

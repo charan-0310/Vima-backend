@@ -47,11 +47,14 @@ import com.vimainsurance.vimaadmin.dto.OrganizationEmployeeDto;
 import com.vimainsurance.vimaadmin.dto.EmployeeOnboardingResponseDto;
 import com.vimainsurance.vimaadmin.dto.OrganizationBroadcastEmailRequestDto;
 import com.vimainsurance.vimaadmin.dto.OrganizationBroadcastEmailResponseDto;
+import com.vimainsurance.vimaadmin.dto.OrganizationCreateHrAdminRequestDto;
+import com.vimainsurance.vimaadmin.dto.OrganizationHrAdminSummaryDto;
 import com.vimainsurance.vimaadmin.dto.OrganizationCreateLoginsRequestDto;
 import com.vimainsurance.vimaadmin.dto.OrganizationEmployeeLoginPreviewDto;
 import com.vimainsurance.vimaadmin.dto.OrganizationRequestDto;
 import com.vimainsurance.vimaadmin.dto.OrganizationResponseDto;
 import com.vimainsurance.vimaadmin.dto.ResponseDto;
+import com.vimainsurance.vimaadmin.service.IAdminUserService;
 import com.vimainsurance.vimaadmin.service.IOrganizationEmployeeLoginService;
 import com.vimainsurance.vimaadmin.service.IOrganizationService;
 
@@ -67,6 +70,9 @@ public class OrganizationController {
 
     @Autowired
     private IOrganizationEmployeeLoginService organizationEmployeeLoginService;
+
+    @Autowired
+    private IAdminUserService adminUserService;
 
     @Autowired
     private ObjectMapper objectMapper;
@@ -191,6 +197,35 @@ public class OrganizationController {
         logger.info("[correlationId:{}] /organization/{}/employees/logins/preview (GET) endpoint called",
                 MDC.get("correlationId"), organizationId);
         return organizationEmployeeLoginService.previewEmployeeLogins(organizationId);
+    }
+
+    @GetMapping("/organization/{organizationId}/hr-admins")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'VIMA_ADMIN')")
+    public ResponseEntity<ResponseDto<List<OrganizationHrAdminSummaryDto>>> listHrAdmins(
+            @CurrentOrganization UUID organizationId) {
+        logger.info("[correlationId:{}] /organization/{}/hr-admins (GET) endpoint called",
+                MDC.get("correlationId"), organizationId);
+        return adminUserService.listHrAdminsForOrganization(organizationId);
+    }
+
+    @PostMapping("/organization/{organizationId}/hr-admins")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'VIMA_ADMIN')")
+    public ResponseEntity<ResponseDto<String>> createHrAdmin(
+            @CurrentOrganization UUID organizationId,
+            @RequestBody OrganizationCreateHrAdminRequestDto requestDto) {
+        logger.info("[correlationId:{}] /organization/{}/hr-admins (POST) endpoint called",
+                MDC.get("correlationId"), organizationId);
+        return adminUserService.createHrAdminForOrganization(organizationId, requestDto);
+    }
+
+    @PostMapping("/organization/{organizationId}/hr-admins/demote")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'VIMA_ADMIN')")
+    public ResponseEntity<ResponseDto<String>> demoteHrAdmin(
+            @CurrentOrganization UUID organizationId,
+            @RequestBody OrganizationCreateHrAdminRequestDto requestDto) {
+        logger.info("[correlationId:{}] /organization/{}/hr-admins/demote (POST) endpoint called",
+                MDC.get("correlationId"), organizationId);
+        return adminUserService.demoteHrAdminForOrganization(organizationId, requestDto);
     }
 
     @PostMapping("/organization/{organizationId}/employees/logins/create")

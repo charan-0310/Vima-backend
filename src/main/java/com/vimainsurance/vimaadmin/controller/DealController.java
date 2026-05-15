@@ -86,10 +86,12 @@ public class DealController {
             @PathVariable UUID individualId,
             @RequestParam("files") MultipartFile[] files,
             @RequestParam("documentType") String documentType,
+            @RequestParam(value = "documentCategory", required = false) String documentCategory,
             @RequestParam(value = "notes", required = false) String notes) {
         DocumentRequestDto requestDto = new DocumentRequestDto();
         requestDto.setFiles(files);
         requestDto.setDocumentType(documentType);
+        requestDto.setDocumentCategory(documentCategory);
         requestDto.setNotes(notes);
         return dealsService.uploadDocument(requestDto, individualId);
     }

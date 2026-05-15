@@ -9,6 +9,7 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Locale;
 import java.util.Objects;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutionException;
@@ -70,6 +71,59 @@ public class KeyCloakUtil {
 
     private static final String ROLE_PREFIX = "ROLE_";
     private static final String ORG_PREFIX = "ORG_";
+
+    /** Realm roles that are Keycloak internals — never show in Vima user-management UI. */
+    private static final List<String> APPLICATION_ROLE_PRIORITY = List.of(
+            "ROLE_SUPER_ADMIN", "ROLE_ADMIN", "ROLE_VIMA_ADMIN", "ROLE_SALES_MANAGER", "ROLE_SALES_ADMIN",
+            "ROLE_HR_ADMIN", "ROLE_SALES_AGENT", "ROLE_CLAIMS_PROCESSOR", "ROLE_SUPPORT_AGENT",
+            "ROLE_SALES_POSP", "ROLE_EMPLOYEE");
+
+    /**
+     * Keycloak assigns every user {@code default-roles-<realm>}, plus default client roles.
+     * These are not application roles and should not appear in the admin portal.
+     */
+    public static boolean isKeycloakInternalRole(String roleName) {
+        if (roleName == null || roleName.isBlank()) {
+            return true;
+        }
+        String lower = roleName.trim().toLowerCase(Locale.ROOT);
+        if (lower.contains("default-roles")) {
+            return true;
+        }
+        return "uma_authorization".equals(lower) || "offline_access".equals(lower);
+    }
+
+    public static String normalizeApplicationRoleName(String roleName) {
+        if (roleName == null || roleName.isBlank()) {
+            return roleName;
+        }
+        String trimmed = roleName.trim();
+        return trimmed.startsWith(ROLE_PREFIX) ? trimmed : ROLE_PREFIX + trimmed;
+    }
+
+    public static List<String> filterApplicationRoles(List<String> roles) {
+        if (roles == null || roles.isEmpty()) {
+            return List.of();
+        }
+        return roles.stream()
+                .filter(Objects::nonNull)
+                .map(KeyCloakUtil::normalizeApplicationRoleName)
+                .filter(r -> !isKeycloakInternalRole(r))
+                .distinct()
+                .collect(Collectors.toList());
+    }
+
+    public static String resolvePrimaryApplicationRole(List<String> applicationRoles) {
+        if (applicationRoles == null || applicationRoles.isEmpty()) {
+            return null;
+        }
+        for (String priority : APPLICATION_ROLE_PRIORITY) {
+            if (applicationRoles.contains(priority)) {
+                return priority;
+            }
+        }
+        return applicationRoles.get(0);
+    }
     private static final int MAX_GROUPS = 500;
     /** Max distinct emails per preview call (guardrail for Keycloak Admin API load). */
     private static final int EMAIL_PREVIEW_MAX_UNIQUE = 25_000;
@@ -121,9 +175,11 @@ public class KeyCloakUtil {
                     if (rr == null) continue;
                     String name = rr.getName();
                     if (name == null || name.isBlank()) continue;
+                    String normalized = normalizeApplicationRoleName(name);
+                    if (isKeycloakInternalRole(normalized)) continue;
                     RoleDto dto = new RoleDto();
                     dto.setId(rr.getId() != null ? rr.getId() : name);
-                    dto.setName(name.startsWith(ROLE_PREFIX) ? name : ROLE_PREFIX + name);
+                    dto.setName(normalized);
                     roles.add(dto);
                 }
             }
@@ -379,11 +435,15 @@ public class KeyCloakUtil {
                 UserResource userResource = keycloak.realm(realm).users().get(ur.getId());
                 List<RoleRepresentation> realmRoles = userResource.roles().realmLevel().listEffective();
                 if (realmRoles != null) {
+                    List<String> rawRoles = new ArrayList<>();
                     for (RoleRepresentation rr : realmRoles) {
                         if (rr != null && rr.getName() != null) {
-                            dto.getRoles().add(rr.getName().startsWith(ROLE_PREFIX) ? rr.getName() : ROLE_PREFIX + rr.getName());
+                            rawRoles.add(normalizeApplicationRoleName(rr.getName()));
                         }
                     }
+                    List<String> applicationRoles = filterApplicationRoles(rawRoles);
+                    dto.getRoles().addAll(applicationRoles);
+                    dto.setRole(resolvePrimaryApplicationRole(applicationRoles));
                 }
                 List<GroupRepresentation> groups = userResource.groups();
                 if (groups != null) {
@@ -520,6 +580,17 @@ public class KeyCloakUtil {
         }
     }
 
+    /**
+     * Keycloak realm roles are stored with a {@code ROLE_} prefix (e.g. {@code ROLE_HR_ADMIN}).
+     */
+    public static String normalizeRealmRoleName(String role) {
+        if (role == null || role.isBlank()) {
+            return role;
+        }
+        String trimmed = role.trim();
+        return trimmed.startsWith("ROLE_") ? trimmed : "ROLE_" + trimmed;
+    }
+
     private String createUserInternal(Keycloak keycloak, Map<String, String> groupNameToId,
             RoleRepresentation prefetchedRealmRole,
             String name, String u, String e, String role, List<String> organizations, Boolean isActive,
@@ -575,7 +646,7 @@ public class KeyCloakUtil {
             userResource.update(createdUser);
 
             if (role != null && !role.trim().isEmpty()) {
-                String roleName = role.trim();
+                String roleName = normalizeRealmRoleName(role);
                 RoleRepresentation realmRoleToAssign = prefetchedRealmRole;
                 if (realmRoleToAssign == null || !roleName.equals(realmRoleToAssign.getName())) {
                     try {
@@ -822,7 +893,7 @@ public class KeyCloakUtil {
 
         UserResource userResource = realmResource.users().get(existing.getId());
         boolean roleAssignmentOk = true;
-        String roleName = role != null ? role.trim() : "";
+        String roleName = role != null ? normalizeRealmRoleName(role) : "";
         if (!roleName.isEmpty()) {
             List<RoleRepresentation> currentRoles = userResource.roles().realmLevel().listAll();
             boolean alreadyHasRole = currentRoles != null && currentRoles.stream()
@@ -867,6 +938,59 @@ public class KeyCloakUtil {
             }
         }
         return roleAssignmentOk && orgAssignmentOk;
+    }
+
+    /**
+     * Removes a realm role from an existing Keycloak user identified by email.
+     *
+     * @return true when user exists and role removal completes (or role was not assigned); false when user not found.
+     */
+    public boolean removeRoleFromExistingUserByEmail(String email, String role) {
+        if (email == null || email.isBlank()) {
+            return false;
+        }
+        if (!isConfigPresent()) {
+            logger.warn("Keycloak config missing; cannot remove role from existing user");
+            return false;
+        }
+        try (Keycloak keycloak = getKeycloakClient()) {
+            return removeRoleFromExistingUserInternal(keycloak, email, role);
+        } catch (Exception e) {
+            logger.error("Failed to remove role {} from existing user {} in Keycloak", role, email, e);
+            return false;
+        }
+    }
+
+    private boolean removeRoleFromExistingUserInternal(Keycloak keycloak, String email, String role) {
+        var realmResource = keycloak.realm(realm);
+        List<UserRepresentation> users = realmResource.users().search(email.trim(), true, 0, 20);
+        if (users == null || users.isEmpty()) {
+            return false;
+        }
+        List<UserRepresentation> emailMatches = users.stream()
+                .filter(u -> u != null && u.getEmail() != null && email.trim().equalsIgnoreCase(u.getEmail().trim()))
+                .collect(Collectors.toList());
+        if (emailMatches.isEmpty() || emailMatches.get(0).getId() == null) {
+            return false;
+        }
+        UserResource userResource = realmResource.users().get(emailMatches.get(0).getId());
+        String roleName = role != null ? normalizeRealmRoleName(role) : "";
+        if (roleName.isEmpty()) {
+            return true;
+        }
+        List<RoleRepresentation> currentRoles = userResource.roles().realmLevel().listAll();
+        if (currentRoles == null || currentRoles.stream()
+                .noneMatch(r -> r != null && roleName.equals(r.getName()))) {
+            return true;
+        }
+        try {
+            RoleRepresentation realmRole = realmResource.roles().get(roleName).toRepresentation();
+            userResource.roles().realmLevel().remove(Collections.singletonList(realmRole));
+            return true;
+        } catch (Exception ex) {
+            logger.warn("Role {} not found or could not be removed for {} in realm {}", roleName, email, realm);
+            return false;
+        }
     }
 
     public void setUserAttribute(String email, String attributeName, String attributeValue) {
