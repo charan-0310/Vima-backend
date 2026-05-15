@@ -8,6 +8,12 @@ public class ResponseDto<T> {
 
 	private Integer errorCode = null;
 
+	/**
+	 * Optional machine-readable error key for clients (e.g. NO_RATE_TABLE_CONFIGURED).
+	 * Null on success and for legacy numeric-only errors.
+	 */
+	private String errorKey;
+
 	private T payload;
 
 	private long totalRecords = 0;
@@ -50,6 +56,13 @@ public class ResponseDto<T> {
 		this.errorCode = errorCode;
 	}
 
+	public ResponseDto(Integer errorCode, String message, T payload, String errorKey) {
+		this.message = message;
+		this.payload = payload;
+		this.errorCode = errorCode;
+		this.errorKey = errorKey;
+	}
+
 	public ResponseDto(String message, T payload, long totalRecords, Integer errorCode) {
 		this.message = message;
 		this.payload = payload;
@@ -81,6 +94,14 @@ public class ResponseDto<T> {
 
 	public void setErrorCode(Integer errorCode) {
 		this.errorCode = errorCode;
+	}
+
+	public String getErrorKey() {
+		return errorKey;
+	}
+
+	public void setErrorKey(String errorKey) {
+		this.errorKey = errorKey;
 	}
 
 	public void setPayload(T payload) {

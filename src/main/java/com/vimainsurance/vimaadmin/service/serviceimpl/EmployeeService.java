@@ -48,6 +48,7 @@ import com.vimainsurance.vimaadmin.entity.Endorsement;
 import com.vimainsurance.vimaadmin.enums.ConfirmationMethod;
 import com.vimainsurance.vimaadmin.enums.DocumentCategory;
 import com.vimainsurance.vimaadmin.enums.DocumentType;
+import com.vimainsurance.vimaadmin.exception.NoRateTableConfiguredException;
 import com.vimainsurance.vimaadmin.enums.EndorsementType;
 
 import jakarta.validation.ConstraintViolation;
@@ -74,6 +75,7 @@ import com.vimainsurance.vimaadmin.repository.IDocumentRepository;
 import com.vimainsurance.vimaadmin.repository.IEmployeePolicyMapRepository;
 import com.vimainsurance.vimaadmin.exception.DocumentUploadException;
 import com.vimainsurance.vimaadmin.util.TopupPremiumOptionsUtil;
+import com.vimainsurance.vimaadmin.util.Constants;
 import com.vimainsurance.vimaadmin.util.GmcCoverageUploadValidationUtil;
 import com.vimainsurance.vimaadmin.service.policy.PolicyMemberMappingHelper;
 import com.vimainsurance.vimaadmin.notification.FlagshipNotificationService;
@@ -329,32 +331,10 @@ public class EmployeeService {
                 java.math.BigDecimal planPremium = b.premium() != null ? b.premium() : java.math.BigDecimal.ZERO;
                 java.math.BigDecimal gst = b.gstAmount() != null ? b.gstAmount() : java.math.BigDecimal.ZERO;
 
-                // Apply cost sharing
                 String coverageCategory = resolveCoverageCategoryForCostSharing(coveredMembers);
-                String costSharingPlanType =
-                        ("PARENT_GMC".equals(upper) || "GMC_PARENT".equals(upper)) ? "GMC" : planType;
+                String costSharingPlanType = planType;
                 CostShareSplit split = costSharingRuleService.applyCostSharing(
                         companyId, costSharingPlanType, coverageCategory, planPremium);
-                // Keep parent review aligned with enrollment review behavior: 50/50 by default
-                // when parent-specific rule is missing and engine falls back to 100% employer.
-                if (("PARENT_GMC".equals(upper) || "GMC_PARENT".equals(upper))
-                        && split != null
-                        && split.getEmployeeShare() != null
-                        && split.getEmployerShare() != null
-                        && split.getEmployeeShare().compareTo(java.math.BigDecimal.ZERO) == 0
-                        && split.getEmployerShare().compareTo(planPremium) == 0) {
-                    java.math.BigDecimal employer = planPremium
-                            .divide(java.math.BigDecimal.valueOf(2), 2, java.math.RoundingMode.HALF_UP);
-                    java.math.BigDecimal employee = planPremium.subtract(employer)
-                            .setScale(2, java.math.RoundingMode.HALF_UP);
-                    split = CostShareSplit.builder()
-                            .employerShare(employer)
-                            .employeeShare(employee)
-                            .shareType(split.getShareType())
-                            .shareValue(split.getShareValue())
-                            .ruleId(split.getRuleId())
-                            .build();
-                }
 
                 // Voluntary add-ons always 100% employee-paid
                 if ("TOP_UP".equals(upper) || "SUPER_TOP_UP".equals(upper)) {
@@ -364,6 +344,7 @@ public class EmployeeService {
                             .shareType(split.getShareType())
                             .shareValue(split.getShareValue())
                             .ruleId(split.getRuleId())
+                            .appliedCategory(split.getAppliedCategory())
                             .build();
                 }
 
@@ -376,8 +357,12 @@ public class EmployeeService {
                         .build());
 
                 totalAnnual = totalAnnual.add(planPremium);
-                totalEmployer = totalEmployer.add(split.getEmployerShare());
-                totalEmployee = totalEmployee.add(split.getEmployeeShare());
+                if (split.getEmployerShare() != null) {
+                    totalEmployer = totalEmployer.add(split.getEmployerShare());
+                }
+                if (split.getEmployeeShare() != null) {
+                    totalEmployee = totalEmployee.add(split.getEmployeeShare());
+                }
                 totalGst = totalGst.add(gst);
             }
 
@@ -391,6 +376,13 @@ public class EmployeeService {
                     .build();
 
             return responseObj.render(responseObj.formSuccessResponse("OK", out));
+        } catch (NoRateTableConfiguredException e) {
+            log.info("previewBulkEmployeePremium: no rate table for company {} plan {}: {}",
+                    companyId, e.getPlanType(), e.getMessage());
+            return responseObj.render(responseObj.formErrorResponseWithKey(422,
+                    "Add a Rate Card with effective dates covering today to calculate premium.",
+                    null,
+                    Constants.ERROR_KEY_NO_RATE_TABLE_CONFIGURED));
         } catch (IllegalArgumentException e) {
             log.error("previewBulkEmployeePremium validation error: {}", e.getMessage(), e);
             return responseObj.render(responseObj.formErrorResponse(400, e.getMessage()));
@@ -413,16 +405,32 @@ public class EmployeeService {
     }
 
     private static String resolveCoverageCategoryForCostSharing(List<IPremiumCalculationService.MemberInfo> members) {
-        if (members == null || members.size() <= 1) return "SELF";
+        if (members == null || members.isEmpty()) {
+            return "SELF";
+        }
         boolean hasParent = false;
         boolean hasParentInLaw = false;
         for (IPremiumCalculationService.MemberInfo m : members) {
             String t = m.memberType();
-            if ("parent".equalsIgnoreCase(t)) hasParent = true;
-            if ("parent_in_law".equalsIgnoreCase(t)) hasParentInLaw = true;
+            if (t == null) {
+                continue;
+            }
+            if ("parent".equalsIgnoreCase(t)) {
+                hasParent = true;
+            }
+            if ("parent_in_law".equalsIgnoreCase(t)) {
+                hasParentInLaw = true;
+            }
         }
-        if (hasParent) return "PARENT";
-        if (hasParentInLaw) return "PARENT_IN_LAW";
+        if (hasParent) {
+            return "PARENT";
+        }
+        if (hasParentInLaw) {
+            return "PARENT_IN_LAW";
+        }
+        if (members.size() == 1) {
+            return "SELF";
+        }
         return "FAMILY";
     }
 
@@ -515,7 +523,19 @@ public class EmployeeService {
             if (childCount > 4) {
                 errors.add("employeeId: " + employeeId + " - Maximum 4 Children are allowed");
             }
-            
+            int maxExplicitChildIdx = maxExplicitChildIndexInGroup(employeeUploadDtoListByEmployeeId);
+            int implicitSlot = maxExplicitChildIdx;
+            for (EmployeeUploadDto e : employeeUploadDtoListByEmployeeId) {
+                if (e == null || !isImplicitChildRelationship(e.getRelationship())) {
+                    continue;
+                }
+                implicitSlot++;
+                if (implicitSlot > 4) {
+                    errors.add("employeeId: " + employeeId + " - Too many children (max 4). Use Child1–Child4 or fewer Son/Daughter/Child rows.");
+                    break;
+                }
+            }
+
             // Validate no duplicate child indices (e.g., multiple Child1 for same employee)
             Map<Integer, Long> childIndexCounts = employeeUploadDtoListByEmployeeId.stream()
                 .filter(e -> {
@@ -604,52 +624,34 @@ public class EmployeeService {
                 
                 // Validate that relationship is one of the allowed values
                 if (!isValidRelationship(relationship)) {
-                    errors.add("employeeId: " + employeeId + " - Invalid relationship: '" + relationship + 
-                        "'. Allowed relationships: Self, Spouse, Father, Mother, Father in law, Mother in law, Child1, Child2, Child3, Child4");
+                    errors.add("employeeId: " + employeeId + " - Invalid relationship: '" + relationship +
+                        "'. Allowed relationships: Self, Employee, Spouse, Son, Daughter, Child, Child1–Child4, Father, Mother, Father in law, Mother in law");
                     continue;
                 }
-                
+
                 // Validate Self relationship with bean validation
                 if (EmployeeToDeals.isPrimaryMemberRelationship(relationship)) {
                     Set<ConstraintViolation<EmployeeUploadDto>> violations = validator.validate(employeeUploadDto);
                     if (!violations.isEmpty()) {
                         errors.add("employeeId: " + employeeId + " - " + violations.stream().map(ConstraintViolation::getMessage).collect(Collectors.joining(", ")));
                     }
-                } 
-                // Validate Child relationship - must have explicit index (Child1, Child2, Child3, or Child4)
+                }
+                // Validate Child relationship — explicit Child1–Child4, or bare Child / Son / Daughter (sequential slots assigned on upload)
                 else if (relationship.toUpperCase().startsWith("CHILD")) {
-                    // Extract child index
                     int childIndex = extractChildIndexFromString(relationship);
-                    
-                    // Validate that explicit index is provided (1-4)
                     if (childIndex == 0) {
-                        errors.add("employeeId: " + employeeId + " - Child relationship must have explicit index. Use Child1, Child2, Child3, or Child4");
+                        if (!isImplicitChildRelationship(relationship)) {
+                            errors.add("employeeId: " + employeeId + " - Invalid child relationship. Use Child1–Child4, Child, Son, or Daughter.");
+                        } else {
+                            validateChildAgeUnder25(employeeId, employeeUploadDto, errors);
+                        }
                     } else if (childIndex > 4) {
                         errors.add("employeeId: " + employeeId + " - Child index cannot be greater than 4. Maximum allowed: Child4");
                     } else {
-                        // Validate age only if index is valid
-                    try {
-                        LocalDate dateOfBirth = parseDobToLocalDateForValidation(employeeUploadDto.getDateOfBirth());
-                        if (dateOfBirth == null) {
-                            errors.add("employeeId: " + employeeId + " - Invalid or unparsable date of birth. Use YYYY-MM-DD, DD/MM/YYYY, or DD/MM/YY.");
-                        } else {
-                        int age = LocalDate.now().getYear() - dateOfBirth.getYear();
-                        
-                        // Adjust age if birthday hasn't occurred this year
-                        LocalDate now = LocalDate.now();
-                        if (dateOfBirth.plusYears(age).isAfter(now)) {
-                            age--;
-                        }
-                        
-                        // Child age should not be greater than or equal to 25 (i.e., must be < 25)
-                        if (age >= 25) {
-                            errors.add("employeeId: " + employeeId + " - Child age must be less than 25 years old");
-                        }
-                        }
-                    } catch (Exception e) {
-                        errors.add("employeeId: " + employeeId + " - Invalid date of birth format: " + employeeUploadDto.getDateOfBirth());
+                        validateChildAgeUnder25(employeeId, employeeUploadDto, errors);
                     }
-                }
+                } else if (isImplicitChildRelationship(relationship)) {
+                    validateChildAgeUnder25(employeeId, employeeUploadDto, errors);
                 }
                 else if (isSpouseRelationship(relationship) ||
                         (relationship.toUpperCase().startsWith("SPOUSE"))) {
@@ -1065,20 +1067,63 @@ public class EmployeeService {
               Map<String, List<Deals>> existingDependentsByRelationship = (Map<String, List<Deals>>)existingDependents.stream().filter(d -> (d.getRelationship() != null)).collect(Collectors.groupingBy(d -> d.getRelationship().toUpperCase(), 
                     
                     Collectors.toList()));
+              int nextImplicitChildSlot = maxExplicitChildIndexInGroup(employeeGroup);
               for (EmployeeUploadDto dependentDto : employeeGroup) {
                 if (!EmployeeToDeals.isPrimaryMemberRelationship(dependentDto.getRelationship())) {
-                  String mappedRelationship, inputRelationship = dependentDto.getRelationship();
+                  String mappedRelationship;
+                  String inputRelationship = dependentDto.getRelationship();
                   Deals existingDependent = null;
                   if (inputRelationship != null && inputRelationship.toUpperCase().startsWith("CHILD")) {
                     int childIndexFromJson = extractChildIndexFromString(inputRelationship);
                     if (childIndexFromJson == 0) {
-                      validateResponse.getErrors().add("employeeId: " + employeeId + " - Child relationship must have explicit index. Use Child1, Child2, Child3, or Child4");
-                      return validateResponse;
-                    } 
+                      if (!isImplicitChildRelationship(inputRelationship)) {
+                        validateResponse.getErrors().add("employeeId: " + employeeId + " - Invalid child relationship. Use Child1–Child4, Child, Son, or Daughter.");
+                        validateResponse.setMessage("Validation errors!!");
+                        return validateResponse;
+                      }
+                      nextImplicitChildSlot++;
+                      if (nextImplicitChildSlot > 4) {
+                        validateResponse.getErrors().add("employeeId: " + employeeId + " - Too many children (max 4) for implicit Child/Son/Daughter ordering.");
+                        validateResponse.setMessage("Validation errors!!");
+                        return validateResponse;
+                      }
+                      String synthetic = "Child" + nextImplicitChildSlot;
+                      mappedRelationship = mapRelationshipToNomineeRelationship(synthetic, nextImplicitChildSlot);
+                      List<Deals> existingWithSameRelationship = existingDependentsByRelationship.getOrDefault(mappedRelationship
+                              .toUpperCase(), new ArrayList<>());
+                      if (!existingWithSameRelationship.isEmpty()) {
+                        existingDependent = existingWithSameRelationship.get(0);
+                      } else {
+                        for (int j = 1; j < nextImplicitChildSlot; j++) {
+                          String prevChildRel;
+                          int prevChildIndex = j;
+                          try {
+                            prevChildRel = NomineeRelationship.valueOf("CHILD" + prevChildIndex).getValue();
+                          } catch (IllegalArgumentException e) {
+                            prevChildRel = "CHILD" + prevChildIndex;
+                          }
+                          boolean existsInDatabase = existingDependentsByRelationship.containsKey(prevChildRel.toUpperCase());
+                          boolean existsInUpload = employeeGroup.stream().anyMatch(dto -> {
+                            if (dto.getRelationship() == null) {
+                              return false;
+                            }
+                            int idx = extractChildIndexFromString(dto.getRelationship());
+                            if (idx == prevChildIndex) {
+                              return true;
+                            }
+                            return false;
+                          });
+                          if (!existsInDatabase && !existsInUpload) {
+                            validateResponse.getErrors().add("employeeId: " + employeeId + " - Cannot insert Child" + nextImplicitChildSlot + " without Child" + prevChildIndex);
+                            return validateResponse;
+                          }
+                        }
+                      }
+                    } else {
                     if (childIndexFromJson > 4) {
                       validateResponse.getErrors().add("employeeId: " + employeeId + " - Child index cannot be greater than 4. Maximum allowed: Child4");
                       return validateResponse;
-                    } 
+                    }
                     mappedRelationship = mapRelationshipToNomineeRelationship(inputRelationship, childIndexFromJson);
                     List<Deals> existingWithSameRelationship = existingDependentsByRelationship.getOrDefault(mappedRelationship
                         .toUpperCase(), new ArrayList<>());
@@ -1093,27 +1138,67 @@ public class EmployeeService {
                           prevChildRel = NomineeRelationship.valueOf("CHILD" + prevChildIndex).getValue();
                         } catch (IllegalArgumentException e) {
                           prevChildRel = "CHILD" + prevChildIndex;
-                        } 
+                        }
                         boolean existsInDatabase = existingDependentsByRelationship.containsKey(prevChildRel.toUpperCase());
                         boolean existsInUpload = employeeGroup.stream().anyMatch(dto -> {
                               if (dto.getRelationship() == null)
-                                return false; 
+                                return false;
                               int idx = extractChildIndexFromString(dto.getRelationship());
                               return (idx == prevChildIndex);
                             });
                         if (!existsInDatabase && !existsInUpload) {
                           validateResponse.getErrors().add("employeeId: " + employeeId + " - Cannot insert Child" + childIndexFromJson + " without Child" + prevChildIndex);
                           return validateResponse;
-                        } 
-                      } 
+                        }
+                      }
                       log.debug("Validated previous children exist (in database or upload), will create new Child{} for employee {}", childIndexFromJson, employeeId);
-                    } 
+                    }
+                    }
+                  } else if (inputRelationship != null && isImplicitChildRelationship(inputRelationship)) {
+                    nextImplicitChildSlot++;
+                    if (nextImplicitChildSlot > 4) {
+                      validateResponse.getErrors().add("employeeId: " + employeeId + " - Too many children (max 4) for implicit Child/Son/Daughter ordering.");
+                      validateResponse.setMessage("Validation errors!!");
+                      return validateResponse;
+                    }
+                    String synthetic = "Child" + nextImplicitChildSlot;
+                    mappedRelationship = mapRelationshipToNomineeRelationship(synthetic, nextImplicitChildSlot);
+                    List<Deals> existingWithSameRelationship = existingDependentsByRelationship.getOrDefault(mappedRelationship
+                            .toUpperCase(), new ArrayList<>());
+                    if (!existingWithSameRelationship.isEmpty()) {
+                      existingDependent = existingWithSameRelationship.get(0);
+                    } else {
+                      for (int j = 1; j < nextImplicitChildSlot; j++) {
+                        String prevChildRel;
+                        int prevChildIndex = j;
+                        try {
+                          prevChildRel = NomineeRelationship.valueOf("CHILD" + prevChildIndex).getValue();
+                        } catch (IllegalArgumentException e) {
+                          prevChildRel = "CHILD" + prevChildIndex;
+                        }
+                        boolean existsInDatabase = existingDependentsByRelationship.containsKey(prevChildRel.toUpperCase());
+                        boolean existsInUpload = employeeGroup.stream().anyMatch(dto -> {
+                          if (dto.getRelationship() == null) {
+                            return false;
+                          }
+                          int idx = extractChildIndexFromString(dto.getRelationship());
+                          if (idx == prevChildIndex) {
+                            return true;
+                          }
+                          return false;
+                        });
+                        if (!existsInDatabase && !existsInUpload) {
+                          validateResponse.getErrors().add("employeeId: " + employeeId + " - Cannot insert Child" + nextImplicitChildSlot + " without Child" + prevChildIndex);
+                          return validateResponse;
+                        }
+                      }
+                    }
                   } else {
                     mappedRelationship = mapRelationshipToNomineeRelationship(inputRelationship, 0);
                     List<Deals> existingWithSameRelationship = existingDependentsByRelationship.getOrDefault(mappedRelationship
                         .toUpperCase(), new ArrayList<>());
                     if (!existingWithSameRelationship.isEmpty())
-                      existingDependent = existingWithSameRelationship.get(0); 
+                      existingDependent = existingWithSameRelationship.get(0);
                   } 
                   if (existingDependent != null) {
                     Deals existingDependentToCompare = new Deals();
@@ -1232,6 +1317,28 @@ public class EmployeeService {
                   splitEndorsement.getParentEndorsement() != null ? splitEndorsement.getParentEndorsement().getEndorsementId() : null
               ));
           }
+          if (primaryEndorsement != null) {
+              int aggEmp = selfCount(employeeUploadDtoList).intValue();
+              int aggDep = dependentCount(employeeUploadDtoList).intValue();
+              primaryEndorsement.setTotalEmployees(aggEmp);
+              primaryEndorsement.setTotalDependents(aggDep);
+              endorsementRepository.save(primaryEndorsement);
+              UUID primaryId = primaryEndorsement.getEndorsementId();
+              for (int si = 0; si < splitSummaries.size(); si++) {
+                  EndorsementSplitSummaryDto row = splitSummaries.get(si);
+                  if (row.getEndorsementId() != null && row.getEndorsementId().equals(primaryId)) {
+                      splitSummaries.set(si, new EndorsementSplitSummaryDto(
+                              row.getEndorsementId(),
+                              row.getPolicyId(),
+                              row.getPolicyType(),
+                              aggEmp,
+                              aggDep,
+                              row.getSplitGroupId(),
+                              row.getParentEndorsementId()));
+                      break;
+                  }
+              }
+          }
           if (file != null && primaryEndorsement != null) {
               try {
                   Document document = uploadDocuments(file, organization, adminUser, primaryEndorsement);
@@ -1275,7 +1382,13 @@ public class EmployeeService {
               List<String> selfEmployeeIds = extractSelfEmployeeIdsFromUpload(employeeUploadDtoList);
               log.info("endorsement_upload_notification_schedule endorsementId={} uploadType={} uploadedBy={} selfEmployeeIdCount={}",
                   savedEndorsement.getEndorsementId(), uploadType, adminUser != null ? adminUser.getId() : null, selfEmployeeIds.size());
-              flagshipNotificationService.scheduleEndorsementUploaded(savedEndorsement, organization, adminUser, selfEmployeeIds);
+              flagshipNotificationService.scheduleEndorsementUploaded(
+                  savedEndorsement,
+                  organization,
+                  adminUser,
+                  selfEmployeeIds,
+                  response.getTotalEmployees(),
+                  response.getTotalDependents());
             }
           } else {
             log.info("endorsement_upload_no_endorsement_created uploadType={} orgId={} createdCount={} updatedCount={}",
@@ -1565,6 +1678,61 @@ public class EmployeeService {
         return 0;
     }
 
+    /** Son, Daughter, or Child without numeric suffix; also "CHILD…" strings that did not parse to 1–4. */
+    private boolean isImplicitChildRelationship(String relationship) {
+        if (relationship == null || relationship.isBlank()) {
+            return false;
+        }
+        String rel = relationship.trim();
+        if ("Son".equalsIgnoreCase(rel) || "Daughter".equalsIgnoreCase(rel)) {
+            return true;
+        }
+        if ("Child".equalsIgnoreCase(rel)) {
+            return true;
+        }
+        if (rel.toUpperCase().startsWith("CHILD")) {
+            return extractChildIndexFromString(rel) == 0;
+        }
+        return false;
+    }
+
+    private int maxExplicitChildIndexInGroup(List<EmployeeUploadDto> group) {
+        if (group == null) {
+            return 0;
+        }
+        int max = 0;
+        for (EmployeeUploadDto dto : group) {
+            if (dto == null || dto.getRelationship() == null) {
+                continue;
+            }
+            int idx = extractChildIndexFromString(dto.getRelationship());
+            if (idx > 0 && idx <= 4) {
+                max = Math.max(max, idx);
+            }
+        }
+        return max;
+    }
+
+    private void validateChildAgeUnder25(String employeeId, EmployeeUploadDto employeeUploadDto, List<String> errors) {
+        try {
+            LocalDate dateOfBirth = parseDobToLocalDateForValidation(employeeUploadDto.getDateOfBirth());
+            if (dateOfBirth == null) {
+                errors.add("employeeId: " + employeeId + " - Invalid or unparsable date of birth. Use YYYY-MM-DD, DD/MM/YYYY, or DD/MM/YY.");
+                return;
+            }
+            int age = LocalDate.now().getYear() - dateOfBirth.getYear();
+            LocalDate now = LocalDate.now();
+            if (dateOfBirth.plusYears(age).isAfter(now)) {
+                age--;
+            }
+            if (age >= 25) {
+                errors.add("employeeId: " + employeeId + " - Child age must be less than 25 years old");
+            }
+        } catch (Exception e) {
+            errors.add("employeeId: " + employeeId + " - Invalid date of birth format: " + employeeUploadDto.getDateOfBirth());
+        }
+    }
+
     /**
      * Normalize Father-in-law/Mother-in-law variants to canonical enum-style values.
      * Accepts: "Father in law", "FatherInLaw", "FATHER_IN_LAW", "father-in-law", etc.
@@ -1779,12 +1947,16 @@ public class EmployeeService {
         } else if (rel.equalsIgnoreCase("Mother in law") || rel.equalsIgnoreCase("MotherInLaw") || 
                    rel.equalsIgnoreCase("MOTHER_IN_LAW")) {
             return true;
+        } else if ("Son".equalsIgnoreCase(rel) || "Daughter".equalsIgnoreCase(rel)) {
+            return true;
+        } else if ("Child".equalsIgnoreCase(rel)) {
+            return true;
         } else if (rel.toUpperCase().startsWith("CHILD")) {
             // Check if it's Child1, Child2, Child3, or Child4
             int childIndex = extractChildIndexFromString(rel);
             return childIndex >= 1 && childIndex <= 4;
         }
-        
+
         return false;
     }
 

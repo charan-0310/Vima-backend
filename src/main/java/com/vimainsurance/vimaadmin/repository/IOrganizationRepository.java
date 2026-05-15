@@ -44,6 +44,8 @@ public interface IOrganizationRepository extends JpaRepository<Organization, UUI
         WHERE o.industry = :industry
         """)
     Page<Organization> findAllByIndustry(@Param("industry") Industry industry, Pageable pageable);
+
+    long countByStatusIgnoreCase(String status);
 }
 
 

@@ -28,6 +28,8 @@ import com.vimainsurance.vimaadmin.dto.PremiumCalculationResponseDto;
 import com.vimainsurance.vimaadmin.dto.PremiumPreviewRequestDto;
 import com.vimainsurance.vimaadmin.dto.PremiumPreviewResponseDto;
 import com.vimainsurance.vimaadmin.dto.ResponseDto;
+import com.vimainsurance.vimaadmin.dto.RateCardCoverageGapDto;
+import com.vimainsurance.vimaadmin.entity.CostSharingRule;
 import com.vimainsurance.vimaadmin.entity.Policy;
 import com.vimainsurance.vimaadmin.entity.PremiumRateTable;
 import com.vimainsurance.vimaadmin.entity.ProductCatalog;
@@ -37,6 +39,7 @@ import com.vimainsurance.vimaadmin.enums.PolicyStatus;
 import com.vimainsurance.vimaadmin.enums.PricingModel;
 import com.vimainsurance.vimaadmin.enums.ProductType;
 import com.vimainsurance.vimaadmin.enums.RateSource;
+import com.vimainsurance.vimaadmin.exception.NoRateTableConfiguredException;
 import com.vimainsurance.vimaadmin.service.ICompanyEnrollmentConfigService;
 import com.vimainsurance.vimaadmin.service.ICostSharingRuleService;
 import com.vimainsurance.vimaadmin.service.IEmployeePolicyMapService;
@@ -90,7 +93,7 @@ public class PremiumCalculationServiceImpl implements IPremiumCalculationService
                 .filter(r -> r.getEffectiveTo() == null || !r.getEffectiveTo().isBefore(TODAY))
                 .toList();
         if (forPlan.isEmpty()) {
-            throw new IllegalArgumentException("No rate found for company " + companyId + ", plan " + planType);
+            throw new NoRateTableConfiguredException(companyId, planType);
         }
         forPlan = sortRatesDeterministically(forPlan);
         PricingModel model = resolveEffectiveModel(forPlan);
@@ -132,7 +135,7 @@ public class PremiumCalculationServiceImpl implements IPremiumCalculationService
                 .filter(r -> r.getEffectiveTo() == null || !r.getEffectiveTo().isBefore(TODAY))
                 .toList();
         if (forPlan.isEmpty()) {
-            throw new IllegalArgumentException("No rate found for company " + companyId + ", plan " + planType);
+            throw new NoRateTableConfiguredException(companyId, planType);
         }
         forPlan = sortRatesDeterministically(forPlan);
         // Prefer dedicated TOP_UP/SUPER_TOP_UP rate when present; otherwise use GMC fallback
@@ -156,7 +159,7 @@ public class PremiumCalculationServiceImpl implements IPremiumCalculationService
             if (!parentRates.isEmpty()) {
                 forPlan = parentRates;
             } else {
-                throw new IllegalArgumentException("No parent rate found for company " + companyId + "; add premium_rate_tables with product_type GMC and member_type 'parent' (or 'parent_in_law') for age bands.");
+                throw new NoRateTableConfiguredException(companyId, "PARENT_GMC");
             }
         }
         forPlan = sortRatesDeterministically(forPlan);
@@ -347,24 +350,12 @@ public class PremiumCalculationServiceImpl implements IPremiumCalculationService
                 }
                 BigDecimal planTotalPremium = b.premium();
                 String coverageCategory = resolveCoverageCategoryForCostSharing(membersForPlan);
-                var split = costSharingRuleService.applyCostSharing(
+                String costSharingPlanType = costSharingPlanTypeForSelection(planUpper);
+                CostShareSplit split = costSharingRuleService.applyCostSharing(
                         context.getCompanyId(),
-                        selPlanType,
+                        costSharingPlanType,
                         coverageCategory,
                         planTotalPremium);
-                // Default 50/50 for PARENT_GMC when no cost-sharing rule (employer pays 100% otherwise)
-                if ("PARENT_GMC".equals(planUpper)
-                        && split.getEmployeeShare() != null && split.getEmployeeShare().compareTo(BigDecimal.ZERO) == 0
-                        && split.getEmployerShare() != null && split.getEmployerShare().compareTo(planTotalPremium) == 0) {
-                    BigDecimal half = planTotalPremium.divide(BigDecimal.valueOf(2), 2, RoundingMode.HALF_UP);
-                    split = CostShareSplit.builder()
-                            .employerShare(half)
-                            .employeeShare(planTotalPremium.subtract(half).setScale(2, RoundingMode.HALF_UP))
-                            .shareType(split.getShareType())
-                            .shareValue(split.getShareValue())
-                            .ruleId(split.getRuleId())
-                            .build();
-                }
                 // Voluntary add-ons (TOP_UP, SUPER_TOP_UP) are always 100% employee-paid
                 if ("TOP_UP".equals(planUpper) || "SUPER_TOP_UP".equals(planUpper)) {
                     split = CostShareSplit.builder()
@@ -373,11 +364,16 @@ public class PremiumCalculationServiceImpl implements IPremiumCalculationService
                             .shareType(split.getShareType())
                             .shareValue(split.getShareValue())
                             .ruleId(split.getRuleId())
+                            .appliedCategory(split.getAppliedCategory())
                             .build();
                 }
                 totalAnnual = totalAnnual.add(planTotalPremium);
-                totalEmployer = totalEmployer.add(split.getEmployerShare());
-                totalEmployee = totalEmployee.add(split.getEmployeeShare());
+                if (split.getEmployerShare() != null) {
+                    totalEmployer = totalEmployer.add(split.getEmployerShare());
+                }
+                if (split.getEmployeeShare() != null) {
+                    totalEmployee = totalEmployee.add(split.getEmployeeShare());
+                }
                 totalGst = totalGst.add(b.gstAmount());
                 breakdowns.add(PremiumCalculationResponseDto.PlanBreakdownItemDto.builder()
                         .planType(b.planType())
@@ -389,6 +385,8 @@ public class PremiumCalculationServiceImpl implements IPremiumCalculationService
                         .appliedCategory(split.getAppliedCategory() != null
                                 ? split.getAppliedCategory().getValue() : null)
                         .build());
+            } catch (NoRateTableConfiguredException e) {
+                throw e;
             } catch (Exception e) {
                 log.warn("Plan premium calculation failed for {}: {}", selPlanType, e.getMessage());
                 // Emit a zero-valued breakdown so the plan is never silently dropped from the
@@ -630,17 +628,38 @@ public class PremiumCalculationServiceImpl implements IPremiumCalculationService
         return ghiPolicies.stream().anyMatch(p -> p.getCoverageType() == CoverageType.ESCP);
     }
 
+    /** Cost-sharing lookup plan type (parent cover may use PARENT_GMC rules with GMC fallback). */
+    private static String costSharingPlanTypeForSelection(String planUpper) {
+        return planUpper;
+    }
+
     private String resolveCoverageCategoryForCostSharing(List<MemberInfo> members) {
-        if (members == null || members.size() <= 1) return CoverageCategory.SELF.getValue();
+        if (members == null || members.isEmpty()) {
+            return CoverageCategory.SELF.getValue();
+        }
         boolean hasParent = false;
         boolean hasParentInLaw = false;
         for (MemberInfo m : members) {
             String t = m.memberType();
-            if ("parent".equalsIgnoreCase(t)) hasParent = true;
-            if ("parent_in_law".equalsIgnoreCase(t)) hasParentInLaw = true;
+            if (t == null) {
+                continue;
+            }
+            if ("parent".equalsIgnoreCase(t)) {
+                hasParent = true;
+            }
+            if ("parent_in_law".equalsIgnoreCase(t)) {
+                hasParentInLaw = true;
+            }
         }
-        if (hasParent) return CoverageCategory.PARENT.getValue();
-        if (hasParentInLaw) return CoverageCategory.PARENT_IN_LAW.getValue();
+        if (hasParent) {
+            return CoverageCategory.PARENT.getValue();
+        }
+        if (hasParentInLaw) {
+            return CoverageCategory.PARENT_IN_LAW.getValue();
+        }
+        if (members.size() == 1) {
+            return CoverageCategory.SELF.getValue();
+        }
         return CoverageCategory.ALL_DEPENDENTS.getValue();
     }
 
@@ -735,5 +754,72 @@ public class PremiumCalculationServiceImpl implements IPremiumCalculationService
         if ("PARENT".equals(r) || "FATHER".equals(r) || "MOTHER".equals(r)) return "parent";
         if ("PARENT_IN_LAW".equals(r) || "FATHER-IN-LAW".equals(r) || "MOTHER-IN-LAW".equals(r)) return "parent_in_law";
         return relationship;
+    }
+
+    @Override
+    public List<RateCardCoverageGapDto> findGapsInRateCardCoverageForActivePolicies(UUID organizationId) {
+        if (organizationId == null) {
+            return List.of();
+        }
+        List<Policy> policies = policyRepository.findByOrganizationIdAndStatus(organizationId, PolicyStatus.ACTIVE);
+        if (policies == null || policies.isEmpty()) {
+            return List.of();
+        }
+        List<RateCardCoverageGapDto> missing = new ArrayList<>();
+        for (Policy p : policies) {
+            if (p == null || p.getProductType() == null) {
+                continue;
+            }
+            String planType = p.getProductType().name();
+            if (!hasEffectiveRatesForPlan(organizationId, planType)) {
+                String gapMemberType = "SELF";
+                if ("PARENT_GMC".equals(planType)) {
+                    gapMemberType = "parent";
+                }
+                missing.add(RateCardCoverageGapDto.builder()
+                        .policyId(p.getPolicyId())
+                        .productType(planType)
+                        .memberType(gapMemberType)
+                        .build());
+            }
+        }
+        return missing;
+    }
+
+    /**
+     * True if at least one premium_rate_tables row matches plan type (including GMC fallback for top-up),
+     * with effective dates aligned to {@link #calculatePlanPremium}.
+     */
+    private boolean hasEffectiveRatesForPlan(UUID companyId, String planType) {
+        List<PremiumRateTable> rates = cacheService.getRatesForCompany(companyId);
+        List<PremiumRateTable> forPlan = rates.stream()
+                .filter(r -> planTypeMatchesRateProductType(planType, r.getProductType()))
+                .filter(r -> r.getEffectiveFrom() != null && !r.getEffectiveFrom().isAfter(TODAY))
+                .filter(r -> r.getEffectiveTo() == null || !r.getEffectiveTo().isBefore(TODAY))
+                .toList();
+        String planUpper = planType != null ? planType.trim().toUpperCase() : "";
+        if ("TOP_UP".equals(planUpper) || "SUPER_TOP_UP".equals(planUpper)) {
+            List<PremiumRateTable> dedicated = forPlan.stream()
+                    .filter(rt -> planUpper.equals(rt.getProductType() != null ? rt.getProductType().trim().toUpperCase() : ""))
+                    .toList();
+            if (!dedicated.isEmpty()) {
+                forPlan = dedicated;
+            }
+        }
+        if ("PARENT_GMC".equals(planUpper)) {
+            List<PremiumRateTable> parentRates = forPlan.stream()
+                    .filter(rt -> {
+                        String mt = rt.getMemberType() != null ? rt.getMemberType().trim().toLowerCase() : "";
+                        return "parent".equals(mt) || "parent_in_law".equals(mt);
+                    })
+                    .toList();
+            if (!parentRates.isEmpty()) {
+                forPlan = parentRates;
+            } else {
+                // Align with calculatePlanPremium: parent cover requires parent/parent_in_law rows
+                return false;
+            }
+        }
+        return !forPlan.isEmpty();
     }
 }

@@ -38,6 +38,8 @@ import com.vimainsurance.vimaadmin.dto.BulkEmployeeDeletionRequestDto;
 import com.vimainsurance.vimaadmin.dto.CsvValidationResponseDto;
 import com.vimainsurance.vimaadmin.annotation.CurrentOrganization;
 import com.vimainsurance.vimaadmin.dto.DocumentRequestDto;
+import com.vimainsurance.vimaadmin.dto.HealthIdUploadDto;
+import com.vimainsurance.vimaadmin.service.IEndorsementService;
 import com.vimainsurance.vimaadmin.dto.DocumentResponseDto;
 import com.vimainsurance.vimaadmin.dto.EmployeeUploadDto;
 import com.vimainsurance.vimaadmin.dto.EmployeeUploadResponse;
@@ -47,11 +49,14 @@ import com.vimainsurance.vimaadmin.dto.OrganizationEmployeeDto;
 import com.vimainsurance.vimaadmin.dto.EmployeeOnboardingResponseDto;
 import com.vimainsurance.vimaadmin.dto.OrganizationBroadcastEmailRequestDto;
 import com.vimainsurance.vimaadmin.dto.OrganizationBroadcastEmailResponseDto;
+import com.vimainsurance.vimaadmin.dto.OrganizationCreateHrAdminRequestDto;
+import com.vimainsurance.vimaadmin.dto.OrganizationHrAdminSummaryDto;
 import com.vimainsurance.vimaadmin.dto.OrganizationCreateLoginsRequestDto;
 import com.vimainsurance.vimaadmin.dto.OrganizationEmployeeLoginPreviewDto;
 import com.vimainsurance.vimaadmin.dto.OrganizationRequestDto;
 import com.vimainsurance.vimaadmin.dto.OrganizationResponseDto;
 import com.vimainsurance.vimaadmin.dto.ResponseDto;
+import com.vimainsurance.vimaadmin.service.IAdminUserService;
 import com.vimainsurance.vimaadmin.service.IOrganizationEmployeeLoginService;
 import com.vimainsurance.vimaadmin.service.IOrganizationService;
 
@@ -69,13 +74,40 @@ public class OrganizationController {
     private IOrganizationEmployeeLoginService organizationEmployeeLoginService;
 
     @Autowired
+    private IAdminUserService adminUserService;
+
+    @Autowired
     private ObjectMapper objectMapper;
+
+    /**
+     * Bulk Health ID upload runs against the org roster (not endorsement-scoped).
+     * Implementation lives in IEndorsementService for now because that's where
+     * the existing matcher + audit annotations live; service refactor is a
+     * later cleanup.
+     */
+    @Autowired
+    private IEndorsementService endorsementService;
 
     @PostMapping("/organization")
     @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'VIMA_ADMIN')")
     public ResponseEntity<ResponseDto<String>> create(@RequestBody OrganizationRequestDto requestDto) {
         logger.info("[correlationId:{}] /organization (POST) endpoint called", MDC.get("correlationId"));
         return organizationService.create(requestDto);
+    }
+
+    /**
+     * Bulk upload Health IDs for an organization's active members.
+     * Replaces the earlier /endorsements/{id}/health-id/upload endpoint.
+     * See PRD: docs/prd/group-insurance/health-id-bulk-upload-prd.md
+     */
+    @PostMapping("/organization/{organizationId}/health-id/upload")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'VIMA_ADMIN')")
+    public ResponseEntity<ResponseDto<List<HealthIdUploadDto>>> uploadHealthIds(
+            @PathVariable UUID organizationId,
+            @RequestBody List<HealthIdUploadDto> healthIdList) {
+        logger.info("[correlationId:{}] /organization/{}/health-id/upload (POST) called with {} records",
+                MDC.get("correlationId"), organizationId, healthIdList != null ? healthIdList.size() : 0);
+        return endorsementService.uploadHealthIdsForOrganization(organizationId, healthIdList);
     }
 
     @PutMapping("/organization")
@@ -191,6 +223,35 @@ public class OrganizationController {
         logger.info("[correlationId:{}] /organization/{}/employees/logins/preview (GET) endpoint called",
                 MDC.get("correlationId"), organizationId);
         return organizationEmployeeLoginService.previewEmployeeLogins(organizationId);
+    }
+
+    @GetMapping("/organization/{organizationId}/hr-admins")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'VIMA_ADMIN')")
+    public ResponseEntity<ResponseDto<List<OrganizationHrAdminSummaryDto>>> listHrAdmins(
+            @CurrentOrganization UUID organizationId) {
+        logger.info("[correlationId:{}] /organization/{}/hr-admins (GET) endpoint called",
+                MDC.get("correlationId"), organizationId);
+        return adminUserService.listHrAdminsForOrganization(organizationId);
+    }
+
+    @PostMapping("/organization/{organizationId}/hr-admins")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'VIMA_ADMIN')")
+    public ResponseEntity<ResponseDto<String>> createHrAdmin(
+            @CurrentOrganization UUID organizationId,
+            @RequestBody OrganizationCreateHrAdminRequestDto requestDto) {
+        logger.info("[correlationId:{}] /organization/{}/hr-admins (POST) endpoint called",
+                MDC.get("correlationId"), organizationId);
+        return adminUserService.createHrAdminForOrganization(organizationId, requestDto);
+    }
+
+    @PostMapping("/organization/{organizationId}/hr-admins/demote")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'VIMA_ADMIN')")
+    public ResponseEntity<ResponseDto<String>> demoteHrAdmin(
+            @CurrentOrganization UUID organizationId,
+            @RequestBody OrganizationCreateHrAdminRequestDto requestDto) {
+        logger.info("[correlationId:{}] /organization/{}/hr-admins/demote (POST) endpoint called",
+                MDC.get("correlationId"), organizationId);
+        return adminUserService.demoteHrAdminForOrganization(organizationId, requestDto);
     }
 
     @PostMapping("/organization/{organizationId}/employees/logins/create")

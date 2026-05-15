@@ -4,7 +4,9 @@ import java.math.BigDecimal;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
 
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
@@ -16,6 +18,8 @@ import com.vimainsurance.vimaadmin.notification.dto.CreateNotificationCommand;
 import com.vimainsurance.vimaadmin.notification.enums.NotificationCategory;
 import com.vimainsurance.vimaadmin.notification.enums.NotificationEventType;
 import com.vimainsurance.vimaadmin.notification.enums.NotificationSeverity;
+import com.vimainsurance.vimaadmin.notification.slack.SlackChannel;
+import com.vimainsurance.vimaadmin.notification.slack.SlackChannelRouter;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -25,10 +29,19 @@ import lombok.extern.slf4j.Slf4j;
 @RequiredArgsConstructor
 public class ClaimsNotificationEmitterService {
 
+    /**
+     * Serializes claims-team notification emission per claim so two after-commit jobs (or retries) cannot
+     * each post a separate Slack message for the same logical event.
+     */
+    private final ConcurrentHashMap<UUID, Object> claimTeamSlackEmitLocks = new ConcurrentHashMap<>();
+
     private final NotificationRoutingResolver routingResolver;
     private final NotificationService notificationService;
     private final NotificationDispatcher notificationDispatcher;
     private final AfterCommitNotificationRunner afterCommitNotificationRunner;
+    private final NotificationSlackWebhookClient slackWebhookClient;
+    private final SlackChannelRouter slackChannelRouter;
+    private final NotificationsFeatureGate notificationsFeatureGate;
 
     @Value("${app.portal-url:}")
     private String portalUrlOverride;
@@ -234,6 +247,14 @@ public class ClaimsNotificationEmitterService {
         vars.put("creatorName", from);
         vars.put("creatorRole", actorRole);
         vars.put("claimAmount", claim.getClaimAmount() != null ? claim.getClaimAmount() : BigDecimal.ZERO);
+        if (claim.getClaimAmount() != null) {
+            vars.put("claimAmountFormatted", claim.getClaimAmount().toPlainString());
+        } else {
+            vars.put("claimAmountFormatted", "");
+        }
+        vars.put("hospitalName", claim.getHospitalName() != null ? claim.getHospitalName() : "");
+        vars.put("queryText", "");
+        vars.put("responseText", "");
         return vars;
     }
 
@@ -256,35 +277,86 @@ public class ClaimsNotificationEmitterService {
                     eventType, claim.getId(), organizationId);
             return;
         }
-        for (int i = 0; i < recipients.size(); i++) {
-            AdminUser admin = recipients.get(i);
-            String dedup = dedupPrefix + ":" + admin.getId();
-            Boolean slackDeliveryEnabled = i == 0 ? null : Boolean.FALSE;
-            String recipientDeepLink = deepLinkForRecipient(claim, admin);
-            Map<String, Object> recipientVars = new HashMap<>(vars);
-            recipientVars.put("deepLinkUrl", recipientDeepLink);
-            CreateNotificationCommand cmd = new CreateNotificationCommand(
-                    admin.getId(),
-                    organizationId,
-                    eventType,
-                    NotificationCategory.CLAIM,
-                    NotificationSeverity.INFO,
-                    title,
-                    body,
-                    recipientDeepLink,
-                    dedup,
-                    title,
-                    emailTemplate,
-                    recipientVars,
-                    slackDeliveryEnabled);
-            notificationService.createIfAbsent(cmd).ifPresentOrElse(
-                    id -> {
-                        notificationDispatcher.dispatchDeliveriesFor(id);
-                        log.info("claims_notification_emit event={} notificationId={} recipientId={} slackIncluded={}",
-                                eventType, id, admin.getId(),
-                                slackDeliveryEnabled == null || Boolean.TRUE.equals(slackDeliveryEnabled));
-                    },
-                    () -> log.debug("claims_notification_dedup event={} dedupKey={}", eventType, dedup));
+        UUID claimId = claim.getId();
+        Object emitLock = claimId != null
+                ? claimTeamSlackEmitLocks.computeIfAbsent(claimId, k -> new Object())
+                : new Object();
+        try {
+            synchronized (emitLock) {
+                int createdCount = 0;
+                AdminUser primaryForSlackLink = recipients.get(0);
+                for (AdminUser admin : recipients) {
+                    String dedup = dedupPrefix + ":" + admin.getId();
+                    String recipientDeepLink = deepLinkForRecipient(claim, admin);
+                    Map<String, Object> recipientVars = new HashMap<>(vars);
+                    recipientVars.put("deepLinkUrl", recipientDeepLink);
+                    applyHrClaimRecipientEmailVars(recipientVars, admin, body, eventType);
+                    // Slack is sent once per event after fan-out (avoids duplicate channel posts when multiple
+                    // deliveries or jobs process the same logical notification).
+                    CreateNotificationCommand cmd = new CreateNotificationCommand(
+                            admin.getId(),
+                            organizationId,
+                            eventType,
+                            NotificationCategory.CLAIM,
+                            NotificationSeverity.INFO,
+                            title,
+                            body,
+                            recipientDeepLink,
+                            dedup,
+                            title,
+                            emailTemplate,
+                            recipientVars,
+                            Boolean.FALSE);
+                    Optional<UUID> created = notificationService.createIfAbsent(cmd);
+                    if (created.isPresent()) {
+                        createdCount++;
+                        notificationDispatcher.dispatchDeliveriesFor(created.get());
+                        log.info("claims_notification_emit event={} notificationId={} recipientId={} slackIncluded=false",
+                                eventType, created.get(), admin.getId());
+                    } else {
+                        log.debug("claims_notification_dedup event={} dedupKey={}", eventType, dedup);
+                    }
+                }
+                if (createdCount > 0) {
+                    String slackDeepLink = deepLinkForRecipient(claim, primaryForSlackLink);
+                    postClaimsTeamSlackOnce(title, body, slackDeepLink, claimId, eventType);
+                }
+            }
+        } finally {
+            if (claimId != null) {
+                claimTeamSlackEmitLocks.remove(claimId, emitLock);
+            }
+        }
+    }
+
+    /**
+     * Single shared-webhook post for the whole claims team (aligned with {@link NotificationDispatcher} URL rules).
+     */
+    private void postClaimsTeamSlackOnce(
+            String title,
+            String body,
+            String deepLinkUrl,
+            UUID claimId,
+            NotificationEventType eventType) {
+        if (!notificationsFeatureGate.isNotificationsEnabled()) {
+            return;
+        }
+        String text = (title != null ? "*" + title + "*\n" : "") + (body != null ? body : "");
+        if (deepLinkUrl != null && !deepLinkUrl.isBlank()) {
+            text = text + "\n" + deepLinkUrl;
+        }
+        SlackChannel channel = slackChannelRouter.channelForEvent(eventType);
+        Optional<String> maybeUrl = slackChannelRouter.resolveUrl(channel);
+        if (maybeUrl.isEmpty()) {
+            log.info("claims_slack_skip event={} claimId={} slackChannel={} reason=router_skipped",
+                    eventType, claimId, channel);
+            return;
+        }
+        boolean ok = slackWebhookClient.postMessageToWebhookUrl(text, maybeUrl.get());
+        if (ok) {
+            log.info("claims_slack_emit event={} claimId={} slackChannel={}", eventType, claimId, channel);
+        } else {
+            log.warn("claims_slack_failed event={} claimId={} slackChannel={}", eventType, claimId, channel);
         }
     }
 
@@ -322,6 +394,71 @@ public class ClaimsNotificationEmitterService {
             normalized = normalized.substring(0, normalized.length() - "_GROUP".length());
         }
         return normalized;
+    }
+
+    private static void applyHrClaimRecipientEmailVars(
+            Map<String, Object> recipientVars,
+            AdminUser admin,
+            String body,
+            NotificationEventType eventType) {
+        recipientVars.put("message", body != null ? body : "");
+        recipientVars.put("recipientName", resolveAdminRecipientLabel(admin));
+        applyHrClaimStatusBadge(recipientVars, eventType);
+    }
+
+    private static String resolveAdminRecipientLabel(AdminUser admin) {
+        if (admin == null) {
+            return "there";
+        }
+        if (admin.getFullName() != null && !admin.getFullName().isBlank()) {
+            return admin.getFullName().trim();
+        }
+        if (admin.getUsername() != null && !admin.getUsername().isBlank()) {
+            return admin.getUsername().trim();
+        }
+        return "there";
+    }
+
+    private static void applyHrClaimStatusBadge(Map<String, Object> vars, NotificationEventType eventType) {
+        if (eventType == null) {
+            vars.put("statusBadge", "Update");
+            vars.put("statusBadgeColor", "#e2e8f0");
+            return;
+        }
+        switch (eventType) {
+            case EMPLOYEE_CLAIM_SUBMITTED -> {
+                vars.put("statusBadge", "Pending review");
+                vars.put("statusBadgeColor", "#dbeafe");
+            }
+            case EMPLOYEE_CLAIM_APPROVED -> {
+                vars.put("statusBadge", "Approved");
+                vars.put("statusBadgeColor", "#dcfce7");
+            }
+            case EMPLOYEE_CLAIM_REJECTED -> {
+                vars.put("statusBadge", "Rejected");
+                vars.put("statusBadgeColor", "#fee2e2");
+            }
+            case EMPLOYEE_CLAIM_SETTLED -> {
+                vars.put("statusBadge", "Settled");
+                vars.put("statusBadgeColor", "#dcfce7");
+            }
+            case EMPLOYEE_CLAIM_QUERY_RAISED -> {
+                vars.put("statusBadge", "Query raised");
+                vars.put("statusBadgeColor", "#fef3c7");
+            }
+            case EMPLOYEE_CLAIM_QUERY_RESPONDED -> {
+                vars.put("statusBadge", "Query responded");
+                vars.put("statusBadgeColor", "#dbeafe");
+            }
+            case EMPLOYEE_CLAIM_QUERY_RESPONSE_SUBMITTED -> {
+                vars.put("statusBadge", "Response submitted");
+                vars.put("statusBadgeColor", "#fef3c7");
+            }
+            default -> {
+                vars.put("statusBadge", "Update");
+                vars.put("statusBadgeColor", "#e2e8f0");
+            }
+        }
     }
 
     private String portalBase() {

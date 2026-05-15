@@ -85,7 +85,15 @@ class NotificationServiceImplTest {
                 "dedup-1",
                 "subj",
                 "email/notification-endorsement-completed",
-                Map.of("organizationName", "Org"),
+                Map.of(
+                        "organizationName", "Org",
+                        "recipientName", "HR",
+                        "message", "An endorsement for Org has completed.",
+                        "totalEmployees", 0,
+                        "totalDependents", 0,
+                        "uploadedByName", "Vima Admin",
+                        "deepLinkUrl", "http://x",
+                        "title", "Endorsement completed — Org"),
                 null);
     }
 }

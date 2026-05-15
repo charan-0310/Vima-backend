@@ -26,6 +26,9 @@
 
 ### Implementation — Technical Guides
 
+- **[Tech debt and quality plan](tech-debt-and-quality-plan.md)** — combined backlog: refactor targets, split map, P0–P3 tooling, SpotBugs baseline, links to `reports/`
+- [Static analysis bundle (SpotBugs HTML + dependency log + narrative)](reports/README.md)
+- [Static analysis report (Markdown only)](static-analysis-report.md)
 - [Bulk Upload & Relationship Identity](implementation/group-insurance/bulk-upload-and-relationship-identity.md)
 - [Enrollment Bulk Upload: Renewal and Policy Map Rule](implementation/group-insurance/enrollment-bulk-upload-renewal-policy-map.md)
 - [Data Cleanup — Fresh Group Insurance](implementation/database/data-cleanup-fresh-group-insurance.md)

@@ -1,0 +1,28 @@
+---
+description: Production-readiness gate and auto-remediation after substantive backend feature work
+alwaysApply: true
+---
+
+# Feature Completion Gate (Backend)
+
+Apply **before** declaring substantive feature work complete (new endpoints, services, entities, migrations, or multi-file behavior changes). Trivial edits follow `testing-validation.mdc` only.
+
+## Production-ready = code review + fixes, not only green builds
+
+Treat completion as a **production code review** of the changed backend surface (controllers, services, entities, migrations, queries), then fix what belongs in this PR.
+
+1. **Review like a PR reviewer** — Read the diff for operational and security issues; fix in-repo where reasonable:
+   - **Correctness**: null/optional handling, wrong assumptions from DTOs, off-by-one pagination, idempotency where retries matter, enum/string mapping mistakes.
+   - **API contract**: sensible HTTP status and `ResponseDto` usage; validation on request DTOs; consistent error messages (no internal stack traces leaked to clients).
+   - **Security and data**: `@PreAuthorize` appropriate for the operation; tenant/org scoping not bypassed; no passwords/tokens/PII in logs; sensitive paths audited consistently with neighbors.
+   - **Persistence**: `@Transactional` on mutations; fetch strategy and N+1 risk on new queries; migration safety (nullable columns, defaults, backward compatibility).
+   - **Resilience**: try/catch and logging patterns per repo conventions; no swallowed exceptions that hide production failures.
+2. **Run verification** when the environment allows: prefer `./mvnw clean verify`, or at least tests for touched modules if full verify is impractical—state which you ran.
+3. **Add or update automated tests** for new behavior. Do not mark complete with failing tests unless the user explicitly approves a temporary exception.
+4. **Do not** offload fixable review findings as a homework list. Only call out **short, actionable** gaps that need humans or other systems (DB unavailable, secrets, cross-team API decisions).
+
+If the user asks whether the code is “production ready,” respond with a **brief** review summary (what you checked, what you fixed) plus remaining risks—not a generic deferred checklist.
+
+## Completion wording
+
+State: **review themes** covered (one line), Maven commands run (or why skipped), test classes added/changed, and real blockers—**not** a generic homework list.

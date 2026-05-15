@@ -7,6 +7,7 @@ alwaysApply: true
 
 Before finalizing substantive changes:
 
+- For **feature-sized** work, follow `.cursor/rules/feature-completion-gate.mdc` (fix issues in-repo; complete verification when feasible).
 - Run relevant tests for the changed scope while developing (example: class-level or package-level test command).
 - For backend Java code changes, finish with a full verification command before declaring completion:
   - `./mvnw clean verify`

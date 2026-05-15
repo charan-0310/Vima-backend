@@ -2,6 +2,7 @@ package com.vimainsurance.vimaadmin.repository;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -142,6 +143,61 @@ public interface IPolicyRepository extends JpaRepository<Policy, Long> {
     BigDecimal sumPremiumAmountByStatus(@Param("status") PolicyStatus status);
 
     /**
+     * Count active retail (non-organization) policies
+     */
+    @Query("SELECT COUNT(p) FROM Policy p WHERE p.status = :status AND p.organizationId IS NULL")
+    long countByStatusAndOrganizationIdIsNull(@Param("status") PolicyStatus status);
+
+    /**
+     * Sum of sumInsured for active retail (non-organization) policies
+     */
+    @Query("SELECT COALESCE(SUM(p.sumInsured), 0) FROM Policy p WHERE p.status = :status AND p.organizationId IS NULL")
+    BigDecimal sumSumInsuredByStatusAndOrganizationIdIsNull(@Param("status") PolicyStatus status);
+
+    /**
+     * Sum of premiumAmount for active retail (non-organization) policies
+     */
+    @Query("SELECT COALESCE(SUM(p.premiumAmount), 0) FROM Policy p WHERE p.status = :status AND p.organizationId IS NULL")
+    BigDecimal sumPremiumAmountByStatusAndOrganizationIdIsNull(@Param("status") PolicyStatus status);
+
+    /**
+     * Retail dashboard scope: policies whose primaryIndividualId is a retail primary customer (customers.organization_id IS NULL).
+     * This is more reliable than Policy.organizationId IS NULL because retail policies may still carry an organizationId.
+     */
+    @Query("""
+            SELECT COUNT(p)
+            FROM Policy p
+            WHERE p.status = :status
+              AND p.primaryIndividualId IN (
+                SELECT d.individualId FROM Deals d
+                WHERE d.isPrimaryMember = true AND d.organization IS NULL
+              )
+            """)
+    long countRetailPoliciesByStatus(@Param("status") PolicyStatus status);
+
+    @Query("""
+            SELECT COALESCE(SUM(p.sumInsured), 0)
+            FROM Policy p
+            WHERE p.status = :status
+              AND p.primaryIndividualId IN (
+                SELECT d.individualId FROM Deals d
+                WHERE d.isPrimaryMember = true AND d.organization IS NULL
+              )
+            """)
+    BigDecimal sumRetailSumInsuredByStatus(@Param("status") PolicyStatus status);
+
+    @Query("""
+            SELECT COALESCE(SUM(p.premiumAmount), 0)
+            FROM Policy p
+            WHERE p.status = :status
+              AND p.primaryIndividualId IN (
+                SELECT d.individualId FROM Deals d
+                WHERE d.isPrimaryMember = true AND d.organization IS NULL
+              )
+            """)
+    BigDecimal sumRetailPremiumAmountByStatus(@Param("status") PolicyStatus status);
+
+    /**
      * Find policy IDs whose product type is TOP_UP or SUPER_TOP_UP (for enrollment top-up mapping cancellation).
      */
     @Query("SELECT p.policyId FROM Policy p WHERE p.productType IN :productTypes")
@@ -160,4 +216,112 @@ public interface IPolicyRepository extends JpaRepository<Policy, Long> {
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("SELECT p FROM Policy p WHERE p.policyId = :policyId")
     Optional<Policy> findByIdForUpdate(@Param("policyId") Long policyId);
+
+    /**
+     * Minimal columns for endorsement list/detail when we must avoid lazy-loading the full Policy entity.
+     * Includes linked CD account balance (when {@code cd_account_id} is set).
+     * Insurer display: policy denormalized name, else master provider name, else CD account insurer label.
+     */
+    @Query(value = """
+            SELECT p.policy_id,
+                   CAST(p.product_type AS TEXT),
+                   p.policy_number,
+                   COALESCE(
+                       NULLIF(TRIM(p.insurer_name), ''),
+                       ip.provider_name,
+                       ca.insurer_name
+                   ) AS insurer_name,
+                   ca.cd_balance,
+                   p.description
+            FROM cpc.policies p
+            LEFT JOIN cpc.cd_accounts ca ON ca.cd_account_id = p.cd_account_id
+            LEFT JOIN admin.insurance_providers ip ON ip.provider_id = p.insurance_provider_id
+            WHERE p.policy_id IN (:ids)
+            """, nativeQuery = true)
+    List<Object[]> findListingColumnsByPolicyIds(@Param("ids") Collection<Long> ids);
+
+    // --- Manager portfolio dashboard (group / org-scoped policies) ---
+
+    @Query("""
+        SELECT COUNT(p) FROM Policy p
+        WHERE p.organizationId IS NOT NULL
+          AND (p.isDeleted = false OR p.isDeleted IS NULL)
+          AND p.status = :active
+        """)
+    long countActivePoliciesForOrganizations(@Param("active") PolicyStatus active);
+
+    @Query("""
+        SELECT COALESCE(SUM(p.premiumAmount), 0) FROM Policy p
+        WHERE p.organizationId IS NOT NULL
+          AND (p.isDeleted = false OR p.isDeleted IS NULL)
+          AND p.status = :active
+        """)
+    java.math.BigDecimal sumInceptionPremiumForActiveOrganizationPolicies(@Param("active") PolicyStatus active);
+
+    @Query("""
+        SELECT COUNT(p) FROM Policy p
+        WHERE p.organizationId IS NOT NULL
+          AND (p.isDeleted = false OR p.isDeleted IS NULL)
+          AND p.status = :active
+          AND p.endDate IS NOT NULL
+          AND p.endDate > :today
+          AND p.endDate <= :within
+        """)
+    long countActiveOrgPoliciesExpiringBetween(@Param("active") PolicyStatus active,
+            @Param("today") LocalDate today,
+            @Param("within") LocalDate within);
+
+    @Query("""
+        SELECT COUNT(p) FROM Policy p
+        WHERE p.organizationId IS NOT NULL
+          AND (p.isDeleted = false OR p.isDeleted IS NULL)
+          AND p.status = :active
+          AND (p.endDate IS NULL OR p.endDate > :after)
+        """)
+    long countActiveOrgPoliciesWithEndAfter(@Param("active") PolicyStatus active, @Param("after") LocalDate after);
+
+    @Query("""
+        SELECT COUNT(p) FROM Policy p
+        WHERE p.organizationId IS NOT NULL
+          AND (p.isDeleted = false OR p.isDeleted IS NULL)
+          AND p.status = :active
+          AND p.endDate IS NOT NULL
+          AND p.endDate >= :fromInclusive
+          AND p.endDate <= :toInclusive
+        """)
+    long countActiveOrgPoliciesEndDateBetween(@Param("active") PolicyStatus active,
+            @Param("fromInclusive") LocalDate fromInclusive,
+            @Param("toInclusive") LocalDate toInclusive);
+
+    @Query("""
+        SELECT COUNT(p) FROM Policy p
+        WHERE p.organizationId IS NOT NULL
+          AND (p.isDeleted = false OR p.isDeleted IS NULL)
+          AND (
+            p.status IN ('LAPSED', 'EXPIRED', 'CANCELLED')
+            OR (p.endDate IS NOT NULL AND p.endDate < :today)
+          )
+        """)
+    long countLapsedOrExpiredOrganizationPolicies(@Param("today") LocalDate today);
+
+    @Query(value = """
+        SELECT p.policy_id::text,
+               o.organization_name,
+               o.organization_displayname,
+               o.organization_id::text,
+               p.policy_number,
+               CAST(p.product_type AS TEXT),
+               COALESCE(p.sum_insured, 0),
+               p.end_date
+        FROM cpc.policies p
+        INNER JOIN cpc.organizations o ON o.organization_id = p.organization_id
+        WHERE p.organization_id IS NOT NULL
+          AND (p.is_deleted IS NULL OR p.is_deleted = false)
+          AND p.status::text = 'ACTIVE'
+          AND p.end_date IS NOT NULL
+          AND p.end_date > :today
+          AND p.end_date <= :until
+        ORDER BY p.end_date ASC
+        """, nativeQuery = true)
+    List<Object[]> findUpcomingRenewalsNative(@Param("today") LocalDate today, @Param("until") LocalDate until);
 }

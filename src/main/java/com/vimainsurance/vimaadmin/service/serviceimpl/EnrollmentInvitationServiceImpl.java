@@ -44,6 +44,7 @@ import com.vimainsurance.vimaadmin.dto.ExtendDeadlineResultDto;
 import com.vimainsurance.vimaadmin.dto.FailedInvitationDto;
 import com.vimainsurance.vimaadmin.dto.InvitationLinkResponseDto;
 import com.vimainsurance.vimaadmin.dto.ResendInvitationResponseDto;
+import com.vimainsurance.vimaadmin.dto.RateCardCoverageIncompleteDto;
 import com.vimainsurance.vimaadmin.dto.ResponseDto;
 import com.vimainsurance.vimaadmin.entity.Deals;
 import com.vimainsurance.vimaadmin.entity.EnrollmentInvitation;
@@ -59,7 +60,9 @@ import com.vimainsurance.vimaadmin.repository.IEnrollmentSubmissionRepository;
 import com.vimainsurance.vimaadmin.repository.IEnrollmentWindowsRepository;
 import com.vimainsurance.vimaadmin.service.IEmailService;
 import com.vimainsurance.vimaadmin.service.IEnrollmentInvitation;
+import com.vimainsurance.vimaadmin.service.IPremiumCalculationService;
 import com.vimainsurance.vimaadmin.service.TokenSecurityService;
+import com.vimainsurance.vimaadmin.util.Constants;
 import com.vimainsurance.vimaadmin.util.TransactionUtil;
 
 @Service
@@ -152,6 +155,9 @@ public class EnrollmentInvitationServiceImpl implements IEnrollmentInvitation {
 
     @Autowired(required = false)
     private FlagshipNotificationService flagshipNotificationService;
+
+    @Autowired
+    private IPremiumCalculationService premiumCalculationService;
 
     @Value("${app.base-url:http://localhost:8080}")
     private String baseUrl;
@@ -703,7 +709,7 @@ public class EnrollmentInvitationServiceImpl implements IEnrollmentInvitation {
     @Override
     @Transactional
     @AuditedOperation(schemaName = "cpc", tableName = "enrollment_windows", entityType = "ENROLLMENT_WINDOW", action = "UPDATE")
-    public ResponseEntity<ResponseDto<ActivateWindowResponseDto>> activateWindowAndSendInvites(UUID windowId) {
+    public ResponseEntity<?> activateWindowAndSendInvites(UUID windowId) {
         BaseResponse<ActivateWindowResponseDto> responseObj = new BaseResponse<>();
         try {
             EnrollmentWindows window = enrollmentWindowsRepository.findById(windowId).orElse(null);
@@ -713,18 +719,22 @@ public class EnrollmentInvitationServiceImpl implements IEnrollmentInvitation {
             if (window.getStatus() != EnrollementStatus.SCHEDULED) {
                 return responseObj.render(responseObj.formErrorResponse("Window is not in SCHEDULED status"));
             }
+            UUID orgId = window.getOrganization() != null ? window.getOrganization().getOrganizationId() : null;
+            if (orgId != null) {
+                var gaps = premiumCalculationService.findGapsInRateCardCoverageForActivePolicies(orgId);
+                if (gaps != null && !gaps.isEmpty()) {
+                    BaseResponse<Object> errObj = new BaseResponse<>();
+                    RateCardCoverageIncompleteDto payload = RateCardCoverageIncompleteDto.builder()
+                            .missing(gaps)
+                            .build();
+                    return errObj.render(errObj.formErrorResponseWithKey(422,
+                            "Active policies are missing Rate Card coverage. Add or extend rate rows before activating.",
+                            payload,
+                            Constants.ERROR_KEY_RATE_CARD_COVERAGE_INCOMPLETE));
+                }
+            }
             window.setStatus(EnrollementStatus.ACTIVE);
             enrollmentWindowsRepository.save(window);
-            if (flagshipNotificationService != null && window.getOrganization() != null) {
-                String display = window.getOrganization().getOrganizationDisplayName() != null
-                        && !window.getOrganization().getOrganizationDisplayName().isBlank()
-                                ? window.getOrganization().getOrganizationDisplayName()
-                                : window.getOrganization().getOrganizationName();
-                flagshipNotificationService.scheduleEnrollmentWindowOpened(
-                        window.getOrganization().getOrganizationId(),
-                        window.getId(),
-                        display);
-            }
 
             List<Deals> employees = dealsRepository.findByEnrollmentWindow_Id(windowId);
             int totalEmployees = employees.size();

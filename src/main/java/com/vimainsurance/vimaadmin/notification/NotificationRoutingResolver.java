@@ -32,15 +32,19 @@ public class NotificationRoutingResolver {
             "SUPER_ADMIN", "ADMIN", "VIMA_ADMIN", "SALES_ADMIN",
             "ROLE_SUPER_ADMIN", "ROLE_ADMIN", "ROLE_VIMA_ADMIN", "ROLE_SALES_ADMIN");
 
+    /** Narrower audience for endorsement upload notifications — only VIMA_ADMIN role. */
+    private static final List<String> VIMA_ADMIN_ONLY_ROLES = List.of(
+            "VIMA_ADMIN", "ROLE_VIMA_ADMIN");
+
     private final IAdminUserRepository adminUserRepository;
     private final NotificationsProperties notificationsProperties;
 
     public List<AdminUser> resolveRecipients(NotificationEventType eventType, UUID organizationId) {
         return switch (eventType) {
-            case ENDORSEMENT_UPLOADED -> findActiveByRoles(VIMA_PLATFORM_ROLES);
+            case ENDORSEMENT_UPLOADED -> findActiveByRoles(VIMA_ADMIN_ONLY_ROLES);
             case ENDORSEMENT_COMPLETED -> resolveEndorsementCompletedRecipients(organizationId, null);
             case ENROLLMENT_ALL_SUBMITTED,
-                    ENROLLMENT_WINDOW_OPENED,
+                    ENROLLMENT_WINDOW_OPENED, // event retired; no emitter — kept here only so the switch stays exhaustive
                     ENROLLMENT_WINDOW_CLOSING_SOON,
                     ENROLLMENT_WINDOW_CLOSED -> findHrAdminsForOrganization(organizationId);
             case EMPLOYEE_CLAIM_SUBMITTED,
@@ -52,44 +56,6 @@ public class NotificationRoutingResolver {
                     EMPLOYEE_CLAIM_SETTLED -> resolveClaimsTeamRecipients(organizationId);
             case ENROLLMENT_SUBMISSION_APPROVED -> List.of();
         };
-    }
-
-    /**
-     * Enrollment approval notifications target the approving HR user plus VIMA platform admins.
-     * This keeps HR context while ensuring ops visibility in the Vima admin portal.
-     */
-    public List<AdminUser> resolveEnrollmentSubmissionApprovedRecipients(UUID organizationId, UUID reviewerAdminUserId) {
-        LinkedHashSet<UUID> seen = new LinkedHashSet<>();
-        List<AdminUser> out = new ArrayList<>();
-        if (reviewerAdminUserId != null) {
-            AdminUser reviewer = adminUserRepository.findById(reviewerAdminUserId).orElse(null);
-            boolean reviewerEligible = reviewer != null
-                    && Boolean.TRUE.equals(reviewer.getIsActive())
-                    && isHrAdminRole(reviewer.getRole());
-            if (reviewerEligible
-                    && organizationId != null
-                    && reviewer.getOrganization() != null
-                    && reviewer.getOrganization().getOrganizationId() != null
-                    && !organizationId.equals(reviewer.getOrganization().getOrganizationId())) {
-                reviewerEligible = false;
-                log.warn("notification_routing_enrollment_approval_reviewer_skip reviewerId={} reason=org_mismatch reviewerOrgId={} eventOrgId={}",
-                        reviewerAdminUserId, reviewer.getOrganization().getOrganizationId(), organizationId);
-            }
-            if (reviewerEligible && reviewer.getId() != null && seen.add(reviewer.getId())) {
-                out.add(reviewer);
-            } else if (!reviewerEligible) {
-                log.warn("notification_routing_enrollment_approval_reviewer_skip reviewerId={} reason=missing_or_not_active_hr",
-                        reviewerAdminUserId);
-            }
-        } else {
-            log.warn("notification_routing_enrollment_approval_reviewer_skip reason=missing_reviewer orgId={}", organizationId);
-        }
-        for (AdminUser u : findActiveByRoles(VIMA_PLATFORM_ROLES)) {
-            if (u != null && u.getId() != null && seen.add(u.getId())) {
-                out.add(u);
-            }
-        }
-        return out;
     }
 
     /**

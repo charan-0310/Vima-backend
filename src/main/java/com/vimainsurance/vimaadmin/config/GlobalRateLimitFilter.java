@@ -37,14 +37,12 @@ import jakarta.servlet.http.HttpServletResponse;
  * deployment this should be backed by Bucket4j-Redis (or AWS WAF rate-based rules).
  *
  * Rule precedence (longest prefix wins):
- *   /api/v1/auth/**, /api/v1/login, /api/v1/nonce               -> AUTH    (10 req / min)
  *   /api/v1/enrollment/**, /api/v1/enrollment-submissions/**     -> ENROLL  (20 req / min)
  *   anything else under /api/**                                  -> DEFAULT (120 req / min)
  *
  * Configuration overrides (application.properties):
  *   ratelimit.enabled=true|false
  *   ratelimit.default.requests-per-min
- *   ratelimit.auth.requests-per-min
  *   ratelimit.enrollment.requests-per-min
  *   ratelimit.exempt-ips=10.0.0.0/8,52.66.0.0/16
  *
@@ -61,9 +59,6 @@ public class GlobalRateLimitFilter extends OncePerRequestFilter {
 
     @Value("${ratelimit.default.requests-per-min:120}")
     private int defaultRpm;
-
-    @Value("${ratelimit.auth.requests-per-min:10}")
-    private int authRpm;
 
     @Value("${ratelimit.enrollment.requests-per-min:20}")
     private int enrollmentRpm;
@@ -89,13 +84,12 @@ public class GlobalRateLimitFilter extends OncePerRequestFilter {
                 .maximumSize(maxCacheEntries)
                 .expireAfterAccess(Duration.ofMinutes(expireAfterAccessMinutes))
                 .build();
-        logger.info("GlobalRateLimitFilter initialised: defaultRpm={}, authRpm={}, enrollmentRpm={}, "
+        logger.info("GlobalRateLimitFilter initialised: defaultRpm={}, enrollmentRpm={}, "
                         + "cache maxEntries={}, expireAfterAccess={}min",
-                defaultRpm, authRpm, enrollmentRpm, maxCacheEntries, expireAfterAccessMinutes);
+                defaultRpm, enrollmentRpm, maxCacheEntries, expireAfterAccessMinutes);
     }
 
     private enum Scope {
-        AUTH,
         ENROLLMENT,
         DEFAULT,
     }
@@ -165,11 +159,6 @@ public class GlobalRateLimitFilter extends OncePerRequestFilter {
                 path = path.substring(prefix.length());
                 break;
             }
-        }
-        if (path.startsWith("/api/v1/auth/")
-                || path.equals("/api/v1/login")
-                || path.equals("/api/v1/nonce")) {
-            return new RuleMatch(Scope.AUTH, authRpm);
         }
         if (path.startsWith("/api/v1/enrollment/")
                 || path.startsWith("/api/v1/enrollment-submissions/")

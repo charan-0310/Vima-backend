@@ -1,6 +1,7 @@
 package com.vimainsurance.vimaadmin.specification;
 
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
@@ -192,6 +193,76 @@ public final class ClaimSpecification {
                 predicates.add(cb.equal(root.get("isDeleted"), filters.getIsDeleted()));
             } else {
                 predicates.add(cb.equal(root.get("isDeleted"), false));
+            }
+            return cb.and(predicates.toArray(new Predicate[0]));
+        };
+    }
+
+    /**
+     * Same as {@link #withFiltersAndStatusIn} but requires {@code updatedAt} strictly before {@code before}
+     * (used for "aged" pipeline counts, approximating time-in-status when status history is unavailable).
+     */
+    public static Specification<Claim> withFiltersAndStatusInAndUpdatedAtBefore(
+            ClaimListFilters filters, List<ClaimStatus> statuses, LocalDateTime before) {
+        return (root, query, cb) -> {
+            List<Predicate> predicates = new ArrayList<>();
+            if (filters == null) {
+                predicates.add(cb.equal(root.get("isDeleted"), false));
+                if (statuses != null && !statuses.isEmpty()) {
+                    predicates.add(root.get("internalStatus").in(statuses));
+                }
+                if (before != null) {
+                    predicates.add(cb.lessThan(root.get("updatedAt"), before));
+                }
+                return cb.and(predicates.toArray(new Predicate[0]));
+            }
+            if (filters.getOrganizationIds() != null && !filters.getOrganizationIds().isEmpty()) {
+                predicates.add(root.get("organization").get("organizationId").in(filters.getOrganizationIds()));
+            } else if (filters.getOrganizationId() != null) {
+                predicates.add(cb.equal(root.get("organization").get("organizationId"), filters.getOrganizationId()));
+            }
+            if (filters.getEmployeeId() != null) {
+                predicates.add(cb.equal(root.get("employee").get("individualId"), filters.getEmployeeId()));
+            }
+            if (filters.getPolicyId() != null) {
+                predicates.add(cb.equal(root.get("policyId"), filters.getPolicyId()));
+            }
+            if (statuses != null && !statuses.isEmpty()) {
+                predicates.add(root.get("internalStatus").in(statuses));
+            } else if (filters.getInternalStatus() != null) {
+                predicates.add(cb.equal(root.get("internalStatus"), filters.getInternalStatus()));
+            }
+            if (filters.getClaimType() != null) {
+                predicates.add(cb.equal(root.get("claimType"), filters.getClaimType()));
+            }
+            if (filters.getClaimNumber() != null && !filters.getClaimNumber().isBlank()) {
+                predicates.add(cb.equal(root.get("claimNumber"), filters.getClaimNumber()));
+            }
+            if (filters.getSearch() != null && !filters.getSearch().isBlank()) {
+                String search = "%" + filters.getSearch().toLowerCase() + "%";
+                predicates.add(cb.or(
+                        cb.like(cb.lower(root.get("claimNumber")), search),
+                        cb.like(cb.lower(root.get("memberName")), search)));
+            }
+            if (filters.getDateOfSubmissionFrom() != null) {
+                predicates.add(cb.greaterThanOrEqualTo(root.get("dateOfSubmission"), filters.getDateOfSubmissionFrom()));
+            }
+            if (filters.getDateOfSubmissionTo() != null) {
+                predicates.add(cb.lessThanOrEqualTo(root.get("dateOfSubmission"), filters.getDateOfSubmissionTo()));
+            }
+            if (filters.getInsurerId() != null) {
+                predicates.add(cb.equal(root.get("insurerId"), filters.getInsurerId()));
+            }
+            if (filters.getInsurerClaimRef() != null && !filters.getInsurerClaimRef().isBlank()) {
+                predicates.add(cb.equal(root.get("insurerClaimRef"), filters.getInsurerClaimRef()));
+            }
+            if (filters.getIsDeleted() != null) {
+                predicates.add(cb.equal(root.get("isDeleted"), filters.getIsDeleted()));
+            } else {
+                predicates.add(cb.equal(root.get("isDeleted"), false));
+            }
+            if (before != null) {
+                predicates.add(cb.lessThan(root.get("updatedAt"), before));
             }
             return cb.and(predicates.toArray(new Predicate[0]));
         };

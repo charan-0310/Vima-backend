@@ -55,7 +55,7 @@ import org.springframework.data.domain.Page;
  */
 @RestController
 @RequestMapping("/api/v1/admin/claims")
-@PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'VIMA_ADMIN', 'HR_ADMIN')")
+@PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'VIMA_ADMIN', 'HR_ADMIN', 'SALES_MANAGER')")
 @RequiredArgsConstructor
 public class AdminClaimsController {
 
@@ -70,7 +70,7 @@ public class AdminClaimsController {
 
     /** GET /api/v1/admin/claims - List all claims with filters. */
     @GetMapping
-    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'VIMA_ADMIN', 'HR_ADMIN')")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'VIMA_ADMIN', 'HR_ADMIN', 'SALES_MANAGER')")
     public ResponseEntity<ResponseDto<Page<ClaimDetailsResponse>>> listClaims(
             @RequestParam(required = false) UUID organizationId,
             @RequestParam(required = false) String status,
@@ -124,7 +124,7 @@ public class AdminClaimsController {
 
     /** GET /api/v1/admin/claims/summary - Dashboard summary metrics. */
     @GetMapping("/summary")
-    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'VIMA_ADMIN', 'HR_ADMIN')")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'VIMA_ADMIN', 'HR_ADMIN', 'SALES_MANAGER')")
     public ResponseEntity<ResponseDto<com.vimainsurance.vimaadmin.dto.claim.ClaimsSummaryResponse>> getSummary(
             @RequestParam(required = false) UUID organizationId,
             @RequestParam(required = false) String dateFrom,
@@ -147,14 +147,14 @@ public class AdminClaimsController {
 
     /** GET /api/v1/admin/claims/{claimId} - Get full claim details (admin view). */
     @GetMapping("/{claimId}")
-    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'VIMA_ADMIN', 'HR_ADMIN')")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'VIMA_ADMIN', 'HR_ADMIN', 'SALES_MANAGER')")
     public ResponseEntity<ResponseDto<ClaimDetailsResponse>> getClaimDetail(@PathVariable UUID claimId) {
         return adminClaimsService.getClaimDetail(claimId);
     }
 
     /** PUT /api/v1/admin/claims/{claimId}/status - Change claim status. */
     @PutMapping("/{claimId}/status")
-    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'VIMA_ADMIN', 'HR_ADMIN')")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'VIMA_ADMIN', 'HR_ADMIN', 'SALES_MANAGER')")
     public ResponseEntity<ResponseDto<com.vimainsurance.vimaadmin.dto.claim.StatusUpdateResponse>> changeStatus(
             @PathVariable UUID claimId,
             @Valid @RequestBody StatusUpdateRequest request) {
@@ -163,7 +163,7 @@ public class AdminClaimsController {
 
     /** PUT /api/v1/admin/claims/{claimId}/insurer-ref - Update insurer reference fields. */
     @PutMapping("/{claimId}/insurer-ref")
-    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'VIMA_ADMIN', 'HR_ADMIN')")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'VIMA_ADMIN', 'HR_ADMIN', 'SALES_MANAGER')")
     public ResponseEntity<ResponseDto<ClaimDetailsResponse>> updateInsurerRef(
             @PathVariable UUID claimId,
             @RequestBody InsurerRefRequest request) {
@@ -172,21 +172,21 @@ public class AdminClaimsController {
 
     /** POST /api/v1/admin/claims/{claimId}/submit-to-insurer - Mark as submitted (calls adapter). */
     @PostMapping("/{claimId}/submit-to-insurer")
-    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'VIMA_ADMIN', 'HR_ADMIN')")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'VIMA_ADMIN', 'HR_ADMIN', 'SALES_MANAGER')")
     public ResponseEntity<ResponseDto<ClaimDetailsResponse>> submitToInsurer(@PathVariable UUID claimId) {
         return adminClaimsService.submitToInsurer(claimId);
     }
 
     /** GET /api/v1/admin/claims/{claimId}/audit-log - View audit trail. */
     @GetMapping("/{claimId}/audit-log")
-    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'VIMA_ADMIN', 'HR_ADMIN')")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'VIMA_ADMIN', 'HR_ADMIN', 'SALES_MANAGER')")
     public ResponseEntity<ResponseDto<java.util.List<ClaimDetailsResponse.ClaimAuditLogDto>>> getAuditLog(@PathVariable UUID claimId) {
         return adminClaimsService.getAuditLog(claimId);
     }
 
     /** POST /api/v1/admin/claims/{claimId}/queries - Create query record (claim status -> QUERY_RAISED). */
     @PostMapping("/{claimId}/queries")
-    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'VIMA_ADMIN', 'HR_ADMIN')")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'VIMA_ADMIN', 'HR_ADMIN', 'SALES_MANAGER')")
     public ResponseEntity<ResponseDto<com.vimainsurance.vimaadmin.dto.claim.QueryCreateResponse>> createQuery(
             @PathVariable UUID claimId,
             @Valid @RequestBody QueryCreateRequest request) {
@@ -195,7 +195,7 @@ public class AdminClaimsController {
 
     /** PUT /api/v1/admin/claims/{claimId}/queries/{queryId}/respond - Record query response (claim status -> QUERY_RESPONDED). */
     @PutMapping("/{claimId}/queries/{queryId}/respond")
-    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'VIMA_ADMIN', 'HR_ADMIN')")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'VIMA_ADMIN', 'HR_ADMIN', 'SALES_MANAGER')")
     public ResponseEntity<ResponseDto<Void>> respondToQuery(
             @PathVariable UUID claimId,
             @PathVariable UUID queryId,
@@ -205,14 +205,14 @@ public class AdminClaimsController {
 
     /** GET /api/v1/admin/claims/{claimId}/queries - List all queries for claim. */
     @GetMapping("/{claimId}/queries")
-    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'VIMA_ADMIN', 'HR_ADMIN')")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'VIMA_ADMIN', 'HR_ADMIN', 'SALES_MANAGER')")
     public ResponseEntity<ResponseDto<java.util.List<com.vimainsurance.vimaadmin.dto.claim.ClaimQueryDto>>> listQueries(@PathVariable UUID claimId) {
         return claimQueryService.listQueries(claimId);
     }
 
     /** POST /api/v1/admin/claims/{claimId}/settlement - Record settlement (claim status -> SETTLED). */
     @PostMapping(value = "/{claimId}/settlement", consumes = MediaType.APPLICATION_JSON_VALUE)
-    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'VIMA_ADMIN', 'HR_ADMIN')")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'VIMA_ADMIN', 'HR_ADMIN', 'SALES_MANAGER')")
     public ResponseEntity<ResponseDto<com.vimainsurance.vimaadmin.dto.claim.SettlementResponse>> recordSettlement(
             @PathVariable UUID claimId,
             @Valid @RequestBody SettlementRequest request) {
@@ -221,7 +221,7 @@ public class AdminClaimsController {
 
     /** PUT /api/v1/admin/claims/{claimId}/settlement - Update settlement. */
     @PutMapping(value = "/{claimId}/settlement", consumes = MediaType.APPLICATION_JSON_VALUE)
-    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'VIMA_ADMIN', 'HR_ADMIN')")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'VIMA_ADMIN', 'HR_ADMIN', 'SALES_MANAGER')")
     public ResponseEntity<ResponseDto<com.vimainsurance.vimaadmin.dto.claim.SettlementResponse>> updateSettlement(
             @PathVariable UUID claimId,
             @Valid @RequestBody SettlementRequest request) {
@@ -230,7 +230,7 @@ public class AdminClaimsController {
 
     /** POST /api/v1/admin/claims/{claimId}/settlement (multipart) - Record settlement with optional document. */
     @PostMapping(value = "/{claimId}/settlement", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
-    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'VIMA_ADMIN', 'HR_ADMIN')")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'VIMA_ADMIN', 'HR_ADMIN', 'SALES_MANAGER')")
     public ResponseEntity<ResponseDto<com.vimainsurance.vimaadmin.dto.claim.SettlementResponse>> recordSettlementWithDocument(
             @PathVariable UUID claimId,
             @Valid @RequestPart("request") SettlementRequest request,
@@ -240,7 +240,7 @@ public class AdminClaimsController {
 
     /** PUT /api/v1/admin/claims/{claimId}/settlement (multipart) - Update settlement with optional document. */
     @PutMapping(value = "/{claimId}/settlement", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
-    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'VIMA_ADMIN', 'HR_ADMIN')")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'VIMA_ADMIN', 'HR_ADMIN', 'SALES_MANAGER')")
     public ResponseEntity<ResponseDto<com.vimainsurance.vimaadmin.dto.claim.SettlementResponse>> updateSettlementWithDocument(
             @PathVariable UUID claimId,
             @Valid @RequestPart("request") SettlementRequest request,
@@ -250,7 +250,7 @@ public class AdminClaimsController {
 
     /** POST /api/v1/admin/claims/{claimId}/deductions - Add deduction line item. */
     @PostMapping("/{claimId}/deductions")
-    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'VIMA_ADMIN', 'HR_ADMIN')")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'VIMA_ADMIN', 'HR_ADMIN', 'SALES_MANAGER')")
     public ResponseEntity<ResponseDto<com.vimainsurance.vimaadmin.dto.claim.ClaimDeductionDto>> addDeduction(
             @PathVariable UUID claimId,
             @Valid @RequestBody DeductionRequest request) {
@@ -259,14 +259,14 @@ public class AdminClaimsController {
 
     /** GET /api/v1/admin/claims/{claimId}/deductions - List deductions. */
     @GetMapping("/{claimId}/deductions")
-    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'VIMA_ADMIN', 'HR_ADMIN')")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'VIMA_ADMIN', 'HR_ADMIN', 'SALES_MANAGER')")
     public ResponseEntity<ResponseDto<java.util.List<com.vimainsurance.vimaadmin.dto.claim.ClaimDeductionDto>>> listDeductions(@PathVariable UUID claimId) {
         return claimSettlementService.listDeductions(claimId);
     }
 
     /** DELETE /api/v1/admin/claims/{claimId}/deductions/{deductionId} - Remove deduction. */
     @DeleteMapping("/{claimId}/deductions/{deductionId}")
-    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'VIMA_ADMIN', 'HR_ADMIN')")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'VIMA_ADMIN', 'HR_ADMIN', 'SALES_MANAGER')")
     public ResponseEntity<ResponseDto<Void>> removeDeduction(
             @PathVariable UUID claimId,
             @PathVariable UUID deductionId) {
@@ -278,7 +278,7 @@ public class AdminClaimsController {
      * Params: files (multipart), documentType (enum).
      */
     @PostMapping(value = "/{claimId}/documents", consumes = MediaType.MULTIPART_FORM_DATA_VALUE, produces = MediaType.APPLICATION_JSON_VALUE)
-    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'VIMA_ADMIN', 'HR_ADMIN')")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'VIMA_ADMIN', 'HR_ADMIN', 'SALES_MANAGER')")
     public ResponseEntity<ResponseDto<DocumentUploadResponse>> uploadClaimDocuments(
             @PathVariable UUID claimId,
             @RequestParam("files") MultipartFile[] files,
@@ -302,7 +302,7 @@ public class AdminClaimsController {
      * GET /api/v1/admin/claims/{claimId}/documents - List claim document metadata.
      */
     @GetMapping("/{claimId}/documents")
-    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'VIMA_ADMIN', 'HR_ADMIN')")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'VIMA_ADMIN', 'HR_ADMIN', 'SALES_MANAGER')")
     public ResponseEntity<ResponseDto<ClaimDocumentListResponse>> getClaimDocuments(@PathVariable UUID claimId) {
         UUID adminId = jwtUserExtractor.getCurrentUserId();
         if (adminId == null) {
@@ -316,7 +316,7 @@ public class AdminClaimsController {
      * GET /api/v1/admin/claims/{claimId}/documents/{documentId}/download - Stream file from S3 (authenticated).
      */
     @GetMapping("/{claimId}/documents/{documentId}/download")
-    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'VIMA_ADMIN', 'HR_ADMIN')")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'VIMA_ADMIN', 'HR_ADMIN', 'SALES_MANAGER')")
     public ResponseEntity<Resource> downloadClaimDocument(
             @PathVariable UUID claimId,
             @PathVariable UUID documentId) {
@@ -331,7 +331,7 @@ public class AdminClaimsController {
      * DELETE /api/v1/admin/claims/{claimId}/documents/{docId} - Remove document.
      */
     @DeleteMapping("/{claimId}/documents/{docId}")
-    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'VIMA_ADMIN', 'HR_ADMIN')")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'VIMA_ADMIN', 'HR_ADMIN', 'SALES_MANAGER')")
     public ResponseEntity<ResponseDto<String>> deleteClaimDocument(
             @PathVariable UUID claimId,
             @PathVariable UUID docId) {

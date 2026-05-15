@@ -76,6 +76,24 @@ public interface IAdminNotificationRepository extends JpaRepository<AdminNotific
             @Param("companyId") UUID companyId,
             Pageable pageable);
 
+    /**
+     * Shared Vima audience inbox scoped to organizations (JWT). Excludes rows with null {@code company_id}.
+     */
+    @EntityGraph(attributePaths = { "deliveries", "recipient", "company" })
+    @Query("""
+            SELECT n FROM AdminNotification n
+            WHERE n.recipient.id IN :recipientIds
+              AND (:unreadOnly = false OR n.readAt IS NULL)
+              AND (:category IS NULL OR n.category = :category)
+              AND n.company.organizationId IN :organizationIds
+            """)
+    Page<AdminNotification> findInboxByRecipientIdsAndOrganizationIdIn(
+            @Param("recipientIds") Collection<UUID> recipientIds,
+            @Param("unreadOnly") boolean unreadOnly,
+            @Param("category") NotificationCategory category,
+            @Param("organizationIds") Collection<UUID> organizationIds,
+            Pageable pageable);
+
     @Query("""
             SELECT n FROM AdminNotification n
             WHERE LOWER(n.receiverEmail) = LOWER(:receiverEmail)
@@ -160,6 +178,16 @@ public interface IAdminNotificationRepository extends JpaRepository<AdminNotific
             """)
     long countUnreadByRecipientIds(@Param("recipientIds") Collection<UUID> recipientIds);
 
+    @Query("""
+            SELECT COUNT(n) FROM AdminNotification n
+            WHERE n.recipient.id IN :recipientIds
+              AND n.readAt IS NULL
+              AND n.company.organizationId IN :organizationIds
+            """)
+    long countUnreadByRecipientIdsAndOrganizationIdIn(
+            @Param("recipientIds") Collection<UUID> recipientIds,
+            @Param("organizationIds") Collection<UUID> organizationIds);
+
     @Modifying
     @Query("UPDATE AdminNotification n SET n.readAt = :readAt, n.updatedAt = :readAt WHERE n.id = :id AND n.recipient.id = :recipientId AND n.readAt IS NULL")
     int markReadIfOwned(@Param("id") UUID id, @Param("recipientId") UUID recipientId, @Param("readAt") LocalDateTime readAt);
@@ -198,6 +226,17 @@ public interface IAdminNotificationRepository extends JpaRepository<AdminNotific
             @Param("companyId") UUID companyId,
             @Param("readAt") LocalDateTime readAt);
 
+    @Modifying
+    @Query("""
+            UPDATE AdminNotification n SET n.readAt = :readAt, n.updatedAt = :readAt
+            WHERE n.recipient.id IN :recipientIds AND n.readAt IS NULL
+              AND n.company.organizationId IN :organizationIds
+            """)
+    int markAllReadForRecipientIdsAndOrganizationIdIn(
+            @Param("recipientIds") Collection<UUID> recipientIds,
+            @Param("organizationIds") Collection<UUID> organizationIds,
+            @Param("readAt") LocalDateTime readAt);
+
     /**
      * Marks all unread fan-out rows in the shared pool that share the same logical dedup prefix as
      * {@code logicalKey} / {@code dedupPrefix} (see {@link com.vimainsurance.vimaadmin.notification.AdminNotificationInboxService#logicalDedupKey}).
@@ -212,5 +251,19 @@ public interface IAdminNotificationRepository extends JpaRepository<AdminNotific
             @Param("recipientIds") Collection<UUID> recipientIds,
             @Param("logicalKey") String logicalKey,
             @Param("dedupPrefix") String dedupPrefix,
+            @Param("readAt") LocalDateTime readAt);
+
+    @Modifying
+    @Query("""
+            UPDATE AdminNotification n SET n.readAt = :readAt, n.updatedAt = :readAt
+            WHERE n.readAt IS NULL AND n.recipient.id IN :recipientIds
+              AND (n.dedupKey = :logicalKey OR n.dedupKey LIKE CONCAT(:dedupPrefix, '%'))
+              AND n.company.organizationId IN :organizationIds
+            """)
+    int markReadLogicalGroupForRecipientsAndOrganizationIdIn(
+            @Param("recipientIds") Collection<UUID> recipientIds,
+            @Param("logicalKey") String logicalKey,
+            @Param("dedupPrefix") String dedupPrefix,
+            @Param("organizationIds") Collection<UUID> organizationIds,
             @Param("readAt") LocalDateTime readAt);
 }

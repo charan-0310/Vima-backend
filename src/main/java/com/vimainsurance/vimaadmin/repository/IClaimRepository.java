@@ -64,4 +64,16 @@ public interface IClaimRepository extends JpaRepository<Claim, UUID>, JpaSpecifi
 
     /** Count claims for current employee (non-deleted). */
     long countByEmployee_IndividualIdAndIsDeleted(UUID employeeId, boolean isDeleted);
+
+    @Query(value = """
+        SELECT AVG(
+            (EXTRACT(EPOCH FROM COALESCE(cs.settlement_date::timestamp, c.approved_at, c.updated_at))
+                - EXTRACT(EPOCH FROM c.created_at)) / 86400.0
+        )
+        FROM claims.claims c
+        LEFT JOIN claims.claim_settlement cs ON cs.claim_id = c.id
+        WHERE COALESCE(c.is_deleted, false) = false
+          AND c.internal_status::text = 'SETTLED'
+        """, nativeQuery = true)
+    Double avgSettledClaimTurnaroundDays();
 }

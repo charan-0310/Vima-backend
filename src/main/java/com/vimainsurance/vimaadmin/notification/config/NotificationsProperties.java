@@ -4,26 +4,16 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 
 import lombok.Data;
 
+/**
+ * Behaviour switches for the unified notification system. Slack URL configuration
+ * lives in {@link com.vimainsurance.vimaadmin.notification.slack.SlackChannelProperties}
+ * and routing decisions go through
+ * {@link com.vimainsurance.vimaadmin.notification.slack.SlackChannelRouter}; do not
+ * add Slack URLs here.
+ */
 @Data
 @ConfigurationProperties(prefix = "notifications")
 public class NotificationsProperties {
-
-    /**
-     * Dedicated Slack Incoming Webhook for unified notifications (separate from legacy SlackNotificationUtil).
-     */
-    private String slackWebhookUrl = "";
-    /**
-     * Dedicated Slack Incoming Webhook for claim events.
-     */
-    private String claimsSlackWebhookUrl = "";
-    /**
-     * Optional Slack Bot token used for chat.postMessage.
-     */
-    private String slackBotToken = "";
-    /**
-     * Target Slack channel ID for endorsement-completed notifications.
-     */
-    private String slackChannelId = "C0B22DB8AUC";
 
     private int retryMaxAttempts = 5;
 

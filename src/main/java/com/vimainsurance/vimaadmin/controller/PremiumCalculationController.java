@@ -30,10 +30,12 @@ import com.vimainsurance.vimaadmin.dto.PremiumRateTableCsvUploadResultDto;
 import com.vimainsurance.vimaadmin.dto.PremiumRateTableRequestDto;
 import com.vimainsurance.vimaadmin.dto.PremiumRateTableResponseDto;
 import com.vimainsurance.vimaadmin.dto.ResponseDto;
+import com.vimainsurance.vimaadmin.exception.NoRateTableConfiguredException;
 import com.vimainsurance.vimaadmin.service.EnrollmentTokenRateLimitService;
 import com.vimainsurance.vimaadmin.service.IEnrollmentService;
 import com.vimainsurance.vimaadmin.service.IPremiumCalculationService;
 import com.vimainsurance.vimaadmin.service.IPremiumRateTableService;
+import com.vimainsurance.vimaadmin.util.Constants;
 
 import jakarta.validation.Valid;
 
@@ -98,6 +100,11 @@ public class PremiumCalculationController {
             return responseObj.render(responseObj.formSuccessResponse("OK", result));
         } catch (com.vimainsurance.vimaadmin.exception.RateLimitExceededException e) {
             return responseObj.render(responseObj.formErrorResponse(429, e.getMessage()));
+        } catch (NoRateTableConfiguredException e) {
+            return responseObj.render(responseObj.formErrorResponseWithKey(422,
+                    "Add a Rate Card with effective dates covering today to calculate premium.",
+                    null,
+                    Constants.ERROR_KEY_NO_RATE_TABLE_CONFIGURED));
         } catch (IllegalArgumentException e) {
             return responseObj.render(responseObj.formErrorResponse(400, e.getMessage()));
         } catch (Exception e) {
@@ -118,6 +125,11 @@ public class PremiumCalculationController {
         try {
             PremiumPreviewResponseDto result = premiumCalculationService.previewPremium(request);
             return responseObj.render(responseObj.formSuccessResponse("OK", result));
+        } catch (NoRateTableConfiguredException e) {
+            return responseObj.render(responseObj.formErrorResponseWithKey(422,
+                    "Add a Rate Card with effective dates covering today to calculate premium.",
+                    null,
+                    Constants.ERROR_KEY_NO_RATE_TABLE_CONFIGURED));
         } catch (IllegalArgumentException e) {
             return responseObj.render(responseObj.formErrorResponse(400, e.getMessage()));
         } catch (Exception e) {

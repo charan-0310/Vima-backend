@@ -10,7 +10,6 @@ import java.util.Set;
 import java.util.UUID;
 
 import org.springframework.data.domain.PageRequest;
-import org.springframework.core.env.Environment;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -23,9 +22,10 @@ import com.vimainsurance.vimaadmin.notification.entity.NotificationDelivery;
 import com.vimainsurance.vimaadmin.notification.enums.NotificationCategory;
 import com.vimainsurance.vimaadmin.notification.enums.NotificationChannelKind;
 import com.vimainsurance.vimaadmin.notification.enums.NotificationDeliveryStatus;
-import com.vimainsurance.vimaadmin.notification.enums.NotificationEventType;
 import com.vimainsurance.vimaadmin.notification.repository.IAdminNotificationRepository;
 import com.vimainsurance.vimaadmin.notification.repository.INotificationDeliveryRepository;
+import com.vimainsurance.vimaadmin.notification.slack.SlackChannel;
+import com.vimainsurance.vimaadmin.notification.slack.SlackChannelRouter;
 import com.vimainsurance.vimaadmin.service.IEmailService;
 
 import lombok.RequiredArgsConstructor;
@@ -35,18 +35,31 @@ import lombok.extern.slf4j.Slf4j;
 @Service
 @RequiredArgsConstructor
 public class NotificationDispatcher {
-    private static final Set<NotificationCategory> TEMP_EMAIL_DISABLED_FOR_VIMA_ADMIN_CATEGORIES = Set.of(
-            NotificationCategory.ENDORSEMENT,
-            NotificationCategory.ENROLLMENT,
+    /**
+     * Categories where NOBODY receives email — Slack and in-app bell still fire.
+     * CLAIM events are Slack-only by design: HR is notified via the support-claims channel and
+     * VIMA staff get the same Slack post; we do not flood inboxes with claim emails.
+     */
+    private static final Set<NotificationCategory> EMAIL_DISABLED_FOR_ALL_CATEGORIES = Set.of(
             NotificationCategory.CLAIM);
+
+    /**
+     * Categories where VIMA platform admins (SUPER_ADMIN / ADMIN / VIMA_ADMIN / SALES_ADMIN)
+     * should NOT receive email. HR admins still receive. Slack and in-app bell still fire for everyone.
+     */
+    private static final Set<NotificationCategory> EMAIL_DISABLED_FOR_VIMA_PLATFORM_CATEGORIES = Set.of(
+            NotificationCategory.ENROLLMENT);
+
+    private static final Set<String> VIMA_PLATFORM_ROLE_NAMES = Set.of(
+            "SUPER_ADMIN", "ADMIN", "VIMA_ADMIN", "SALES_ADMIN");
 
     private final IAdminNotificationRepository notificationRepository;
     private final INotificationDeliveryRepository deliveryRepository;
     private final NotificationsFeatureGate notificationsFeatureGate;
     private final NotificationsProperties notificationsProperties;
-    private final Environment environment;
     private final IEmailService emailService;
     private final NotificationSlackWebhookClient slackWebhookClient;
+    private final SlackChannelRouter slackChannelRouter;
 
     @Transactional
     public void dispatchDeliveriesFor(UUID notificationId) {
@@ -145,11 +158,18 @@ public class NotificationDispatcher {
 
     private void sendEmail(AdminNotification n, NotificationDelivery d) {
         AdminUser recipient = n.getRecipient();
-        if (shouldTemporarilySkipEmailForVimaAdmin(recipient, n)) {
+        if (n.getCategory() != null && EMAIL_DISABLED_FOR_ALL_CATEGORIES.contains(n.getCategory())) {
             d.setStatus(NotificationDeliveryStatus.SKIPPED);
-            d.setLastError("Email temporarily disabled for VIMA_ADMIN on this event");
-            log.info("notification_delivery_skipped channel=EMAIL notificationId={} reason=vima_admin_temp_email_disabled eventType={}",
-                    n.getId(), n.getEventType());
+            d.setLastError("Email disabled for category " + n.getCategory());
+            log.info("notification_delivery_skipped channel=EMAIL notificationId={} reason=category_email_disabled category={} eventType={}",
+                    n.getId(), n.getCategory(), n.getEventType());
+            return;
+        }
+        if (shouldSkipEmailForVimaPlatformAdmin(recipient, n)) {
+            d.setStatus(NotificationDeliveryStatus.SKIPPED);
+            d.setLastError("Email disabled for VIMA platform admin on this category");
+            log.info("notification_delivery_skipped channel=EMAIL notificationId={} reason=vima_platform_admin_email_disabled eventType={} category={}",
+                    n.getId(), n.getEventType(), n.getCategory());
             return;
         }
         if (recipient.getEmail() == null || recipient.getEmail().isBlank()) {
@@ -191,39 +211,29 @@ public class NotificationDispatcher {
         if (n.getDeepLinkUrl() != null && !n.getDeepLinkUrl().isBlank()) {
             text = text + "\n" + n.getDeepLinkUrl();
         }
-        boolean ok = false;
-        String route = "none";
-        String url;
-        if (isClaimEvent(n.getEventType())) {
-            url = notificationsProperties.getClaimsSlackWebhookUrl();
-        } else if (NotificationEventType.ENDORSEMENT_UPLOADED.equals(n.getEventType())) {
-            url = environment.getProperty("slack.reminder.channel.url", "");
-            if (url == null || url.isBlank()) {
-                url = notificationsProperties.getSlackWebhookUrl();
-            }
-        } else {
-            url = notificationsProperties.getSlackWebhookUrl();
-        }
-        if (url == null || url.isBlank()) {
-            url = environment.getProperty("slack.webhook.url", "");
-        }
-        if (url == null || url.isBlank()) {
+
+        SlackChannel channel = slackChannelRouter.channelForEvent(n.getEventType());
+        var maybeUrl = slackChannelRouter.resolveUrl(channel);
+        if (maybeUrl.isEmpty()) {
             d.setStatus(NotificationDeliveryStatus.SKIPPED);
-            d.setLastError("notifications.slack-webhook-url (or slack.webhook.url) not configured");
-            log.info("notification_delivery_skipped channel=SLACK notificationId={} reason=no_webhook", n.getId());
+            d.setLastError("Slack channel " + channel + " not configured for this environment");
+            log.info("notification_delivery_skipped channel=SLACK notificationId={} reason=router_skipped slackChannel={} eventType={}",
+                    n.getId(), channel, n.getEventType());
             return;
         }
-        route = "webhook";
-        log.info("notification_delivery_route channel=SLACK route=webhook notificationId={} deliveryId={} eventType={}",
-                n.getId(), d.getId(), n.getEventType());
-        ok = slackWebhookClient.postMessageToWebhookUrl(text, url);
+
+        log.info("notification_delivery_route channel=SLACK route=webhook notificationId={} deliveryId={} eventType={} slackChannel={}",
+                n.getId(), d.getId(), n.getEventType(), channel);
+        boolean ok = slackWebhookClient.postMessageToWebhookUrl(text, maybeUrl.get());
         if (ok) {
             d.setStatus(NotificationDeliveryStatus.SENT);
             d.setLastError(null);
-            log.info("notification_delivery_sent channel=SLACK notificationId={} deliveryId={} route={}", n.getId(), d.getId(), route);
+            log.info("notification_delivery_sent channel=SLACK notificationId={} deliveryId={} slackChannel={}",
+                    n.getId(), d.getId(), channel);
         } else {
             markFailed(d, "Slack webhook rejected or failed");
-            log.warn("notification_delivery_failed channel=SLACK notificationId={} deliveryId={} route={}", n.getId(), d.getId(), route);
+            log.warn("notification_delivery_failed channel=SLACK notificationId={} deliveryId={} slackChannel={}",
+                    n.getId(), d.getId(), channel);
         }
     }
 
@@ -236,31 +246,14 @@ public class NotificationDispatcher {
         d.setNextRetryAt(LocalDateTime.now().plus(Duration.ofMillis(delayMs)));
     }
 
-    private static boolean isClaimEvent(NotificationEventType eventType) {
-        if (eventType == null) {
-            return false;
-        }
-        return switch (eventType) {
-            case EMPLOYEE_CLAIM_SUBMITTED,
-                    EMPLOYEE_CLAIM_QUERY_RAISED,
-                    EMPLOYEE_CLAIM_QUERY_RESPONDED,
-                    EMPLOYEE_CLAIM_QUERY_RESPONSE_SUBMITTED,
-                    EMPLOYEE_CLAIM_APPROVED,
-                    EMPLOYEE_CLAIM_REJECTED,
-                    EMPLOYEE_CLAIM_SETTLED -> true;
-            default -> false;
-        };
-    }
-
-    private static boolean shouldTemporarilySkipEmailForVimaAdmin(AdminUser recipient, AdminNotification notification) {
+    private static boolean shouldSkipEmailForVimaPlatformAdmin(AdminUser recipient, AdminNotification notification) {
         if (recipient == null || notification == null || notification.getCategory() == null) {
             return false;
         }
-        if (!TEMP_EMAIL_DISABLED_FOR_VIMA_ADMIN_CATEGORIES.contains(notification.getCategory())) {
+        if (!EMAIL_DISABLED_FOR_VIMA_PLATFORM_CATEGORIES.contains(notification.getCategory())) {
             return false;
         }
-        String normalizedRole = normalizeRole(recipient.getRole());
-        return "VIMA_ADMIN".equals(normalizedRole);
+        return VIMA_PLATFORM_ROLE_NAMES.contains(normalizeRole(recipient.getRole()));
     }
 
     private static String normalizeRole(String role) {

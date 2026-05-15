@@ -248,5 +248,49 @@ public interface IEndorsementRepository extends JpaRepository<Endorsement, UUID>
     List<Object[]> getPolicyPremiumSummaryByOrganizationAndPolicyIds(@Param("organizationId") UUID organizationId,
                                                                      @Param("policyIds") List<Long> policyIds);
 
+    @Query(value = """
+        SELECT EXTRACT(YEAR FROM e.created_at)::int AS y,
+               EXTRACT(MONTH FROM e.created_at)::int AS m,
+               COUNT(*) FILTER (WHERE e.endorsement_type::text IN ('ADDITION', 'BULK_UPLOAD', 'INITIAL_UPLOAD')),
+               COUNT(*) FILTER (WHERE e.endorsement_type::text = 'DELETION')
+        FROM cpc.endorsements e
+        WHERE e.created_at >= :start AND e.created_at < :endExclusive
+        GROUP BY y, m
+        ORDER BY y, m
+        """, nativeQuery = true)
+    List<Object[]> aggregateMonthlyEndorsementActivityAllOrgs(
+            @Param("start") LocalDateTime start,
+            @Param("endExclusive") LocalDateTime endExclusive);
+
+    @Query(value = """
+        SELECT AVG((EXTRACT(EPOCH FROM (e.approved_at - e.created_at)) / 86400.0))
+        FROM cpc.endorsements e
+        WHERE e.approved_at IS NOT NULL
+          AND e.status::text IN ('APPROVED', 'COMPLETED')
+        """, nativeQuery = true)
+    Double avgEndorsementApprovalTurnaroundDays();
+
+    /**
+     * Policy FK as stored on endorsements (native read avoids JPA issues with duplicate column / lazy proxies on list APIs).
+     */
+    @Query(value = """
+            SELECT e.endorsement_id, e.policy_id
+            FROM cpc.endorsements e
+            WHERE e.endorsement_id IN (:ids)
+            """, nativeQuery = true)
+    List<Object[]> findPolicyIdsByEndorsementIds(@Param("ids") List<UUID> ids);
+
+    /**
+     * When {@code endorsements.policy_id} is null, recover a representative policy from active employee_policy_map rows.
+     */
+    @Query(value = """
+            SELECT DISTINCT ON (m.endorsement_id) m.endorsement_id, m.policy_id
+            FROM cpc.employee_policy_map m
+            WHERE m.endorsement_id IN (:ids)
+              AND m.status = 'ACTIVE'
+            ORDER BY m.endorsement_id, m.created_at ASC
+            """, nativeQuery = true)
+    List<Object[]> findPrimaryPolicyIdsFromEmployeePolicyMapByEndorsementIds(@Param("ids") List<UUID> ids);
+
 }
 

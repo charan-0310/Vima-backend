@@ -48,6 +48,7 @@ import com.vimainsurance.vimaadmin.dto.DependentEnrollmentUpdateDto;
 import com.vimainsurance.vimaadmin.dto.EnrollmentWindowRequestDto;
 import com.vimainsurance.vimaadmin.dto.EnrollmentWindowResponseDto;
 import com.vimainsurance.vimaadmin.dto.EnrollmentWindowStatsDto;
+import com.vimainsurance.vimaadmin.dto.RateCardCoverageIncompleteDto;
 import com.vimainsurance.vimaadmin.dto.ResponseDto;
 import com.vimainsurance.vimaadmin.dto.SelfEmployeeEnrollmentRequestDto;
 import com.vimainsurance.vimaadmin.entity.AdminUser;
@@ -81,6 +82,7 @@ import com.vimainsurance.vimaadmin.repository.IOrganizationRepository;
 import com.vimainsurance.vimaadmin.repository.IPolicyRepository;
 import com.vimainsurance.vimaadmin.service.IEnrollmentWindowService;
 import com.vimainsurance.vimaadmin.service.IHRApprovalService;
+import com.vimainsurance.vimaadmin.service.IPremiumCalculationService;
 import com.vimainsurance.vimaadmin.specification.EnrollmentWindowSpecification;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.vimainsurance.vimaadmin.util.Constants;
@@ -146,6 +148,9 @@ public class EnrollmentWindowServiceImpl implements IEnrollmentWindowService {
 
     @Autowired(required = false)
     private FlagshipNotificationService flagshipNotificationService;
+
+    @Autowired
+    private IPremiumCalculationService premiumCalculationService;
 
     private static final String POLICY_MAP_STATUS_ACTIVE = "ACTIVE";
 
@@ -663,7 +668,7 @@ public class EnrollmentWindowServiceImpl implements IEnrollmentWindowService {
     @Override
     @Transactional
     @AuditedOperation(schemaName = "cpc", tableName = "enrollment_windows", entityType = "ENROLLMENT_WINDOW", action = "UPDATE")
-    public ResponseEntity<ResponseDto<String>> activate(UUID id) {
+    public ResponseEntity<?> activate(UUID id) {
         logger.info("[correlationId:{}] EnrollmentWindow activate called for {}", MDC.get("correlationId"), id);
         BaseResponse<String> responseObj = new BaseResponse<>();
         try {
@@ -684,19 +689,23 @@ public class EnrollmentWindowServiceImpl implements IEnrollmentWindowService {
             if (entity.getStatus() != EnrollementStatus.SCHEDULED) {
                 return responseObj.render(responseObj.formErrorResponse("Only scheduled windows can be activated"));
             }
+            UUID orgId = entity.getOrganization() != null ? entity.getOrganization().getOrganizationId() : null;
+            if (orgId != null) {
+                var gaps = premiumCalculationService.findGapsInRateCardCoverageForActivePolicies(orgId);
+                if (gaps != null && !gaps.isEmpty()) {
+                    BaseResponse<Object> errObj = new BaseResponse<>();
+                    RateCardCoverageIncompleteDto payload = RateCardCoverageIncompleteDto.builder()
+                            .missing(gaps)
+                            .build();
+                    return errObj.render(errObj.formErrorResponseWithKey(422,
+                            "Active policies are missing Rate Card coverage. Add or extend rate rows before activating.",
+                            payload,
+                            Constants.ERROR_KEY_RATE_CARD_COVERAGE_INCOMPLETE));
+                }
+            }
             entity.setStatus(EnrollementStatus.ACTIVE);
             entity.setClosedAt(null);
             enrollmentWindowsRepository.save(entity);
-            if (flagshipNotificationService != null && entity.getOrganization() != null) {
-                String display = entity.getOrganization().getOrganizationDisplayName() != null
-                        && !entity.getOrganization().getOrganizationDisplayName().isBlank()
-                                ? entity.getOrganization().getOrganizationDisplayName()
-                                : entity.getOrganization().getOrganizationName();
-                flagshipNotificationService.scheduleEnrollmentWindowOpened(
-                        entity.getOrganization().getOrganizationId(),
-                        entity.getId(),
-                        display);
-            }
             AuditContextSupplier.setNewSnapshotEntity(entity);
             return responseObj.render(responseObj.formSuccessResponse(Constants.SUCCESS, "Enrollment window activated successfully"));
         } catch (Exception e) {

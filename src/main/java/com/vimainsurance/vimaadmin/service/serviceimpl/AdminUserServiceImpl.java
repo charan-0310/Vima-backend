@@ -33,19 +33,23 @@ import com.vimainsurance.vimaadmin.dto.AuthentikGroupsResponseDto;
 import com.vimainsurance.vimaadmin.dto.AuthentikPaginatedResponse;
 import com.vimainsurance.vimaadmin.dto.BaseResponse;
 import com.vimainsurance.vimaadmin.dto.OrganizationDto;
-import com.vimainsurance.vimaadmin.dto.PasswordChangeRequestDto;
 import com.vimainsurance.vimaadmin.dto.ResponseDto;
 import com.vimainsurance.vimaadmin.dto.RoleDto;
+import com.vimainsurance.vimaadmin.dto.OrganizationCreateHrAdminRequestDto;
+import com.vimainsurance.vimaadmin.dto.OrganizationHrAdminSummaryDto;
 import com.vimainsurance.vimaadmin.entity.AdminUser;
+import com.vimainsurance.vimaadmin.entity.Deals;
+import com.vimainsurance.vimaadmin.entity.Organization;
 import com.vimainsurance.vimaadmin.enums.UserRole;
 import com.vimainsurance.vimaadmin.repository.IAdminUserRepository;
+import com.vimainsurance.vimaadmin.repository.IDealsRepository;
+import com.vimainsurance.vimaadmin.repository.IOrganizationRepository;
+import com.vimainsurance.vimaadmin.util.PrimaryEmployeeRelationshipUtil;
 import com.vimainsurance.vimaadmin.service.IAdminUserService;
 import com.vimainsurance.vimaadmin.service.IEmailService;
 import com.vimainsurance.vimaadmin.util.KeyCloakUtil;
 import com.vimainsurance.vimaadmin.util.Constants;
 import com.vimainsurance.vimaadmin.util.IdGenerator;
-import com.vimainsurance.vimaadmin.util.PasswordEncoder;
-import com.vimainsurance.vimaadmin.util.PasswordGenerator;
 
 @Service
 public class AdminUserServiceImpl implements IAdminUserService {
@@ -53,6 +57,12 @@ public class AdminUserServiceImpl implements IAdminUserService {
 
     @Autowired
     private IAdminUserRepository adminUserRepository;
+
+    @Autowired
+    private IOrganizationRepository organizationRepository;
+
+    @Autowired
+    private IDealsRepository dealsRepository;
 
     @Autowired
     private IdGenerator idGenerator;
@@ -192,6 +202,339 @@ public class AdminUserServiceImpl implements IAdminUserService {
         user.setLastLogin(dto.getLastLogin());
         String reportingToUsername = dto.getReportingTo() != null ? dto.getReportingTo().trim().toLowerCase() : null;
         user.setReportingTo(reportingToUsername != null ? adminUserRepository.findByUsername(reportingToUsername).orElse(null) : null);
+        applyOrganizationFromRequest(dto, user);
+    }
+
+    private static String toKeycloakOrgGroupName(String organizationName) {
+        if (organizationName == null || organizationName.isBlank()) {
+            return null;
+        }
+        return "ORG_" + organizationName.trim().toUpperCase().replaceAll("[^A-Z0-9]", "_");
+    }
+
+    private Optional<Organization> resolveOrganizationFromIdentifier(String identifier) {
+        if (identifier == null || identifier.isBlank()) {
+            return Optional.empty();
+        }
+        String trimmed = identifier.trim();
+        try {
+            return organizationRepository.findByOrganizationId(UUID.fromString(trimmed));
+        } catch (IllegalArgumentException ignored) {
+            // Not a UUID — match Keycloak ORG_* group name
+        }
+        String groupName = trimmed.startsWith("ORG_") ? trimmed : "ORG_" + trimmed;
+        return organizationRepository.findAll().stream()
+                .filter(org -> org.getOrganizationName() != null
+                        && groupName.equals(toKeycloakOrgGroupName(org.getOrganizationName())))
+                .findFirst();
+    }
+
+    private void applyOrganizationFromRequest(AdminUserRequestDto dto, AdminUser user) {
+        if (dto.getOrganizations() == null || dto.getOrganizations().isEmpty()) {
+            if (!isHrAdminRole(dto.getRole())) {
+                user.setOrganization(null);
+            }
+            return;
+        }
+        resolveOrganizationFromIdentifier(dto.getOrganizations().get(0)).ifPresent(user::setOrganization);
+    }
+
+    private static boolean isHrAdminRole(String role) {
+        return role != null && role.replace("ROLE_", "").contains("HR_ADMIN");
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    @AuditedOperation(schemaName = "admin", tableName = "admin_users", entityType = "ADMIN_USER", action = "CREATE")
+    public ResponseEntity<ResponseDto<String>> createHrAdminForOrganization(
+            UUID organizationId,
+            OrganizationCreateHrAdminRequestDto requestDto) {
+        logger.info("[correlationId:{}] createHrAdminForOrganization org={} individual={}",
+                MDC.get("correlationId"), organizationId,
+                requestDto != null ? requestDto.getIndividualId() : null);
+        BaseResponse<String> responseObj = new BaseResponse<>();
+        if (organizationId == null) {
+            return responseObj.render(responseObj.formErrorResponse("Organization is required"));
+        }
+        if (requestDto == null || requestDto.getIndividualId() == null) {
+            return responseObj.render(responseObj.formErrorResponse("Employee (individualId) is required"));
+        }
+        Optional<Organization> orgOpt = organizationRepository.findByOrganizationId(organizationId);
+        if (orgOpt.isEmpty()) {
+            return responseObj.render(responseObj.formErrorResponse("Organization not found"));
+        }
+        Organization organization = orgOpt.get();
+        String orgGroup = toKeycloakOrgGroupName(organization.getOrganizationName());
+        if (orgGroup == null) {
+            return responseObj.render(responseObj.formErrorResponse("Organization name is invalid"));
+        }
+
+        Optional<Deals> employeeOpt = resolveEmployeeForHrPromotion(organizationId, requestDto.getIndividualId());
+        if (employeeOpt.isEmpty()) {
+            return responseObj.render(responseObj.formErrorResponse("Employee not found in this organization"));
+        }
+        Deals employee = employeeOpt.get();
+        if (!isEligiblePrimaryForHrPromotion(employee)) {
+            return responseObj.render(responseObj.formErrorResponse(
+                    "Only the primary employee can be promoted to HR admin"));
+        }
+        if (employee.getEmail() == null || employee.getEmail().isBlank()) {
+            return responseObj.render(responseObj.formErrorResponse("Employee must have an email address"));
+        }
+
+        String email = employee.getEmail().trim().toLowerCase();
+        String fullName = resolveEmployeeDisplayName(employee, requestDto.getFullName());
+        if (fullName.isBlank()) {
+            return responseObj.render(responseObj.formErrorResponse(
+                    "Employee must have a name (full name or first/last name)"));
+        }
+        String username = email;
+        List<String> keycloakOrgs = List.of(orgGroup);
+        String hrRole = KeyCloakUtil.normalizeRealmRoleName("HR_ADMIN");
+
+        try {
+            Optional<AdminUser> existingAdmin = adminUserRepository.findFirstByEmailIgnoreCaseOrderByCreatedAtAsc(email);
+            if (existingAdmin.isPresent()) {
+                AdminUser admin = existingAdmin.get();
+                if (UserRole.HR_ADMIN.getValue().equals(admin.getRole())
+                        && admin.getOrganization() != null
+                        && organizationId.equals(admin.getOrganization().getOrganizationId())
+                        && Boolean.TRUE.equals(admin.getIsActive())) {
+                    return responseObj.render(responseObj.formErrorResponse(
+                            "This employee is already an HR admin for this organization"));
+                }
+                if (!UserRole.HR_ADMIN.getValue().equals(admin.getRole())
+                        && !isPromotableToHrAdmin(admin.getRole())) {
+                    return responseObj.render(responseObj.formErrorResponse(
+                            "This email is already used by a non-HR platform user"));
+                }
+                admin.setRole(UserRole.HR_ADMIN.getValue());
+                admin.setOrganization(organization);
+                admin.setIsActive(true);
+                if (admin.getFullName() == null || admin.getFullName().isBlank()) {
+                    admin.setFullName(fullName);
+                }
+                adminUserRepository.save(admin);
+            } else {
+                Optional<AdminUser> usernameTaken = adminUserRepository.findByUsername(username);
+                if (usernameTaken.isPresent() && !email.equalsIgnoreCase(usernameTaken.get().getEmail())) {
+                    return responseObj.render(responseObj.formErrorResponse("Username already exists for another user"));
+                }
+                AdminUser admin = new AdminUser();
+                admin.setUsername(username);
+                admin.setEmail(email);
+                admin.setFullName(fullName);
+                admin.setRole(UserRole.HR_ADMIN.getValue());
+                admin.setOrganization(organization);
+                admin.setIsActive(true);
+                admin.setAgentId(idGenerator.generateVimaId());
+                admin.setCreatedAt(LocalDateTime.now());
+                adminUserRepository.save(admin);
+            }
+
+            boolean keycloakExisted = keyCloakUtil.emailExistsInRealm(email);
+            String password = null;
+            if (keycloakExisted) {
+                boolean updated = keyCloakUtil.addRoleToExistingUserByEmail(email, hrRole, keycloakOrgs);
+                if (!updated) {
+                    throw new RuntimeException("Could not assign HR admin role in Keycloak");
+                }
+                keyCloakUtil.addRoleToExistingUserByEmail(email, "ROLE_EMPLOYEE", keycloakOrgs);
+                logger.info("[correlationId:{}] Promoted existing Keycloak user {} to HR admin for {}",
+                        MDC.get("correlationId"), email, orgGroup);
+            } else {
+                AdminUser savedAdmin = adminUserRepository.findFirstByEmailIgnoreCaseOrderByCreatedAtAsc(email)
+                        .orElseThrow(() -> new RuntimeException("Admin user record missing after save"));
+                password = keyCloakUtil.createUser(
+                        fullName,
+                        username,
+                        email,
+                        hrRole,
+                        keycloakOrgs,
+                        true,
+                        null,
+                        savedAdmin.getId().toString());
+                keyCloakUtil.addRoleToExistingUserByEmail(email, "ROLE_EMPLOYEE", keycloakOrgs);
+                emailService.sendWelcomeEmail(email, fullName, email, password);
+            }
+
+            String message = keycloakExisted
+                    ? "Employee promoted to HR admin. They can sign in with their existing login."
+                    : "Employee promoted to HR admin. Welcome email sent with temporary password.";
+            return responseObj.render(responseObj.formSuccessResponse(Constants.SUCCESS, message));
+        } catch (Exception e) {
+            try {
+                TransactionAspectSupport.currentTransactionStatus().setRollbackOnly();
+            } catch (Exception txEx) {
+                // No active transaction (e.g. in unit tests)
+            }
+            logger.error("[correlationId:{}] createHrAdminForOrganization failed: {}",
+                    MDC.get("correlationId"), e.getMessage(), e);
+            String userMessage = getIdpUserFriendlyMessage(e);
+            if (userMessage == null || userMessage.isBlank() || userMessage.startsWith("Failed to create user")) {
+                userMessage = e.getMessage() != null ? e.getMessage() : "Failed to promote employee to HR admin";
+            }
+            return responseObj.render(responseObj.formErrorResponse(userMessage));
+        }
+    }
+
+    @Override
+    public ResponseEntity<ResponseDto<List<OrganizationHrAdminSummaryDto>>> listHrAdminsForOrganization(
+            UUID organizationId) {
+        BaseResponse<List<OrganizationHrAdminSummaryDto>> responseObj = new BaseResponse<>();
+        if (organizationId == null) {
+            return responseObj.render(responseObj.formErrorResponse("Organization is required"));
+        }
+        if (organizationRepository.findByOrganizationId(organizationId).isEmpty()) {
+            return responseObj.render(responseObj.formErrorResponse("Organization not found"));
+        }
+        List<AdminUser> hrAdmins = adminUserRepository.findByOrganization_OrganizationIdAndRoleAndIsActiveTrue(
+                organizationId, UserRole.HR_ADMIN.getValue());
+        List<OrganizationHrAdminSummaryDto> summaries = new ArrayList<>();
+        for (AdminUser admin : hrAdmins) {
+            if (admin == null || admin.getEmail() == null || admin.getEmail().isBlank()) {
+                continue;
+            }
+            OrganizationHrAdminSummaryDto summary = new OrganizationHrAdminSummaryDto();
+            summary.setEmail(admin.getEmail().trim().toLowerCase());
+            summary.setFullName(admin.getFullName());
+            dealsRepository.findByOrganizationId(organizationId).stream()
+                    .filter(d -> d.getEmail() != null
+                            && summary.getEmail().equalsIgnoreCase(d.getEmail().trim()))
+                    .filter(AdminUserServiceImpl::isEligiblePrimaryForHrPromotion)
+                    .findFirst()
+                    .ifPresent(deal -> summary.setIndividualId(deal.getIndividualId()));
+            summaries.add(summary);
+        }
+        return responseObj.render(responseObj.formSuccessResponse(Constants.SUCCESS, summaries));
+    }
+
+    @Override
+    @Transactional(rollbackFor = Exception.class)
+    @AuditedOperation(schemaName = "admin", tableName = "admin_users", entityType = "ADMIN_USER", action = "UPDATE")
+    public ResponseEntity<ResponseDto<String>> demoteHrAdminForOrganization(
+            UUID organizationId,
+            OrganizationCreateHrAdminRequestDto requestDto) {
+        logger.info("[correlationId:{}] demoteHrAdminForOrganization org={} individual={}",
+                MDC.get("correlationId"), organizationId,
+                requestDto != null ? requestDto.getIndividualId() : null);
+        BaseResponse<String> responseObj = new BaseResponse<>();
+        if (organizationId == null) {
+            return responseObj.render(responseObj.formErrorResponse("Organization is required"));
+        }
+        if (requestDto == null || requestDto.getIndividualId() == null) {
+            return responseObj.render(responseObj.formErrorResponse("Employee (individualId) is required"));
+        }
+        Optional<Organization> orgOpt = organizationRepository.findByOrganizationId(organizationId);
+        if (orgOpt.isEmpty()) {
+            return responseObj.render(responseObj.formErrorResponse("Organization not found"));
+        }
+        Optional<Deals> employeeOpt = resolveEmployeeForHrPromotion(organizationId, requestDto.getIndividualId());
+        if (employeeOpt.isEmpty()) {
+            return responseObj.render(responseObj.formErrorResponse("Employee not found in this organization"));
+        }
+        Deals employee = employeeOpt.get();
+        if (!isEligiblePrimaryForHrPromotion(employee)) {
+            return responseObj.render(responseObj.formErrorResponse(
+                    "Only the primary employee can be demoted from HR admin"));
+        }
+        if (employee.getEmail() == null || employee.getEmail().isBlank()) {
+            return responseObj.render(responseObj.formErrorResponse("Employee must have an email address"));
+        }
+        String email = employee.getEmail().trim().toLowerCase();
+        Optional<AdminUser> adminOpt = adminUserRepository.findFirstByEmailIgnoreCaseOrderByCreatedAtAsc(email);
+        if (adminOpt.isEmpty()) {
+            return responseObj.render(responseObj.formErrorResponse("No platform user found for this employee"));
+        }
+        AdminUser admin = adminOpt.get();
+        if (!UserRole.HR_ADMIN.getValue().equals(admin.getRole())
+                || admin.getOrganization() == null
+                || !organizationId.equals(admin.getOrganization().getOrganizationId())
+                || !Boolean.TRUE.equals(admin.getIsActive())) {
+            return responseObj.render(responseObj.formErrorResponse(
+                    "This employee is not an active HR admin for this organization"));
+        }
+
+        String hrRole = KeyCloakUtil.normalizeRealmRoleName("HR_ADMIN");
+        String employeeRole = KeyCloakUtil.normalizeRealmRoleName("EMPLOYEE");
+        try {
+            boolean removed = keyCloakUtil.removeRoleFromExistingUserByEmail(email, hrRole);
+            if (!removed) {
+                throw new RuntimeException("Could not remove HR admin role in Keycloak");
+            }
+            keyCloakUtil.addRoleToExistingUserByEmail(email, employeeRole, null);
+            admin.setIsActive(false);
+            adminUserRepository.save(admin);
+            logger.info("[correlationId:{}] Demoted HR admin {} for organization {}",
+                    MDC.get("correlationId"), email, organizationId);
+            return responseObj.render(responseObj.formSuccessResponse(Constants.SUCCESS,
+                    "HR admin access removed. The employee can still sign in with their employee account if a login exists."));
+        } catch (Exception e) {
+            try {
+                TransactionAspectSupport.currentTransactionStatus().setRollbackOnly();
+            } catch (Exception txEx) {
+                // No active transaction (e.g. in unit tests)
+            }
+            logger.error("[correlationId:{}] demoteHrAdminForOrganization failed: {}",
+                    MDC.get("correlationId"), e.getMessage(), e);
+            String userMessage = e.getMessage() != null ? e.getMessage() : "Failed to demote HR admin";
+            return responseObj.render(responseObj.formErrorResponse(userMessage));
+        }
+    }
+
+    private Optional<Deals> resolveEmployeeForHrPromotion(UUID organizationId, UUID individualId) {
+        if (individualId == null || organizationId == null) {
+            return Optional.empty();
+        }
+        Optional<Deals> direct = dealsRepository.findByIndividualIdAndOrganizationId(individualId, organizationId);
+        if (direct.isPresent()) {
+            return direct;
+        }
+        return dealsRepository.findByIndividualIdIn(List.of(individualId)).stream()
+                .filter(d -> d.getOrganization() != null
+                        && organizationId.equals(d.getOrganization().getOrganizationId()))
+                .findFirst();
+    }
+
+    private static boolean isEligiblePrimaryForHrPromotion(Deals employee) {
+        return Boolean.TRUE.equals(employee.getIsPrimaryMember())
+                || PrimaryEmployeeRelationshipUtil.isPrimarySelfEmployee(employee);
+    }
+
+    private static String resolveEmployeeDisplayName(Deals employee, String nameFromRequest) {
+        if (employee.getFullName() != null && !employee.getFullName().isBlank()) {
+            return employee.getFullName().trim();
+        }
+        String first = employee.getFirstName() != null ? employee.getFirstName().trim() : "";
+        String last = employee.getLastName() != null ? employee.getLastName().trim() : "";
+        String combined = (first + " " + last).trim();
+        if (!combined.isEmpty()) {
+            return combined;
+        }
+        if (nameFromRequest != null && !nameFromRequest.isBlank()) {
+            return nameFromRequest.trim();
+        }
+        if (employee.getEmail() != null && !employee.getEmail().isBlank()) {
+            String local = employee.getEmail().trim().toLowerCase().split("@")[0]
+                    .replace('.', ' ')
+                    .replace('_', ' ')
+                    .trim();
+            if (!local.isEmpty()) {
+                return local;
+            }
+        }
+        if (employee.getEmployeeNumber() != null && !employee.getEmployeeNumber().isBlank()) {
+            return employee.getEmployeeNumber().trim();
+        }
+        return "";
+    }
+
+    /** Allow promotion when no admin row yet, or when updating a prior HR row for another org. */
+    private static boolean isPromotableToHrAdmin(String role) {
+        if (role == null || role.isBlank()) {
+            return true;
+        }
+        return UserRole.HR_ADMIN.getValue().equals(role);
     }
 
     @Override
@@ -223,27 +566,43 @@ public class AdminUserServiceImpl implements IAdminUserService {
             // create user in DB
             AdminUser user = new AdminUser();
             mapRequestToEntity(requestDto, user);
+            if (user.getAgentId() == null || user.getAgentId().isBlank()) {
+                user.setAgentId(idGenerator.generateVimaId());
+            }
             user.setCreatedAt(LocalDateTime.now());
             AdminUser saved = adminUserRepository.save(user);
             String dateStr = saved.getCreatedAt() != null 
             ? saved.getCreatedAt().format(java.time.format.DateTimeFormatter.ofPattern("ddMM"))
             : "0101";
             String password = saved.getFullName().trim().toLowerCase() + "@" + dateStr;
-            
+            String keycloakRole = KeyCloakUtil.normalizeRealmRoleName(requestDto.getRole());
+            List<String> keycloakOrgs = requestDto.getOrganizations();
 
-            // Create in Keycloak with same lowercase username/email as stored in DB
+            // Create or update in Keycloak with same lowercase username/email as stored in DB
             try {
-                password = keyCloakUtil.createUser(
-                    requestDto.getFullName(),
-                    username,
-                    email,
-                    requestDto.getRole(),
-                    requestDto.getOrganizations(),
-                    requestDto.getIsActive() != null ? requestDto.getIsActive() : true,
-                    null,
-                    saved.getId().toString()
-                );
-                logger.info("[correlationId:{}] User created successfully in Keycloak: {}", MDC.get("correlationId"), username);
+                if (keyCloakUtil.emailExistsInRealm(email)) {
+                    boolean updated = keyCloakUtil.addRoleToExistingUserByEmail(
+                            email,
+                            keycloakRole,
+                            keycloakOrgs);
+                    if (!updated) {
+                        throw new RuntimeException("Keycloak user exists but could not assign role and organization");
+                    }
+                    logger.info("[correlationId:{}] Existing Keycloak user {} updated with role {} and org groups",
+                            MDC.get("correlationId"), email, keycloakRole);
+                } else {
+                    password = keyCloakUtil.createUser(
+                        requestDto.getFullName(),
+                        username,
+                        email,
+                        keycloakRole,
+                        keycloakOrgs,
+                        requestDto.getIsActive() != null ? requestDto.getIsActive() : true,
+                        null,
+                        saved.getId().toString()
+                    );
+                    logger.info("[correlationId:{}] User created successfully in Keycloak: {}", MDC.get("correlationId"), username);
+                }
             } catch (Exception e) {
                 try {
                     TransactionAspectSupport.currentTransactionStatus().setRollbackOnly();
@@ -697,59 +1056,6 @@ public class AdminUserServiceImpl implements IAdminUserService {
     }
 
     @Override
-    public ResponseEntity<ResponseDto<String>> changePassword(String username, PasswordChangeRequestDto requestDto) {
-        logger.info("changePassword called for username: {}", username);
-        BaseResponse<String> responseObj = new BaseResponse<>();
-        try {
-            Optional<AdminUser> userOpt = adminUserRepository.findByUsername(username);
-            if (userOpt.isEmpty()) {
-                return responseObj.render(responseObj.formErrorResponse("Admin user not found"));
-            }
-            
-            AdminUser user = userOpt.get();
-            
-            // Verify current password using the same method as challenge login
-            if (!PasswordEncoder.matches(requestDto.getCurrentPassword(), user.getPasswordHash())) {
-                return responseObj.render(responseObj.formErrorResponse("Current password is incorrect"));
-            }
-            
-            // Validate new password
-            if (requestDto.getNewPassword() == null || requestDto.getNewPassword().trim().isEmpty()) {
-                return responseObj.render(responseObj.formErrorResponse("New password cannot be empty"));
-            }
-            
-            if (requestDto.getNewPassword().length() < 8) {
-                return responseObj.render(responseObj.formErrorResponse("New password must be at least 8 characters long"));
-            }
-            
-            // Check if new password is same as current password
-            if (PasswordEncoder.matches(requestDto.getNewPassword(), user.getPasswordHash())) {
-                return responseObj.render(responseObj.formErrorResponse("New password must be different from current password"));
-            }
-            
-            // Hash and save new password using the same method as challenge login
-            user.setPasswordHash(PasswordEncoder.encodePassword(requestDto.getNewPassword()));
-            adminUserRepository.save(user);
-            
-            UUID orgId = user.getOrganization() != null ? user.getOrganization().getOrganizationId() : null;
-            platformAuditPublisher.publishAuthenticated(
-                    "admin",
-                    "admin_users",
-                    "ADMIN_USER",
-                    "PASSWORD_SELF_CHANGE",
-                    user.getId().toString(),
-                    orgId,
-                    Map.of("username", user.getUsername()));
-
-            logger.info("Password changed successfully for user: {}", username);
-            return responseObj.render(responseObj.formSuccessResponse(Constants.SUCCESS, "Password changed successfully"));
-        } catch (Exception e) {
-            logger.error("Error changing password for user: {}", username, e);
-            return responseObj.render(responseObj.formErrorResponse(e.getMessage()));
-        }
-    }
-
-    @Override
     public ResponseEntity<ResponseDto<AuthentikGroupsResponseDto>> getRolesAndOrganizations() {
         logger.info("getRolesAndOrganizations called");
         BaseResponse<AuthentikGroupsResponseDto> responseObj = new BaseResponse<>();
@@ -791,50 +1097,6 @@ public class AdminUserServiceImpl implements IAdminUserService {
             return responseObj.render(responseObj.formSuccessResponse(Constants.SUCCESS, organizations));
         } catch (Exception e) {
             logger.error("Error fetching organizations from Keycloak", e);
-            return responseObj.render(responseObj.formErrorResponse(e.getMessage()));
-        }
-    }
-
-    @Override
-    public ResponseEntity<ResponseDto<String>> adminChangeUserPassword(String username) {
-        logger.info("[correlationId:{}] adminChangeUserPassword called for username: {}", MDC.get("correlationId"), username);
-        BaseResponse<String> responseObj = new BaseResponse<>();
-        try {
-            Optional<AdminUser> userOpt = adminUserRepository.findByUsername(username);
-            if (userOpt.isEmpty()) {
-                return responseObj.render(responseObj.formErrorResponse("Admin user not found"));
-            }
-            
-            AdminUser user = userOpt.get();
-            
-            String randomPassword = PasswordGenerator.generateRandomPassword();
-            user.setPasswordHash(PasswordEncoder.encodePassword(randomPassword));
-            user.setCreatedAt(LocalDateTime.now());
-            adminUserRepository.save(user);
-            
-            // Send welcome email with the generated password
-            try {
-                emailService.sendPasswordResetEmail(user.getEmail(), randomPassword, user.getUsername());
-                logger.info("[correlationId:{}] Welcome email sent successfully to: {}", MDC.get("correlationId"), user.getEmail());
-            } catch (Exception emailException) {
-                logger.error("[correlationId:{}] Failed to send welcome email to: {}", MDC.get("correlationId"), user.getEmail(), emailException);
-                // Don't fail user creation if email fails
-            }
-
-            UUID orgId = user.getOrganization() != null ? user.getOrganization().getOrganizationId() : null;
-            platformAuditPublisher.publishAuthenticated(
-                    "admin",
-                    "admin_users",
-                    "ADMIN_USER",
-                    "PASSWORD_ADMIN_RESET",
-                    user.getId().toString(),
-                    orgId,
-                    Map.of("targetUsername", username));
-
-            logger.info("[correlationId:{}] Admin password change successful for user: {}", MDC.get("correlationId"), username);
-            return responseObj.render(responseObj.formSuccessResponse(Constants.SUCCESS, "User password changed successfully by admin"));
-        } catch (Exception e) {
-            logger.error("[correlationId:{}] Error changing user password by admin for user: {}", MDC.get("correlationId"), username, e);
             return responseObj.render(responseObj.formErrorResponse(e.getMessage()));
         }
     }
