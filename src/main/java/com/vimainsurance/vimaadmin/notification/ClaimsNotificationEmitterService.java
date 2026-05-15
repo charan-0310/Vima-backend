@@ -4,14 +4,19 @@ import java.math.BigDecimal;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
 
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.core.env.Environment;
 import org.springframework.stereotype.Service;
 
 import com.vimainsurance.vimaadmin.entity.AdminUser;
 import com.vimainsurance.vimaadmin.entity.Claim;
 import com.vimainsurance.vimaadmin.entity.ClaimQuery;
+import com.vimainsurance.vimaadmin.notification.config.EngineeringTestSlackWebhookOverrides;
+import com.vimainsurance.vimaadmin.notification.config.NotificationsProperties;
 import com.vimainsurance.vimaadmin.notification.dto.CreateNotificationCommand;
 import com.vimainsurance.vimaadmin.notification.enums.NotificationCategory;
 import com.vimainsurance.vimaadmin.notification.enums.NotificationEventType;
@@ -25,10 +30,20 @@ import lombok.extern.slf4j.Slf4j;
 @RequiredArgsConstructor
 public class ClaimsNotificationEmitterService {
 
+    /**
+     * Serializes claims-team notification emission per claim so two after-commit jobs (or retries) cannot
+     * each post a separate Slack message for the same logical event.
+     */
+    private final ConcurrentHashMap<UUID, Object> claimTeamSlackEmitLocks = new ConcurrentHashMap<>();
+
     private final NotificationRoutingResolver routingResolver;
     private final NotificationService notificationService;
     private final NotificationDispatcher notificationDispatcher;
     private final AfterCommitNotificationRunner afterCommitNotificationRunner;
+    private final NotificationSlackWebhookClient slackWebhookClient;
+    private final NotificationsProperties notificationsProperties;
+    private final Environment environment;
+    private final NotificationsFeatureGate notificationsFeatureGate;
 
     @Value("${app.portal-url:}")
     private String portalUrlOverride;
@@ -264,37 +279,113 @@ public class ClaimsNotificationEmitterService {
                     eventType, claim.getId(), organizationId);
             return;
         }
-        for (int i = 0; i < recipients.size(); i++) {
-            AdminUser admin = recipients.get(i);
-            String dedup = dedupPrefix + ":" + admin.getId();
-            Boolean slackDeliveryEnabled = i == 0 ? null : Boolean.FALSE;
-            String recipientDeepLink = deepLinkForRecipient(claim, admin);
-            Map<String, Object> recipientVars = new HashMap<>(vars);
-            recipientVars.put("deepLinkUrl", recipientDeepLink);
-            applyHrClaimRecipientEmailVars(recipientVars, admin, body, eventType);
-            CreateNotificationCommand cmd = new CreateNotificationCommand(
-                    admin.getId(),
-                    organizationId,
-                    eventType,
-                    NotificationCategory.CLAIM,
-                    NotificationSeverity.INFO,
-                    title,
-                    body,
-                    recipientDeepLink,
-                    dedup,
-                    title,
-                    emailTemplate,
-                    recipientVars,
-                    slackDeliveryEnabled);
-            notificationService.createIfAbsent(cmd).ifPresentOrElse(
-                    id -> {
-                        notificationDispatcher.dispatchDeliveriesFor(id);
-                        log.info("claims_notification_emit event={} notificationId={} recipientId={} slackIncluded={}",
-                                eventType, id, admin.getId(),
-                                slackDeliveryEnabled == null || Boolean.TRUE.equals(slackDeliveryEnabled));
-                    },
-                    () -> log.debug("claims_notification_dedup event={} dedupKey={}", eventType, dedup));
+        UUID claimId = claim.getId();
+        Object emitLock = claimId != null
+                ? claimTeamSlackEmitLocks.computeIfAbsent(claimId, k -> new Object())
+                : new Object();
+        try {
+            synchronized (emitLock) {
+                int createdCount = 0;
+                AdminUser primaryForSlackLink = recipients.get(0);
+                for (AdminUser admin : recipients) {
+                    String dedup = dedupPrefix + ":" + admin.getId();
+                    String recipientDeepLink = deepLinkForRecipient(claim, admin);
+                    Map<String, Object> recipientVars = new HashMap<>(vars);
+                    recipientVars.put("deepLinkUrl", recipientDeepLink);
+                    applyHrClaimRecipientEmailVars(recipientVars, admin, body, eventType);
+                    // Slack is sent once per event after fan-out (avoids duplicate channel posts when multiple
+                    // deliveries or jobs process the same logical notification).
+                    CreateNotificationCommand cmd = new CreateNotificationCommand(
+                            admin.getId(),
+                            organizationId,
+                            eventType,
+                            NotificationCategory.CLAIM,
+                            NotificationSeverity.INFO,
+                            title,
+                            body,
+                            recipientDeepLink,
+                            dedup,
+                            title,
+                            emailTemplate,
+                            recipientVars,
+                            Boolean.FALSE);
+                    Optional<UUID> created = notificationService.createIfAbsent(cmd);
+                    if (created.isPresent()) {
+                        createdCount++;
+                        notificationDispatcher.dispatchDeliveriesFor(created.get());
+                        log.info("claims_notification_emit event={} notificationId={} recipientId={} slackIncluded=false",
+                                eventType, created.get(), admin.getId());
+                    } else {
+                        log.debug("claims_notification_dedup event={} dedupKey={}", eventType, dedup);
+                    }
+                }
+                if (createdCount > 0) {
+                    String slackDeepLink = deepLinkForRecipient(claim, primaryForSlackLink);
+                    postClaimsTeamSlackOnce(title, body, slackDeepLink, claimId, eventType);
+                }
+            }
+        } finally {
+            if (claimId != null) {
+                claimTeamSlackEmitLocks.remove(claimId, emitLock);
+            }
         }
+    }
+
+    /**
+     * Single shared-webhook post for the whole claims team (aligned with {@link NotificationDispatcher} URL rules).
+     */
+    private void postClaimsTeamSlackOnce(
+            String title,
+            String body,
+            String deepLinkUrl,
+            UUID claimId,
+            NotificationEventType eventType) {
+        if (!notificationsFeatureGate.isNotificationsEnabled()) {
+            return;
+        }
+        String text = (title != null ? "*" + title + "*\n" : "") + (body != null ? body : "");
+        if (deepLinkUrl != null && !deepLinkUrl.isBlank()) {
+            text = text + "\n" + deepLinkUrl;
+        }
+        String url = resolveClaimsSlackWebhookUrl();
+        if (url == null || url.isBlank()) {
+            log.info("claims_slack_skip event={} claimId={} reason=no_webhook", eventType, claimId);
+            return;
+        }
+        boolean ok = slackWebhookClient.postMessageToWebhookUrl(text, url);
+        if (ok) {
+            log.info("claims_slack_emit event={} claimId={} route=webhook", eventType, claimId);
+        } else {
+            log.warn("claims_slack_failed event={} claimId={} route=webhook", eventType, claimId);
+        }
+    }
+
+    private String resolveClaimsSlackWebhookUrl() {
+        if (slackWebhooksPinnedToEngineeringTest()) {
+            return firstNonBlank(
+                    notificationsProperties.getClaimsSlackWebhookUrl(),
+                    notificationsProperties.getSlackWebhookUrl());
+        }
+        return firstNonBlank(
+                notificationsProperties.getClaimsSlackWebhookUrl(),
+                environment.getProperty("slack.webhook.url", ""));
+    }
+
+    private boolean slackWebhooksPinnedToEngineeringTest() {
+        return Boolean.parseBoolean(
+                environment.getProperty(EngineeringTestSlackWebhookOverrides.ENFORCE_PROPERTY, "false"));
+    }
+
+    private static String firstNonBlank(String... candidates) {
+        if (candidates == null) {
+            return "";
+        }
+        for (String c : candidates) {
+            if (c != null && !c.isBlank()) {
+                return c.trim();
+            }
+        }
+        return "";
     }
 
     private String deepLinkForRecipient(Claim claim, AdminUser recipient) {

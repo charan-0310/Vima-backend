@@ -6,6 +6,7 @@ import java.util.HashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -22,6 +23,7 @@ import com.vimainsurance.vimaadmin.notification.enums.NotificationCategory;
 import com.vimainsurance.vimaadmin.notification.enums.NotificationEventType;
 import com.vimainsurance.vimaadmin.notification.enums.NotificationSeverity;
 import com.vimainsurance.vimaadmin.repository.IDealEndorsementRepository;
+import com.vimainsurance.vimaadmin.repository.IEndorsementRepository;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -43,6 +45,7 @@ public class FlagshipNotificationService {
     private final NotificationDispatcher notificationDispatcher;
     private final AfterCommitNotificationRunner afterCommitNotificationRunner;
     private final IDealEndorsementRepository dealEndorsementRepository;
+    private final IEndorsementRepository endorsementRepository;
 
     @Value("${app.portal-url:}")
     private String portalUrlOverride;
@@ -54,7 +57,7 @@ public class FlagshipNotificationService {
     }
 
     public void scheduleEndorsementUploaded(Endorsement endorsement, Organization organization, AdminUser uploadedBy) {
-        scheduleEndorsementUploaded(endorsement, organization, uploadedBy, List.of());
+        scheduleEndorsementUploaded(endorsement, organization, uploadedBy, List.of(), null, null);
     }
 
     public void scheduleEndorsementUploaded(
@@ -62,15 +65,32 @@ public class FlagshipNotificationService {
             Organization organization,
             AdminUser uploadedBy,
             List<String> selfEmployeeIds) {
+        scheduleEndorsementUploaded(endorsement, organization, uploadedBy, selfEmployeeIds, null, null);
+    }
+
+    /**
+     * @param uploadTotalEmployees when non-null with {@code uploadTotalDependents}, Slack/email body uses these
+     *                              aggregate counts (whole CSV) instead of per-endorsement deal rows — fixes
+     *                              split uploads where the linked endorsement is e.g. PARENT_GMC-only (0 self rows).
+     */
+    public void scheduleEndorsementUploaded(
+            Endorsement endorsement,
+            Organization organization,
+            AdminUser uploadedBy,
+            List<String> selfEmployeeIds,
+            Integer uploadTotalEmployees,
+            Integer uploadTotalDependents) {
         if (endorsement == null || organization == null) {
             log.info("flagship_notification_skip event=ENDORSEMENT_UPLOADED reason=missing_context endorsementNull={} orgNull={}",
                     endorsement == null, organization == null);
             return;
         }
         List<String> ids = selfEmployeeIds != null ? new ArrayList<>(selfEmployeeIds) : List.of();
-        log.info("flagship_notification_schedule event=ENDORSEMENT_UPLOADED endorsementId={} orgId={} uploadedBy={} selfEmployeeIdCount={}",
-                endorsement.getEndorsementId(), organization.getOrganizationId(), uploadedBy != null ? uploadedBy.getId() : null, ids.size());
-        afterCommitNotificationRunner.runAsyncAfterCommit(() -> emitEndorsementUploaded(endorsement, organization, uploadedBy, ids));
+        log.info("flagship_notification_schedule event=ENDORSEMENT_UPLOADED endorsementId={} orgId={} uploadedBy={} selfEmployeeIdCount={} uploadAggregateEmployees={} uploadAggregateDependents={}",
+                endorsement.getEndorsementId(), organization.getOrganizationId(), uploadedBy != null ? uploadedBy.getId() : null, ids.size(),
+                uploadTotalEmployees, uploadTotalDependents);
+        afterCommitNotificationRunner.runAsyncAfterCommit(() -> emitEndorsementUploaded(
+                endorsement, organization, uploadedBy, ids, uploadTotalEmployees, uploadTotalDependents));
     }
 
     public void scheduleEnrollmentAllSubmitted(UUID organizationId, UUID windowId, String organizationDisplayName) {
@@ -147,7 +167,9 @@ public class FlagshipNotificationService {
             Endorsement endorsement,
             Organization organization,
             AdminUser uploadedBy,
-            List<String> selfEmployeeIds) {
+            List<String> selfEmployeeIds,
+            Integer uploadTotalEmployees,
+            Integer uploadTotalDependents) {
         UUID endorsementId = endorsement.getEndorsementId();
         log.info("flagship_notification_emit_start event=ENDORSEMENT_UPLOADED endorsementId={} orgId={}",
                 endorsementId, organization.getOrganizationId());
@@ -167,7 +189,8 @@ public class FlagshipNotificationService {
                 String orgName = organization.getOrganizationName();
                 String uploader = uploadedBy != null && uploadedBy.getFullName() != null ? uploadedBy.getFullName() : "HR";
                 String deepLink = portalBase() + "/endorsements/" + endorsementId;
-                EndorsementMemberCounts counts = resolveMemberCountsForEndorsement(endorsementId);
+                EndorsementMemberCounts counts = resolveUploadNotificationMemberCounts(
+                        endorsementId, uploadTotalEmployees, uploadTotalDependents);
                 String bodyText = buildEndorsementUploadedBody(counts, uploader, orgName);
                 int slackRecipientIndex = 0;
                 for (int i = 0; i < recipients.size(); i++) {
@@ -423,7 +446,7 @@ public class FlagshipNotificationService {
                 ? displayOrganizationName
                 : "Vima";
         String deepLink = portalBase() + "/endorsements/" + endorsementId;
-        EndorsementMemberCounts counts = resolveMemberCountsForEndorsement(endorsementId);
+        EndorsementMemberCounts counts = resolveCompletionNotificationMemberCounts(endorsementId);
         String bodyText = buildEndorsementCompletedBody(
                 counts,
                 actedByName,
@@ -488,6 +511,44 @@ public class FlagshipNotificationService {
                 + "\n:family: Total Dependents: " + counts.totalDependents()
                 + "\n:bust_in_silhouette: Approved By: " + uploadedBy
                 + "\n:office: Organization: " + org;
+    }
+
+    private EndorsementMemberCounts resolveUploadNotificationMemberCounts(
+            UUID endorsementId,
+            Integer uploadTotalEmployees,
+            Integer uploadTotalDependents) {
+        if (uploadTotalEmployees != null && uploadTotalDependents != null) {
+            return new EndorsementMemberCounts(
+                    Math.max(0, uploadTotalEmployees),
+                    Math.max(0, uploadTotalDependents));
+        }
+        return resolveMemberCountsForEndorsement(endorsementId);
+    }
+
+    /**
+     * Completion Slack/email should match portal totals on {@link Endorsement#getTotalEmployees()} /
+     * {@link Endorsement#getTotalDependents()}. Per-endorsement {@link DealEndorsement} recount misses members
+     * routed only to a sibling split (e.g. parents on PARENT_GMC while the primary id is GMC/GHI).
+     */
+    private EndorsementMemberCounts resolveCompletionNotificationMemberCounts(UUID endorsementId) {
+        if (endorsementId == null) {
+            return new EndorsementMemberCounts(0, 0);
+        }
+        try {
+            Optional<Endorsement> opt = endorsementRepository.findById(endorsementId);
+            if (opt.isPresent()) {
+                Endorsement e = opt.get();
+                int te = e.getTotalEmployees() != null ? Math.max(0, e.getTotalEmployees()) : 0;
+                int td = e.getTotalDependents() != null ? Math.max(0, e.getTotalDependents()) : 0;
+                if (te > 0 || td > 0) {
+                    return new EndorsementMemberCounts(te, td);
+                }
+            }
+        } catch (Exception ex) {
+            log.warn("flagship_notification_member_counts_endorsement_lookup_failed endorsementId={} error={}",
+                    endorsementId, ex.getMessage(), ex);
+        }
+        return resolveMemberCountsForEndorsement(endorsementId);
     }
 
     private EndorsementMemberCounts resolveMemberCountsForEndorsement(UUID endorsementId) {
