@@ -200,7 +200,10 @@ public class EndorsementMapper {
         }
         
         if (dto.getInsurerRefNumber() != null) {
-            endorsement.setInsurerRefNumber(dto.getInsurerRefNumber());
+            String ref = dto.getInsurerRefNumber().trim();
+            if (!ref.isEmpty()) {
+                endorsement.setInsurerRefNumber(ref);
+            }
         }
         
         if (dto.getPremiumChangeType() != null) {
