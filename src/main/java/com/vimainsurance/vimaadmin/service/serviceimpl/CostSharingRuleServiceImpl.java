@@ -39,13 +39,26 @@ public class CostSharingRuleServiceImpl implements ICostSharingRuleService {
 
     private static final Logger log = LoggerFactory.getLogger(CostSharingRuleServiceImpl.class);
 
-    /** GHI and GMC are both group health; match so enrollment request finds cost-sharing rules. */
+    /** GHI and GMC are both group health; parent plan types are aliases of each other. */
     private static boolean planTypeMatches(String requestPlanType, String rulePlanType) {
         if (requestPlanType == null || rulePlanType == null) return false;
         String r = requestPlanType.trim().toUpperCase();
         String p = rulePlanType.trim().toUpperCase();
         if (r.equals(p)) return true;
-        return ("GHI".equals(r) && "GMC".equals(p)) || ("GMC".equals(r) && "GHI".equals(p));
+        if (("GHI".equals(r) && "GMC".equals(p)) || ("GMC".equals(r) && "GHI".equals(p))) return true;
+        return isParentCoverPlanType(r) && isParentCoverPlanType(p);
+    }
+
+    private static boolean isParentCoverPlanType(String planType) {
+        return "PARENT_GMC".equals(planType) || "GMC_PARENT".equals(planType);
+    }
+
+    private static boolean isGmcFamilyPlanType(String planType) {
+        return "GMC".equals(planType) || "GHI".equals(planType);
+    }
+
+    private static boolean isParentCoverageCategory(CoverageCategory category) {
+        return category == CoverageCategory.PARENT || category == CoverageCategory.PARENT_IN_LAW;
     }
 
     private final ICostSharingRuleRepository repository;
@@ -169,11 +182,24 @@ public class CostSharingRuleServiceImpl implements ICostSharingRuleService {
         List<CostSharingRule> rules = cacheService.getRulesForCompany(companyId);
         CoverageCategory category = parseCoverageCategory(coverageCategory);
 
-        // All rules valid for this plan + date, sorted deterministically:
-        //   newest effective_from first → newest updated_at first → id (final tiebreaker).
-        // This ensures the lookup picks the most recently-configured rule even when
-        // duplicates or historical rows exist, and never returns different results across
-        // runs for the same input.
+        CostSharingRule rule = resolveEffectiveRuleForPlan(rules, planType, category, effectiveDate);
+        if (rule == null && isParentCoverPlanType(planType)) {
+            rule = resolveEffectiveRuleForPlan(rules, "GMC", category, effectiveDate);
+        }
+        if (rule == null && isGmcFamilyPlanType(planType) && isParentCoverageCategory(category)) {
+            rule = resolveEffectiveRuleForPlan(rules, "PARENT_GMC", category, effectiveDate);
+        }
+        return rule;
+    }
+
+    /**
+     * Pick the best cost-sharing rule for a plan type and coverage category on a given date.
+     */
+    private CostSharingRule resolveEffectiveRuleForPlan(
+            List<CostSharingRule> rules,
+            String planType,
+            CoverageCategory category,
+            LocalDate effectiveDate) {
         List<CostSharingRule> forPlanAndDate = rules.stream()
                 .filter(r -> planTypeMatches(planType, r.getPlanType()))
                 .filter(r -> !r.getEffectiveFrom().isAfter(effectiveDate))
@@ -190,45 +216,23 @@ public class CostSharingRuleServiceImpl implements ICostSharingRuleService {
             return null;
         }
 
-        // Resolution preference, in order:
-        //
-        //   1. Exact category match — HR explicitly configured this category.
-        //   2. DEFAULT — explicit catch-all rule HR set for "any family shape unless overridden".
-        //      This is the cleanest way for HR to express "for plan X, employer pays 80%".
-        //      New orgs should adopt this; existing orgs continue to work via legacy fallbacks below.
-        //   3. ALL_DEPENDENTS — legacy org-wide default for any dependent shape.
-        //   4. (Legacy) SPOUSE / CHILD — only when the lookup itself is ALL_DEPENDENTS.
-        //      The resolver returns ALL_DEPENDENTS specifically when the family has no
-        //      parent or parent-in-law, so we must NOT fall back to PARENT / PARENT_IN_LAW
-        //      here — that would wrongly apply a parent-only rule to a spouse-only family.
-        //   5. (Legacy) SELF — last resort.
-        //   6. null → applyCostSharing defaults to 100% employer.
-        //
-        // Steps 3–5 are kept for backwards compatibility with orgs that haven't migrated
-        // to a DEFAULT rule. Once an org sets DEFAULT, it shadows these legacy fallbacks
-        // entirely (DEFAULT is checked before them).
         Optional<CostSharingRule> chosen = Optional.empty();
 
-        // 1. Exact category match
         if (category != null) {
             chosen = forPlanAndDate.stream()
                     .filter(r -> r.getCoverageCategory() == category)
                     .findFirst();
         }
-        // 2. DEFAULT — explicit catch-all
         if (chosen.isEmpty()) {
             chosen = forPlanAndDate.stream()
                     .filter(r -> r.getCoverageCategory() == CoverageCategory.DEFAULT)
                     .findFirst();
         }
-        // 3. ALL_DEPENDENTS — legacy org-wide default
         if (chosen.isEmpty()) {
             chosen = forPlanAndDate.stream()
                     .filter(r -> r.getCoverageCategory() == CoverageCategory.ALL_DEPENDENTS)
                     .findFirst();
         }
-        // 4. (Legacy) SPOUSE → CHILD when the lookup is ALL_DEPENDENTS.
-        //    Magic-link "you pay 0" fix path for orgs without DEFAULT.
         if (chosen.isEmpty() && category == CoverageCategory.ALL_DEPENDENTS) {
             for (CoverageCategory dep : new CoverageCategory[] {
                     CoverageCategory.SPOUSE,
@@ -239,7 +243,6 @@ public class CostSharingRuleServiceImpl implements ICostSharingRuleService {
                 if (chosen.isPresent()) break;
             }
         }
-        // 5. (Legacy) SELF — HR's primary rule, last resort.
         if (chosen.isEmpty()) {
             chosen = forPlanAndDate.stream()
                     .filter(r -> r.getCoverageCategory() == CoverageCategory.SELF)
