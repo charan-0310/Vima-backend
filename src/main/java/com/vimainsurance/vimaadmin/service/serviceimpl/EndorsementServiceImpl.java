@@ -66,6 +66,7 @@ import com.vimainsurance.vimaadmin.entity.Endorsement;
 import com.vimainsurance.vimaadmin.entity.Organization;
 import com.vimainsurance.vimaadmin.exception.OrganizationAccessDeniedException;
 import com.vimainsurance.vimaadmin.enums.AccountStatus;
+import com.vimainsurance.vimaadmin.enums.ConfirmationMethod;
 import com.vimainsurance.vimaadmin.enums.DocumentCategory;
 import com.vimainsurance.vimaadmin.enums.DocumentEntityType;
 import com.vimainsurance.vimaadmin.enums.DocumentType;
@@ -816,6 +817,7 @@ public class EndorsementServiceImpl implements IEndorsementService {
             endorsement.setStatus(AccountStatus.COMPLETED);
             endorsement.setUpdatedAt(LocalDateTime.now());
             endorsementRepository.save(endorsement);
+            propagateApprovalMetadataToSplitGroup(endorsement);
             if (flagshipNotificationService != null) {
                 Organization notificationOrganization = endorsement.getOrganization() != null
                         ? endorsement.getOrganization()
@@ -1832,6 +1834,56 @@ public class EndorsementServiceImpl implements IEndorsementService {
             dto.setParentEndorsementId(endorsement.getParentEndorsement().getEndorsementId());
         }
         return dto;
+    }
+
+    /**
+     * Multi-policy split batches share one approval action; copy insurer ref and approver metadata to siblings.
+     */
+    private void propagateApprovalMetadataToSplitGroup(Endorsement endorsed) {
+        if (endorsed == null || endorsed.getSplitGroupId() == null) {
+            return;
+        }
+        String insurerRef = endorsed.getInsurerRefNumber();
+        String approvedBy = endorsed.getApprovedBy();
+        ConfirmationMethod confirmationMethod = endorsed.getConfirmationMethod();
+        LocalDateTime approvedAt = endorsed.getApprovedAt();
+        List<Endorsement> siblings = endorsementRepository.findBySplitGroupId(endorsed.getSplitGroupId());
+        if (siblings == null || siblings.isEmpty()) {
+            return;
+        }
+        for (Endorsement sibling : siblings) {
+            if (sibling == null || endorsed.getEndorsementId().equals(sibling.getEndorsementId())) {
+                continue;
+            }
+            boolean changed = false;
+            if (insurerRef != null && !insurerRef.isBlank()
+                    && (sibling.getInsurerRefNumber() == null || sibling.getInsurerRefNumber().isBlank())) {
+                sibling.setInsurerRefNumber(insurerRef);
+                changed = true;
+            }
+            if (approvedBy != null && !approvedBy.isBlank()
+                    && (sibling.getApprovedBy() == null || sibling.getApprovedBy().isBlank())) {
+                sibling.setApprovedBy(approvedBy);
+                changed = true;
+            }
+            if (confirmationMethod != null && sibling.getConfirmationMethod() == null) {
+                sibling.setConfirmationMethod(confirmationMethod);
+                changed = true;
+            }
+            if (AccountStatus.COMPLETED.equals(endorsed.getStatus())
+                    && (AccountStatus.PENDING_APPROVAL.equals(sibling.getStatus())
+                            || AccountStatus.PENDING_EXIT.equals(sibling.getStatus()))) {
+                sibling.setStatus(AccountStatus.COMPLETED);
+                if (approvedAt != null) {
+                    sibling.setApprovedAt(approvedAt);
+                }
+                changed = true;
+            }
+            if (changed) {
+                sibling.setUpdatedAt(LocalDateTime.now());
+                endorsementRepository.save(sibling);
+            }
+        }
     }
 
     private boolean isParentRelationshipForEndorsementCounts(String relationship) {
