@@ -70,7 +70,13 @@ public interface IEndorsementService {
 
     ResponseEntity<ResponseDto<EmployeeOnboardingEmailPreviewDto>> previewEmployeeOnboardingEmails(UUID endorsementId);
 
-    ResponseEntity<ResponseDto<List<HealthIdUploadDto>>> uploadHealthIds(UUID endorsementId, List<HealthIdUploadDto> healthIdList);
+    /**
+     * Bulk upload Health IDs against an organization's active roster. Replaces the
+     * earlier endorsement-scoped variant — Health IDs are an attribute of enrolled
+     * members and don't need an endorsement to be set. Matching is done by
+     * employeeNumber + relationship within the organization.
+     */
+    ResponseEntity<ResponseDto<List<HealthIdUploadDto>>> uploadHealthIdsForOrganization(UUID organizationId, List<HealthIdUploadDto> healthIdList);
 
     ResponseEntity<ResponseDto<String>> deactivateEndorsement(UUID endorsementId);
 

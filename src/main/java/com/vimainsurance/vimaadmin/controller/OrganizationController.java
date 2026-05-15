@@ -38,6 +38,8 @@ import com.vimainsurance.vimaadmin.dto.BulkEmployeeDeletionRequestDto;
 import com.vimainsurance.vimaadmin.dto.CsvValidationResponseDto;
 import com.vimainsurance.vimaadmin.annotation.CurrentOrganization;
 import com.vimainsurance.vimaadmin.dto.DocumentRequestDto;
+import com.vimainsurance.vimaadmin.dto.HealthIdUploadDto;
+import com.vimainsurance.vimaadmin.service.IEndorsementService;
 import com.vimainsurance.vimaadmin.dto.DocumentResponseDto;
 import com.vimainsurance.vimaadmin.dto.EmployeeUploadDto;
 import com.vimainsurance.vimaadmin.dto.EmployeeUploadResponse;
@@ -77,11 +79,35 @@ public class OrganizationController {
     @Autowired
     private ObjectMapper objectMapper;
 
+    /**
+     * Bulk Health ID upload runs against the org roster (not endorsement-scoped).
+     * Implementation lives in IEndorsementService for now because that's where
+     * the existing matcher + audit annotations live; service refactor is a
+     * later cleanup.
+     */
+    @Autowired
+    private IEndorsementService endorsementService;
+
     @PostMapping("/organization")
     @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'VIMA_ADMIN')")
     public ResponseEntity<ResponseDto<String>> create(@RequestBody OrganizationRequestDto requestDto) {
         logger.info("[correlationId:{}] /organization (POST) endpoint called", MDC.get("correlationId"));
         return organizationService.create(requestDto);
+    }
+
+    /**
+     * Bulk upload Health IDs for an organization's active members.
+     * Replaces the earlier /endorsements/{id}/health-id/upload endpoint.
+     * See PRD: docs/prd/group-insurance/health-id-bulk-upload-prd.md
+     */
+    @PostMapping("/organization/{organizationId}/health-id/upload")
+    @PreAuthorize("hasAnyRole('SUPER_ADMIN', 'ADMIN', 'VIMA_ADMIN')")
+    public ResponseEntity<ResponseDto<List<HealthIdUploadDto>>> uploadHealthIds(
+            @PathVariable UUID organizationId,
+            @RequestBody List<HealthIdUploadDto> healthIdList) {
+        logger.info("[correlationId:{}] /organization/{}/health-id/upload (POST) called with {} records",
+                MDC.get("correlationId"), organizationId, healthIdList != null ? healthIdList.size() : 0);
+        return endorsementService.uploadHealthIdsForOrganization(organizationId, healthIdList);
     }
 
     @PutMapping("/organization")
