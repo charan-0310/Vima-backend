@@ -9,18 +9,17 @@ import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.core.env.Environment;
 import org.springframework.stereotype.Service;
 
 import com.vimainsurance.vimaadmin.entity.AdminUser;
 import com.vimainsurance.vimaadmin.entity.Claim;
 import com.vimainsurance.vimaadmin.entity.ClaimQuery;
-import com.vimainsurance.vimaadmin.notification.config.EngineeringTestSlackWebhookOverrides;
-import com.vimainsurance.vimaadmin.notification.config.NotificationsProperties;
 import com.vimainsurance.vimaadmin.notification.dto.CreateNotificationCommand;
 import com.vimainsurance.vimaadmin.notification.enums.NotificationCategory;
 import com.vimainsurance.vimaadmin.notification.enums.NotificationEventType;
 import com.vimainsurance.vimaadmin.notification.enums.NotificationSeverity;
+import com.vimainsurance.vimaadmin.notification.slack.SlackChannel;
+import com.vimainsurance.vimaadmin.notification.slack.SlackChannelRouter;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -41,8 +40,7 @@ public class ClaimsNotificationEmitterService {
     private final NotificationDispatcher notificationDispatcher;
     private final AfterCommitNotificationRunner afterCommitNotificationRunner;
     private final NotificationSlackWebhookClient slackWebhookClient;
-    private final NotificationsProperties notificationsProperties;
-    private final Environment environment;
+    private final SlackChannelRouter slackChannelRouter;
     private final NotificationsFeatureGate notificationsFeatureGate;
 
     @Value("${app.portal-url:}")
@@ -347,45 +345,19 @@ public class ClaimsNotificationEmitterService {
         if (deepLinkUrl != null && !deepLinkUrl.isBlank()) {
             text = text + "\n" + deepLinkUrl;
         }
-        String url = resolveClaimsSlackWebhookUrl();
-        if (url == null || url.isBlank()) {
-            log.info("claims_slack_skip event={} claimId={} reason=no_webhook", eventType, claimId);
+        SlackChannel channel = slackChannelRouter.channelForEvent(eventType);
+        Optional<String> maybeUrl = slackChannelRouter.resolveUrl(channel);
+        if (maybeUrl.isEmpty()) {
+            log.info("claims_slack_skip event={} claimId={} slackChannel={} reason=router_skipped",
+                    eventType, claimId, channel);
             return;
         }
-        boolean ok = slackWebhookClient.postMessageToWebhookUrl(text, url);
+        boolean ok = slackWebhookClient.postMessageToWebhookUrl(text, maybeUrl.get());
         if (ok) {
-            log.info("claims_slack_emit event={} claimId={} route=webhook", eventType, claimId);
+            log.info("claims_slack_emit event={} claimId={} slackChannel={}", eventType, claimId, channel);
         } else {
-            log.warn("claims_slack_failed event={} claimId={} route=webhook", eventType, claimId);
+            log.warn("claims_slack_failed event={} claimId={} slackChannel={}", eventType, claimId, channel);
         }
-    }
-
-    private String resolveClaimsSlackWebhookUrl() {
-        if (slackWebhooksPinnedToEngineeringTest()) {
-            return firstNonBlank(
-                    notificationsProperties.getClaimsSlackWebhookUrl(),
-                    notificationsProperties.getSlackWebhookUrl());
-        }
-        return firstNonBlank(
-                notificationsProperties.getClaimsSlackWebhookUrl(),
-                environment.getProperty("slack.webhook.url", ""));
-    }
-
-    private boolean slackWebhooksPinnedToEngineeringTest() {
-        return Boolean.parseBoolean(
-                environment.getProperty(EngineeringTestSlackWebhookOverrides.ENFORCE_PROPERTY, "false"));
-    }
-
-    private static String firstNonBlank(String... candidates) {
-        if (candidates == null) {
-            return "";
-        }
-        for (String c : candidates) {
-            if (c != null && !c.isBlank()) {
-                return c.trim();
-            }
-        }
-        return "";
     }
 
     private String deepLinkForRecipient(Claim claim, AdminUser recipient) {
