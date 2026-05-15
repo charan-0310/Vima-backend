@@ -38,7 +38,6 @@ import com.vimainsurance.vimaadmin.entity.Deals;
 import com.vimainsurance.vimaadmin.enums.AccountStatus;
 import com.vimainsurance.vimaadmin.enums.NomineeRelationship;
 import com.vimainsurance.vimaadmin.entity.AdminUser;
-import com.vimainsurance.vimaadmin.entity.CostSharingRule;
 import com.vimainsurance.vimaadmin.entity.Policy;
 import com.vimainsurance.vimaadmin.entity.EmployeePolicyMap;
 
@@ -332,47 +331,10 @@ public class EmployeeService {
                 java.math.BigDecimal planPremium = b.premium() != null ? b.premium() : java.math.BigDecimal.ZERO;
                 java.math.BigDecimal gst = b.gstAmount() != null ? b.gstAmount() : java.math.BigDecimal.ZERO;
 
-                // Apply cost sharing
                 String coverageCategory = resolveCoverageCategoryForCostSharing(coveredMembers);
-                String costSharingPlanType =
-                        ("PARENT_GMC".equals(upper) || "GMC_PARENT".equals(upper)) ? "GMC" : planType;
-                CostSharingRule effectiveRule = costSharingRuleService.getEffectiveRule(
-                        companyId, costSharingPlanType, coverageCategory, LocalDate.now());
-                CostShareSplit split;
-                if (effectiveRule == null) {
-                    split = CostShareSplit.builder()
-                            .employerShare(null)
-                            .employeeShare(null)
-                            .shareType(null)
-                            .shareValue(null)
-                            .ruleId(null)
-                            .appliedCategory(null)
-                            .build();
-                } else {
-                    split = costSharingRuleService.applyCostSharing(
-                            companyId, costSharingPlanType, coverageCategory, planPremium);
-                }
-                // Keep parent review aligned with enrollment review behavior: 50/50 by default
-                // when parent-specific rule is missing and engine falls back to 100% employer.
-                if (("PARENT_GMC".equals(upper) || "GMC_PARENT".equals(upper))
-                        && effectiveRule != null
-                        && split != null
-                        && split.getEmployeeShare() != null
-                        && split.getEmployerShare() != null
-                        && split.getEmployeeShare().compareTo(java.math.BigDecimal.ZERO) == 0
-                        && split.getEmployerShare().compareTo(planPremium) == 0) {
-                    java.math.BigDecimal employer = planPremium
-                            .divide(java.math.BigDecimal.valueOf(2), 2, java.math.RoundingMode.HALF_UP);
-                    java.math.BigDecimal employee = planPremium.subtract(employer)
-                            .setScale(2, java.math.RoundingMode.HALF_UP);
-                    split = CostShareSplit.builder()
-                            .employerShare(employer)
-                            .employeeShare(employee)
-                            .shareType(split.getShareType())
-                            .shareValue(split.getShareValue())
-                            .ruleId(split.getRuleId())
-                            .build();
-                }
+                String costSharingPlanType = planType;
+                CostShareSplit split = costSharingRuleService.applyCostSharing(
+                        companyId, costSharingPlanType, coverageCategory, planPremium);
 
                 // Voluntary add-ons always 100% employee-paid
                 if ("TOP_UP".equals(upper) || "SUPER_TOP_UP".equals(upper)) {
@@ -443,16 +405,32 @@ public class EmployeeService {
     }
 
     private static String resolveCoverageCategoryForCostSharing(List<IPremiumCalculationService.MemberInfo> members) {
-        if (members == null || members.size() <= 1) return "SELF";
+        if (members == null || members.isEmpty()) {
+            return "SELF";
+        }
         boolean hasParent = false;
         boolean hasParentInLaw = false;
         for (IPremiumCalculationService.MemberInfo m : members) {
             String t = m.memberType();
-            if ("parent".equalsIgnoreCase(t)) hasParent = true;
-            if ("parent_in_law".equalsIgnoreCase(t)) hasParentInLaw = true;
+            if (t == null) {
+                continue;
+            }
+            if ("parent".equalsIgnoreCase(t)) {
+                hasParent = true;
+            }
+            if ("parent_in_law".equalsIgnoreCase(t)) {
+                hasParentInLaw = true;
+            }
         }
-        if (hasParent) return "PARENT";
-        if (hasParentInLaw) return "PARENT_IN_LAW";
+        if (hasParent) {
+            return "PARENT";
+        }
+        if (hasParentInLaw) {
+            return "PARENT_IN_LAW";
+        }
+        if (members.size() == 1) {
+            return "SELF";
+        }
         return "FAMILY";
     }
 

@@ -350,38 +350,12 @@ public class PremiumCalculationServiceImpl implements IPremiumCalculationService
                 }
                 BigDecimal planTotalPremium = b.premium();
                 String coverageCategory = resolveCoverageCategoryForCostSharing(membersForPlan);
-                CostSharingRule effectiveRule = costSharingRuleService.getEffectiveRule(
-                        context.getCompanyId(), selPlanType, coverageCategory, LocalDate.now());
-                CostShareSplit split;
-                if (effectiveRule == null) {
-                    split = CostShareSplit.builder()
-                            .employerShare(null)
-                            .employeeShare(null)
-                            .shareType(null)
-                            .shareValue(null)
-                            .ruleId(null)
-                            .appliedCategory(null)
-                            .build();
-                } else {
-                    split = costSharingRuleService.applyCostSharing(
-                            context.getCompanyId(),
-                            selPlanType,
-                            coverageCategory,
-                            planTotalPremium);
-                }
-                // Default 50/50 for PARENT_GMC when no cost-sharing rule (employer pays 100% otherwise)
-                if ("PARENT_GMC".equals(planUpper) && effectiveRule != null
-                        && split.getEmployeeShare() != null && split.getEmployeeShare().compareTo(BigDecimal.ZERO) == 0
-                        && split.getEmployerShare() != null && split.getEmployerShare().compareTo(planTotalPremium) == 0) {
-                    BigDecimal half = planTotalPremium.divide(BigDecimal.valueOf(2), 2, RoundingMode.HALF_UP);
-                    split = CostShareSplit.builder()
-                            .employerShare(half)
-                            .employeeShare(planTotalPremium.subtract(half).setScale(2, RoundingMode.HALF_UP))
-                            .shareType(split.getShareType())
-                            .shareValue(split.getShareValue())
-                            .ruleId(split.getRuleId())
-                            .build();
-                }
+                String costSharingPlanType = costSharingPlanTypeForSelection(planUpper);
+                CostShareSplit split = costSharingRuleService.applyCostSharing(
+                        context.getCompanyId(),
+                        costSharingPlanType,
+                        coverageCategory,
+                        planTotalPremium);
                 // Voluntary add-ons (TOP_UP, SUPER_TOP_UP) are always 100% employee-paid
                 if ("TOP_UP".equals(planUpper) || "SUPER_TOP_UP".equals(planUpper)) {
                     split = CostShareSplit.builder()
@@ -654,17 +628,38 @@ public class PremiumCalculationServiceImpl implements IPremiumCalculationService
         return ghiPolicies.stream().anyMatch(p -> p.getCoverageType() == CoverageType.ESCP);
     }
 
+    /** Cost-sharing lookup plan type (parent cover may use PARENT_GMC rules with GMC fallback). */
+    private static String costSharingPlanTypeForSelection(String planUpper) {
+        return planUpper;
+    }
+
     private String resolveCoverageCategoryForCostSharing(List<MemberInfo> members) {
-        if (members == null || members.size() <= 1) return CoverageCategory.SELF.getValue();
+        if (members == null || members.isEmpty()) {
+            return CoverageCategory.SELF.getValue();
+        }
         boolean hasParent = false;
         boolean hasParentInLaw = false;
         for (MemberInfo m : members) {
             String t = m.memberType();
-            if ("parent".equalsIgnoreCase(t)) hasParent = true;
-            if ("parent_in_law".equalsIgnoreCase(t)) hasParentInLaw = true;
+            if (t == null) {
+                continue;
+            }
+            if ("parent".equalsIgnoreCase(t)) {
+                hasParent = true;
+            }
+            if ("parent_in_law".equalsIgnoreCase(t)) {
+                hasParentInLaw = true;
+            }
         }
-        if (hasParent) return CoverageCategory.PARENT.getValue();
-        if (hasParentInLaw) return CoverageCategory.PARENT_IN_LAW.getValue();
+        if (hasParent) {
+            return CoverageCategory.PARENT.getValue();
+        }
+        if (hasParentInLaw) {
+            return CoverageCategory.PARENT_IN_LAW.getValue();
+        }
+        if (members.size() == 1) {
+            return CoverageCategory.SELF.getValue();
+        }
         return CoverageCategory.ALL_DEPENDENTS.getValue();
     }
 
