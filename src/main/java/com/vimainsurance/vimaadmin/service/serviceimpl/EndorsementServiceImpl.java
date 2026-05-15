@@ -1906,58 +1906,84 @@ public class EndorsementServiceImpl implements IEndorsementService {
         return "SELF".equalsIgnoreCase(normalized) || "EMPLOYEE".equalsIgnoreCase(normalized);
     }
 
+    /**
+     * Bulk upload Health IDs against the active member roster of an organization.
+     * Replaces the earlier endorsement-scoped variant — a Health ID is an
+     * attribute of an enrolled member, so we look members up directly under
+     * the organization rather than going through an endorsement.
+     *
+     * Matching is by employeeNumber + relationship (e.g. employee 1234 + CHILD2).
+     * The relationship "EMPLOYEE" is treated as "SELF" for backward compat.
+     *
+     * Validation per row (all must pass before any update is committed):
+     *  - Employee ID is non-blank.
+     *  - Health ID is non-blank (blank rows are also skipped silently — see
+     *    PRD: pre-populated templates intentionally ship with empty Health IDs
+     *    for not-yet-issued cards).
+     *  - A matching member exists under the organization.
+     *  - Health ID is not already used by any other member in this organization.
+     */
     @Override
     @Transactional
     @AuditedOperation(schemaName = "cpc", tableName = "customers", entityType = "HEALTH_ID_UPLOAD", action = "BULK_UPDATE")
-    public ResponseEntity<ResponseDto<List<HealthIdUploadDto>>> uploadHealthIds(UUID endorsementId, List<HealthIdUploadDto> healthIdList) {
-        logger.info("[correlationId:{}] Upload health IDs called for endorsement: {}", MDC.get("correlationId"), endorsementId);
+    public ResponseEntity<ResponseDto<List<HealthIdUploadDto>>> uploadHealthIdsForOrganization(UUID organizationId, List<HealthIdUploadDto> healthIdList) {
+        logger.info("[correlationId:{}] Upload health IDs called for organization: {} ({} records)",
+                MDC.get("correlationId"), organizationId, healthIdList != null ? healthIdList.size() : 0);
 
         try {
-            // Step 1: Check if endorsement exists and get organization
-            Endorsement endorsement = endorsementRepository.findByEndorsementId(endorsementId)
-                    .orElseThrow(() -> new IllegalArgumentException("Endorsement not found with ID: " + endorsementId));
-
-            if (endorsement.getOrganization() == null) {
-                logger.error("[correlationId:{}] Organization not found for endorsement: {}", MDC.get("correlationId"), endorsementId);
+            if (organizationId == null) {
                 return ResponseEntity.badRequest()
-                        .body(new ResponseDto<>(400, "Organization not found for this endorsement"));
+                        .body(new ResponseDto<>(400, "Organization ID is required"));
+            }
+            if (healthIdList == null || healthIdList.isEmpty()) {
+                return ResponseEntity.badRequest()
+                        .body(new ResponseDto<>(400, "No Health ID records provided"));
             }
 
-            UUID organizationId = endorsement.getOrganization().getOrganizationId();
-            logger.info("[correlationId:{}] Processing {} health ID records for organization: {}",
-                    MDC.get("correlationId"), healthIdList.size(), organizationId);
-
-            int updatedCount = 0;
             List<HealthIdUploadDto> invalidCustomers = new ArrayList<>();
             List<Deals> validCustomers = new ArrayList<>();
+            List<HealthIdUploadDto> validDtos = new ArrayList<>();
 
-            // Validate all records first (no updates yet)
+            // Track Health IDs seen so far in this batch to flag in-file duplicates.
+            Map<String, HealthIdUploadDto> seenInBatch = new HashMap<>();
+
             for (HealthIdUploadDto healthIdDto : healthIdList) {
                 try {
-                    // Employee ID (primary's for dependents) must not be blank
+                    // Skip blank rows silently (pre-populated template support).
+                    if (healthIdDto.getHealthId() == null || healthIdDto.getHealthId().isBlank()) {
+                        continue;
+                    }
                     if (healthIdDto.getEmployeeId() == null || healthIdDto.getEmployeeId().isBlank()) {
                         healthIdDto.setErrorReason("Employee ID is required");
                         invalidCustomers.add(healthIdDto);
-                        logger.warn("[correlationId:{}] Employee ID is blank for name:{}, relationship:{}",
-                                MDC.get("correlationId"), healthIdDto.getName(), healthIdDto.getRelationship());
                         continue;
                     }
 
                     String employeeIdTrimmed = healthIdDto.getEmployeeId().trim();
+                    String healthIdTrimmed = healthIdDto.getHealthId().trim();
                     String normalizedRelationship = normalizeRelationshipForLookup(healthIdDto.getRelationship());
-                    Optional<Deals> customerOpt = dealsRepository.findByNameAndEmployeeNumberAndRelationshipAndOrganizationIdForEndorsement(
-                            healthIdDto.getName(), employeeIdTrimmed, normalizedRelationship, organizationId, endorsementId);
 
-                    // Fallback: ignore name mismatches (DOB/DOJ/name format in CSV vs DB) — match by employeeId+relationship.
-                    if (customerOpt.isEmpty()) {
-                        customerOpt = dealsRepository.findByEmployeeNumberAndRelationshipAndOrganizationIdForEndorsement(
-                                employeeIdTrimmed, normalizedRelationship, organizationId, endorsementId);
+                    // In-file duplicate Health ID check.
+                    String dupKey = healthIdTrimmed.toLowerCase();
+                    if (seenInBatch.containsKey(dupKey)) {
+                        healthIdDto.setErrorReason("Duplicate Health ID within file");
+                        invalidCustomers.add(healthIdDto);
+                        continue;
                     }
+                    seenInBatch.put(dupKey, healthIdDto);
 
-                    // Organization scope: many dependents are not linked via endorsement_id or deal_endorsements
-                    // but still match primary's employee number + relationship under the same organization.
-                    // (Previously only SELF/EMPLOYEE used this path, so SPOUSE/CHILD*/PARENT rows always failed.)
-                    if (customerOpt.isEmpty()) {
+                    // Lookup the member.
+                    // SELF: bypass the relationship-string match entirely — primary
+                    //   members get stored with inconsistent values (SELF / Self /
+                    //   EMPLOYEE / Employee / null) depending on creation path, so
+                    //   we rely on isPrimaryMember / primaryIndividual IS NULL.
+                    // Others: org-scoped name-first, then employeeNumber+relationship.
+                    Optional<Deals> customerOpt;
+                    boolean isSelfRequest = "SELF".equalsIgnoreCase(normalizedRelationship);
+                    if (isSelfRequest) {
+                        customerOpt = dealsRepository.findPrimaryByEmployeeNumberAndOrganizationId(
+                                employeeIdTrimmed, organizationId);
+                    } else {
                         customerOpt = dealsRepository.findByNameAndEmployeeNumberAndRelationshipAndOrganizationId(
                                 healthIdDto.getName(), employeeIdTrimmed, normalizedRelationship, organizationId);
                         if (customerOpt.isEmpty()) {
@@ -1966,35 +1992,40 @@ public class EndorsementServiceImpl implements IEndorsementService {
                         }
                     }
 
-                    if (customerOpt.isPresent()) {
-                        Deals customer = customerOpt.get();
+                    if (customerOpt.isEmpty()) {
+                        healthIdDto.setErrorReason("Member not found for employeeId " + employeeIdTrimmed
+                                + ", relationship " + healthIdDto.getRelationship() + " in this organization");
+                        invalidCustomers.add(healthIdDto);
+                        continue;
+                    }
 
+                    Deals customer = customerOpt.get();
+                    if (!isSelfRequest) {
+                        // For dependents, defend against bad upstream queries by
+                        // re-confirming the relationship match.
                         boolean relationshipMatches = customer.getRelationship() != null &&
                                 normalizeRelationshipForLookup(customer.getRelationship()).equalsIgnoreCase(normalizedRelationship);
-
-                        // Health ID upload: trust employeeId+relationship from lookup; do not require name/DOB/DOJ to match CSV.
-                        if (relationshipMatches) {
-                            validCustomers.add(customer);
-                        } else {
+                        if (!relationshipMatches) {
                             healthIdDto.setErrorReason("Relationship does not match database record");
                             invalidCustomers.add(healthIdDto);
-                            logger.warn("[correlationId:{}] Validation failed for employeeId:{}, relationship:{}, name:{}",
-                                    MDC.get("correlationId"),
-                                    healthIdDto.getEmployeeId(),
-                                    healthIdDto.getRelationship(),
-                                    healthIdDto.getName());
+                            continue;
                         }
-                    } else {
-                        healthIdDto.setErrorReason("Employee not found for employeeId " + employeeIdTrimmed
-                                + ", relationship " + healthIdDto.getRelationship()
-                                + " in this endorsement or organization");
-                        invalidCustomers.add(healthIdDto);
-                        logger.warn("[correlationId:{}] Employee not found for employeeId:{}, relationship:{}, name:{}",
-                                MDC.get("correlationId"),
-                                healthIdDto.getEmployeeId(),
-                                healthIdDto.getRelationship(),
-                                healthIdDto.getName());
                     }
+
+                    // Org-wide duplicate check: another member in this org must not
+                    // already hold this Health ID. We exclude the current member so
+                    // re-uploading the same value on the same person is a no-op,
+                    // not an error.
+                    Optional<Deals> dupOpt = dealsRepository.findByHealthIdAndOrganizationIdExcluding(
+                            healthIdTrimmed, organizationId, customer.getIndividualId());
+                    if (dupOpt.isPresent()) {
+                        healthIdDto.setErrorReason("Health ID is already assigned to another member in this organization");
+                        invalidCustomers.add(healthIdDto);
+                        continue;
+                    }
+
+                    validCustomers.add(customer);
+                    validDtos.add(healthIdDto);
                 } catch (Exception e) {
                     healthIdDto.setErrorReason("Validation error: " + (e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName()));
                     invalidCustomers.add(healthIdDto);
@@ -2003,38 +2034,41 @@ public class EndorsementServiceImpl implements IEndorsementService {
                 }
             }
 
-            // If any invalid, return without updating anyone
+            // All-or-nothing: if any non-blank row failed, reject the whole batch.
             if (!invalidCustomers.isEmpty()) {
-                logger.info("[correlationId:{}] Health ID upload aborted due to invalid records. Count: {}",
+                logger.info("[correlationId:{}] Health ID upload aborted due to {} invalid record(s)",
                         MDC.get("correlationId"), invalidCustomers.size());
                 return ResponseEntity.badRequest()
                         .body(new ResponseDto<>("Health ID upload failed", invalidCustomers, invalidCustomers.size()));
             }
-            // Step 3: All valid - proceed to update
-            // Perform updates only when all are valid
-            for (int i = 0; i < healthIdList.size(); i++) {
+
+            if (validCustomers.isEmpty()) {
+                return ResponseEntity.badRequest()
+                        .body(new ResponseDto<>(400, "No Health IDs to upload (all rows were blank)"));
+            }
+
+            int updatedCount = 0;
+            for (int i = 0; i < validCustomers.size(); i++) {
                 Deals customer = validCustomers.get(i);
-                HealthIdUploadDto healthIdDto = healthIdList.get(i);
-                customer.setHealthId(healthIdDto.getHealthId());
+                customer.setHealthId(validDtos.get(i).getHealthId().trim());
                 customer.setUpdatedAt(LocalDateTime.now());
                 dealsRepository.save(customer);
                 updatedCount++;
             }
 
-            logger.info("[correlationId:{}] Health ID upload completed - Updated: {}",
-                    MDC.get("correlationId"), updatedCount);
+            logger.info("[correlationId:{}] Health ID upload completed for org {} - Updated: {}",
+                    MDC.get("correlationId"), organizationId, updatedCount);
 
             return ResponseEntity.ok()
                     .body(new ResponseDto<>("Health IDs uploaded successfully", null, updatedCount));
-
 
         } catch (IllegalArgumentException e) {
             logger.error("[correlationId:{}] Validation error: {}", MDC.get("correlationId"), e.getMessage());
             return ResponseEntity.badRequest()
                     .body(new ResponseDto<>(400, e.getMessage()));
         } catch (Exception e) {
-            logger.error("[correlationId:{}] Error uploading health IDs for endorsement: {}",
-                    MDC.get("correlationId"), endorsementId, e);
+            logger.error("[correlationId:{}] Error uploading health IDs for organization: {}",
+                    MDC.get("correlationId"), organizationId, e);
             return ResponseEntity.internalServerError()
                     .body(new ResponseDto<>(500, "Failed to upload health IDs: " + e.getMessage()));
         }
