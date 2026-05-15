@@ -66,62 +66,6 @@ public interface IDealsRepository extends JpaRepository<Deals, UUID> , JpaSpecif
     );
 
     /**
-     * Find deal for health ID upload - scoped to endorsement (deals in this endorsement or linked via deal_endorsements).
-     * Uses native query to avoid JPQL-to-SQL translation issues with CONCAT/TRIM on PostgreSQL.
-     */
-    @Query(value = """
-    SELECT c.* FROM cpc.customers c
-    LEFT JOIN cpc.customers p ON c.primary_individual_id = p.individual_id
-    WHERE (
-        (c.full_name IS NOT NULL AND LOWER(c.full_name) = LOWER(:name))
-        OR (c.full_name IS NULL AND LOWER(TRIM(CONCAT(COALESCE(c.first_name,''), ' ', COALESCE(c.last_name,'')))) = LOWER(:name))
-        OR LOWER(c.first_name) = LOWER(:name)
-        OR LOWER(c.last_name) = LOWER(:name)
-    )
-    AND (
-        UPPER(TRIM(COALESCE(c.employee_number, ''))) = UPPER(TRIM(:employeeNumber))
-        OR (p.employee_number IS NOT NULL AND UPPER(TRIM(p.employee_number)) = UPPER(TRIM(:employeeNumber)))
-    )
-    AND (LOWER(c.relationship) = LOWER(:relationship) OR (LOWER(:relationship) = 'self' AND LOWER(c.relationship) = 'employee'))
-    AND c.organization_id = :organizationId
-    AND (c.endorsement_id = :endorsementId OR EXISTS (
-        SELECT 1 FROM cpc.deal_endorsements de WHERE de.individual_id = c.individual_id AND de.endorsement_id = :endorsementId
-    ))
-    LIMIT 1
-    """, nativeQuery = true)
-    Optional<Deals> findByNameAndEmployeeNumberAndRelationshipAndOrganizationIdForEndorsement(
-            @Param("name") String name,
-            @Param("employeeNumber") String employeeNumber,
-            @Param("relationship") String relationship,
-            @Param("organizationId") UUID organizationId,
-            @Param("endorsementId") UUID endorsementId
-    );
-
-    /**
-     * Fallback lookup for health ID upload: match by employee number + relationship only (ignore name/date fields).
-     */
-    @Query(value = """
-    SELECT c.* FROM cpc.customers c
-    LEFT JOIN cpc.customers p ON c.primary_individual_id = p.individual_id
-    WHERE (
-        UPPER(TRIM(COALESCE(c.employee_number, ''))) = UPPER(TRIM(:employeeNumber))
-        OR (p.employee_number IS NOT NULL AND UPPER(TRIM(p.employee_number)) = UPPER(TRIM(:employeeNumber)))
-    )
-    AND (LOWER(c.relationship) = LOWER(:relationship) OR (LOWER(:relationship) = 'self' AND LOWER(c.relationship) = 'employee'))
-    AND c.organization_id = :organizationId
-    AND (c.endorsement_id = :endorsementId OR EXISTS (
-        SELECT 1 FROM cpc.deal_endorsements de WHERE de.individual_id = c.individual_id AND de.endorsement_id = :endorsementId
-    ))
-    LIMIT 1
-    """, nativeQuery = true)
-    Optional<Deals> findByEmployeeNumberAndRelationshipAndOrganizationIdForEndorsement(
-            @Param("employeeNumber") String employeeNumber,
-            @Param("relationship") String relationship,
-            @Param("organizationId") UUID organizationId,
-            @Param("endorsementId") UUID endorsementId
-    );
-
-    /**
      * Organization-scope fallback lookup for SELF/EMPLOYEE by employee number + relationship only.
      */
     @Query("""
@@ -134,6 +78,45 @@ public interface IDealsRepository extends JpaRepository<Deals, UUID> , JpaSpecif
             @Param("employeeNumber") String employeeNumber,
             @Param("relationship") String relationship,
             @Param("organizationId") UUID organizationId
+    );
+
+    /**
+     * Locate the primary member (SELF) of an employee within an organization.
+     *
+     * Primary members can be persisted with `relationship` set to "SELF",
+     * "Self", "EMPLOYEE", or even null depending on the code path that created
+     * the row (CSV bulk upload, manual add, self-enrollment, legacy import).
+     * Health ID upload should not depend on the stored string — `isPrimaryMember`
+     * / `primaryIndividual IS NULL` is the canonical "this row IS the employee"
+     * indicator.
+     */
+    @Query("""
+    SELECT d FROM Deals d
+    WHERE LOWER(TRIM(d.employeeNumber)) = LOWER(TRIM(:employeeNumber))
+    AND d.organization.organizationId = :organizationId
+    AND (d.isPrimaryMember = true OR d.primaryIndividual IS NULL)
+    """)
+    Optional<Deals> findPrimaryByEmployeeNumberAndOrganizationId(
+            @Param("employeeNumber") String employeeNumber,
+            @Param("organizationId") UUID organizationId
+    );
+
+    /**
+     * Duplicate-check for Health ID bulk upload: returns any deal in the given
+     * organization that already holds this health ID. Excludes a specific
+     * individualId so an unchanged Health ID on the same member doesn't trip
+     * the duplicate check during a re-upload.
+     */
+    @Query("""
+    SELECT d FROM Deals d
+    WHERE LOWER(TRIM(d.healthId)) = LOWER(TRIM(:healthId))
+    AND d.organization.organizationId = :organizationId
+    AND (:excludeIndividualId IS NULL OR d.individualId <> :excludeIndividualId)
+    """)
+    Optional<Deals> findByHealthIdAndOrganizationIdExcluding(
+            @Param("healthId") String healthId,
+            @Param("organizationId") UUID organizationId,
+            @Param("excludeIndividualId") UUID excludeIndividualId
     );
 
     /**
@@ -703,5 +686,23 @@ public interface IDealsRepository extends JpaRepository<Deals, UUID> , JpaSpecif
         @Param("startDate") LocalDateTime startDate,
         @Param("endDate") LocalDateTime endDate
     );
+
+    /** Active primary members (employees) linked to any organization. */
+    @Query("""
+        SELECT COUNT(d) FROM Deals d
+        WHERE d.organization IS NOT NULL
+          AND d.status = :active
+          AND d.isPrimaryMember = true
+        """)
+    long countActiveEmployeesInOrganizations(@Param("active") AccountStatus active);
+
+    /** Active dependents / family members under corporate coverage (non-primary). */
+    @Query("""
+        SELECT COUNT(d) FROM Deals d
+        WHERE d.organization IS NOT NULL
+          AND d.status = :active
+          AND (d.isPrimaryMember = false OR d.isPrimaryMember IS NULL)
+        """)
+    long countActiveDependentsInOrganizations(@Param("active") AccountStatus active);
 
 }

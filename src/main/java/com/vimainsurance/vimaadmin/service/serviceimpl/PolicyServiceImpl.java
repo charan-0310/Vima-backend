@@ -74,6 +74,7 @@ import com.vimainsurance.vimaadmin.service.IPolicyService;
 import com.vimainsurance.vimaadmin.service.IProductCatalogService;
 import com.vimainsurance.vimaadmin.util.Constants;
 import com.vimainsurance.vimaadmin.util.JwtUserExtractor;
+import com.vimainsurance.vimaadmin.util.TopupPremiumOptionsUtil;
 import com.vimainsurance.vimaadmin.audit.AuditContextSupplier;
 import com.vimainsurance.vimaadmin.audit.AuditedOperation;
 import com.vimainsurance.vimaadmin.audit.PlatformAuditPublisher;
@@ -1085,6 +1086,13 @@ public class PolicyServiceImpl implements IPolicyService {
         responseDto.setSumInsuredMultiplier(policy.getSumInsuredMultiplier());
         responseDto.setPremiumAmount(policy.getPremiumAmount());
         BigDecimal inceptionPremium = policy.getPremiumAmount() != null ? policy.getPremiumAmount() : BigDecimal.ZERO;
+        ProductType productType = policy.getProductType();
+        if (productType != null
+                && (productType == ProductType.TOP_UP || productType == ProductType.SUPER_TOP_UP)
+                && inceptionPremium.compareTo(BigDecimal.ZERO) == 0) {
+            inceptionPremium = TopupPremiumOptionsUtil.minPositiveTierPremium(policy.getTopupPremiumOptions())
+                    .orElse(inceptionPremium);
+        }
         BigDecimal endorsementPremium = premiumSummary != null && premiumSummary.endorsementPremium() != null
             ? premiumSummary.endorsementPremium()
             : BigDecimal.ZERO;

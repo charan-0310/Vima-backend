@@ -24,7 +24,6 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
 import org.springframework.core.io.Resource;
-import org.springframework.core.env.Environment;
 
 import java.io.InputStream;
 
@@ -75,9 +74,7 @@ import com.vimainsurance.vimaadmin.service.IPolicyService;
 import com.vimainsurance.vimaadmin.service.IS3Service;
 import com.vimainsurance.vimaadmin.util.Constants;
 import com.vimainsurance.vimaadmin.util.ConverterUtils;
-import com.vimainsurance.vimaadmin.util.EnvironmentUtil;
 import com.vimainsurance.vimaadmin.util.JwtUserExtractor;
-import com.vimainsurance.vimaadmin.util.SlackNotificationUtil;
 import com.vimainsurance.vimaadmin.repository.IDealsRepository;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.vimainsurance.vimaadmin.dto.NomineeRequestDto;
@@ -125,12 +122,6 @@ public class CustomerServiceImpl implements ICustomerService{
     @Autowired
     private IMotorPolicyDetailsRepository motorPolicyDetailsRepository;
     
-    @Autowired
-    private SlackNotificationUtil slackNotificationUtil;
-    
-    @Autowired
-    private Environment environment;
-   
     @Autowired
     private JwtUserExtractor jwtUserExtractor;
 
@@ -227,20 +218,7 @@ public class CustomerServiceImpl implements ICustomerService{
     }
     
     private BigDecimal getHighestPremium(Customer customer) {
-        if (customer.getQuotes() == null || customer.getQuotes().isEmpty()) {
-            return BigDecimal.ZERO;
-        }
-        
-        return customer.getQuotes().stream()
-            .map(quote -> {
-                try {
-                    return new BigDecimal(quote.getBestPremium() != null ? quote.getBestPremium() : "0");
-                } catch (NumberFormatException e) {
-                    return BigDecimal.ZERO;
-                }
-            })
-            .max(BigDecimal::compareTo)
-            .orElse(BigDecimal.ZERO);
+        return BigDecimal.ZERO;
     }
     
     private Page<Customer> getAllCustomersWithPremiumSorting(String search, int page, int rec, String sortDirection) {
@@ -360,7 +338,6 @@ public class CustomerServiceImpl implements ICustomerService{
         responseDto.setUpdatedAt(LocalDateTime.now());
         responseDto.setStatus(customer.getStatus());
         responseDto.setNotes(customer.getNotes());
-        responseDto.setQuotes(customer.getQuotes());
         responseDto.setOwner(customer.getOwner() != null ? customer.getOwner().getUsername() : null);
         return responseDto;
     }
@@ -416,7 +393,6 @@ public class CustomerServiceImpl implements ICustomerService{
             responseDto.setUpdatedAt(LocalDateTime.now());
             responseDto.setStatus(customer.getStatus());
             responseDto.setNotes(customer.getNotes());
-            responseDto.setQuotes(customer.getQuotes());
             responseDto.setOwner(customer.getOwner().getUsername() + " (" + customer.getOwner().getAgentId() + ")");
             responseDto.setDocuments(documentRepository.findByEntityAndCategory(DocumentEntityType.CUSTOMER, customer.getCustId(), DocumentCategory.KYC_DOCUMENTS).stream().map(document -> {
                 DocumentResponseDto documentResponseDto = new DocumentResponseDto();
@@ -766,21 +742,7 @@ public class CustomerServiceImpl implements ICustomerService{
             }
             savedPolicy.setDocument(response.getBody().getPayload().get(0));
             policyRepository.save(savedPolicy);
-            
-            // Send Slack notification only in production
-            if (EnvironmentUtil.isProductionEnvironment(environment)) {
-                try {
-                    String slackMessage = buildCustomerToDealSlackMessage(customer, savedDeals, policyRequest, adminUser);
-                    slackNotificationUtil.sendSlackMessage("New Policy Issued!", slackMessage, true);
-                } catch (Exception slackException) {
-                    TransactionAspectSupport.currentTransactionStatus().setRollbackOnly();
-                    logger.warn("[correlationId:{}] Failed to send Slack notification: {}", MDC.get("correlationId"), slackException.getMessage());
-                    // Don't fail the request if Slack notification fails
-                }
-            } else {
-                logger.debug("[correlationId:{}] Skipping Slack notification (not in production environment)", MDC.get("correlationId"));
-            }
-            
+
             logger.info("[correlationId:{}] Customer converted to Deals successfully", MDC.get("correlationId"));
             return responseObj.render(responseObj.formSuccessResponse(Constants.SUCCESS, "Customer converted to Deals successfully"));
         }
@@ -841,65 +803,6 @@ public class CustomerServiceImpl implements ICustomerService{
 
     private String normalizePhoneNumber(String value) {
         return value != null ? value.replaceAll("[^0-9]", "") : null;
-    }
-    
-    private String buildCustomerToDealSlackMessage(Customer customer, Deals deals, PolicyRequestDto policyRequest, AdminUser agent) {
-        StringBuilder message = new StringBuilder();
-        
-        // Get insurance provider name
-        String insurerName = "Unknown";
-        try {
-            if (policyRequest.getInsuranceCompanyCode() != null) {
-                insurerName = insuranceProviderRepository.findByProviderCode(policyRequest.getInsuranceCompanyCode())
-                        .map(InsuranceProvider::getProviderName)
-                        .orElse("Unknown");
-            } else {
-                insurerName = "Unknown";
-            }
-        } catch (Exception e) {
-            logger.warn("Failed to fetch insurance provider name: {}", e.getMessage());
-        }
-        
-        // Format product type to readable text
-        String productTypeDisplay = formatProductType(policyRequest.getProductType());
-        
-        // Client name
-        String clientName = customer.getFullName();
-        
-        // Build message with emojis
-        message.append(":adult::skin-tone-4: Client: ").append(clientName).append("\n");
-        message.append(":package: Policy Type: ").append(productTypeDisplay).append("\n");
-        message.append(":office: Insurer: ").append(insurerName);
-        
-        return message.toString();
-    }
-    
-    private String formatProductType(String productType) {
-        // Convert enum names to readable format
-        // e.g., TERM_LIFE -> Term Life Insurance, HEALTH -> Health Insurance
-        if (productType == null || productType.isEmpty()) {
-            return "Insurance";
-        }
-        
-        String formatted = productType.replace("_", " ");
-        String[] words = formatted.toLowerCase().split(" ");
-        StringBuilder result = new StringBuilder();
-        
-        for (String word : words) {
-            if (!result.isEmpty()) {
-                result.append(" ");
-            }
-            if (!word.isEmpty()) {
-                result.append(word.substring(0, 1).toUpperCase()).append(word.substring(1));
-            }
-        }
-        
-        // Add "Insurance" suffix if not already present
-        if (!result.toString().toLowerCase().contains("insurance")) {
-            result.append(" Insurance");
-        }
-        
-        return result.toString();
     }
 
     /**

@@ -30,9 +30,18 @@ public class EndorsementResponseDto {
     private LocalDateTime updatedAt;
     private String source;
     private String lifeEventType;
+    /** Self-enrollment / window-scoped batches. */
+    private UUID enrollmentWindowId;
+    private String enrollmentWindowName;
     private Long policyId;
     private String policyType;
+    /** Policy number for UI (list/detail); populated without loading full {@code Policy} entity on filtered list. */
+    private String policyNumber;
+    /** Optional display label (e.g. policy description when set). */
+    private String policyName;
     private String insuranceCompanyName;
+    /** CD account balance for the policy's linked CD account (v2), when available. */
+    private BigDecimal cdBalance;
     private UUID splitGroupId;
     private UUID parentEndorsementId;
 }

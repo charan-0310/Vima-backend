@@ -7,9 +7,8 @@ import org.springframework.stereotype.Service;
 /**
  * F-03 — Helper for issuing and clearing the httpOnly auth cookies.
  *
- * Used by the (forthcoming) AuthController.login / refresh-token / logout endpoints once the
- * frontend has been switched off localStorage. Until that cutover the helper is unused at runtime
- * but is in place so the cookie semantics are reviewable in PRs.
+ * Reserved for a future cookie-based session model. The portal currently stores Keycloak tokens
+ * in browser storage; this helper documents intended cookie semantics for security review.
  *
  * Cookie names:
  *   vima_at  — short-lived access token  (Path=/, HttpOnly, Secure, SameSite=Strict)

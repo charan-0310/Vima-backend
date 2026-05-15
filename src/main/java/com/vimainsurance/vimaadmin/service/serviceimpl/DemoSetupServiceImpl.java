@@ -1139,11 +1139,9 @@ public class DemoSetupServiceImpl implements IDemoSetupService {
         LocalDate effectiveFrom = LocalDate.now();
         List<CostSharingRule> defaults = List.of(
                 defaultRule(organizationId, "GMC", CoverageCategory.SELF, BigDecimal.valueOf(100), effectiveFrom),
-                defaultRule(organizationId, "GMC", CoverageCategory.SPOUSE, BigDecimal.valueOf(100), effectiveFrom),
-                defaultRule(organizationId, "GMC", CoverageCategory.CHILD, BigDecimal.valueOf(100), effectiveFrom),
-                defaultRule(organizationId, "GMC", CoverageCategory.PARENT, BigDecimal.valueOf(100), effectiveFrom),
-                defaultRule(organizationId, "GPA", CoverageCategory.ALL_DEPENDENTS, BigDecimal.valueOf(100), effectiveFrom),
-                defaultRule(organizationId, "GTL", CoverageCategory.ALL_DEPENDENTS, BigDecimal.valueOf(100), effectiveFrom),
+                defaultRule(organizationId, "GMC", CoverageCategory.ALL_DEPENDENTS, BigDecimal.valueOf(100), effectiveFrom),
+                defaultRule(organizationId, "GPA", CoverageCategory.SELF, BigDecimal.valueOf(100), effectiveFrom),
+                defaultRule(organizationId, "GTL", CoverageCategory.SELF, BigDecimal.valueOf(100), effectiveFrom),
                 defaultRule(organizationId, "TOP_UP", CoverageCategory.SELF, BigDecimal.ZERO, effectiveFrom),
                 defaultRule(organizationId, "SUPER_TOP_UP", CoverageCategory.SELF, BigDecimal.ZERO, effectiveFrom));
         for (CostSharingRule rule : defaults) {

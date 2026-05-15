@@ -86,4 +86,14 @@ public final class TopupPremiumOptionsUtil {
         }
         return out;
     }
+
+    /**
+     * Smallest strictly positive annual premium from configured top-up tiers ({@code topup_premium_options}).
+     * Used when {@code premium_amount} is zero so policy overview can show a meaningful inception baseline.
+     */
+    public static Optional<BigDecimal> minPositiveTierPremium(String topupPremiumOptionsJson) {
+        return parseDecimalList(topupPremiumOptionsJson).stream()
+                .filter(v -> v != null && v.compareTo(BigDecimal.ZERO) > 0)
+                .min(BigDecimal::compareTo);
+    }
 }

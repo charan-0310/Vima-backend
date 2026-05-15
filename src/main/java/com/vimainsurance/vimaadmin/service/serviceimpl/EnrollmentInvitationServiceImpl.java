@@ -735,16 +735,6 @@ public class EnrollmentInvitationServiceImpl implements IEnrollmentInvitation {
             }
             window.setStatus(EnrollementStatus.ACTIVE);
             enrollmentWindowsRepository.save(window);
-            if (flagshipNotificationService != null && window.getOrganization() != null) {
-                String display = window.getOrganization().getOrganizationDisplayName() != null
-                        && !window.getOrganization().getOrganizationDisplayName().isBlank()
-                                ? window.getOrganization().getOrganizationDisplayName()
-                                : window.getOrganization().getOrganizationName();
-                flagshipNotificationService.scheduleEnrollmentWindowOpened(
-                        window.getOrganization().getOrganizationId(),
-                        window.getId(),
-                        display);
-            }
 
             List<Deals> employees = dealsRepository.findByEnrollmentWindow_Id(windowId);
             int totalEmployees = employees.size();

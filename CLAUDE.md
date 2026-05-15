@@ -35,3 +35,45 @@ Developers can use local-only overrides via:
 - `.cursor/settings.local.json`
 
 These should remain uncommitted.
+
+## Environment Topology (this project)
+
+- **No UAT environment.** `application-uat.properties` has been removed.
+  Treat any "UAT" reference in older docs as stale.
+- **local** and **dev** both point to the **dev database** (`vima_dev`).
+  Local runs against `localhost:5433`; dev runs against the shared RDS
+  instance. Schema changes for either land there.
+- **test** uses the separate **test database** (`vima_test`). It exists so
+  automated / integration test runs do not crowd the shared dev data. Same
+  RDS host as dev unless overridden locally.
+- **staging** runs against the separate **stage database** (`vima_stage`).
+- **prod** runs against the **prod database** (`vima_prod`) with SSL
+  enforced.
+- For Slack routing all four non-prod profiles (`local`, `dev`, `test`,
+  `staging`) collapse to `VimaEnvironment.DEV` / `LOCAL` and resolve every
+  channel label to `TEST_NOTIFICATIONS`. Prod is the only profile that
+  resolves real production webhook URLs.
+
+## Notification Channels Policy
+
+- Full event → Slack channel + email recipient reference (source of truth):
+  [`docs/architecture/notifications/notifications-source-of-truth.md`](./docs/architecture/notifications/notifications-source-of-truth.md)
+- Slack channel labels → webhook URLs:
+  [`docs/architecture/notifications/notification-channels.md`](./docs/architecture/notifications/notification-channels.md).
+
+- **local, dev, staging** — every Slack notification (legacy
+  `SlackNotificationUtil` or unified `NotificationDispatcher`) must resolve to
+  the `TEST_NOTIFICATIONS` channel. No production webhook should ever fire
+  from these envs.
+- **prod** — Slack notifications go to either `REMINDERS` or
+  `SUPPORT_CLAIMS` only.
+- **`POLICY_WINS` channel must not be used by this project.** Legacy
+  `sendSlackMessage(..., isPolicyWin=true)` callers (currently
+  `CustomerServiceImpl` and `DealsServiceImpl`) need to be rerouted or
+  removed; do not add new callers with `isPolicyWin=true`.
+- When asked to send to a channel by name, look the label up in
+  `docs/architecture/notifications/notification-channels.md` rather than hard-coding URLs.
+- Never paste a Slack webhook URL into `application-prod.properties`. Prod
+  URLs are read from env vars (`NOTIFICATIONS_SLACK_WEBHOOK_URL`,
+  `NOTIFICATIONS_CLAIMS_SLACK_WEBHOOK_URL`, `SLACK_WEBHOOK_URL`,
+  `SLACK_REMINDER_CHANNEL_URL`).

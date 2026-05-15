@@ -56,9 +56,11 @@ import com.vimainsurance.vimaadmin.service.IS3Service;
 import com.vimainsurance.vimaadmin.util.Constants;
 import com.vimainsurance.vimaadmin.util.EnvironmentUtil;
 import com.vimainsurance.vimaadmin.util.JwtUserExtractor;
+import com.vimainsurance.vimaadmin.notification.slack.SlackChannel;
 import com.vimainsurance.vimaadmin.util.SlackNotificationUtil;
 
 import java.io.InputStream;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.UUID;
 
@@ -127,7 +129,70 @@ public class DealsServiceImpl implements IDealsService{
     public ResponseEntity<ResponseDto<String>> createDeals(DealsRequestDto dealsRequestDto) {
         logger.info("[correlationId:{}] createDeals called", MDC.get("correlationId"));
         BaseResponse<String> responseObj = new BaseResponse<>();
-        try{
+        try {
+            if (dealsRequestDto.getPrimaryIndividualId() == null) {
+                String fn = dealsRequestDto.getFirstName() != null ? dealsRequestDto.getFirstName().trim() : "";
+                String ln = dealsRequestDto.getLastName() != null ? dealsRequestDto.getLastName().trim() : "";
+                if (fn.isEmpty() || ln.isEmpty()) {
+                    return responseObj.render(responseObj.formErrorResponse("First name and last name are required"));
+                }
+                if (dealsRequestDto.getEmail() == null || dealsRequestDto.getEmail().isBlank()) {
+                    return responseObj.render(responseObj.formErrorResponse("Email is required"));
+                }
+                if (dealsRequestDto.getPhone() == null || dealsRequestDto.getPhone().isBlank()) {
+                    return responseObj.render(responseObj.formErrorResponse("Phone is required"));
+                }
+                if (dealsRequestDto.getDateOfBirth() == null) {
+                    return responseObj.render(responseObj.formErrorResponse("Date of birth is required"));
+                }
+                Deals deals = new Deals();
+                deals.setFirstName(fn);
+                deals.setLastName(ln);
+                deals.setFullName((fn + " " + ln).trim());
+                deals.setEmail(dealsRequestDto.getEmail().trim());
+                deals.setPhone(dealsRequestDto.getPhone().trim());
+                deals.setDateOfBirth(dealsRequestDto.getDateOfBirth());
+                deals.setGender(dealsRequestDto.getGender() != null && !dealsRequestDto.getGender().isBlank()
+                        ? dealsRequestDto.getGender()
+                        : "OTHER");
+                deals.setPanNumber(dealsRequestDto.getPanNumber());
+                deals.setAadhaarNumber(dealsRequestDto.getAadhaarNumber());
+                deals.setAddress(dealsRequestDto.getAddress());
+                deals.setCity(dealsRequestDto.getCity());
+                deals.setState(dealsRequestDto.getState());
+                deals.setPincode(dealsRequestDto.getPincode());
+                deals.setAccountType(AccountType.RETAIL_PRIMARY);
+                deals.setStatus(AccountStatus.ACTIVE);
+                deals.setEmployeeNumber(dealsRequestDto.getEmployeeNumber());
+                deals.setRelationship(dealsRequestDto.getRelationship() != null && !dealsRequestDto.getRelationship().isBlank()
+                        ? dealsRequestDto.getRelationship()
+                        : "SELF");
+                deals.setDesignation(dealsRequestDto.getDesignation());
+                deals.setDateOfJoining(dealsRequestDto.getDateOfJoining());
+                deals.setIsPrimaryMember(true);
+                deals.setUsername(dealsRequestDto.getUsername());
+                deals.setPasswordHash(dealsRequestDto.getPasswordHash());
+                deals.setPreferredLanguage(
+                        dealsRequestDto.getPreferredLanguage() != null && !dealsRequestDto.getPreferredLanguage().isBlank()
+                                ? dealsRequestDto.getPreferredLanguage()
+                                : "en");
+                deals.setLeadId(dealsRequestDto.getLeadId());
+                deals.setCustId(dealsRequestDto.getCustId() != null && !dealsRequestDto.getCustId().isBlank()
+                        ? dealsRequestDto.getCustId()
+                        : UUID.randomUUID().toString());
+                deals.setCtc(dealsRequestDto.getCtc());
+                if (dealsRequestDto.getHealthId() != null && !dealsRequestDto.getHealthId().isEmpty()) {
+                    deals.setHealthId(dealsRequestDto.getHealthId());
+                }
+                deals.setCreatedAt(LocalDateTime.now());
+                deals.setUpdatedAt(LocalDateTime.now());
+                deals.setPrimaryIndividual(null);
+                Deals saved = dealsRepository.save(deals);
+                logger.info("[correlationId:{}] createDeals (retail primary) success individualId={}",
+                        MDC.get("correlationId"), saved.getIndividualId());
+                return responseObj.render(responseObj.formSuccessResponse(Constants.SUCCESS, saved.getIndividualId().toString()));
+            }
+
             Deals deals = new Deals();
             deals.setFirstName(dealsRequestDto.getFirstName());
             deals.setLastName(dealsRequestDto.getLastName());
@@ -148,23 +213,24 @@ public class DealsServiceImpl implements IDealsService{
             deals.setRelationship(dealsRequestDto.getRelationship());
             deals.setDesignation(dealsRequestDto.getDesignation());
             deals.setDateOfJoining(dealsRequestDto.getDateOfJoining());
-            deals.setIsPrimaryMember(dealsRequestDto.getIsPrimaryMember());
+            deals.setIsPrimaryMember(dealsRequestDto.getIsPrimaryMember() != null ? dealsRequestDto.getIsPrimaryMember() : Boolean.FALSE);
             deals.setUsername(dealsRequestDto.getUsername());
             deals.setPasswordHash(dealsRequestDto.getPasswordHash());
             deals.setPreferredLanguage(dealsRequestDto.getPreferredLanguage());
             deals.setLeadId(dealsRequestDto.getLeadId());
             deals.setCustId(dealsRequestDto.getCustId());
             deals.setCtc(dealsRequestDto.getCtc());
-            if(dealsRequestDto.getHealthId() != null && !dealsRequestDto.getHealthId().isEmpty()){
+            if (dealsRequestDto.getHealthId() != null && !dealsRequestDto.getHealthId().isEmpty()) {
                 deals.setHealthId(dealsRequestDto.getHealthId());
             }
-            deals.setCreatedAt(dealsRequestDto.getCreatedAt());
-            deals.setUpdatedAt(dealsRequestDto.getUpdatedAt());
-            deals.setPrimaryIndividual(dealsRepository.findById(dealsRequestDto.getPrimaryIndividualId()).orElseThrow(() -> new RuntimeException("Primary individual not found")));
+            deals.setCreatedAt(dealsRequestDto.getCreatedAt() != null ? dealsRequestDto.getCreatedAt() : LocalDateTime.now());
+            deals.setUpdatedAt(dealsRequestDto.getUpdatedAt() != null ? dealsRequestDto.getUpdatedAt() : LocalDateTime.now());
+            deals.setPrimaryIndividual(dealsRepository.findById(dealsRequestDto.getPrimaryIndividualId())
+                    .orElseThrow(() -> new RuntimeException("Primary individual not found")));
             dealsRepository.save(deals);
             logger.info("[correlationId:{}] createDeals success", MDC.get("correlationId"));
             return responseObj.render(responseObj.formSuccessResponse(Constants.SUCCESS, Constants.SAVE_SUCCESS));
-        }catch(Exception e){
+        } catch (Exception e) {
             logger.error("Exception in createDeals", e);
             return responseObj.render(responseObj.formErrorResponse(e.getMessage()));
         }
@@ -399,7 +465,10 @@ public class DealsServiceImpl implements IDealsService{
             AdminUser agent = adminUser.get();
             requestDto.setUploadedBy(agent.getId());
             requestDto.setUploadedByRole(UserRole.fromValue(agent.getRole()));
-            ResponseEntity<ResponseDto<List<Document>>> response = documentService.uploadKYCDocuments(requestDto.getFiles(), individualId.toString(), DocumentEntityType.INDIVIDUAL, DocumentType.fromValue(requestDto.getDocumentType()), requestDto.getUploadedBy(), requestDto.getUploadedByRole(), requestDto.getNotes(), DocumentCategory.KYC_DOCUMENTS);
+            DocumentCategory category = requestDto.getDocumentCategory() != null && !requestDto.getDocumentCategory().isBlank()
+                ? DocumentCategory.fromValue(requestDto.getDocumentCategory())
+                : DocumentCategory.KYC_DOCUMENTS;
+            ResponseEntity<ResponseDto<List<Document>>> response = documentService.uploadKYCDocuments(requestDto.getFiles(), individualId.toString(), DocumentEntityType.INDIVIDUAL, DocumentType.fromValue(requestDto.getDocumentType()), requestDto.getUploadedBy(), requestDto.getUploadedByRole(), requestDto.getNotes(), category);
             if(response.getBody() != null && response.getBody().getErrorCode() != null){
                 return responseObj.render(responseObj.formErrorResponse(response.getBody().getMessage()));
             }
@@ -722,7 +791,9 @@ public class DealsServiceImpl implements IDealsService{
             if (EnvironmentUtil.isProductionEnvironment(environment)) {
                 try {
                     String slackMessage = buildSlackNotificationMessage(savedPolicy, primaryIndividual, agent);
-                    slackNotificationUtil.sendSlackMessage("New Policy Issued!", slackMessage, true);
+                    // Routed to #reminders in prod; non-prod is pinned to #test-notifications by SlackChannelRouter.
+                    // POLICY_WINS exists in the enum for future use but is not the target today.
+                    slackNotificationUtil.sendSlackMessage("New Policy Issued!", slackMessage, SlackChannel.REMINDERS);
                 } catch (Exception slackException) {
                     TransactionAspectSupport.currentTransactionStatus().setRollbackOnly();
                     logger.warn("[correlationId:{}] Failed to send Slack notification: {}", MDC.get("correlationId"), slackException.getMessage());
@@ -855,19 +926,18 @@ public class DealsServiceImpl implements IDealsService{
                 totalCustomers = 0L;
             }
 
-            Long totalActivePolicies = policyRepository.countByStatus(PolicyStatus.ACTIVE);
+            Long totalActivePolicies = policyRepository.countRetailPoliciesByStatus(PolicyStatus.ACTIVE);
             if (totalActivePolicies == null) {
                 totalActivePolicies = 0L;
             }
 
-            // Use aggregation queries instead of loading all active policies into memory
-            // This prevents OutOfMemoryError when there are many active policies
-            BigDecimal totalCoverage = policyRepository.sumSumInsuredByStatus(PolicyStatus.ACTIVE);
+            // Scoped to retail customers (Deals primary members with no organization)
+            BigDecimal totalCoverage = policyRepository.sumRetailSumInsuredByStatus(PolicyStatus.ACTIVE);
             if (totalCoverage == null) {
                 totalCoverage = BigDecimal.ZERO;
             }
 
-            BigDecimal totalPremium = policyRepository.sumPremiumAmountByStatus(PolicyStatus.ACTIVE);
+            BigDecimal totalPremium = policyRepository.sumRetailPremiumAmountByStatus(PolicyStatus.ACTIVE);
             if (totalPremium == null) {
                 totalPremium = BigDecimal.ZERO;
             }
