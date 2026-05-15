@@ -706,16 +706,6 @@ public class EnrollmentWindowServiceImpl implements IEnrollmentWindowService {
             entity.setStatus(EnrollementStatus.ACTIVE);
             entity.setClosedAt(null);
             enrollmentWindowsRepository.save(entity);
-            if (flagshipNotificationService != null && entity.getOrganization() != null) {
-                String display = entity.getOrganization().getOrganizationDisplayName() != null
-                        && !entity.getOrganization().getOrganizationDisplayName().isBlank()
-                                ? entity.getOrganization().getOrganizationDisplayName()
-                                : entity.getOrganization().getOrganizationName();
-                flagshipNotificationService.scheduleEnrollmentWindowOpened(
-                        entity.getOrganization().getOrganizationId(),
-                        entity.getId(),
-                        display);
-            }
             AuditContextSupplier.setNewSnapshotEntity(entity);
             return responseObj.render(responseObj.formSuccessResponse(Constants.SUCCESS, "Enrollment window activated successfully"));
         } catch (Exception e) {

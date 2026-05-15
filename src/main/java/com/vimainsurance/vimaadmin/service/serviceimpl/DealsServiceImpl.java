@@ -56,6 +56,7 @@ import com.vimainsurance.vimaadmin.service.IS3Service;
 import com.vimainsurance.vimaadmin.util.Constants;
 import com.vimainsurance.vimaadmin.util.EnvironmentUtil;
 import com.vimainsurance.vimaadmin.util.JwtUserExtractor;
+import com.vimainsurance.vimaadmin.notification.slack.SlackChannel;
 import com.vimainsurance.vimaadmin.util.SlackNotificationUtil;
 
 import java.io.InputStream;
@@ -787,7 +788,9 @@ public class DealsServiceImpl implements IDealsService{
             if (EnvironmentUtil.isProductionEnvironment(environment)) {
                 try {
                     String slackMessage = buildSlackNotificationMessage(savedPolicy, primaryIndividual, agent);
-                    slackNotificationUtil.sendSlackMessage("New Policy Issued!", slackMessage, true);
+                    // Routed to #reminders in prod; non-prod is pinned to #test-notifications by SlackChannelRouter.
+                    // POLICY_WINS exists in the enum for future use but is not the target today.
+                    slackNotificationUtil.sendSlackMessage("New Policy Issued!", slackMessage, SlackChannel.REMINDERS);
                 } catch (Exception slackException) {
                     TransactionAspectSupport.currentTransactionStatus().setRollbackOnly();
                     logger.warn("[correlationId:{}] Failed to send Slack notification: {}", MDC.get("correlationId"), slackException.getMessage());

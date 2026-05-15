@@ -241,9 +241,6 @@ public class HRApprovalServiceImpl implements IHRApprovalService {
                 payrollSchedulePopulationService.populateFromEnrollmentSubmission(id);
             }
 
-            sendApprovalEmail(sub);
-            maybeEmitEnrollmentSubmissionApproved(sub, reviewer);
-
             SubmissionDetailDto dto = toDetailDto(enrollmentSubmissionRepository.findById(id).orElse(sub));
 
             EnrollmentInvitation inv = sub.getInvitation();
@@ -822,8 +819,6 @@ public class HRApprovalServiceImpl implements IHRApprovalService {
 
                 updateDealEnrollmentStatusForSubmission(id, EnrollementStatus.APPROVED);
 
-                sendApprovalEmail(sub);
-                maybeEmitEnrollmentSubmissionApproved(sub, reviewer);
                 approved.add(toListItemDto(sub));
             }
 
@@ -1202,93 +1197,6 @@ public class HRApprovalServiceImpl implements IHRApprovalService {
             saveDealsInBatches(dependents);
         }
     }
-
-    private void sendApprovalEmail(EnrollmentSubmission sub) {
-        try {
-            Deals emp = sub.getEmployee();
-            if (emp == null || emp.getEmail() == null || emp.getEmail().isBlank()) {
-                return;
-            }
-            String subject = "Enrollment Approved – " + (sub.getReferenceNumber() != null ? sub.getReferenceNumber() : sub.getId());
-            boolean useCostSharingNotice = sub.getTotalEmployeeAnnualPremium() != null
-                    && sub.getTotalEmployeeAnnualPremium().compareTo(BigDecimal.ZERO) > 0;
-            if (useCostSharingNotice) {
-                String companyName = emp.getOrganization() != null ? emp.getOrganization().getOrganizationName() : "Company";
-                java.util.Map<String, Object> vars = new java.util.HashMap<>();
-                vars.put("employeeName", emp.getFullName() != null ? emp.getFullName() : "Employee");
-                vars.put("companyName", companyName);
-                vars.put("totalPremium", sub.getTotalEmployeeAnnualPremium().add(sub.getTotalEmployerAnnualPremium() != null ? sub.getTotalEmployerAnnualPremium() : BigDecimal.ZERO));
-                vars.put("employerShare", sub.getTotalEmployerAnnualPremium() != null ? sub.getTotalEmployerAnnualPremium() : BigDecimal.ZERO);
-                vars.put("employeeShare", sub.getTotalEmployeeAnnualPremium());
-                vars.put("deductionAmount", sub.getDeductionAmountPerPeriod() != null ? sub.getDeductionAmountPerPeriod() : BigDecimal.ZERO);
-                vars.put("deductionFrequency", sub.getDeductionFrequency() != null ? sub.getDeductionFrequency() : "MONTHLY");
-                EmailRequest req = EmailRequest.builder()
-                        .to(emp.getEmail())
-                        .subject(subject)
-                        .templateName("cost-sharing-notice")
-                        .templateVariables(vars)
-                        .build();
-                emailService.sendTemplateEmail(req);
-            } else {
-                String body = "Your enrollment submission has been approved.\n\nReference: "
-                        + (sub.getReferenceNumber() != null ? sub.getReferenceNumber() : sub.getId())
-                        + "\n\nThank you.";
-                EmailRequest req = EmailRequest.builder()
-                        .to(emp.getEmail())
-                        .subject(subject)
-                        .body(body)
-                        .isHtml(false)
-                        .build();
-                emailService.sendSimpleEmail(req);
-            }
-        } catch (Exception e) {
-            log.warn("[correlationId:{}] Failed to send approval email: {}", MDC.get("correlationId"), e.getMessage());
-        }
-    }
-
-    private void maybeEmitEnrollmentSubmissionApproved(EnrollmentSubmission sub, AdminUser reviewer) {
-        if (flagshipNotificationService == null || sub == null) {
-            return;
-        }
-        UUID orgId = sub.getEmployee() != null && sub.getEmployee().getOrganization() != null
-                ? sub.getEmployee().getOrganization().getOrganizationId()
-                : null;
-        UUID windowId = sub.getEnrollmentWindow() != null ? sub.getEnrollmentWindow().getId() : null;
-        UUID submissionId = sub.getId();
-        if (orgId == null || windowId == null || submissionId == null) {
-            return;
-        }
-        Organization org = sub.getEmployee() != null ? sub.getEmployee().getOrganization() : null;
-        String display = (org != null && org.getOrganizationDisplayName() != null && !org.getOrganizationDisplayName().isBlank())
-                ? org.getOrganizationDisplayName()
-                : (org != null && org.getOrganizationName() != null && !org.getOrganizationName().isBlank()
-                        ? org.getOrganizationName()
-                        : "Your organization");
-        flagshipNotificationService.scheduleEnrollmentSubmissionApproved(
-                orgId,
-                windowId,
-                submissionId,
-                reviewer != null ? reviewer.getId() : null,
-                display,
-                reviewer != null ? reviewer.getFullName() : null,
-                resolveEnrolleeDisplayName(sub),
-                sub.getReferenceNumber());
-    }
-
-    private static String resolveEnrolleeDisplayName(EnrollmentSubmission sub) {
-        if (sub == null || sub.getEmployee() == null) {
-            return null;
-        }
-        Deals d = sub.getEmployee();
-        if (d.getFullName() != null && !d.getFullName().isBlank()) {
-            return d.getFullName().trim();
-        }
-        if (d.getEmail() != null && !d.getEmail().isBlank()) {
-            return d.getEmail().trim();
-        }
-        return null;
-    }
-
 
     /**
      * GMC/GHI with ESCP: parents are on the base floater (same endorsement as spouse/children), not only on PARENT_GMC.

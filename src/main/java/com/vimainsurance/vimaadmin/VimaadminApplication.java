@@ -12,6 +12,7 @@ import com.vimainsurance.vimaadmin.config.EndorsementSchedulerConfig;
 import com.vimainsurance.vimaadmin.config.MantraCareProperties;
 import com.vimainsurance.vimaadmin.config.VendorMasterDataConfig;
 import com.vimainsurance.vimaadmin.notification.config.NotificationsProperties;
+import com.vimainsurance.vimaadmin.notification.slack.SlackChannelProperties;
 
 @SpringBootApplication
 @EnableScheduling
@@ -22,6 +23,7 @@ import com.vimainsurance.vimaadmin.notification.config.NotificationsProperties;
 		EndorsementSchedulerConfig.class,
 		AuditReplayConfig.class,
 		NotificationsProperties.class,
+		SlackChannelProperties.class,
 		MantraCareProperties.class
 })
 public class VimaadminApplication {
