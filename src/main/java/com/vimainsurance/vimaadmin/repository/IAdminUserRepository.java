@@ -47,6 +47,9 @@ public interface IAdminUserRepository extends JpaRepository<AdminUser, UUID> {
     List<AdminUser> findByOrganizationAndIsDemoUserTrue(Organization organization);
 
     List<AdminUser> findByOrganization_OrganizationId(UUID organizationId);
+
+    List<AdminUser> findByOrganization_OrganizationIdAndRoleAndIsActiveTrue(
+            UUID organizationId, String role);
     List<AdminUser> findByIsDemoUserTrueAndIsActiveTrueAndDemoExpiresAtBefore(LocalDateTime now);
     List<AdminUser> findByIsDemoUserTrueAndIsActiveTrueAndDemoExpiresAtBetween(LocalDateTime start, LocalDateTime end);
 
