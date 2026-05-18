@@ -247,6 +247,12 @@
             <version>3.1.8</version>
         </dependency>
 
+        <!-- F-04: vima.ratelimit.throttled counter (optional MeterRegistry from actuator when present) -->
+        <dependency>
+            <groupId>io.micrometer</groupId>
+            <artifactId>micrometer-core</artifactId>
+        </dependency>
+
         <!-- KeyCloak-->
 		<dependency>
 			<groupId>org.keycloak</groupId>

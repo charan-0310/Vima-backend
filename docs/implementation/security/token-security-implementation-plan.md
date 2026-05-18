@@ -6,6 +6,8 @@
 > **Status**: Ready for Implementation  
 > **Last Updated**: February 4, 2026
 
+> **Global API rate limits (F-04):** See [docs/guides/rate-limiting-f04.md](../../guides/rate-limiting-f04.md) for `GlobalRateLimitFilter` tiers (AUTH / ENROLLMENT / DEFAULT). This plan covers enrollment-token-specific limits only.
+
 ---
 
 ## Overview
