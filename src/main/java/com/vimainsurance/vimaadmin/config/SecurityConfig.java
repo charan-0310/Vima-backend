@@ -24,12 +24,8 @@ import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
-import org.springframework.security.oauth2.client.userinfo.OAuth2UserRequest;
-import org.springframework.security.oauth2.client.userinfo.OAuth2UserService;
-import org.springframework.security.oauth2.core.user.OAuth2User;
 import org.springframework.http.HttpHeaders;
 import org.springframework.security.web.SecurityFilterChain;
-import org.springframework.security.web.authentication.AuthenticationSuccessHandler;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
 import org.springframework.security.oauth2.server.resource.web.authentication.BearerTokenAuthenticationFilter;
 import org.springframework.web.cors.CorsConfiguration;
@@ -37,8 +33,6 @@ import org.springframework.web.cors.CorsConfigurationSource;
 import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 import org.springframework.web.filter.OncePerRequestFilter;
 
-import com.vimainsurance.vimaadmin.config.oauth.VimaOAuth2SuccessHandler;
-import com.vimainsurance.vimaadmin.config.oauth.VimaOAuth2UserService;
 import com.vimainsurance.vimaadmin.util.AdminUserDetailsService;
 import com.vimainsurance.vimaadmin.util.CorrelationIdFilter;
 import com.vimainsurance.vimaadmin.util.JwtUserExtractor;
@@ -55,9 +49,10 @@ import jakarta.servlet.http.HttpServletResponse;
  * - Dev/Prod: Authentik (issuer-uri from application-dev.properties / application-prod.properties).
  * - UAT: Keycloak (issuer-uri from application-uat.properties: keycloak.auth-server-url + keycloak.realm).
  *
- * React performs login and token exchange - no login endpoints or callback endpoints are required here.
- * All endpoints under /api/** are secured and require a valid JWT token.
- * Public endpoints: /health, /actuator/**, /public/**
+ * React performs Keycloak PKCE login; this API validates JWTs via OAuth2 Resource Server only.
+ * Public: /health, /actuator/**, /public/**, enrollment magic-link paths (F-09).
+ * F-20: Swagger is not anonymously accessible when springdoc is disabled (prod).
+ * See docs/prd/audit/F-20_Authentication_Architecture.md.
  */
 @Configuration
 @EnableWebSecurity
@@ -94,6 +89,9 @@ public class SecurityConfig {
     /** Context path (e.g. /dev) so permitAll matchers work when request URI includes it. */
     @Value("${server.servlet.context-path:}")
     private String contextPath;
+
+    @Value("${springdoc.api-docs.enabled:false}")
+    private boolean springdocApiDocsEnabled;
 
     /**
      * F-07 fail-fast guard. Throws on startup if a permissive profile (dev/local/test) is active
@@ -250,41 +248,31 @@ public class SecurityConfig {
             // Production mode: normal security
             // Note: TenantFilter will be added after OAuth2 Resource Server (line 198)
             // to ensure it can extract tenant from both headers/host AND JWT claims
-            http.authorizeHttpRequests(auth -> auth
-                            // CORS preflight (OPTIONS) must be allowed without auth so browser gets CORS headers
+            http.authorizeHttpRequests(auth -> {
+                        var rules = auth
                             .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
-                            // Public endpoints - no authentication required
                             .requestMatchers("/health", "/actuator/**", "/public/**").permitAll()
-
-                            // OAuth2 client (e.g. Google) — browser redirect flow
-                            .requestMatchers("/oauth2/**").permitAll()
-                            // Enrollment token validation - public (no JWT; token in path)
-                            .requestMatchers("/api/v1/enrollments/**").permitAll()
-                            .requestMatchers("/api/v1/enrollment-submissions/**").permitAll()
-                            // Test endpoint - requires specific authorities
                             .requestMatchers("/api/v1/test").hasAnyAuthority("VIMA_ADMIN", "SALES_AGENT")
-
-                            // Swagger/OpenAPI documentation - public access
-                            .requestMatchers(
-                                    "/v3/api-docs/**",
-                                    "/swagger-ui/**",
-                                    "/swagger-ui.html",
-                                    "/favicon.ico"
-                            ).permitAll()
-
-                            // F-09: Enrollment — public (token-based auth, no JWT). Magic-link flow.
-                            // Single source of truth. Tomcat strips contextPath before matching, so no
-                            // /dev or /prod prefix duplicates are needed. The HMAC token signature is
-                            // validated downstream by EnrollmentSecurityConfig / EnrollmentController.
-                            .requestMatchers("/api/v1/enrollment/**").permitAll()
-                            .requestMatchers("/api/v1/enrollment-submissions/**").permitAll()
-
-                            // All other /api/** endpoints require authentication via JWT
+                            .requestMatchers("/favicon.ico").permitAll();
+                        if (springdocApiDocsEnabled) {
+                            rules.requestMatchers(
+                                            "/v3/api-docs/**",
+                                            "/swagger-ui/**",
+                                            "/swagger-ui.html")
+                                    .hasAnyAuthority("SUPER_ADMIN", "ADMIN", "VIMA_ADMIN");
+                        } else {
+                            rules.requestMatchers(
+                                            "/v3/api-docs/**",
+                                            "/swagger-ui/**",
+                                            "/swagger-ui.html")
+                                    .denyAll();
+                        }
+                        rules.requestMatchers("/api/v1/enrollment/**").permitAll()
+                            .requestMatchers(HttpMethod.POST, "/api/v1/enrollment-submissions/insertUpdate")
+                            .permitAll()
                             .requestMatchers("/api/**").authenticated()
-
-                            // All other requests require authentication
-                            .anyRequest().authenticated()
-                    )
+                            .anyRequest().authenticated();
+                    })
                     // OAuth2 Resource Server: JWT validation (Authentik for dev/prod, Keycloak for UAT - issuer-uri is profile-specific in application-*.properties)
                     .oauth2ResourceServer(oauth2 -> oauth2
                             .jwt(jwt -> jwt
@@ -298,18 +286,6 @@ public class SecurityConfig {
                     .addFilterAfter(tenantFilter(), org.springframework.security.oauth2.server.resource.web.authentication.BearerTokenAuthenticationFilter.class);
         }
         return http.build();
-    }
-
-    // Legacy OAuth2 client configuration - kept for backward compatibility
-    // This is not used when JWT tokens are validated via resource server
-    @Bean
-    public OAuth2UserService<OAuth2UserRequest, OAuth2User> customOAuth2UserService() {
-        return new VimaOAuth2UserService();
-    }
-
-    @Bean
-    public AuthenticationSuccessHandler oAuth2AuthenticationSuccessHandler() {
-        return new VimaOAuth2SuccessHandler();
     }
 
     @Bean

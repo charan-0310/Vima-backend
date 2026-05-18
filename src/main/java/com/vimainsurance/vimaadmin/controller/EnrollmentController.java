@@ -17,7 +17,12 @@ import com.vimainsurance.vimaadmin.dto.CompanyEnrollmentConfigResponseDto;
 import com.vimainsurance.vimaadmin.dto.EnrollmentContextDto;
 import com.vimainsurance.vimaadmin.dto.EnrollmentSubmissionResponseDto;
 import com.vimainsurance.vimaadmin.dto.ResponseDto;
+import com.vimainsurance.vimaadmin.service.EnrollmentValidateRateLimiter;
 import com.vimainsurance.vimaadmin.service.IEnrollmentService;
+import com.vimainsurance.vimaadmin.service.TokenSecurityService;
+import com.vimainsurance.vimaadmin.util.IpAddressExtractor;
+
+import jakarta.servlet.http.HttpServletRequest;
 
 /**
  * Controller for public enrollment flows (token-based validation, no JWT required).
@@ -32,35 +37,38 @@ public class EnrollmentController {
     @Autowired
     private IEnrollmentService enrollmentService;
 
-    /**
-     * Validate token and retrieve enrollment context (enrollment_window_id, employee_id).
-     * Public endpoint – no authentication required.
-     */
+    @Autowired
+    private EnrollmentValidateRateLimiter discoveryRateLimiter;
+
+    @Autowired
+    private TokenSecurityService tokenSecurityService;
+
     @GetMapping("/{token}")
-    public ResponseEntity<ResponseDto<EnrollmentContextDto>> getEnrollmentContext(@PathVariable String token) {
+    public ResponseEntity<ResponseDto<EnrollmentContextDto>> getEnrollmentContext(
+            @PathVariable String token,
+            HttpServletRequest request) {
         logger.info("[correlationId:{}] GET /api/v1/enrollment/{} called", MDC.get("correlationId"), token);
-        return enrollmentService.validateTokenAndGetContext(token);
+        if (token != null && !token.isBlank()) {
+            String tokenHash = tokenSecurityService.hashToken(token.trim());
+            discoveryRateLimiter.consumeOrThrow(IpAddressExtractor.extractIpAddress(request), tokenHash);
+        }
+        return enrollmentService.validateTokenAndGetContext(token, request);
     }
 
-    /**
-     * Get enrollment submissions for the employee associated with the given token.
-     * Public endpoint – authorization is based on a valid enrollment token.
-     */
     @GetMapping("/{token}/submissions")
     public ResponseEntity<ResponseDto<List<EnrollmentSubmissionResponseDto>>> getSubmissionsByToken(
-            @PathVariable String token) {
+            @PathVariable String token,
+            HttpServletRequest request) {
         logger.info("[correlationId:{}] GET /api/v1/enrollment/{}/submissions called", MDC.get("correlationId"), token);
-        return enrollmentService.getSubmissionsByToken(token);
+        return enrollmentService.getSubmissionsByToken(token, request);
     }
 
-    /**
-     * Get company enrollment config (parent coverage etc.) for the enrollment's organization.
-     * Public endpoint – authorization is based on a valid enrollment token.
-     */
     @GetMapping("/{token}/enrollment-config")
     public ResponseEntity<ResponseDto<CompanyEnrollmentConfigResponseDto>> getEnrollmentConfig(
-            @PathVariable String token) {
-        logger.info("[correlationId:{}] GET /api/v1/enrollment/{}/enrollment-config called", MDC.get("correlationId"), token);
-        return enrollmentService.getEnrollmentConfigByToken(token);
+            @PathVariable String token,
+            HttpServletRequest request) {
+        logger.info("[correlationId:{}] GET /api/v1/enrollment/{}/enrollment-config called",
+                MDC.get("correlationId"), token);
+        return enrollmentService.getEnrollmentConfigByToken(token, request);
     }
 }

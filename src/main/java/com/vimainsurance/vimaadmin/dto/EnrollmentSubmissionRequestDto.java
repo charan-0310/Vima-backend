@@ -43,4 +43,7 @@ public class EnrollmentSubmissionRequestDto {
     private BigDecimal deductionAmountPerPeriod;
     private LocalDateTime consentTimestamp;
     private String consentTextSnapshot;
+
+    /** Required for unauthenticated public insert/update; magic-link enrollment token. */
+    private String enrollmentToken;
 }

@@ -56,6 +56,46 @@ public class GlobalExceptionHandler {
                 .body(new ResponseDto<>(400, ex.getMessage()));
     }
 
+    @ExceptionHandler(InvalidTokenException.class)
+    public ResponseEntity<ResponseDto<Void>> handleInvalidToken(InvalidTokenException ex) {
+        log.warn("Invalid enrollment token: {}", ex.getMessage());
+        return ResponseEntity
+                .status(HttpStatus.BAD_REQUEST)
+                .body(new ResponseDto<>(400, ex.getMessage()));
+    }
+
+    @ExceptionHandler(TokenExpiredException.class)
+    public ResponseEntity<ResponseDto<Void>> handleTokenExpired(TokenExpiredException ex) {
+        log.warn("Expired enrollment token: {}", ex.getMessage());
+        return ResponseEntity
+                .status(HttpStatus.BAD_REQUEST)
+                .body(new ResponseDto<>(400, ex.getMessage()));
+    }
+
+    @ExceptionHandler(TokenAlreadyUsedException.class)
+    public ResponseEntity<ResponseDto<Void>> handleTokenAlreadyUsed(TokenAlreadyUsedException ex) {
+        log.warn("Enrollment token already used: {}", ex.getMessage());
+        return ResponseEntity
+                .status(HttpStatus.BAD_REQUEST)
+                .body(new ResponseDto<>(400, ex.getMessage()));
+    }
+
+    @ExceptionHandler(EnrollmentWindowClosedException.class)
+    public ResponseEntity<ResponseDto<Void>> handleEnrollmentWindowClosed(EnrollmentWindowClosedException ex) {
+        log.warn("Enrollment window closed: {}", ex.getMessage());
+        return ResponseEntity
+                .status(HttpStatus.BAD_REQUEST)
+                .body(new ResponseDto<>(400, ex.getMessage()));
+    }
+
+    @ExceptionHandler(RateLimitExceededException.class)
+    public ResponseEntity<ResponseDto<Void>> handleRateLimitExceeded(RateLimitExceededException ex) {
+        log.warn("Enrollment rate limit exceeded: {}", ex.getMessage());
+        return ResponseEntity
+                .status(HttpStatus.TOO_MANY_REQUESTS)
+                .body(new ResponseDto<>(429, ex.getMessage()));
+    }
+
     /** Multipart: missing required part (e.g. employees, file) — avoid generic 500. */
     @ExceptionHandler(MissingServletRequestPartException.class)
     public ResponseEntity<ResponseDto<Void>> handleMissingRequestPart(MissingServletRequestPartException ex) {
