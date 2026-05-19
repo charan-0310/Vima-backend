@@ -4,8 +4,8 @@
             <logGroupName>VimaBackendLogs</logGroupName>
             <logStreamName>VimaBackendStream</logStreamName>
             <region>ap-south-1</region>
-            <accessKeyId>${VIMA_CLOUDWATCH_ACCESS_KEY:-}</accessKeyId>
-            <secretKey>${VIMA_CLOUDWATCH_SECRET_KEY:-}</secretKey>
+            <accessKeyId>${VIMA_S3_ACCESS_KEY:-}</accessKeyId>
+            <secretKey>${VIMA_S3_SECRET_KEY:-}</secretKey>
             <layout class="com.vimainsurance.vimaadmin.logging.MaskingPatternLayout">
                 <pattern>%d{yyyy-MM-dd HH:mm:ss} [%thread] %-5level %logger{36} [correlationId:%X{correlationId}] - %msg%n</pattern>
             </layout>
