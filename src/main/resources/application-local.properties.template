@@ -27,8 +27,16 @@ cors.allowed-methods=GET,POST,PUT,PATCH,DELETE,OPTIONS
 cors.allowed-headers=Authorization,Content-Type,X-Requested-With,X-Correlation-Id,X-CSRF-Token,Accept,Origin,X-Organization-ID
 cors.allow-credentials=true
 
-redirect.url=http://localhost:5173
-redirect.allowed-targets=http://localhost:5173,http://localhost:8080
+# F-22: RedirectTargetValidator — Keycloak execute-actions emails (e.g. password reset) and any server-built redirect URIs.
+# Must include app.base-url origin; paths such as /login are allowed when the origin matches.
+redirect.url=http://localhost:8080
+redirect.allowed-targets=http://localhost:8080,http://localhost:5173,http://localhost:8081
+
+# Application Base URL for email links (enrollment magic links, password-reset redirect, etc.)
+app.base-url=http://localhost:8080
+
+# Enrollment magic-link HMAC (F-09). Set VIMA_ENROLLMENT_TOKEN_SECRET in env or replace default below.
+app.enrollment-token-secret=${VIMA_ENROLLMENT_TOKEN_SECRET:CHANGE_ME_LOCAL_DEV_ONLY}
 
 # Google OAuth — only fill in if you actually use Google sign-in locally
 spring.security.oauth2.client.registration.google.client-id=

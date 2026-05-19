@@ -35,12 +35,14 @@ import org.keycloak.representations.idm.UserSessionRepresentation;
 import org.keycloak.representations.idm.UserRepresentation;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.HttpClientErrorException;
 
 import com.vimainsurance.vimaadmin.dto.AdminUserResponseDto;
+import com.vimainsurance.vimaadmin.security.RedirectTargetValidator;
 import com.vimainsurance.vimaadmin.dto.AuthentikPaginatedResponse;
 import com.vimainsurance.vimaadmin.dto.OrganizationDto;
 import com.vimainsurance.vimaadmin.dto.RoleDto;
@@ -66,6 +68,9 @@ import jakarta.ws.rs.NotFoundException;
  */
 @Component
 public class KeyCloakUtil {
+
+    @Autowired
+    private RedirectTargetValidator redirectTargetValidator;
 
     private static final Logger logger = LoggerFactory.getLogger(KeyCloakUtil.class);
 
@@ -1356,6 +1361,7 @@ public class KeyCloakUtil {
             List<String> actions = List.of("UPDATE_PASSWORD");
             String cid = clientId != null && !clientId.isBlank() ? clientId.trim() : null;
             String redir = redirectUri != null && !redirectUri.isBlank() ? redirectUri.trim() : null;
+            redirectTargetValidator.requireAllowed(redir);
             if (cid != null || redir != null) {
                 ur.executeActionsEmail(cid, redir, lifespan, actions);
             } else {

@@ -10,6 +10,7 @@ import com.vimainsurance.vimaadmin.config.AuditReplayConfig;
 import com.vimainsurance.vimaadmin.config.CsvDealsHeaderProperties;
 import com.vimainsurance.vimaadmin.config.EndorsementSchedulerConfig;
 import com.vimainsurance.vimaadmin.config.MantraCareProperties;
+import com.vimainsurance.vimaadmin.config.RedirectProperties;
 import com.vimainsurance.vimaadmin.config.VendorMasterDataConfig;
 import com.vimainsurance.vimaadmin.notification.config.NotificationsProperties;
 import com.vimainsurance.vimaadmin.notification.slack.SlackChannelProperties;
@@ -24,7 +25,8 @@ import com.vimainsurance.vimaadmin.notification.slack.SlackChannelProperties;
 		AuditReplayConfig.class,
 		NotificationsProperties.class,
 		SlackChannelProperties.class,
-		MantraCareProperties.class
+		MantraCareProperties.class,
+		RedirectProperties.class
 })
 public class VimaadminApplication {
 
