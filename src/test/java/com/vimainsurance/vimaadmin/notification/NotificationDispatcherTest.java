@@ -36,8 +36,9 @@ import com.vimainsurance.vimaadmin.service.IEmailService;
 @ExtendWith(MockitoExtension.class)
 class NotificationDispatcherTest {
 
-    private static final String TEST_URL = "https://hooks.slack.com/services/test-only";
-    private static final String CLAIMS_URL = "https://hooks.slack.com/services/claims";
+    /** Opaque webhook placeholders for mocks — not real Slack URLs (F-01 / push protection). */
+    private static final String TEST_URL = "https://example.invalid/webhook/test-notifications";
+    private static final String CLAIMS_URL = "https://example.invalid/webhook/support-claims";
 
     @Mock
     private IAdminNotificationRepository notificationRepository;

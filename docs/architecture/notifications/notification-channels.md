@@ -1,20 +1,19 @@
 # Slack Notification Channels — Webhook URLs
 
-Lookup table for Slack channel labels → webhook URLs. For the wider reference
+Lookup table for Slack channel labels → configuration. For the wider reference
 (which event posts to which channel, who receives each email) see
 [`notifications-source-of-truth.md`](./notifications-source-of-truth.md) in
-this folder. This file is only the URL registry — pass the matching
-`SlackChannel` enum value into `SlackNotificationUtil` /
-`NotificationDispatcher`; never write a Slack URL into source.
+this folder. Pass the matching `SlackChannel` enum into `SlackNotificationUtil` /
+`NotificationDispatcher`; **never commit real `hooks.slack.com` URLs** in source or docs.
 
-## Labels → Webhook URLs
+## Labels → configuration
 
-| Label                | Slack channel name   | Webhook URL                                                                                       | Allowed envs (this project) |
-|----------------------|----------------------|---------------------------------------------------------------------------------------------------|-----------------------------|
-| `TEST_NOTIFICATIONS` | `#test-notifications`| `https://hooks.slack.com/services/REDACTED`                | local, dev, test, staging   |
-| `REMINDERS`          | `#reminders`         | `https://hooks.slack.com/services/REDACTED`                | prod only                   |
-| `SUPPORT_CLAIMS`     | `#support-claims`    | `https://hooks.slack.com/services/REDACTED`                | prod only                   |
-| `POLICY_WINS`        | `#policy-wins`       | `https://hooks.slack.com/services/REDACTED`                | reserved (currently unused) |
+| Label                | Slack channel name   | URL source (env / property)                                                                      | Allowed envs (this project) |
+|----------------------|----------------------|--------------------------------------------------------------------------------------------------|-----------------------------|
+| `TEST_NOTIFICATIONS` | `#test-notifications`| `slack.channel.test-notifications-url` ← `SLACK_TEST_NOTIFICATIONS_WEBHOOK_URL` (Secrets Manager / local only) | local, dev, test, staging   |
+| `REMINDERS`          | `#reminders`         | `slack.channel.reminders-url` ← `SLACK_REMINDERS_WEBHOOK_URL`                                    | prod only                   |
+| `SUPPORT_CLAIMS`     | `#support-claims`    | `slack.channel.support-claims-url` ← `SLACK_SUPPORT_CLAIMS_WEBHOOK_URL`                          | prod only                   |
+| `POLICY_WINS`        | `#policy-wins`       | `slack.channel.policy-wins-url` ← `SLACK_POLICY_WINS_WEBHOOK_URL`                                | reserved (currently unused) |
 
 ## Routing rules (this project)
 
