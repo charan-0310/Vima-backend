@@ -9,13 +9,13 @@
                  explicit-credential branch and fall back to the SDK default. -->
             <accessKeyId>${VIMA_CLOUDWATCH_ACCESS_KEY:-}</accessKeyId>
             <secretKey>${VIMA_CLOUDWATCH_SECRET_KEY:-}</secretKey>
-            <layout class="ch.qos.logback.classic.PatternLayout">
+            <layout class="com.vimainsurance.vimaadmin.logging.MaskingPatternLayout">
                 <pattern>%d{yyyy-MM-dd HH:mm:ss} [%thread] %-5level %logger{36} [correlationId:%X{correlationId}] - %msg%n</pattern>
             </layout>
         </appender>
 
         <appender name="CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
-            <layout class="ch.qos.logback.classic.PatternLayout">
+            <layout class="com.vimainsurance.vimaadmin.logging.MaskingPatternLayout">
                 <pattern>%d{yyyy-MM-dd HH:mm:ss} [%thread] %-5level %logger{36} - %msg%n</pattern>
             </layout>
         </appender>
@@ -28,7 +28,7 @@
 
     <springProfile name="!prod">
         <appender name="CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
-            <layout class="ch.qos.logback.classic.PatternLayout">
+            <layout class="com.vimainsurance.vimaadmin.logging.MaskingPatternLayout">
                 <pattern>%d{yyyy-MM-dd HH:mm:ss} [%thread] %-5level %logger{36} - %msg%n</pattern>
             </layout>
         </appender>
