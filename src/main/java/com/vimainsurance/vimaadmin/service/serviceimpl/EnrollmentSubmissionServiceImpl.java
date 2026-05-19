@@ -15,11 +15,15 @@ import org.slf4j.MDC;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.authentication.AnonymousAuthenticationToken;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import com.vimainsurance.vimaadmin.audit.AuditedOperation;
 import com.vimainsurance.vimaadmin.dto.BaseResponse;
+import com.vimainsurance.vimaadmin.dto.EnrollmentContext;
 import com.vimainsurance.vimaadmin.dto.EnrollmentSubmissionRequestDto;
 import com.vimainsurance.vimaadmin.dto.EnrollmentSubmissionResponseDto;
 import com.vimainsurance.vimaadmin.dto.EmailRequest;
@@ -41,8 +45,11 @@ import com.vimainsurance.vimaadmin.repository.IEnrollmentSubmissionRepository;
 import com.vimainsurance.vimaadmin.repository.IEnrollmentWindowsRepository;
 import com.vimainsurance.vimaadmin.repository.IEndorsementRepository;
 import com.vimainsurance.vimaadmin.service.IEnrollmentSubmissionService;
+import com.vimainsurance.vimaadmin.service.IEnrollmentTokenService;
 import com.vimainsurance.vimaadmin.service.IEmailService;
 import com.vimainsurance.vimaadmin.util.Constants;
+
+import jakarta.servlet.http.HttpServletRequest;
 
 @Service
 public class EnrollmentSubmissionServiceImpl implements IEnrollmentSubmissionService {
@@ -75,15 +82,36 @@ public class EnrollmentSubmissionServiceImpl implements IEnrollmentSubmissionSer
     @Autowired(required = false)
     private FlagshipNotificationService flagshipNotificationService;
 
+    @Autowired
+    private IEnrollmentTokenService enrollmentTokenService;
+
     @Override
     @Transactional
     @AuditedOperation(schemaName = "cpc", tableName = "enrollment_submissions", entityType = "ENROLLMENT_SUBMISSION", action = "UPDATE")
-    public ResponseEntity<ResponseDto<String>> insertOrUpdate(EnrollmentSubmissionRequestDto requestDto) {
+    public ResponseEntity<ResponseDto<String>> insertOrUpdate(
+            EnrollmentSubmissionRequestDto requestDto, HttpServletRequest httpRequest) {
         logger.info("[correlationId:{}] EnrollmentSubmission insertOrUpdate called", MDC.get("correlationId"));
         BaseResponse<String> responseObj = new BaseResponse<>();
         try {
             if (requestDto == null) {
                 return responseObj.render(responseObj.formErrorResponse("Request body is required"));
+            }
+            if (!isCallerAuthenticated()) {
+                String token = requestDto.getEnrollmentToken();
+                if (token == null || token.isBlank()) {
+                    return responseObj.render(responseObj.formErrorResponse(
+                            "Enrollment token is required for unauthenticated submission"));
+                }
+                EnrollmentContext ctx = enrollmentTokenService.validateToken(token, httpRequest);
+                if (requestDto.getEmployeeId() != null && !requestDto.getEmployeeId().equals(ctx.getEmployeeId())) {
+                    return responseObj.render(responseObj.formErrorResponse(
+                            "Employee does not match enrollment token"));
+                }
+                if (requestDto.getEnrollmentWindowId() != null
+                        && !requestDto.getEnrollmentWindowId().equals(ctx.getWindowId())) {
+                    return responseObj.render(responseObj.formErrorResponse(
+                            "Enrollment window does not match enrollment token"));
+                }
             }
             // If id is present -> update existing row; if id is absent -> insert new row
             if (requestDto.getId() != null) {
@@ -376,5 +404,12 @@ public class EnrollmentSubmissionServiceImpl implements IEnrollmentSubmissionSer
                 ? org.getOrganizationDisplayName()
                 : org.getOrganizationName();
         flagshipNotificationService.scheduleEnrollmentAllSubmitted(org.getOrganizationId(), windowId, display);
+    }
+
+    private static boolean isCallerAuthenticated() {
+        Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+        return auth != null
+                && auth.isAuthenticated()
+                && !(auth instanceof AnonymousAuthenticationToken);
     }
 }

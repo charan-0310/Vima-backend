@@ -1,0 +1,30 @@
+{
+  "_comment_headers": "Realm Settings → Security defenses → Headers. Applies to Keycloak login/account HTML only, not Vima API (see SecurityConfig F-10).",
+  "_comment_brute": "Brute force detection → Brute Force Mode = Lockout temporarily (not Disabled).",
+  "browserSecurityHeaders": {
+    "xFrameOptions": "DENY",
+    "contentSecurityPolicy": "frame-src 'self'; frame-ancestors 'none'; object-src 'none';",
+    "contentSecurityPolicyReportOnly": "",
+    "xContentTypeOptions": "nosniff",
+    "xRobotsTag": "none",
+    "xXSSProtection": "1; mode=block",
+    "strictTransportSecurity": "max-age=31536000; includeSubDomains",
+    "referrerPolicy": "strict-origin-when-cross-origin"
+  },
+  "bruteForceProtected": true,
+  "permanentLockout": false,
+  "bruteForceStrategy": "LINEAR",
+  "failureFactor": 5,
+  "waitIncrementSeconds": 900,
+  "maxFailureWaitSeconds": 1800,
+  "maxDeltaTimeSeconds": 43200,
+  "quickLoginCheckMilliSeconds": 1000,
+  "minimumQuickLoginWaitSeconds": 60,
+  "passwordPolicy": "length(12) and upperCase(1) and lowerCase(1) and digits(1) and specialChars(1) and notUsername(undefined) and passwordHistory(5)",
+  "accessTokenLifespan": 900,
+  "ssoSessionIdleTimeout": 1800,
+  "ssoSessionMaxLifespan": 36000,
+  "revokeRefreshToken": true,
+  "refreshTokenMaxReuse": 0,
+  "offlineSessionMaxLifespanEnabled": false
+}

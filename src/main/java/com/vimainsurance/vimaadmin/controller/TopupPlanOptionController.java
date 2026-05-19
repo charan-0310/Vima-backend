@@ -11,6 +11,8 @@ import com.vimainsurance.vimaadmin.dto.ResponseDto;
 import com.vimainsurance.vimaadmin.dto.TopupOptionsResponseDto;
 import com.vimainsurance.vimaadmin.service.IEnrollmentPlanOptionsService;
 
+import jakarta.servlet.http.HttpServletRequest;
+
 @RestController
 @CrossOrigin(allowedHeaders = "*")
 @RequestMapping("/api/v1")
@@ -27,7 +29,9 @@ public class TopupPlanOptionController {
      * Data source: product_catalog + policy tables only. Token-based, no JWT.
      */
     @GetMapping("enrollment/{token}/topup-options")
-    public ResponseEntity<ResponseDto<TopupOptionsResponseDto>> getOptionsWithPreview(@PathVariable String token) {
-        return enrollmentPlanOptionsService.getActiveOptionsWithPremiumPreview(token);
+    public ResponseEntity<ResponseDto<TopupOptionsResponseDto>> getOptionsWithPreview(
+            @PathVariable String token,
+            HttpServletRequest request) {
+        return enrollmentPlanOptionsService.getActiveOptionsWithPremiumPreview(token, request);
     }
 }

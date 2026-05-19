@@ -21,6 +21,8 @@ import com.vimainsurance.vimaadmin.dto.EnrollmentSubmissionResponseDto;
 import com.vimainsurance.vimaadmin.dto.ResponseDto;
 import com.vimainsurance.vimaadmin.service.IEnrollmentSubmissionService;
 
+import jakarta.servlet.http.HttpServletRequest;
+
 @RestController
 @CrossOrigin(allowedHeaders = "*")
 @RequestMapping("/api/v1/enrollment-submissions")
@@ -32,9 +34,11 @@ public class EnrollmentSubmissionController {
     private IEnrollmentSubmissionService enrollmentSubmissionService;
 
     @PostMapping("/insertUpdate")
-    public ResponseEntity<ResponseDto<String>> insertUpdate(@RequestBody EnrollmentSubmissionRequestDto requestDto) {
+    public ResponseEntity<ResponseDto<String>> insertUpdate(
+            @RequestBody EnrollmentSubmissionRequestDto requestDto,
+            HttpServletRequest request) {
         logger.info("[correlationId:{}] /api/v1/enrollment-submissions/insertUpdate (POST) called", MDC.get("correlationId"));
-        return enrollmentSubmissionService.insertOrUpdate(requestDto);
+        return enrollmentSubmissionService.insertOrUpdate(requestDto, request);
     }
 
     @GetMapping("/getList")

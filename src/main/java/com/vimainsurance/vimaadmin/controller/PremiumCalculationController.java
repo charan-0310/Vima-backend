@@ -19,6 +19,8 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.multipart.MultipartFile;
 
+import jakarta.servlet.http.HttpServletRequest;
+
 import com.vimainsurance.vimaadmin.dto.BaseResponse;
 import com.vimainsurance.vimaadmin.dto.EnrollmentContextDto;
 import com.vimainsurance.vimaadmin.dto.PremiumCalculationContext;
@@ -68,11 +70,13 @@ public class PremiumCalculationController {
     @PostMapping("enrollment/{token}/calculate-premium")
     public ResponseEntity<ResponseDto<PremiumCalculationResponseDto>> calculatePremium(
             @PathVariable String token,
-            @RequestBody @Valid PremiumCalculationRequestDto request) {
+            @RequestBody @Valid PremiumCalculationRequestDto request,
+            HttpServletRequest httpRequest) {
         logger.info("[correlationId:{}] POST /api/v1/enrollment/{}/calculate-premium", MDC.get("correlationId"), token);
         BaseResponse<PremiumCalculationResponseDto> responseObj = new BaseResponse<>();
         try {
-            ResponseEntity<ResponseDto<EnrollmentContextDto>> contextResp = enrollmentService.validateTokenAndGetContext(token);
+            ResponseEntity<ResponseDto<EnrollmentContextDto>> contextResp =
+                    enrollmentService.validateTokenAndGetContext(token, httpRequest);
             if (contextResp.getBody() == null || contextResp.getBody().getErrorCode() != null) {
                 String msg = contextResp.getBody() != null ? contextResp.getBody().getMessage() : "Invalid token";
                 Integer code = contextResp.getBody() != null ? contextResp.getBody().getErrorCode() : 400;

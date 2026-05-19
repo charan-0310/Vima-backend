@@ -15,8 +15,9 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import com.vimainsurance.vimaadmin.dto.BaseResponse;
-import com.vimainsurance.vimaadmin.dto.DealsResponseDto;
 import com.vimainsurance.vimaadmin.dto.CompanyEnrollmentConfigResponseDto;
+import com.vimainsurance.vimaadmin.dto.DealsResponseDto;
+import com.vimainsurance.vimaadmin.dto.EnrollmentContext;
 import com.vimainsurance.vimaadmin.dto.EnrollmentContextDto;
 import com.vimainsurance.vimaadmin.dto.EnrollmentOrganizationPolicyDto;
 import com.vimainsurance.vimaadmin.dto.EnrollmentSubmissionResponseDto;
@@ -24,7 +25,6 @@ import com.vimainsurance.vimaadmin.dto.EnrollmentSubmissionSummaryDto;
 import com.vimainsurance.vimaadmin.dto.EnrollmentWindowResponseDto;
 import com.vimainsurance.vimaadmin.dto.ResponseDto;
 import com.vimainsurance.vimaadmin.entity.Deals;
-import com.vimainsurance.vimaadmin.entity.EnrollmentInvitation;
 import com.vimainsurance.vimaadmin.entity.EnrollmentSubmission;
 import com.vimainsurance.vimaadmin.entity.EnrollmentWindows;
 import com.vimainsurance.vimaadmin.entity.Policy;
@@ -32,28 +32,23 @@ import com.vimainsurance.vimaadmin.enums.EnrollementStatus;
 import com.vimainsurance.vimaadmin.mapper.EnrollmentSubmissionMapper;
 import com.vimainsurance.vimaadmin.mapper.EnrollmentWindowMapper;
 import com.vimainsurance.vimaadmin.repository.IDealsRepository;
-import com.vimainsurance.vimaadmin.repository.IEnrollmentInvitationRepository;
 import com.vimainsurance.vimaadmin.repository.IEnrollmentSubmissionRepository;
 import com.vimainsurance.vimaadmin.repository.IEnrollmentWindowsRepository;
 import com.vimainsurance.vimaadmin.repository.IPolicyRepository;
 import com.vimainsurance.vimaadmin.repository.IInsuranceProviderRepository;
 import com.vimainsurance.vimaadmin.service.ICompanyEnrollmentConfigService;
 import com.vimainsurance.vimaadmin.service.IEnrollmentService;
-import com.vimainsurance.vimaadmin.service.TokenSecurityService;
+import com.vimainsurance.vimaadmin.service.IEnrollmentTokenService;
 
-import java.time.LocalDateTime;
+import jakarta.servlet.http.HttpServletRequest;
 
 @Service
 public class EnrollmentServiceImpl implements IEnrollmentService {
 
     private static final Logger logger = LoggerFactory.getLogger(EnrollmentServiceImpl.class);
-    private static final String INVALID_TOKEN_MESSAGE = "Invalid or expired enrollment link";
-    private static final String ENROLLMENT_WINDOW_EXPIRED_MESSAGE = "Enrollment window expired";
 
     @Autowired
-    private TokenSecurityService tokenSecurityService;
-    @Autowired
-    private IEnrollmentInvitationRepository enrollmentInvitationRepository;
+    private IEnrollmentTokenService enrollmentTokenService;
     @Autowired
     private IEnrollmentWindowsRepository enrollmentWindowsRepository;
     @Autowired
@@ -69,202 +64,98 @@ public class EnrollmentServiceImpl implements IEnrollmentService {
 
     @Override
     @Transactional
-    public ResponseEntity<ResponseDto<EnrollmentContextDto>> validateTokenAndGetContext(String token) {
+    public ResponseEntity<ResponseDto<EnrollmentContextDto>> validateTokenAndGetContext(
+            String token, HttpServletRequest request) {
         logger.info("[correlationId:{}] Enrollment validateTokenAndGetContext called", MDC.get("correlationId"));
         BaseResponse<EnrollmentContextDto> responseObj = new BaseResponse<>();
-        try {
-            if (token == null || token.isBlank()) {
-                return responseObj.render(responseObj.formErrorResponse(400, "Token is required"));
-            }
-
-            String trimmedToken = token.trim();
-            String tokenHash = tokenSecurityService.hashToken(trimmedToken);
-            Optional<EnrollmentInvitation> invOpt = enrollmentInvitationRepository.findByTokenHashWithWindowAndEmployee(tokenHash);
-            if (invOpt.isEmpty()) {
-                logger.warn("[correlationId:{}] Enrollment token not found. Token length={}, hash length={}",
-                    MDC.get("correlationId"), trimmedToken.length(), tokenHash != null ? tokenHash.length() : 0);
-                return responseObj.render(responseObj.formErrorResponse(404, INVALID_TOKEN_MESSAGE));
-            }
-
-            EnrollmentInvitation invitation = invOpt.get();
-
-            if(invitation.getStatus() == EnrollementStatus.EXPIRED) {
-                return responseObj.render(responseObj.formErrorResponse(400, "Enrollment invitation expired"));
-            }
-
-            if(invitation.getStatus() == EnrollementStatus.COMPLETED) {
-                return responseObj.render(responseObj.formErrorResponse(400, "Enrollment invitation already completed"));
-            }
-
-            if(invitation.getStatus() == EnrollementStatus.REJECTED) {
-                return responseObj.render(responseObj.formErrorResponse(400, "Enrollment invitation rejected"));
-            }
-
-            UUID enrollmentWindowId = invitation.getEnrollmentWindow().getId();
-            UUID employeeId = invitation.getEmployee().getIndividualId();
-
-            // 1. Fetch enrollment window from enrollment_windows table via IEnrollmentWindowsRepository
-            Optional<EnrollmentWindows> windowOpt = enrollmentWindowsRepository.findById(enrollmentWindowId);
-            if (windowOpt.isEmpty()) {
-                return responseObj.render(responseObj.formErrorResponse(404, "Enrollment window not found"));
-            }
-            EnrollmentWindows enrollmentWindow = windowOpt.get();
-
-            // 2. Validate enrollment window dates: current date must be between start_date and end_date
-            LocalDate today = LocalDate.now();
-            if (today.isBefore(enrollmentWindow.getStartDate()) || today.isAfter(enrollmentWindow.getEndDate())) {
-                logger.warn("[correlationId:{}] Enrollment window expired: id={}, start={}, end={}, today={}",
-                        MDC.get("correlationId"), enrollmentWindowId, enrollmentWindow.getStartDate(), enrollmentWindow.getEndDate(), today);
-                String detail = String.format("Window is open from %s to %s; today is %s.",
-                    enrollmentWindow.getStartDate(), enrollmentWindow.getEndDate(), today);
-                return responseObj.render(responseObj.formErrorResponse(400, ENROLLMENT_WINDOW_EXPIRED_MESSAGE + " " + detail));
-            }
-
-            // Mark invitation as OPENED on first access (not the window — window stays ACTIVE)
-            if (invitation.getStatus() == EnrollementStatus.SENT || invitation.getStatus() == EnrollementStatus.PENDING) {
-                invitation.setStatus(EnrollementStatus.OPENED);
-                invitation.setOpenedAt(LocalDateTime.now());
-                enrollmentInvitationRepository.save(invitation);
-                logger.info("[correlationId:{}] Invitation marked as OPENED: {}", MDC.get("correlationId"), invitation.getId());
-            }
-
-            // 3. Retrieve and return the matched enrollment_windows record (via IEnrollmentWindowsRepository)
-            EnrollmentWindowResponseDto enrollmentWindowDto = EnrollmentWindowMapper.mapToResponseDto(enrollmentWindow);
-
-            // 4. Fetch and return the corresponding employee/deals record from IDealsRepository
-            Optional<Deals> dealsOpt = dealsRepository.findById(employeeId);
-            if (dealsOpt.isEmpty()) {
-                return responseObj.render(responseObj.formErrorResponse(404, "Employee not found"));
-            }
-            Deals employeeDeal = dealsOpt.get();
-            DealsResponseDto employeeDto = mapDealToResponseDto(employeeDeal);
-
-            // 5. Get or create draft submission so frontend always has a submissionId
-            EnrollmentSubmission submission = enrollmentSubmissionRepository
-                    .findByEmployee_IndividualIdAndEnrollmentWindow_Id(employeeId, enrollmentWindowId)
-                    .orElseGet(() -> {
-                        logger.info("[correlationId:{}] Creating draft submission for employee: {} window: {}",
-                                MDC.get("correlationId"), employeeId, enrollmentWindowId);
-                        EnrollmentSubmission draft = new EnrollmentSubmission();
-                        draft.setEmployee(employeeDeal);
-                        draft.setEnrollmentWindow(enrollmentWindow);
-                        draft.setInvitation(invitation);
-                        draft.setStatus(EnrollementStatus.DRAFT);
-                        draft.setPlanSelections("[]");
-                        draft.setNomineeData("{}");
-                        draft.setPersonalDetails("{}");
-                        draft.setDependents("[]");
-                        draft.setPremiumBreakdown("{}");
-                        draft.setDeclarationAccepted(false);
-                        return enrollmentSubmissionRepository.saveAndFlush(draft);
-                    });
-
-            EnrollmentContextDto dto = new EnrollmentContextDto();
-            dto.setEnrollmentWindowId(enrollmentWindowId);
-            dto.setEmployeeId(employeeId);
-            dto.setSubmissionId(submission.getId());
-            dto.setInvitationId(invitation.getId());
-            dto.setEnrollmentWindow(enrollmentWindowDto);
-            dto.setEmployee(employeeDto);
-            dto.setSubmissionSummary(toSubmissionSummary(submission));
-            // Fetch organization policies internally (no separate public API) for Nominees/Plans steps
-            if (enrollmentWindow.getOrganization() != null) {
-                UUID orgId = enrollmentWindow.getOrganization().getOrganizationId();
-                List<Policy> policies = policyRepository.findByOrganizationId(orgId);
-                List<EnrollmentOrganizationPolicyDto> policyDtos = new ArrayList<>();
-                for (Policy p : policies) {
-                    EnrollmentOrganizationPolicyDto pd = new EnrollmentOrganizationPolicyDto();
-                    pd.setPolicyId(p.getPolicyId());
-                    pd.setPolicyNumber(p.getPolicyNumber());
-                    pd.setProductType(p.getProductType() != null ? p.getProductType().name() : null);
-                    pd.setSumInsured(p.getSumInsured());
-                    pd.setCoverageAmount(p.getSumInsured());
-                    pd.setCoverageType(p.getCoverageType() != null ? p.getCoverageType().name() : null);
-                    pd.setSumInsuredMultiplier(p.getSumInsuredMultiplier());
-                    pd.setInsurerName(p.getInsuranceProviderId() != null ? insuranceProviderRepository.findById(p.getInsuranceProviderId()).orElseThrow(() -> new RuntimeException("Insurance provider not found")).getProviderName() : null);
-                    LocalDate effStart = p.getEffectiveFrom() != null ? p.getEffectiveFrom() : p.getStartDate();
-                    pd.setEffectiveFrom(effStart != null ? effStart.toString() : null);
-                    pd.setPolicyStatus(p.getStatus() != null ? p.getStatus().name() : null);
-                    policyDtos.add(pd);
-                }
-                dto.setOrganizationPolicies(policyDtos);
-                // Include company enrollment config (parent coverage etc.) for Dependents/Plans steps
-                dto.setCompanyEnrollmentConfig(companyEnrollmentConfigService.getConfigForCompany(orgId));
-            } else {
-                dto.setOrganizationPolicies(new ArrayList<>());
-            }
-            return responseObj.render(responseObj.formSuccessResponse("Token valid", dto));
-        } catch (IllegalArgumentException e) {
-            logger.warn("[correlationId:{}] Invalid token: {}", MDC.get("correlationId"), e.getMessage());
-            return responseObj.render(responseObj.formErrorResponse(400, INVALID_TOKEN_MESSAGE));
-        } catch (Exception e) {
-            logger.error("[correlationId:{}] Exception in validateTokenAndGetContext: {}", MDC.get("correlationId"), e.getMessage(), e);
-            return responseObj.render(responseObj.formErrorResponse(500, INVALID_TOKEN_MESSAGE));
-        }
+        EnrollmentContext context = enrollmentTokenService.validateToken(token, request);
+        EnrollmentContextDto dto = buildEnrollmentContextDto(context);
+        return responseObj.render(responseObj.formSuccessResponse("Token valid", dto));
     }
 
     @Override
-    public ResponseEntity<ResponseDto<List<EnrollmentSubmissionResponseDto>>> getSubmissionsByToken(String token) {
+    public ResponseEntity<ResponseDto<List<EnrollmentSubmissionResponseDto>>> getSubmissionsByToken(
+            String token, HttpServletRequest request) {
         logger.info("[correlationId:{}] Enrollment getSubmissionsByToken called", MDC.get("correlationId"));
         BaseResponse<List<EnrollmentSubmissionResponseDto>> responseObj = new BaseResponse<>();
-        try {
-            if (token == null || token.isBlank()) {
-                return responseObj.render(responseObj.formErrorResponse(400, "Token is required"));
-            }
-
-            // Validate the token and extract the employee ID
-            String tokenHash = tokenSecurityService.hashToken(token.trim());
-            Optional<EnrollmentInvitation> invOpt = enrollmentInvitationRepository.findByTokenHashWithWindowAndEmployee(tokenHash);
-            if (invOpt.isEmpty()) {
-                return responseObj.render(responseObj.formErrorResponse(404, INVALID_TOKEN_MESSAGE));
-            }
-
-            EnrollmentInvitation invitation = invOpt.get();
-            UUID employeeId = invitation.getEmployee().getIndividualId();
-
-            // Fetch submissions for this employee
-            List<EnrollmentSubmission> submissions = enrollmentSubmissionRepository.findAllByEmployee_IndividualId(employeeId);
-            List<EnrollmentSubmissionResponseDto> out = new ArrayList<>();
-            for (EnrollmentSubmission submission : submissions) {
-                out.add(EnrollmentSubmissionMapper.mapToResponseDto(submission));
-            }
-            return responseObj.render(responseObj.formSuccessResponse("Success", out, out.size()));
-        } catch (IllegalArgumentException e) {
-            logger.warn("[correlationId:{}] Invalid token in getSubmissionsByToken: {}", MDC.get("correlationId"), e.getMessage());
-            return responseObj.render(responseObj.formErrorResponse(400, INVALID_TOKEN_MESSAGE));
-        } catch (Exception e) {
-            logger.error("[correlationId:{}] Exception in getSubmissionsByToken: {}", MDC.get("correlationId"), e.getMessage(), e);
-            return responseObj.render(responseObj.formErrorResponse(500, "Failed to retrieve submissions"));
+        EnrollmentContext context = enrollmentTokenService.validateToken(token, request);
+        UUID employeeId = context.getEmployeeId();
+        List<EnrollmentSubmission> submissions =
+                enrollmentSubmissionRepository.findAllByEmployee_IndividualId(employeeId);
+        List<EnrollmentSubmissionResponseDto> out = new ArrayList<>();
+        for (EnrollmentSubmission submission : submissions) {
+            out.add(EnrollmentSubmissionMapper.mapToResponseDto(submission));
         }
+        return responseObj.render(responseObj.formSuccessResponse("Success", out, out.size()));
     }
 
     @Override
-    public ResponseEntity<ResponseDto<CompanyEnrollmentConfigResponseDto>> getEnrollmentConfigByToken(String token) {
+    public ResponseEntity<ResponseDto<CompanyEnrollmentConfigResponseDto>> getEnrollmentConfigByToken(
+            String token, HttpServletRequest request) {
         BaseResponse<CompanyEnrollmentConfigResponseDto> responseObj = new BaseResponse<>();
-        try {
-            if (token == null || token.isBlank()) {
-                return responseObj.render(responseObj.formErrorResponse(400, "Token is required"));
-            }
-            ResponseEntity<ResponseDto<EnrollmentContextDto>> contextResp = validateTokenAndGetContext(token.trim());
-            if (contextResp.getBody() == null || contextResp.getBody().getErrorCode() != null) {
-                String msg = contextResp.getBody() != null ? contextResp.getBody().getMessage() : INVALID_TOKEN_MESSAGE;
-                Integer code = contextResp.getBody() != null ? contextResp.getBody().getErrorCode() : 400;
-                return responseObj.render(responseObj.formErrorResponse(code != null ? code : 400, msg));
-            }
-            EnrollmentContextDto ctx = contextResp.getBody().getPayload();
-            if (ctx == null || ctx.getEnrollmentWindow() == null) {
-                return responseObj.render(responseObj.formErrorResponse(400, "Invalid context"));
-            }
-            UUID orgId = ctx.getEnrollmentWindow().getOrganizationId();
-            if (orgId == null) {
-                return responseObj.render(responseObj.formErrorResponse(400, "Organization not found"));
-            }
-            CompanyEnrollmentConfigResponseDto config = companyEnrollmentConfigService.getConfigForCompany(orgId);
-            return responseObj.render(responseObj.formSuccessResponse("OK", config));
-        } catch (Exception e) {
-            logger.error("[correlationId:{}] getEnrollmentConfigByToken error: {}", MDC.get("correlationId"), e.getMessage(), e);
-            return responseObj.render(responseObj.formErrorResponse(500, "Failed to get enrollment config"));
+        EnrollmentContext context = enrollmentTokenService.validateToken(token, request);
+        Optional<EnrollmentWindows> windowOpt = enrollmentWindowsRepository.findById(context.getWindowId());
+        if (windowOpt.isEmpty() || windowOpt.get().getOrganization() == null) {
+            return responseObj.render(responseObj.formErrorResponse(400, "Organization not found"));
         }
+        UUID orgId = windowOpt.get().getOrganization().getOrganizationId();
+        CompanyEnrollmentConfigResponseDto config = companyEnrollmentConfigService.getConfigForCompany(orgId);
+        return responseObj.render(responseObj.formSuccessResponse("OK", config));
+    }
+
+    private EnrollmentContextDto buildEnrollmentContextDto(EnrollmentContext context) {
+        UUID enrollmentWindowId = context.getWindowId();
+        UUID employeeId = context.getEmployeeId();
+
+        EnrollmentWindows enrollmentWindow = enrollmentWindowsRepository.findById(enrollmentWindowId)
+                .orElseThrow(() -> new IllegalStateException("Enrollment window not found"));
+        EnrollmentWindowResponseDto enrollmentWindowDto = EnrollmentWindowMapper.mapToResponseDto(enrollmentWindow);
+
+        Deals employeeDeal = dealsRepository.findById(employeeId)
+                .orElseThrow(() -> new IllegalStateException("Employee not found"));
+        DealsResponseDto employeeDto = mapDealToResponseDto(employeeDeal);
+
+        EnrollmentSubmission submission = enrollmentSubmissionRepository.findById(context.getSubmissionId())
+                .orElseThrow(() -> new IllegalStateException("Submission not found"));
+
+        EnrollmentContextDto dto = new EnrollmentContextDto();
+        dto.setEnrollmentWindowId(enrollmentWindowId);
+        dto.setEmployeeId(employeeId);
+        dto.setSubmissionId(submission.getId());
+        dto.setInvitationId(context.getInvitationId());
+        dto.setEnrollmentWindow(enrollmentWindowDto);
+        dto.setEmployee(employeeDto);
+        dto.setSubmissionSummary(toSubmissionSummary(submission));
+
+        if (enrollmentWindow.getOrganization() != null) {
+            UUID orgId = enrollmentWindow.getOrganization().getOrganizationId();
+            List<Policy> policies = policyRepository.findByOrganizationId(orgId);
+            List<EnrollmentOrganizationPolicyDto> policyDtos = new ArrayList<>();
+            for (Policy p : policies) {
+                EnrollmentOrganizationPolicyDto pd = new EnrollmentOrganizationPolicyDto();
+                pd.setPolicyId(p.getPolicyId());
+                pd.setPolicyNumber(p.getPolicyNumber());
+                pd.setProductType(p.getProductType() != null ? p.getProductType().name() : null);
+                pd.setSumInsured(p.getSumInsured());
+                pd.setCoverageAmount(p.getSumInsured());
+                pd.setCoverageType(p.getCoverageType() != null ? p.getCoverageType().name() : null);
+                pd.setSumInsuredMultiplier(p.getSumInsuredMultiplier());
+                pd.setInsurerName(p.getInsuranceProviderId() != null
+                        ? insuranceProviderRepository.findById(p.getInsuranceProviderId())
+                                .orElseThrow(() -> new RuntimeException("Insurance provider not found"))
+                                .getProviderName()
+                        : null);
+                LocalDate effStart = p.getEffectiveFrom() != null ? p.getEffectiveFrom() : p.getStartDate();
+                pd.setEffectiveFrom(effStart != null ? effStart.toString() : null);
+                pd.setPolicyStatus(p.getStatus() != null ? p.getStatus().name() : null);
+                policyDtos.add(pd);
+            }
+            dto.setOrganizationPolicies(policyDtos);
+            dto.setCompanyEnrollmentConfig(companyEnrollmentConfigService.getConfigForCompany(orgId));
+        } else {
+            dto.setOrganizationPolicies(new ArrayList<>());
+        }
+        return dto;
     }
 
     private DealsResponseDto mapDealToResponseDto(Deals deal) {
@@ -320,9 +211,6 @@ public class EnrollmentServiceImpl implements IEnrollmentService {
         return summary;
     }
 
-    /**
-     * Draft + empty {@code personalDetails} → NOT_STARTED (same heuristic as employee portal guard).
-     */
     private static String deriveEnrollmentLifecycle(EnrollmentSubmission submission) {
         EnrollementStatus st = submission.getStatus();
         if (st == null) {

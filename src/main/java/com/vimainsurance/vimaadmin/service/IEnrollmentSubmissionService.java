@@ -9,9 +9,12 @@ import com.vimainsurance.vimaadmin.dto.EnrollmentSubmissionRequestDto;
 import com.vimainsurance.vimaadmin.dto.EnrollmentSubmissionResponseDto;
 import com.vimainsurance.vimaadmin.dto.ResponseDto;
 
+import jakarta.servlet.http.HttpServletRequest;
+
 public interface IEnrollmentSubmissionService {
 
-    ResponseEntity<ResponseDto<String>> insertOrUpdate(EnrollmentSubmissionRequestDto requestDto);
+    ResponseEntity<ResponseDto<String>> insertOrUpdate(
+            EnrollmentSubmissionRequestDto requestDto, HttpServletRequest request);
 
     ResponseEntity<ResponseDto<List<EnrollmentSubmissionResponseDto>>> getList();
 

@@ -2,7 +2,6 @@ package com.vimainsurance.vimaadmin.config;
 
 import java.io.IOException;
 import java.time.Duration;
-import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicLong;
 
@@ -18,12 +17,16 @@ import org.springframework.web.filter.OncePerRequestFilter;
 
 import com.github.benmanes.caffeine.cache.Cache;
 import com.github.benmanes.caffeine.cache.Caffeine;
+import com.vimainsurance.vimaadmin.ratelimit.RateLimitBucketFactory;
+import com.vimainsurance.vimaadmin.ratelimit.RateLimitExemptIpMatcher;
+import com.vimainsurance.vimaadmin.ratelimit.RateLimitMetrics;
+import com.vimainsurance.vimaadmin.ratelimit.RateLimitPathClassifier;
+import com.vimainsurance.vimaadmin.ratelimit.RateLimitRule;
+import com.vimainsurance.vimaadmin.ratelimit.RateLimitScope;
 import com.vimainsurance.vimaadmin.util.IpAddressExtractor;
 
-import io.github.bucket4j.Bandwidth;
 import io.github.bucket4j.Bucket;
 import io.github.bucket4j.ConsumptionProbe;
-import io.github.bucket4j.Refill;
 import jakarta.annotation.PostConstruct;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
@@ -36,17 +39,21 @@ import jakarta.servlet.http.HttpServletResponse;
  * Applied to every /api/** request. Uses Bucket4j token buckets in memory; in a multi-node
  * deployment this should be backed by Bucket4j-Redis (or AWS WAF rate-based rules).
  *
- * Rule precedence (longest prefix wins):
- *   /api/v1/enrollment/**, /api/v1/enrollment-submissions/**     -> ENROLL  (20 req / min)
- *   anything else under /api/**                                  -> DEFAULT (120 req / min)
+ * Rule precedence: AUTH &gt; ENROLLMENT &gt; SENSITIVE &gt; DEFAULT.
  *
- * Configuration overrides (application.properties):
+ * Configuration (application.properties):
  *   ratelimit.enabled=true|false
  *   ratelimit.default.requests-per-min
  *   ratelimit.enrollment.requests-per-min
+ *   ratelimit.auth.requests-per-min
+ *   ratelimit.sensitive.requests-per-min
  *   ratelimit.exempt-ips=10.0.0.0/8,52.66.0.0/16
+ *   ratelimit.cache.max-entries
+ *   ratelimit.cache.expire-after-access-minutes
  *
  * Health/actuator paths are NOT rate-limited so liveness probes do not get throttled.
+ *
+ * See {@code docs/guides/rate-limiting-f04.md} for operations and configuration reference.
  */
 @Component
 @Order(Ordered.HIGHEST_PRECEDENCE + 20)
@@ -63,20 +70,31 @@ public class GlobalRateLimitFilter extends OncePerRequestFilter {
     @Value("${ratelimit.enrollment.requests-per-min:20}")
     private int enrollmentRpm;
 
+    @Value("${ratelimit.auth.requests-per-min:10}")
+    private int authRpm;
+
+    @Value("${ratelimit.sensitive.requests-per-min:10}")
+    private int sensitiveRpm;
+
+    @Value("${ratelimit.exempt-ips:}")
+    private String exemptIps;
+
     @Value("${ratelimit.cache.max-entries:50000}")
     private long maxCacheEntries;
 
     @Value("${ratelimit.cache.expire-after-access-minutes:10}")
     private long expireAfterAccessMinutes;
 
-    /**
-     * Bounded "scope|ip" -> Bucket cache. Caffeine enforces both an upper size cap and an
-     * idle-eviction timer. This blocks the previous unbounded-growth concern when an attacker
-     * floods spoofed source IPs.
-     */
+    private final RateLimitMetrics rateLimitMetrics;
+
     private Cache<String, Bucket> buckets;
+    private RateLimitExemptIpMatcher exemptIpMatcher;
 
     private final AtomicLong throttleCount = new AtomicLong();
+
+    public GlobalRateLimitFilter(RateLimitMetrics rateLimitMetrics) {
+        this.rateLimitMetrics = rateLimitMetrics;
+    }
 
     @PostConstruct
     void init() {
@@ -84,23 +102,25 @@ public class GlobalRateLimitFilter extends OncePerRequestFilter {
                 .maximumSize(maxCacheEntries)
                 .expireAfterAccess(Duration.ofMinutes(expireAfterAccessMinutes))
                 .build();
-        logger.info("GlobalRateLimitFilter initialised: defaultRpm={}, enrollmentRpm={}, "
-                        + "cache maxEntries={}, expireAfterAccess={}min",
-                defaultRpm, enrollmentRpm, maxCacheEntries, expireAfterAccessMinutes);
+        this.exemptIpMatcher = new RateLimitExemptIpMatcher(exemptIps);
+        logger.info(
+                "GlobalRateLimitFilter initialised: defaultRpm={}, enrollmentRpm={}, authRpm={}, "
+                        + "sensitiveRpm={}, cache maxEntries={}, expireAfterAccess={}min, exemptIpRules={}",
+                defaultRpm,
+                enrollmentRpm,
+                authRpm,
+                sensitiveRpm,
+                maxCacheEntries,
+                expireAfterAccessMinutes,
+                exemptIpMatcher != null ? "configured" : "none");
     }
-
-    private enum Scope {
-        ENROLLMENT,
-        DEFAULT,
-    }
-
-    private record RuleMatch(Scope scope, int rpm) {}
 
     @Override
     protected boolean shouldNotFilter(HttpServletRequest request) {
         String uri = request.getRequestURI();
-        if (uri == null) return true;
-        // Skip health, actuator, swagger, favicon, public, and non-/api paths
+        if (uri == null) {
+            return true;
+        }
         return uri.contains("/health")
                 || uri.contains("/actuator")
                 || uri.contains("/v3/api-docs")
@@ -124,59 +144,54 @@ public class GlobalRateLimitFilter extends OncePerRequestFilter {
             return;
         }
 
-        RuleMatch rule = classify(request.getRequestURI());
+        if (exemptIpMatcher.isExempt(ip)) {
+            chain.doFilter(request, response);
+            return;
+        }
+
+        RateLimitRule rule = RateLimitPathClassifier.classify(
+                request.getRequestURI(), authRpm, enrollmentRpm, sensitiveRpm, defaultRpm);
         String key = rule.scope().name() + "|" + ip;
-        Bucket bucket = buckets.get(key, k -> newBucket(rule.rpm()));
+        Bucket bucket = buckets.get(key, k -> RateLimitBucketFactory.perMinute(rule.requestsPerMinute()));
 
         ConsumptionProbe probe = bucket.tryConsumeAndReturnRemaining(1);
         if (probe.isConsumed()) {
             response.setHeader("X-RateLimit-Remaining", String.valueOf(probe.getRemainingTokens()));
-            response.setHeader("X-RateLimit-Limit", String.valueOf(rule.rpm()));
+            response.setHeader("X-RateLimit-Limit", String.valueOf(rule.requestsPerMinute()));
             chain.doFilter(request, response);
             return;
         }
 
         long waitSeconds = Math.max(1L, probe.getNanosToWaitForRefill() / 1_000_000_000L);
         throttleCount.incrementAndGet();
-        logger.warn("[correlationId:{}] Rate limit exceeded scope={} ip={} uri={} retryAfter={}s",
-                MDC.get("correlationId"), rule.scope(), ip, request.getRequestURI(), waitSeconds);
+        rateLimitMetrics.recordThrottled(rule.scope(), request.getRequestURI());
+        logger.warn(
+                "[correlationId:{}] Rate limit exceeded scope={} ip={} uri={} retryAfter={}s",
+                MDC.get("correlationId"),
+                rule.scope(),
+                ip,
+                request.getRequestURI(),
+                waitSeconds);
 
         response.setStatus(HttpStatus.TOO_MANY_REQUESTS.value());
         response.setHeader("Retry-After", String.valueOf(waitSeconds));
-        response.setHeader("X-RateLimit-Limit", String.valueOf(rule.rpm()));
+        response.setHeader("X-RateLimit-Limit", String.valueOf(rule.requestsPerMinute()));
         response.setHeader("X-RateLimit-Remaining", "0");
         response.setContentType("application/json");
-        response.getWriter().write(String.format(
-                "{\"status\":429,\"message\":\"Too many requests. Retry after %d seconds.\"}", waitSeconds));
-    }
-
-    private RuleMatch classify(String uri) {
-        if (uri == null) return new RuleMatch(Scope.DEFAULT, defaultRpm);
-        // strip context path heuristically
-        String path = uri;
-        for (String prefix : List.of("/dev", "/prod", "/uat", "/stage", "/local", "/test")) {
-            if (path.startsWith(prefix + "/")) {
-                path = path.substring(prefix.length());
-                break;
-            }
-        }
-        if (path.startsWith("/api/v1/enrollment/")
-                || path.startsWith("/api/v1/enrollment-submissions/")
-                || path.startsWith("/api/v1/enrollments/")) {
-            return new RuleMatch(Scope.ENROLLMENT, enrollmentRpm);
-        }
-        return new RuleMatch(Scope.DEFAULT, defaultRpm);
-    }
-
-    private Bucket newBucket(int requestsPerMinute) {
-        Bandwidth bw = Bandwidth.classic(
-                requestsPerMinute,
-                Refill.intervally(requestsPerMinute, Duration.ofMinutes(1)));
-        return Bucket.builder().addLimit(bw).build();
+        response.getWriter()
+                .write(String.format(
+                        "{\"status\":429,\"message\":\"Too many requests. Retry after %d seconds.\"}",
+                        waitSeconds));
     }
 
     /** Test/diagnostic accessor. */
     public Map<String, Long> stats() {
         return Map.of("buckets", buckets.estimatedSize(), "throttled", throttleCount.get());
+    }
+
+    /** Package-visible for tests: classify without running the filter. */
+    RateLimitRule classifyForTest(String requestUri) {
+        return RateLimitPathClassifier.classify(
+                requestUri, authRpm, enrollmentRpm, sensitiveRpm, defaultRpm);
     }
 }

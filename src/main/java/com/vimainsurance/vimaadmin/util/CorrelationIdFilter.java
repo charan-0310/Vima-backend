@@ -1,10 +1,8 @@
 package com.vimainsurance.vimaadmin.util;
 
 import java.io.IOException;
-import java.security.SecureRandom;
 import java.time.Instant;
 import java.time.LocalDateTime;
-import java.util.Base64;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -52,10 +50,8 @@ import jakarta.servlet.http.HttpServletResponse;
 public class CorrelationIdFilter extends OncePerRequestFilter {
     public static final String CORRELATION_ID_HEADER = "X-Correlation-Id";
     public static final String MDC_CORRELATION_ID_KEY = "correlationId";
-    public static final String CSP_NONCE_ATTRIBUTE = "cspNonce";
-    
+
     private static final Logger logger = LoggerFactory.getLogger(CorrelationIdFilter.class);
-    private final SecureRandom secureRandom = new SecureRandom();
 
     @Autowired(required = false)
     private IAdminUserRepository adminUserRepository;
@@ -77,22 +73,7 @@ public class CorrelationIdFilter extends OncePerRequestFilter {
             }
             MDC.put(MDC_CORRELATION_ID_KEY, correlationId);
             response.setHeader(CORRELATION_ID_HEADER, correlationId);
-            
-            // // Generate CSP nonce for this request
-            // String nonce = generateNonce();
-            // request.setAttribute(CSP_NONCE_ATTRIBUTE, nonce);
-            
-            // // Build and set CSP headers with the specified policy
-            // String cspPolicy = buildCspPolicy(nonce);
-            // response.setHeader("Content-Security-Policy", cspPolicy);
-            // response.setHeader("X-Content-Type-Options", "nosniff");
-            // response.setHeader("X-Frame-Options", "DENY");
-            // response.setHeader("X-XSS-Protection", "1; mode=block");
-            // response.setHeader("Referrer-Policy", "strict-origin-when-cross-origin");
-            
-            // logger.debug("[correlationId:{}] Generated CSP nonce: {} for {} {}", 
-            //     correlationId, nonce, request.getMethod(), request.getRequestURI());
-            
+
             // Sync Keycloak/IdP user to AdminUser table BEFORE processing the request.
             // This ensures the user exists in admin_users when controllers (e.g. /auth/me)
             // look up the current user, avoiding "User account not found" on first login.
@@ -116,40 +97,6 @@ public class CorrelationIdFilter extends OncePerRequestFilter {
             MDC.remove(MDC_CORRELATION_ID_KEY);
         }
     }
-    
-    /**
-     * Generate cryptographically secure nonce
-     */
-    private String generateNonce() {
-        byte[] nonceBytes = new byte[16]; // 128-bit nonce
-        secureRandom.nextBytes(nonceBytes);
-        return Base64.getEncoder().encodeToString(nonceBytes);
-    }
-    
-    // /**
-    //  * Build CSP policy with the generated nonce using the specified policy
-    //  */
-    // private String buildCspPolicy(String nonce) {
-    //     return "default-src 'self'; " +
-    //            "script-src 'nonce-" + nonce + "' 'strict-dynamic'; " +
-    //            "style-src 'self' https://fonts.googleapis.com; " +
-    //            "font-src 'self' https://fonts.gstatic.com; " +
-    //            "img-src 'self' data: https:; " +
-    //            "frame-src https://www.google.com; " +
-    //            "connect-src 'self' https://api.vimainsurance.com; " +
-    //            "object-src 'none'; " +
-    //            "base-uri 'self'; " +
-    //            "frame-ancestors 'self'; " +
-    //            "form-action 'self'; " +
-    //            "upgrade-insecure-requests";
-    // }
-    
-    // /**
-    //  * Utility method to get nonce from request
-    //  */
-    // public static String getNonce(HttpServletRequest request) {
-    //     return (String) request.getAttribute(CSP_NONCE_ATTRIBUTE);
-    // }
 
     /**
      * Sync Keycloak/IdP user to AdminUser table.

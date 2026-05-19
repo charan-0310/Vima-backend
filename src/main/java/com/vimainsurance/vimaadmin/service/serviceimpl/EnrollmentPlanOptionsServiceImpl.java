@@ -55,10 +55,12 @@ public class EnrollmentPlanOptionsServiceImpl implements IEnrollmentPlanOptionsS
     private final IPolicyRepository policyRepository;
 
     @Override
-    public ResponseEntity<ResponseDto<TopupOptionsResponseDto>> getActiveOptionsWithPremiumPreview(String enrollmentToken) {
+    public ResponseEntity<ResponseDto<TopupOptionsResponseDto>> getActiveOptionsWithPremiumPreview(
+            String enrollmentToken, jakarta.servlet.http.HttpServletRequest request) {
         BaseResponse<TopupOptionsResponseDto> responseObj = new BaseResponse<>();
         try {
-            ResponseEntity<ResponseDto<EnrollmentContextDto>> contextResp = enrollmentService.validateTokenAndGetContext(enrollmentToken);
+            ResponseEntity<ResponseDto<EnrollmentContextDto>> contextResp =
+                    enrollmentService.validateTokenAndGetContext(enrollmentToken, request);
             if (contextResp.getBody() == null || contextResp.getBody().getErrorCode() != null) {
                 String msg = contextResp.getBody() != null ? contextResp.getBody().getMessage() : "Invalid token";
                 Integer code = contextResp.getBody() != null ? contextResp.getBody().getErrorCode() : 400;

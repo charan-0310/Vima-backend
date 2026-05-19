@@ -9,21 +9,25 @@ import com.vimainsurance.vimaadmin.dto.EnrollmentContextDto;
 import com.vimainsurance.vimaadmin.dto.EnrollmentSubmissionResponseDto;
 import com.vimainsurance.vimaadmin.dto.ResponseDto;
 
+import jakarta.servlet.http.HttpServletRequest;
+
 public interface IEnrollmentService {
 
     /**
-     * Validates the enrollment token and returns enrollment_window_id and employee_id if valid.
+     * Validates the enrollment token and returns enrollment context if valid.
      */
-    ResponseEntity<ResponseDto<EnrollmentContextDto>> validateTokenAndGetContext(String token);
+    ResponseEntity<ResponseDto<EnrollmentContextDto>> validateTokenAndGetContext(
+            String token, HttpServletRequest request);
 
     /**
      * Validates the enrollment token and returns all submissions for the associated employee.
-     * Public endpoint – authorization is based on a valid enrollment token.
      */
-    ResponseEntity<ResponseDto<List<EnrollmentSubmissionResponseDto>>> getSubmissionsByToken(String token);
+    ResponseEntity<ResponseDto<List<EnrollmentSubmissionResponseDto>>> getSubmissionsByToken(
+            String token, HttpServletRequest request);
 
     /**
-     * Validates the enrollment token and returns company enrollment config (parent coverage etc.) for the enrollment's organization.
+     * Validates the enrollment token and returns company enrollment config for the organization.
      */
-    ResponseEntity<ResponseDto<CompanyEnrollmentConfigResponseDto>> getEnrollmentConfigByToken(String token);
+    ResponseEntity<ResponseDto<CompanyEnrollmentConfigResponseDto>> getEnrollmentConfigByToken(
+            String token, HttpServletRequest request);
 }
