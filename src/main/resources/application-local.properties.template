@@ -38,10 +38,6 @@ app.base-url=http://localhost:8080
 # Enrollment magic-link HMAC (F-09). Set VIMA_ENROLLMENT_TOKEN_SECRET in env or replace default below.
 app.enrollment-token-secret=${VIMA_ENROLLMENT_TOKEN_SECRET:CHANGE_ME_LOCAL_DEV_ONLY}
 
-# Google OAuth — only fill in if you actually use Google sign-in locally
-spring.security.oauth2.client.registration.google.client-id=
-spring.security.oauth2.client.registration.google.client-secret=
-
 # Keycloak (sole IdP — dev/prod no longer use Authentik)
 keycloak.auth-server-url=http://localhost:8081
 keycloak.realm=vima-local
