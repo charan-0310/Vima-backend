@@ -35,15 +35,15 @@ class MantraCareTokenGeneratorTest {
 
         String jwt = MantraCareTokenGenerator.generateSignedJwt(claims, privateKey);
 
-        Jws<Claims> jws = Jwts.parserBuilder()
-                .setSigningKey(publicKey)
+        Jws<Claims> jws = Jwts.parser()
+                .verifyWith(publicKey)
                 .build()
-                .parseClaimsJws(jwt);
+                .parseSignedClaims(jwt);
 
         assertEquals("1", jws.getHeader().get("kid"));
-        assertEquals(1, ((Number) jws.getBody().get("key_id")).intValue());
-        assertEquals("+919876543210", jws.getBody().get("user_identifier"));
-        assertEquals("VIMA_TEST", jws.getBody().get("invite_code"));
+        assertEquals(1, ((Number) jws.getPayload().get("key_id")).intValue());
+        assertEquals("+919876543210", jws.getPayload().get("user_identifier"));
+        assertEquals("VIMA_TEST", jws.getPayload().get("invite_code"));
     }
 
     @Test

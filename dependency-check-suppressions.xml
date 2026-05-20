@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<suppressions xmlns="https://jeremylong.github.io/DependencyCheck/dependency-suppression.1.3.xsd">
+    <!-- F-21: springdoc/swagger-ui disabled on prod/dev/stage; DOMPurify is bundled JS in swagger-ui only -->
+    <suppress>
+        <notes>Swagger UI not exposed when springdoc.api-docs.enabled=false (F-21)</notes>
+        <packageUrl regex="true">^pkg:javascript/DOMPurify@.*$</packageUrl>
+    </suppress>
+    <suppress>
+        <notes>Swagger UI static bundle — not served in deployed profiles</notes>
+        <filePath regex="true">swagger-ui-.*\.jar</filePath>
+        <cve>CVE-2025-26791</cve>
+        <cve>CVE-2026-41240</cve>
+        <cve>CVE-2026-0540</cve>
+        <cve>CVE-2025-15599</cve>
+        <cve>CVE-2026-41238</cve>
+        <cve>CVE-2026-41239</cve>
+    </suppress>
+</suppressions>

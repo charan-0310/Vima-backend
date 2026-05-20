@@ -42,14 +42,14 @@ class MantraCareSigningServiceTest {
         assertTrue(svc.isSigningReady());
         String jwt = svc.signForEmployee(4, "INVITE", 300_000L, "wellness-uuid-1");
 
-        Jws<Claims> jws = Jwts.parserBuilder()
-                .setSigningKey(keyPair.getPublic())
+        Jws<Claims> jws = Jwts.parser()
+                .verifyWith(keyPair.getPublic())
                 .build()
-                .parseClaimsJws(jwt);
+                .parseSignedClaims(jwt);
 
         assertEquals("4", jws.getHeader().get("kid"));
-        assertEquals("wellness-uuid-1", jws.getBody().get("user_identifier"));
-        assertEquals("INVITE", jws.getBody().get("invite_code"));
+        assertEquals("wellness-uuid-1", jws.getPayload().get("user_identifier"));
+        assertEquals("INVITE", jws.getPayload().get("invite_code"));
     }
 
     @Test

@@ -9,7 +9,6 @@ import java.util.Date;
 import java.util.Objects;
 
 import io.jsonwebtoken.Jwts;
-import io.jsonwebtoken.SignatureAlgorithm;
 
 /**
  * Builds RS256-signed JWTs for MantraCare {@code POST /partner/user} ({@code token} field).
@@ -46,13 +45,13 @@ public final class MantraCareTokenGenerator {
         Date exp = new Date(now.getTime() + validity);
 
         return Jwts.builder()
-                .setHeaderParam(HEADER_KID, kid)
+                .header().add(HEADER_KID, kid).and()
                 .claim("key_id", claims.keyId())
                 .claim("user_identifier", claims.userIdentifier())
                 .claim("invite_code", claims.inviteCode())
-                .setIssuedAt(now)
-                .setExpiration(exp)
-                .signWith(rsaPrivateKey, SignatureAlgorithm.RS256)
+                .issuedAt(now)
+                .expiration(exp)
+                .signWith(rsaPrivateKey, Jwts.SIG.RS256)
                 .compact();
     }
 

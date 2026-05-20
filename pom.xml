@@ -5,7 +5,7 @@
 	<parent>
 		<groupId>org.springframework.boot</groupId>
 		<artifactId>spring-boot-starter-parent</artifactId>
-		<version>3.4.6</version>
+		<version>3.4.13</version>
 		<relativePath/> <!-- lookup parent from repository -->
 	</parent>
 	<groupId>com.vimainsurance</groupId>
@@ -30,6 +30,13 @@
 		<java.version>21</java.version>
 		<aws.sdk.version>2.29.51</aws.sdk.version>
 		<spring-cloud-aws.version>3.4.0</spring-cloud-aws.version>
+		<jjwt.version>0.12.6</jjwt.version>
+		<poi.version>5.4.1</poi.version>
+		<keycloak-admin.version>26.0.9</keycloak-admin.version>
+		<springdoc.version>2.8.9</springdoc.version>
+		<pdfbox.version>2.0.36</pdfbox.version>
+		<commons-compress.version>1.28.0</commons-compress.version>
+		<commons-beanutils.version>1.11.0</commons-beanutils.version>
 	</properties>
 
 	<dependencyManagement>
@@ -40,6 +47,22 @@
 				<version>${spring-cloud-aws.version}</version>
 				<type>pom</type>
 				<scope>import</scope>
+			</dependency>
+			<!-- F-23: transitive CVE overrides (dependency-check) -->
+			<dependency>
+				<groupId>org.apache.commons</groupId>
+				<artifactId>commons-compress</artifactId>
+				<version>${commons-compress.version}</version>
+			</dependency>
+			<dependency>
+				<groupId>commons-beanutils</groupId>
+				<artifactId>commons-beanutils</artifactId>
+				<version>${commons-beanutils.version}</version>
+			</dependency>
+			<dependency>
+				<groupId>org.apache.pdfbox</groupId>
+				<artifactId>pdfbox</artifactId>
+				<version>${pdfbox.version}</version>
 			</dependency>
 		</dependencies>
 	</dependencyManagement>
@@ -88,7 +111,7 @@
 		<dependency>
 			<groupId>org.springdoc</groupId>
 			<artifactId>springdoc-openapi-starter-webmvc-ui</artifactId>
-			<version>2.8.3</version>
+			<version>${springdoc.version}</version>
 		</dependency>
 		<dependency>
 			<groupId>org.springframework.boot</groupId>
@@ -106,22 +129,22 @@
 			<version>${aws.sdk.version}</version>
 		</dependency>
 	
-		<!-- JWT -->
+		<!-- JWT (MantraCare partner signing; F-23: 0.12.x) -->
 		<dependency>
 			<groupId>io.jsonwebtoken</groupId>
 			<artifactId>jjwt-api</artifactId>
-			<version>0.11.5</version>
+			<version>${jjwt.version}</version>
 		</dependency>
 		<dependency>
 			<groupId>io.jsonwebtoken</groupId>
 			<artifactId>jjwt-impl</artifactId>
-			<version>0.11.5</version>
+			<version>${jjwt.version}</version>
 			<scope>runtime</scope>
 		</dependency>
 		<dependency>
 			<groupId>io.jsonwebtoken</groupId>
 			<artifactId>jjwt-jackson</artifactId>
-			<version>0.11.5</version>
+			<version>${jjwt.version}</version>
 			<scope>runtime</scope>
 		</dependency>
 
@@ -141,25 +164,9 @@
 			<artifactId>hibernate-core</artifactId>
 		</dependency>
 		<dependency>
-			<groupId>org.apache.httpcomponents</groupId>
-			<artifactId>httpclient</artifactId>
-			<version>4.5.14</version> 
-		</dependency>
-		<dependency>
 			<groupId>com.opencsv</groupId>
 			<artifactId>opencsv</artifactId>
-			<version>5.7.1</version>
-		</dependency>
-		<dependency>
-			<groupId>org.json</groupId>
-			<artifactId>json</artifactId>
-			<version>20231013</version>
-		</dependency>
-		<dependency>
-			<groupId>javax.servlet</groupId>
-			<artifactId>javax.servlet-api</artifactId>
-			<version>4.0.1</version>
-			<scope>provided</scope>
+			<version>5.9</version>
 		</dependency>
 		<dependency>
 			<groupId>jakarta.annotation</groupId>
@@ -198,7 +205,7 @@
 		<dependency>
         	<groupId>org.apache.pdfbox</groupId>
         	<artifactId>pdfbox</artifactId>
-        	<version>2.0.31</version>
+        	<version>${pdfbox.version}</version>
     </dependency>
 		<!-- Javers for entity auditing (diff-only, no persistence) -->
 		<dependency>
@@ -220,12 +227,12 @@
         <dependency>
             <groupId>org.apache.poi</groupId>
             <artifactId>poi</artifactId>
-            <version>5.2.5</version>
+            <version>${poi.version}</version>
         </dependency>
         <dependency>
             <groupId>org.apache.poi</groupId>
             <artifactId>poi-ooxml</artifactId>
-            <version>5.2.5</version>
+            <version>${poi.version}</version>
         </dependency>
 
         <!-- Bucket4j for rate limiting -->
@@ -252,7 +259,7 @@
 		<dependency>
 			<groupId>org.keycloak</groupId>
 			<artifactId>keycloak-admin-client</artifactId>
-			<version>26.0.0</version>
+			<version>${keycloak-admin.version}</version>
         </dependency>
 		
     </dependencies>
@@ -294,5 +301,31 @@
     </plugin> -->
 		</plugins>
 	</build>
+
+	<!-- F-24: local/CI vulnerability scan — mvn -Pdependency-check dependency-check:check -->
+	<profiles>
+		<profile>
+			<id>dependency-check</id>
+			<build>
+				<plugins>
+					<plugin>
+						<groupId>org.owasp</groupId>
+						<artifactId>dependency-check-maven</artifactId>
+						<version>12.1.0</version>
+						<configuration>
+							<!-- 12.1.0 XML names use lowercase "index" (ossIndexAnalyzerEnabled is ignored) -->
+							<ossindexAnalyzerEnabled>false</ossindexAnalyzerEnabled>
+							<assemblyAnalyzerEnabled>false</assemblyAnalyzerEnabled>
+							<skipProvidedScope>true</skipProvidedScope>
+							<nvdApiKey>${env.NVD_API_KEY}</nvdApiKey>
+							<suppressionFiles>
+								<suppressionFile>${project.basedir}/dependency-check-suppressions.xml</suppressionFile>
+							</suppressionFiles>
+						</configuration>
+					</plugin>
+				</plugins>
+			</build>
+		</profile>
+	</profiles>
 
 </project>
